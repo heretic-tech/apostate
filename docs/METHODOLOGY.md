@@ -9,13 +9,27 @@ browser, read [README](../README.md), [flag reference](FLAGS.md) and
 
 ## 1. What correct means
 
-A value is correct when it equals the value the declared target device would
-have emitted. "Harder to detect" cannot be measured, so it is not used as a
-goal. Every change is a diff against a device contract.
+A value is correct when a page cannot distinguish it from the value a real
+machine of the claimed kind would have emitted. "Harder to detect" cannot be
+measured, so it is not used as a goal. Coherence with the claimed machine is
+the whole bar: every surface agrees with every other, and nothing of the host
+shows through.
 
 That framing is what makes the work finite. Several hundred observables with
 opinions attached never converge. The same list with a target value per row
 converges by subtraction.
+
+Where the target value comes from is a separate question, and it is recorded
+rather than gated. A capture from a physical machine is the strongest source.
+A cloud capture of a GPU family is a source for that family. A documented rule
+is a source — D3D11 capability limits are feature-level constants, a card's
+PCI id is public, a WASAPI shared-mode buffer is ten milliseconds — and so is a
+public corpus of real fingerprints or a competitor that measurably passes. Each
+catalogue entry names which it rests on so the next person knows how much to
+trust it. None of them decides whether the value may be served; what decides
+that is whether serving it makes the composed machine more coherent than
+leaving the surface to the host. It almost always does, because a host leaking
+through a fabricated identity is the loudest incoherence a page can find.
 
 ## 2. Patch the emitter, never the accessor
 
@@ -103,16 +117,40 @@ Assuming provisioning means we stop checking, not that we start claiming absent
 faces. The enumeration filter is still subtractive, so a font the host genuinely
 lacks still cannot be made to measure.
 
-## 7. Selection, never synthesis
+## 7. Selection over synthesis, and how a machine is composed
 
-A value is chosen from options observed on real systems. It is not invented to
-look plausible.
+A value is chosen from whole options that real systems exhibit. It is not
+assembled field by field to look plausible.
 
 Five randomly chosen font families is synthesis, and it is a tell, because
 installed fonts arrive in bundles. A machine with Myriad Pro has the rest of
 Creative Cloud. A machine with Cascadia Code has a developer's toolchain. So the
 font axis selects bundles, and every other axis selects whole options from a
-table rather than assembling a value field by field.
+table rather than inventing a value.
+
+The table is small at its root and large at its leaves, and that is the design
+rather than a shortage. A composed machine starts from a **base**: one real
+capture that fixes everything a page can cross-check — the WebGL capability
+and precision tables, the extension list, the render digests, the WebGPU
+cluster, the audio graph. Three physical machines and a handful of cloud GPU
+captures are the bases. On a base, the **GPU identity** rotates across every
+card in the same capability family: every Apple Silicon chip on the M4 Max
+base, because ANGLE's Metal limits are hard-coded and an M1 and an M4 Max
+return the same table; every NVIDIA card on the NVIDIA D3D11 base, because
+ANGLE's Direct3D 11 limits are derived from the feature level plus a per-vendor
+flag set and never from the device id. The strings and PCI ids that rotate are
+public facts, and the WebGPU architecture follows the card. Around that, the
+axes that genuinely vary from one owner to the next — screen geometry and
+furniture, core count and installed memory within what the card is sold with,
+font bundles, media devices, battery, network — disperse over options a real
+population exhibits, drawn by the seed. A few bases and a few dozen cards
+therefore compose a space of coherent machines that is, for practical purposes,
+unbounded, and every one of them traces to a measurement or a stated rule.
+
+When no capture exists for an option that operators need, the option is
+derived by the rule and labelled authored rather than left out. Leaving it out
+does not make the browser more honest; it makes the pool thinner and pushes
+every launch onto the same few machines, which is its own signal.
 
 ## 8. The browser does not lie about being this Chromium
 
@@ -176,26 +214,21 @@ deliberate timing adjustment is a new observable, which rule 3 forbids. So the
 timing gap ships open and the strings do not: the backend a host is running does
 not restrict which GPU identity the profile may serve.
 
-That last sentence is a reversal. An earlier revision of this page ended the
-paragraph with "the browser declines to claim a discrete GPU on a host that
-renders in software", and patch commentary written against that rule is still in
-the tree. The reversal is recorded here rather than quietly deleted, because
-this page is cited as authoritative elsewhere.
+The backend a host runs is not a constraint on the identity it presents, and
+the reason is deployment shape rather than taste. Almost every host this runs
+on is a headless server with no GPU, and `ANGLE (Google, Vulkan 1.3.0
+(SwiftShader Device (LLVM ...)))` sorts such a launch out of the ordinary
+population on a substring match, while the timing gap it would stay coherent
+with costs a page a benchmark to measure. Trading a free signal for an
+expensive one is the wrong direction. An earlier revision of this page said the
+opposite and some patch commentary written against it is still in the tree;
+where the two disagree, this page governs.
 
-The reason is deployment shape rather than taste. Almost every host this runs on
-is a headless server with no GPU, and `ANGLE (Google, Vulkan 1.3.0 (SwiftShader
-Device (LLVM ...)))` sorts such a launch out of the ordinary population on a
-substring match, while the timing gap it was supposed to stay coherent with
-costs a page a benchmark to measure. Trading a free signal for an expensive one
-is the wrong direction.
-
-Keep the claim narrow, though, because the tempting overstatement is that any
-identity is now safe anywhere. What is true is that the host's backend does not
-constrain the identity. What the claimed operating system costs is a separate
-question with a real answer: the surfaces a fork cannot reach, installed fonts
-chief among them, stay the host's. So the persona is a choice to be made with
-the trade-off in view, and the compositor's job is to report the trade-off
-rather than to pretend it away.
+What the claimed operating system costs is a separate question with a real
+answer: the surfaces a fork cannot reach, installed fonts chief among them,
+stay the host's. So the persona is a choice to be made with the trade-off in
+view, and the compositor's job is to report the trade-off rather than to
+pretend it away or to refuse the choice.
 
 Rule 6 is not weakened by this, but it is now sharper. A renderer string is an
 identity rather than a capacity, and rule 6 is about capacity. For the
