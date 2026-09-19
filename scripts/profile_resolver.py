@@ -886,8 +886,26 @@ def _language_key(accept_languages: Any, table: Mapping[str, Any]) -> str:
     return ""
 
 
-def _choose_anchor(catalogue: Mapping[str, Any], host: Mapping[str, Any],
-                   root: bytes, requested: Any) -> tuple[Mapping[str, Any], list[str]]:
+def _choose_anchor(catalogue: Mapping[str, Any], platform: str,
+                   root: bytes, requested: Any) -> tuple[Mapping[str, Any] | None, list[str]]:
+    """Mirror of the compositor's anchor draw in base/apostate/compose.cc.
+
+    The persona selects the cluster. Within a platform every hardware anchor
+    shares one backend -- macOS is Metal, Windows is D3D11, Linux is Vulkan --
+    so once the claimed platform is known the backend is determined and the
+    host's own graphics stack has nothing left to decide. Filtering on the
+    host's backend, which this function did until patch 0102 retired it in
+    the compositor, handed a Windows persona on a Mac the Metal cluster and a
+    GPU-less server the one anchor whose renderer string announces a software
+    rasteriser.
+
+    The software anchor is never drawn: it announces itself, and with a single
+    member it offered no per-seed entropy, so every persona on every GPU-less
+    host shared one GPU string. It stays reachable by name through `anchor`.
+
+    # coh: coh.angle-backend-vs-gpu-claim      - the limit and precision tables follow the claimed platform's backend
+    # coh: coh.headless-display-vs-gpu-claim   - the renderer string is the persona's, never the host's software rasteriser
+    """
     anchors = catalogue["anchors"]
     warnings: list[str] = []
     if requested is not None:
@@ -895,26 +913,19 @@ def _choose_anchor(catalogue: Mapping[str, Any], host: Mapping[str, Any],
         if len(matches) != 1:
             raise ResolverError(f"unknown anchor {requested!r}")
         return matches[0], warnings
-    # An anchor is offered only when the host's graphics stack can actually serve
-    # its backend, so the renderer string, the limit tables and the measured
-    # throughput all describe a stack the binary is really running.
-    #
-    # coh: coh.angle-backend-vs-gpu-claim      - the limit and precision tables follow the backend
-    # coh: coh.gpu-claim-vs-measured-throughput - a software host is offered only the SwiftShader anchor
-    # coh: coh.headless-display-vs-gpu-claim   - the renderer string comes from a servable stack
-    servable = [a for a in anchors
-                if host.get("backend") is None or a["backend"] == host["backend"]]
-    if host.get("platform") is not None:
-        servable = [a for a in servable if a["platform"] == host["platform"]] or servable
+    servable = sorted(
+        (a for a in anchors
+         if "swiftshader" not in str(a.get("backend", "")).lower()
+         and a["platform"] == platform),
+        key=lambda a: a["id"])
     if not servable:
-        raise ResolverError(
-            "no anchor matches this host's graphics backend; a coherent cluster cannot "
-            "be composed, and presenting another backend's cluster is the retired "
-            "catalogue's failure"
-        )
-    servable = sorted(servable, key=lambda a: a["id"])
-    chosen = servable[weighted_pick(root, "anchor", [dict(a, weight=1) for a in servable])]
-    return chosen, warnings
+        warnings.append(
+            f"anchor: the catalogue holds no hardware anchor for the {platform} persona, "
+            "so the GPU capability cluster is the host's own and every other surface is "
+            "composed as usual")
+        return None, warnings
+    weights = [dict(a, weight=a.get("dispersion_weight", 1)) for a in servable]
+    return servable[weighted_pick(root, "anchor", weights)], warnings
 
 
 # The three layers that may own the locale surface, strongest first. There is
@@ -1634,13 +1645,21 @@ def _resolve_internal(config: Mapping[str, Any] | None = None, **overrides: Any)
     if platform_value is None:
         warnings.append(f"fingerprint_platform defaulted to the host persona {platform}")
 
-    anchor, anchor_warnings = _choose_anchor(catalogue, host, root, cfg.get("anchor"))
+    anchor, anchor_warnings = _choose_anchor(catalogue, platform, root, cfg.get("anchor"))
     warnings.extend(anchor_warnings)
+    if anchor is None:
+        # The compositor inherits the GPU surfaces and composes everything else
+        # when the compiled catalogue has no hardware anchor for a platform.
+        # Every shipped platform has one, so this is a catalogue gap rather than
+        # a host condition, and the reference resolver reports it as one.
+        raise ResolverError(anchor_warnings[-1])
     if anchor["platform"] != platform:
+        # Reachable only through an explicit `anchor` pin, which is honoured
+        # rather than refused; a drawn anchor always matches the persona.
         warnings.append(
             f"anchor {anchor['id']} is a {anchor['platform']} / {anchor['backend']} cluster "
-            f"while the persona is {platform}: --fingerprint-platform does not move the GPU "
-            "cluster, and this mismatch is a reported limitation rather than a hidden one"
+            f"pinned under a {platform} persona: the pin is honoured, and the cross-platform "
+            "cluster is a reported limitation rather than a hidden one"
         )
     if anchor.get("build_caveat"):
         warnings.append(f"anchor {anchor['id']}: {anchor['build_caveat']}")

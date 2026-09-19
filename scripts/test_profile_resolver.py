@@ -620,19 +620,34 @@ class CompositionTests(unittest.TestCase):
         self.assertEqual(len(signatures), len(set(signatures.values())),
                          "two anchors produced the same capability signature")
 
-    def test_the_persona_never_moves_the_gpu_cluster(self) -> None:
+    def test_the_persona_selects_the_gpu_cluster(self) -> None:
+        """The claimed platform picks the anchor; the host's stack does not.
+
+        Mirrors the compositor's draw since patch 0102: a Windows persona on a
+        Metal host presents a D3D11 cluster, a GPU-less Linux host presents a
+        hardware cluster rather than the software anchor, and the software
+        anchor is reachable only by name.
+        """
         resolved = resolver.resolve_with_diagnostics(dict(
             BASE_CONFIG, fingerprint_platform="windows", host_platform="macos",
             host_backend="ANGLE/Metal"))
         anchor = resolved["diagnostics"]["anchor"]
-        self.assertEqual("ANGLE/Metal", anchor["backend"])
-        self.assertEqual("macos", anchor["platform"])
+        self.assertEqual("ANGLE/D3D11", anchor["backend"])
+        self.assertEqual("windows", anchor["platform"])
         self.assertEqual("Windows", resolved["profile"]["platform"]["name"])
-        self.assertTrue(any("does not move the GPU cluster" in warning
-                            for warning in resolved["diagnostics"]["warnings"]))
-        with self.assertRaises(resolver.ResolverError):
-            resolver.resolve_profile(dict(BASE_CONFIG, host_backend="ANGLE/OpenGL",
-                                          host_platform="linux"))
+        self.assertFalse(any("does not move the GPU cluster" in warning
+                             for warning in resolved["diagnostics"]["warnings"]))
+        for seed in range(40):
+            software = resolver.resolve_with_diagnostics(dict(
+                BASE_CONFIG, fingerprint=seed, fingerprint_platform="linux",
+                host_platform="linux", host_backend="ANGLE/SwiftShader"))
+            self.assertNotIn("SwiftShader", software["diagnostics"]["anchor"]["backend"])
+        pinned = resolver.resolve_with_diagnostics(dict(
+            BASE_CONFIG, fingerprint_platform="windows",
+            anchor="linux-swiftshader-google-6922d61bab83"))
+        self.assertEqual("linux", pinned["diagnostics"]["anchor"]["platform"])
+        self.assertTrue(any("pinned under a windows persona" in warning
+                            for warning in pinned["diagnostics"]["warnings"]))
 
     def test_realised_distribution_follows_the_table_weights(self) -> None:
         counts: Counter[str] = Counter()
@@ -757,17 +772,17 @@ class CompositionTests(unittest.TestCase):
     # Recorded so a digest mismatch can be told apart from a composition that
     # has since grown or lost a section, which is not the same finding.
     GOLDEN_SECTIONS = frozenset({
-        "cpu", "fonts", "gl_extensions", "gl_limits", "gl_precisions", "gpu", "id",
-        "keyboard", "locale", "media", "memory", "platform", "screen", "theme",
-        "webgpu", "window",
+        "audio", "battery", "browser", "cpu", "fonts", "gl_extensions", "gl_limits",
+        "gl_precisions", "gpu", "id", "media", "memory", "network", "platform",
+        "screen", "theme", "webgpu", "window",
     })
     GOLDEN_PROFILES = {
-        "windows": ("fp-b0b97b3a3531b65ee50f45fc", GOLDEN_SECTIONS | {"speech"},
-                    "5f9b72f3d7d243bee90353008e839937ea4d0b253a3299a3f060efed96e5b042"),
-        "macos": ("fp-60eab51485a4a8465ce3c24a", GOLDEN_SECTIONS | {"speech"},
-                  "7757d9370957f5a9bde47258d540f2772da0134d86d7e62c014dddcdc7580683"),
+        "windows": ("fp-b0b97b3a3531b65ee50f45fc", GOLDEN_SECTIONS,
+                    "6dfc7632ebcb29156a475804e50a520c019705615d0d88e355d681db264ead4b"),
+        "macos": ("fp-60eab51485a4a8465ce3c24a", GOLDEN_SECTIONS,
+                  "3bb7f888a10fe39bcb28577dbd7afe230a25fe600332fab60a2cfd59664b24ed"),
         "linux": ("fp-8c5f63da9ef88ea749549a91", GOLDEN_SECTIONS,
-                  "bc61c1eb8e3ba852222f5955896c20d4f0d7d8bc80e71713051e7260b169f342"),
+                  "5d6345e40e227b3e493ed879f774c0d531bdd25e1b300ac77dbd2b591b430662"),
     }
 
     def _check_golden(self, persona: str, profile: dict, digest: str,
