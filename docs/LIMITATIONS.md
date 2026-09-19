@@ -6,42 +6,50 @@ it is running on. Read this before deciding it is a good fit.
 Nothing here is hidden behind a flag or fixed by turning something on. Where a
 limitation applies to your launch, `--fingerprint-explain` names it.
 
-## What has not been exercised yet
+## What has been exercised, and how
 
-Read this first. Several behaviours described on this page were written for this
-release and have not been compiled or run. They apply to the source tree and
-nothing more, so treat them as intent rather than as behaviour you can rely on
-until you have seen them work.
+Read this first. Every behaviour on this page describes a binary that has
+been built and run, unless a section says otherwise. The release-candidate
+artifacts were measured three ways, and the residuals those runs found are
+the ones recorded below.
 
-- WebRTC UDP relaying through a SOCKS5 proxy, and the
-  `--fingerprint-webrtc-udp` switch
-- The eight per-field `--fingerprint-*` override switches
-- Font enumeration filtering, meaning the profile's font list actually reaching
-  a page
-- On the Linux build only: Windows character fallback following Windows' own
-  script table, and the coherence guard that stops text measurement using a
-  family the font list says is absent
-- Network information and battery state coming from the profile
-- Capture devices the profile claims delivering frames and audio
-- The whole of the GPU identity change, which is three patches: the claimed
-  platform selecting the capability cluster on every host and the host-dependent
-  default persona (`0102`), the claimed WebGL limits being served on a backend
-  that enforces nothing (`0103`), and the five claimed extensions being served
-  from Blink's own implementation classes (`0104`). Patch `0105`, which stops two
-  Linux Vulkan identities falling through to the host's WebGPU adapter, and
-  patch `0106`, which stops a proxy-credentials payload suppressing composition,
-  are also unbuilt
-- The Web Share cancellation message
-- V8's heap ceiling following the profile's memory figure
-- The remote-debugging endpoint refusing what a page sends it
+**Against the reference device (V3).** `capture/derive/conform.py` diffed a
+capture taken from the Linux artifact -- launched with a profile derived from
+the Windows Intel reference by `capture/derive/to_profile.py` -- against that
+reference. 25 of 39 probes conform. None of the 14 that do not is a browser
+defect: six are the Windows font set not being installed on the Linux host
+(`fonts.detected`, `fonts.metrics`, `fonts.query_api`, `canvas.2d`,
+`clientrects`, `worker.parity`, all text-metric consequences of the same
+absence -- see **Fonts are yours to install**); three are a Phantom wallet
+extension on the reference machine (`chrome.runtime` and ten `window` keys
+such as `solana` and `ethereum` exist only when an `externally_connectable`
+extension is installed); three are the GPU-less host (`webgpu` adapter null,
+`speech.voices` empty, two fewer hardware video codecs); one is Widevine not
+provisioned (`apostate drm`); one is the reference having two monitors.
 
-Everything else on this page describes a binary that has been built and run.
+**Against live detectors.** On a GPU-less Linux server through a residential
+proxy: sannysoft 23 passed, 0 failed; iphey trustworthy; browserscan
+bot-detection every row normal; CreepJS 0% headless and 0% stealth with no
+main-thread/worker disagreement and every prototype getter native. Stock
+Chromium 153 on the same host and harness scored 33% headless with
+`hasSwiftShader: true`. The one lie CreepJS found and the one deduction
+browserscan applied were the same defect, a user agent that named the host's
+OS beside a `navigator.platform` that named the persona's; it is fixed.
 
-Two things to do before relying on any of the above. Run
-`--fingerprint-explain` and confirm the surface you care about resolved the way
-you expect. Then read that surface the way a page would, from a page, and check
-the value. Where a behaviour above is a safety property rather than a
-convenience, WebRTC in particular, assume it has not taken effect.
+**Against the behaviours only a running binary shows.**
+`scripts/checks/release-smoke.mjs` asserts the user agent agrees with the
+platform in all four places including the request header, that a persistent
+profile keeps one identity and a bare launch does not, that
+`AudioContext.baseLatency` is the persona's, and that a composed launch never
+inherits the host's locale -- run with `LANG=th_TH.UTF-8` in the environment
+on Linux and `AppleLanguages=th-TH` on macOS. `scripts/checks/gl-caps-check.mjs`
+asserts every WebGL limit the anchor measured reaches the page, for each
+anchor against its own values rather than launches against each other. Both
+were verified to fail against the pre-fix binary before being trusted to pass.
+
+Two things to do before relying on any surface you care about. Run
+`--fingerprint-explain` and confirm it resolved the way you expect. Then read
+it the way a page would, from a page, and check the value.
 
 ## The persona chooses the GPU, and the persona is a real choice
 
@@ -305,9 +313,13 @@ extension list: see the subsections below.
 
 ### A GPU-less host serves a hardware GPU identity
 
-This has not been built. Patches `0102`, `0103` and `0104` are in the series and
-no binary has been produced from them, so read the rest of this subsection as
-what the tree will do and check it yourself before relying on it.
+Built and measured on the deployment target, a headless Linux server with no
+GPU. A Windows persona there presented an NVIDIA D3D11 identity, the anchor's
+extension list with nothing missing and nothing extra, and every one of the
+anchor's numeric limits -- after two rounds of fixes, because the first build
+served the host's numbers for thirteen of them and a live detector read the
+viewport beside the renderer string and called it. `scripts/checks/gl-caps-check.mjs`
+is the regression test and it fails against that first build.
 
 It also replaces an earlier version of this subsection, which said a GPU-less
 host would be given a measured software-rasteriser cluster and would "look like
@@ -690,9 +702,9 @@ is the contradiction this section otherwise rules out.
 
 It takes `--fingerprint-platform=linux` to reach, since the default persona on a
 Linux host is Windows and the Windows anchors' WebGPU is uniform. Patch `0105`
-is being written to serve *no* adapter for those two members instead of falling
-through to the host's, which reproduces what was measured on those machines
-rather than contradicting it. It is unbuilt.
+serves *no* adapter for those two members instead of falling through to the
+host's, which reproduces what was measured on those machines rather than
+contradicting it. It is in the built series.
 
 ## Network quality and battery are profile values
 
@@ -926,37 +938,50 @@ ALSA's compiled default of 2048 — which is also this project's build host.
 ## Platform support
 
 Four targets are the contract: `linux-x64`, `linux-arm64`, `macos-arm64` and
-`windows-x64`. Three have built green on CI. No Windows build has completed, so
-there is no Windows archive yet, and the packages' Windows acquisition path has
-never been run against a real one.
+`windows-x64`. All four build green on CI. The Linux and macOS archives have
+been run through the detector suite and the post-build checks; the Windows
+archive has been built and packaged but its packages' acquisition path has
+been exercised only against a planted archive, not on a Windows machine.
 
 There is no Intel macOS build, no 32-bit Windows build, and no Android or iOS
 build. Personas are `windows`, `macos` and `linux`; there is no mobile persona,
 and presenting as a phone would need touch input, mobile viewport behaviour and
 a mobile GPU cluster that this catalogue does not have.
 
-## The identity does not persist
+## How long an identity lasts
 
-A seed is never written to disk. Every launch with no `--fingerprint` draws a
-new one and presents a new device, whether or not `--user-data-dir` is set.
+A launch with no `--user-data-dir` draws a fresh seed from OS entropy and is a
+new device; nothing is written anywhere. A launch with `--user-data-dir=DIR`
+mints a seed on first use, stores it at `DIR/apostate/identity`, and every
+later launch of that directory reads it back and is the same device. An
+explicit `--fingerprint=<seed>` wins over both and leaves the file untouched.
 
-A user-data directory carries cookies, storage and history. It used to carry the
-seed as well; it no longer does. Playwright's `launch_persistent_context` reuses
-one directory by design and therefore gets a different device each launch unless
-the launch passes `--fingerprint`. Pin a seed for anything that should look like
-a returning visitor.
+That directory holds the cookies and logged-in sessions a site ties to a
+machine, so a cookie jar whose hardware changed between visits would be a
+stronger signal than any single value. Playwright's
+`launch_persistent_context` reuses one directory by design, and that reuse is
+what keeps the identity stable, with no flag. Copying the directory copies
+the identity, which is intended; deleting the file mints a new one; a fresh
+directory per run is how to get a fresh device per run.
 
 An incognito or off-the-record context derives its identity from the same
 profile. It does not get a second fingerprint.
 
 ## WebRTC
 
-**Treat the address as leaking.** The relay below is written and applies to the
-source tree. It has not been compiled, and nobody has yet watched the browser
-gather ICE candidates through a real SOCKS5 proxy with no host candidate
-emitted. Until that has happened, plan as though WebRTC publishes the host's
-real public address, because that is what the previous behaviour did and it is
-the assumption that costs you nothing if the relay works.
+**Measured through a real SOCKS5 proxy, on Linux and macOS.** With a
+residential exit configured, the only server-reflexive candidate the browser
+gathered carried the exit's address, the host candidate was mDNS-obfuscated,
+`raddr` was masked, and the SDP connection line named the exit. Without the
+proxy the same page gathered the host's real IPv4 and IPv6 addresses, so the
+suppression is the relay's, not the network's. Sockets the proxy cannot carry
+-- the IPv6 ones on a dual-stack host, TURN -- are refused rather than let
+out directly, and each refusal logs one warning naming the cause. QUIC rides
+the same UDP ASSOCIATE and a probe saw its datagrams arrive from the exit.
+
+The one thing to plan for is a proxy that grants no UDP ASSOCIATE at all: then
+every WebRTC socket is refused, a page sees no candidates, and that absence is
+itself readable. `--fingerprint-webrtc-udp=block` makes it deliberate.
 
 What the code does. WebRTC carries two separate things, the candidate text a
 page reads over SDP and the packets themselves, and they used to disagree.
@@ -1034,29 +1059,32 @@ never produced the signal.
 Playwright uses the pipe by default and needs no change. Puppeteer defaults to a
 TCP port, so pass the pipe explicitly.
 
-There is a change written for this, and it has not been compiled. Its boundary
-matters more than its existence, because people will assume more than it does:
-it makes the port unreachable from a **page**, not from a **process**. Any
-program on the machine that opens a socket still connects, which is exactly why
-Playwright and Puppeteer keep working.
+The change is in the built series. Its boundary matters more than its
+existence, because people will assume more than it does: it makes the port
+unreachable from a **page**, not from a **process**. Any program on the
+machine that opens a socket still connects, which is exactly why Playwright
+and Puppeteer keep working.
 
-**A CDP session is detectable by timing, in ten lines of JavaScript.** This is
-the largest automation tell and it is live in any binary built before the change
-described below. Once a client sends `Runtime.enable`, exception handling and
-console calls get measurably slower. Measured on the shipped artifact as
-single-page ratios, so a detector needs no baseline of its own:
+**A CDP session used to be detectable by timing, in ten lines of JavaScript.**
+This was the largest automation tell. Once a client sent `Runtime.enable`,
+exception handling and console calls got measurably slower, as single-page
+ratios a detector needs no baseline for. Both causes are in V8's debugger,
+and patch `0087` gates them on the delegate that only `Debugger.enable`
+installs. Measured on the shipped artifact, before and after the change:
 
-| Probe | Unattached | Attached, no `Runtime.enable` | After `Runtime.enable` |
+| Probe | Unattached | After `Runtime.enable`, before | After `Runtime.enable`, now |
 | --- | --- | --- | --- |
-| `try{throw 1}catch{}` at depth 240 over depth 2 | 1.0x | 1.0x | 26.5x |
-| `console.log` | 1.0x | 1.0x | 10.8x |
-| `console.trace` over `console.log` | 8.0x | 6.4x | 1.009x |
+| `try{throw 1}catch{}` at depth 240 over depth 2 | 1.0x | 26.5x | 0.97x |
+| `console.log` | 1.0x | 10.8x | 0.94x |
+| `console.trace` over `console.log` | 8.0x | 1.009x | 6.67x |
 
-The third row is the sharpest, because it inverts: `console.trace` is normally
-much more expensive than `console.log`, and under an attached session the two
-cost the same. Both causes are in V8's debugger and both are now gated on the
-delegate that only `Debugger.enable` installs, in the same unexercised change.
-Until that has compiled, assume a site can see the session.
+The third row was the sharpest because it inverted -- `console.trace` is
+normally much more expensive than `console.log`, and under an attached session
+the two cost the same -- and it is the one that now reads as unattached.
+CreepJS and browserscan both report no automation on a Playwright-driven
+session of this build, which is what the numbers predict. Patchright is
+therefore not required for stealth; the package ships it because it is what
+the launcher drives, not because the binary needs it.
 
 Three tells survive whatever happens to the port, and all three are real.
 
