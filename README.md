@@ -15,39 +15,108 @@ telemetry, no phone-home.
 
 ```sh
 pip install apostate
-pip install patchright        # or: pip install playwright
 ```
 
 ```sh
 npm install @heretic-hq/apostate
-npm install patchright        # or: playwright-core, or puppeteer-core
 ```
 
-**The browser is not bundled.** The package is a launcher; the browser is a
-separate 150 MB archive that it fetches on first use, verifies against a SHA-256
-manifest shipped inside the package, extracts and reuses. You do not run
-`playwright install`: Apostate supplies its own browser and a Playwright
-download would give you the wrong one.
+That is the whole install. Patchright comes with the package and is what drives
+the browser; `playwright`, and `puppeteer` on Node, work too if you would
+rather use one of those, and none of them needs `playwright install` — Apostate
+supplies its own browser and a Playwright download would give you the wrong
+one.
 
-Both packages share one browser install on every platform, so having both does
-not download twice. `python/README.md` and `npm/README.md` have the option
-tables and the cache layout.
+**Then get the browser.** It is not bundled: the package is a launcher, and the
+browser is a separate ~150 MB archive.
 
-The install and launch paths are complete and verified end to end against a
-local copy of the release archive. No release is tagged yet, so there is nothing
-published to fetch and `launch()` reports that instead of downloading. Until
-then, [build the archive yourself](docs/BUILD.md) and point the package at it.
-Once a tag exists, first use fetches
-`https://github.com/heretic-hq/apostate/releases/download/v<version>/apostate-<chromium-version>-<platform>.tar.zst`,
-which is what `binary_info()["artifact_url"]` returns. [docs/RELEASE.md](docs/RELEASE.md)
-covers how releases are cut and verified.
+```sh
+apostate install          # pip; `python -m apostate install` also works
+npx apostate install      # npm
+```
+
+`launch()` does this on first use as well, so the explicit command is only for
+provisioning ahead of time. Both packages share one install on every platform,
+so having both does not download twice.
+
+**Already have the browser?** Say where, or let it be found. Four sources, in
+this order:
+
+| Where a launch looks | How |
+| --- | --- |
+| the path you name | `launch(binary_path=…)` / `launch({ executablePath: … })` |
+| `APOSTATE_BINARY` | `export APOSTATE_BINARY=/path/to/chrome` |
+| this package's own install | whatever `apostate install` wrote |
+| well-known locations | the table below |
+
+The first two are you naming a file and are taken at your word. The last two
+are searches, and what they find has to prove itself.
+
+| Platform | Searched | For |
+| --- | --- | --- |
+| macOS | `/Applications`, `~/Applications` | a `Chromium.app` or `Apostate.app` |
+| Linux | `~/.cache/apostate`, `/opt/apostate` | a `chrome` |
+| Windows | `%LOCALAPPDATA%\apostate` | a `chrome.exe` |
+
+Each directory and one level below it, so an archive extracted where it landed
+is found where it sits, and nothing deeper is walked.
+
+**A stock Chrome or Chromium is never adopted.** The executable is named
+`chrome` and the bundle `Chromium.app` exactly as upstream names them, and
+Chromium 152.0.7977.83 exists upstream too, so the file on its own proves
+nothing. What is checked is the payload staged beside it — `build/MANIFEST.lock`,
+which carries this build's patch-series digests, or `resources/profiles/` — and
+the version, and both are required. Marker first, then version: nothing is
+executed until a file only an Apostate payload carries has already vouched for
+the tree. A stock Chrome started with these switches would be a session with no
+protection at all and nothing on screen to say so, which is the worst thing
+this package could do.
+
+`apostate info` prints which source answered and why anything else was passed
+over — trimmed here to the discovery fields:
+
+```sh
+apostate info      # npx apostate info
+```
+
+```json
+{
+  "executable": "/opt/apostate/apostate-152.0.7977.83-linux-x64/chrome",
+  "executable_source": "well-known",
+  "discovery": {
+    "order": ["argument", "environment", "cache", "well-known"],
+    "searched": ["/opt/apostate"],
+    "rejected": [
+      {
+        "path": "/opt/chromium/chrome",
+        "reason": "no Apostate payload beside it (build/MANIFEST.lock or resources/profiles/catalogue.json)"
+      }
+    ]
+  }
+}
+```
+
+The archive itself comes from this repository's GitHub release, at
+`https://github.com/heretic-hq/apostate/releases/download/v<version>/apostate-<chromium-version>-<platform>.tar.zst`
+for the Linux targets and `.zip` for macOS and Windows, which is what
+`binary_info()["artifact_url"]` returns. Its SHA-256 is checked
+against a manifest shipped inside the package — not fetched alongside the bytes
+it describes — before the archive is opened, and a mismatch aborts without
+extracting anything. When that manifest names no artifact for your platform,
+`launch()` says so rather than downloading, and the answers are to point the
+package at a local archive, at an existing install, or to [build the archive
+yourself](docs/BUILD.md). [docs/RELEASE.md](docs/RELEASE.md) covers how
+releases are cut and verified.
+
+`python/README.md` and `npm/README.md` have the option tables and the cache
+layout.
 
 ## Launch
 
 ```python
 from apostate import launch
 
-browser = launch()
+browser = launch(proxy="http://user:pass@host:8080")
 page = browser.new_page()
 page.goto("https://example.com")
 print(page.title())
@@ -57,12 +126,18 @@ browser.close()
 ```javascript
 import { launch } from "@heretic-hq/apostate";
 
-const browser = await launch();
+const browser = await launch({ proxy: "http://user:pass@host:8080" });
 const page = await browser.newPage();
 await page.goto("https://example.com");
 console.log(await page.title());
 await browser.close();
 ```
+
+The package option is the path to use for a proxy. It splits the URL the way
+the browser does: the endpoint goes on the command line and the credential
+travels inside the profile envelope, so it is in no log, no socket-pool key and
+no `chrome://version`. `http://`, `https://` and `socks5://` all take a
+credential this way. Drop the option for a direct launch.
 
 Or run the binary directly, which needs no flags at all:
 
@@ -72,12 +147,60 @@ Or run the binary directly, which needs no flags at all:
 | macOS | `./Chromium.app/Contents/MacOS/Chromium` |
 | Windows | `chrome.exe` |
 
-`--user-data-dir` keeps cookies, storage and history across launches. It does
-not keep the fingerprint:
+By hand the same proxy is `--proxy-server=http://user:pass@host:8080`. A
+credential in that URL is accepted here and refused by upstream Chromium with
+`ERR_NO_SUPPORTED_PROXIES`; it is lifted off the switch before Chromium's proxy
+configuration sees it. The package option above is the primary path and this is
+the alternative; [docs/FLAGS.md](docs/FLAGS.md#the-proxy) has the encoding
+rules and the schemes that take one.
+
+### The identity
+
+What you pass decides how long the composed device is yours, and there are
+three answers plus an off switch:
+
+| You launch with | The identity is | It lasts |
+| --- | --- | --- |
+| nothing | drawn fresh from OS entropy | this launch only, recorded nowhere |
+| `--user-data-dir=DIR` | bound to `DIR` | until you delete `DIR`; it survives renaming and moving it |
+| `--fingerprint=SEED` | the one that seed selects | forever, on any host — the seed *is* the identity |
+| `--fingerprint=host` | no identity; the host's real values | — |
 
 ```sh
-./chrome --user-data-dir=./work-profile
+./chrome --user-data-dir=./work-profile      # same machine, and same cookies
+./chrome --fingerprint=12345                 # same machine anywhere
 ```
+
+[How long an identity lasts](#how-long-an-identity-lasts) has the rest,
+including what a persistent profile writes, and where.
+
+### Locale and timezone
+
+GeoIP is on by default in both packages. Before the browser starts, the launch
+resolves a locale and timezone from the network exit — the proxy's exit when a
+proxy is configured, the direct IP otherwise — and passes them as
+`--fingerprint-locale` and `--fingerprint-timezone`, so the device a seed drew
+does not turn up in the wrong country. Neither is ever drawn from the seed: a
+timezone a seed chose cannot correlate with an exit IP.
+
+A failed or partial lookup invents nothing. It sends no override for the field
+it could not answer for, leaves the host's own value there, and warns into the
+launch's diagnostics rather than raising. Turn it off, or say what you want
+instead — an explicit value outranks GeoIP:
+
+```python
+browser = launch(proxy="http://user:pass@host:8080", geoip=False)  # keep the host's
+browser = launch(locale="de-DE", timezone="Europe/Berlin")         # or say which
+```
+
+```javascript
+const asHost = await launch({ proxy: "http://user:pass@host:8080", geoip: false });
+const asGerman = await launch({ locale: "de-DE", timezone: "Europe/Berlin" });
+```
+
+When the lookup does not answer, the value that applies is the host's own —
+which behind a proxy is the wrong country. That is what makes GeoIP
+best-effort geo-matching, and passing both explicitly is how it is guaranteed.
 
 ## Default behaviour
 
@@ -87,14 +210,10 @@ geometry and window chrome, fonts, media devices, speech voices, locale,
 timezone and theme all come from that profile. The host's own values are not
 what a page sees.
 
-Every launch draws its own seed, so every launch is a different coherent
-device. Nothing about the identity is written to disk.
-
-| Launch | Identity |
-| --- | --- |
-| no flags | a fresh device, every launch |
-| `--fingerprint=SEED` | the device that seed selects, every launch, on any host |
-| `--fingerprint=host` | no profile; the host's real values |
+A launch with no `--fingerprint` and no `--user-data-dir` draws its own seed,
+so every such launch is a different coherent device and nothing about it is
+written to disk. A launch against a named `--user-data-dir` keeps one device
+for that directory, in a file inside it; see [The identity](#the-identity).
 
 Two reads of the same value inside one launch always agree. There is no canvas
 noise, no WebGL noise and no audio noise anywhere in this browser. Variation
@@ -342,7 +461,9 @@ is not merely standard: a credential in the URL is accepted, as
 `--proxy-server=socks5://user:pass@host:1080`, which upstream refuses with
 `ERR_NO_SUPPORTED_PROXIES`. The credential is taken off the switch before
 Chromium's proxy configuration sees it, so it stays out of NetLog, socket-pool
-keys and `chrome://version`;
+keys and `chrome://version`. From a package, use the `proxy` option instead —
+[Launch](#launch) — which does the same split for you; this is the path for
+driving the binary by hand.
 [docs/FLAGS.md](docs/FLAGS.md#the-proxy) has the encoding rules, the schemes
 that take one, and what happens if you also supply one in a profile envelope.
 Drive automation with `--remote-debugging-pipe` rather than
@@ -410,10 +531,12 @@ but not yet run.
 | `windows-x64` | `apostate-152.0.7977.83-windows-x64.zip` | not yet |
 
 All four are the contract. Three have built green on CI; no Windows build has
-completed yet, so no `windows-x64.zip` exists. The packages' Windows acquisition
-path is written to the same contract as the others and has never been run: the
-`.zip` branch and the `chrome.exe` location are covered only by
-synthetic-archive tests.
+completed yet, so no `windows-x64.zip` exists. The packages' Windows
+acquisition and discovery paths are written to the same contract as the others
+and have never been run on Windows: the `.zip` branch, the `chrome.exe`
+location and the `%LOCALAPPDATA%\apostate` search are covered only by
+synthetic-archive and planted-payload tests. `--version` is never used to
+identify a Windows install, because `chrome.exe` does not answer it.
 
 Based on Chromium 152.0.7977.83. There is no Intel macOS build, no 32-bit
 Windows build and no mobile build.

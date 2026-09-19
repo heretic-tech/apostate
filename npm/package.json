@@ -41,19 +41,16 @@
   "dependencies": {
     "http-proxy-agent": "7.0.1",
     "https-proxy-agent": "7.0.6",
+    "patchright": "^1.63.0",
     "socks-proxy-agent": "^8.0.5"
   },
   "peerDependencies": {
-    "patchright": "*",
     "playwright": "*",
     "playwright-core": "*",
     "puppeteer": "*",
     "puppeteer-core": "*"
   },
   "peerDependenciesMeta": {
-    "patchright": {
-      "optional": true
-    },
     "playwright": {
       "optional": true
     },

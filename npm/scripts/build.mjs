@@ -52,6 +52,7 @@ export interface LaunchOptions {
   args?: string[];
   executablePath?: string;
   binaryPath?: string;
+  searchRoots?: string[];
   target?: string;
   [key: string]: unknown;
 }
@@ -96,6 +97,20 @@ export interface CatalogueView {
   policies: { locale: string[]; theme: string[] };
 }
 
+export interface DiscoveredBinary {
+  executable: string;
+  source: "argument" | "environment" | "cache" | "well-known";
+  chromium_version: string | null;
+  payload_root: string | null;
+}
+
+export interface DiscoveryReport {
+  order: string[];
+  searched: string[];
+  found: DiscoveredBinary | null;
+  rejected: { path: string; reason: string }[];
+}
+
 export class ApostateError extends Error { code: string; details: Record<string, unknown>; }
 export class UnsupportedPlatformError extends ApostateError {}
 export class ProfileResolutionError extends ApostateError {}
@@ -130,6 +145,9 @@ export declare function resolveLaunchConfig(options?: LaunchOptions): Promise<Ca
 export declare function verifyArtifact(archive: unknown, artifact: Record<string, unknown>): Promise<{ sha256: string }>;
 export declare function ensureBinary(options?: LaunchOptions | string): Promise<string>;
 export declare function binaryInfo(options?: LaunchOptions): Promise<Record<string, unknown>>;
+// Where a launch would get its browser right now, without downloading it.
+export declare function discoverBinary(options?: LaunchOptions | string): Promise<DiscoveredBinary | null>;
+export declare function discoveryReport(options?: LaunchOptions | string): Promise<DiscoveryReport>;
 export declare function clearCache(options?: LaunchOptions | string): Promise<void>;
 // launch() returns whatever driver is installed -- a Playwright Browser or a
 // Puppeteer Browser. The package cannot name either type without depending on
@@ -165,6 +183,8 @@ export declare const launch_persistent_context: typeof launchPersistentContext;
 export declare const launch_process: typeof launchProcess;
 export declare const ensure_binary: typeof ensureBinary;
 export declare const binary_info: typeof binaryInfo;
+export declare const discover_binary: typeof discoverBinary;
+export declare const discovery_report: typeof discoveryReport;
 export declare const clear_cache: typeof clearCache;
 export declare const translateOptions: typeof toCanonicalLaunchConfig;
 export declare const load_catalogue: typeof loadCatalogue;

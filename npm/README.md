@@ -10,11 +10,12 @@ Free and open source. No licence key, no account, no telemetry, no paid tier.
 
 ```sh
 npm install @heretic-hq/apostate
-npm install patchright        # recommended
 ```
 
-Patchright is the default driver. `playwright`, `playwright-core`, `puppeteer`
-and `puppeteer-core` all work and Apostate falls back to them in that order.
+That is the whole install. Patchright comes with the package and is the default
+driver; it is a real dependency because the launcher drives it. `playwright`,
+`playwright-core`, `puppeteer` and `puppeteer-core` all work as well, and
+Apostate falls back to them in that order.
 
 The division of labour is that the browser handles what a page can observe about
 the browser, and the driver's remaining job is to avoid *creating* artifacts of
@@ -51,6 +52,53 @@ archive for your platform from the GitHub release, checks its SHA-256 against a
 manifest shipped inside the package, extracts it, and reuses it afterwards. No
 driver needs to download a browser of its own — Apostate supplies it.
 
+Or fetch it ahead of time:
+
+```sh
+npx apostate install
+```
+
+### Already have the browser
+
+Four sources, in this order, and the first one that answers wins:
+
+| Where a launch looks | How |
+|---|---|
+| the path you name | `launch({ executablePath: "/path/to/chrome" })` |
+| `APOSTATE_BINARY` | `export APOSTATE_BINARY=/path/to/chrome` |
+| this package's own install | whatever `npx apostate install` wrote |
+| well-known locations | macOS `/Applications` and `~/Applications` for a `Chromium.app` or `Apostate.app`; Linux `~/.cache/apostate` and `/opt/apostate` for a `chrome`; Windows `%LOCALAPPDATA%\apostate` for a `chrome.exe` — each directory and one level below it |
+
+The first two are you naming a file and are taken at your word. The last two
+are searches, and **a stock Chrome or Chromium is never adopted.** The
+executable is named `chrome` and the bundle `Chromium.app` exactly as upstream
+names them, and Chromium 152.0.7977.83 exists upstream too, so the file alone
+proves nothing. What is checked is the payload staged beside it —
+`build/MANIFEST.lock`, which carries this build's patch-series digests, or
+`resources/profiles/` — and the version, and both are required. Marker first,
+then version: nothing is executed until a file only an Apostate payload carries
+has already vouched for the tree, because a stock Chrome started with these
+switches is a session with no protection at all and nothing to say so.
+
+```javascript
+import { discoveryReport } from "@heretic-hq/apostate";
+console.log(await discoveryReport());
+// {
+//   order: [ 'argument', 'environment', 'cache', 'well-known' ],
+//   searched: [ '/opt/apostate' ],
+//   found: {
+//     executable: '/opt/apostate/apostate-152.0.7977.83-linux-x64/chrome',
+//     source: 'well-known',
+//     chromium_version: '152.0.7977.83',
+//     payload_root: '/opt/apostate/apostate-152.0.7977.83-linux-x64'
+//   },
+//   rejected: [ { path: '/opt/chromium/chrome', reason: 'no Apostate payload beside it (…)' } ]
+// }
+```
+
+`npx apostate info` prints the same thing as JSON, alongside the manifest
+state, as `executable`, `executable_source` and `discovery`.
+
 Supported hosts: `macos-arm64`, `linux-x64`, `linux-arm64`, `windows-x64`.
 
 ## Launch
@@ -84,9 +132,25 @@ time. Pass a seed to get the same one back:
 const browser = await launch({ fingerprint: 42 });
 ```
 
-Same seed, same fingerprint, on every launch and on every machine. This is the
-only thing that makes an identity persist; a persistent `userDataDir` keeps
-cookies but does not pin the device.
+Same seed, same fingerprint, on every launch and on every machine — a seed
+travels as a string, where a profile directory has to be copied.
+
+It is not the only thing that pins a device, and this changed: a persistent
+`userDataDir` now keeps one too. The first launch against a directory mints an
+identity into `DIR/apostate/identity` and every launch after reads it back,
+because that directory already holds cookies and logged-in sessions, and one
+account whose hardware changes between visits is a worse story than any single
+fingerprint value. Three lifetimes:
+
+| You launch with | The identity is | It lasts |
+|---|---|---|
+| nothing | drawn fresh from OS entropy | this launch only, recorded nowhere |
+| `userDataDir: DIR` | bound to `DIR` | until you delete `DIR`; it survives renaming and moving it |
+| `fingerprint: SEED` | the one that seed selects | forever, on any host |
+
+If you wanted a fresh machine every run and have been reusing one directory out
+of habit, you now have to say so — drop `userDataDir`, give each run its own,
+or delete `DIR/apostate/identity` between runs.
 
 Viewport geometry is handled for you: the drivers' default viewports report
 impossible values (Playwright: `screen == inner == avail` with

@@ -416,11 +416,15 @@ def _has_switch(args: Any, name: str) -> bool:
 #: advantage is not.
 DRIVERS = ("patchright", "playwright")
 
-#: What to install when no driver is importable.
+#: What to do when no driver is importable. Patchright is a required
+#: dependency, so reaching this is a partial install rather than a missing
+#: step -- which is worth saying, because the old message told a user to run
+#: an install they had already done.
 _DRIVER_HINT = (
-    "no Playwright-compatible driver is installed. Run one of:\n"
-    "    pip install patchright && patchright install-deps   (recommended)\n"
-    "    pip install playwright\n"
+    "no Playwright-compatible driver is installed. Patchright is a required\n"
+    "dependency of this package, so this is a partial install. Repair it:\n"
+    "    pip install --force-reinstall patchright\n"
+    "Or use the alternative driver: pip install playwright\n"
     "Neither needs `playwright install`: Apostate supplies its own browser."
 )
 
@@ -666,7 +670,15 @@ async def _own_driver_async(target: Any, driver: Any, name: str = "") -> Any:
 
 def _resolve_executable(binary_path: Any, *, cache_dir: Any = None, manifest: Any = None,
                         downloader: Any = None, target: str | None = None) -> Path:
-    """Return a runnable executable, acquiring the release artifact if needed."""
+    """Return a runnable executable, acquiring the release artifact if needed.
+
+    ``binary_path`` is the first of the four sources
+    ``apostate.binary.DISCOVERY_ORDER`` names and is taken at its word: a
+    caller who names a file has said which browser to run. The rest --
+    ``APOSTATE_BINARY``, this package's own install, then the documented
+    well-known locations -- are searched by ``ensure_binary``, which downloads
+    only when none of them answers.
+    """
     if binary_path is None:
         return ensure_binary(cache_dir=cache_dir, manifest=manifest,
                              downloader=downloader, target=target)
@@ -674,7 +686,8 @@ def _resolve_executable(binary_path: Any, *, cache_dir: Any = None, manifest: An
     if not binary.is_file():
         raise LaunchError(
             f"Apostate browser binary was not found: {binary}. Omit binary_path to let "
-            "the package download and verify the release artifact."
+            "the package find an existing install, or download and verify the release "
+            "artifact."
         )
     if not os.access(binary, os.X_OK):
         raise LaunchError(f"Apostate browser binary is not executable: {binary}")
@@ -692,6 +705,9 @@ def _assert_published(binary_path: Any, *, cache_dir: Any = None, manifest: Any 
     first-run experience no developer machine can reproduce, because a driver
     is always already importable by the time anyone looks. The driver check
     still precedes acquisition, which is the ~150 MB download.
+
+    A browser already on disk short-circuits it: see
+    ``BinaryManager.assert_published``.
     """
     if binary_path is not None or os.environ.get("APOSTATE_BINARY"):
         return

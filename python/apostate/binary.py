@@ -28,6 +28,7 @@ import itertools
 import json
 import os
 import platform
+import re
 import shutil
 import stat
 import subprocess
@@ -36,7 +37,7 @@ import tempfile
 import urllib.request
 import zipfile
 from pathlib import Path, PurePosixPath
-from typing import Any, Callable, IO, Iterator, Mapping
+from typing import Any, Callable, IO, Iterable, Iterator, Mapping, NamedTuple
 from urllib.parse import urljoin
 
 from .config import CATALOGUE_VERSION, CHROMIUM_VERSION, PACKAGE_VERSION
@@ -510,15 +511,209 @@ def _keep_archive_default() -> bool:
     return value in {"1", "true", "yes", "on"}
 
 
+#: Where a browser is looked for, strongest claim first. The first two are the
+#: user saying exactly which file to run and are taken at their word; the last
+#: two are searches and are verified.
+DISCOVERY_ORDER = ("argument", "environment", "cache", "well-known")
+
+#: What only an Apostate payload carries, beside the executable. Every release
+#: archive stages ``build/MANIFEST.lock`` -- the build record, which names the
+#: Chromium version and the patch-series digests -- and the whole of
+#: ``resources/profiles/`` next to the browser; see scripts/package-artifact.sh.
+#: Stock Chrome and stock Chromium carry neither, which is the entire basis for
+#: telling them apart: the bundle is named ``Chromium.app`` and the executable
+#: ``chrome`` exactly as upstream names them, and Chromium 152.0.7977.83 exists
+#: upstream too, so nothing about the file alone distinguishes the two.
+_PAYLOAD_MANIFEST = ("build", "MANIFEST.lock")
+_PAYLOAD_RESOURCES = ("resources", "profiles", "catalogue.json")
+
+#: Why a candidate was passed over. Reported verbatim by ``apostate info`` and
+#: mirrored in npm/src/index.ts, so these strings are part of the contract.
+_NO_PAYLOAD = ("no Apostate payload beside it "
+               "(build/MANIFEST.lock or resources/profiles/catalogue.json)")
+_NO_VERSION = "version could not be established"
+_NOT_EXECUTABLE = "not executable"
+
+#: Where the executable sits inside a payload root when the payload was put
+#: there by hand rather than by this package. Wider than _EXECUTABLE_LAYOUT on
+#: macOS because a bundle dragged into /Applications may have been renamed.
+_DISCOVERY_LAYOUT: dict[str, tuple[str, ...]] = {
+    "macos-arm64": ("Chromium.app/Contents/MacOS/Chromium",
+                    "Apostate.app/Contents/MacOS/Chromium",
+                    "Apostate.app/Contents/MacOS/Apostate"),
+    "linux-x64": ("chrome",),
+    "linux-arm64": ("chrome",),
+    "windows-x64": ("chrome.exe",),
+}
+
+#: One ``key = "value"`` assignment from ``build/MANIFEST.lock``. Anything else
+#: -- comments, the ``[outputs]`` header, its quoted-path rows -- is skipped
+#: rather than fatal, because the file is a build record that grows sections
+#: and only the two keys below are being read out of it.
+_BUILD_RECORD_LINE = re.compile(r'^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"([^"]*)"$')
+_PLIST_VERSION = re.compile(
+    r"<key>\s*CFBundleShortVersionString\s*</key>\s*<string>([^<]*)</string>")
+_REPORTED_VERSION = re.compile(r"\b(\d+\.\d+\.\d+\.\d+)\b")
+
+
+def _well_known_roots(target: str) -> tuple[Path, ...]:
+    """The documented places a hand-installed browser is looked for.
+
+    Documented, not guessed: a search that finds a browser somewhere the
+    README does not name is a launch whose binary the user cannot account
+    for. Tests and callers that need none of this pass ``search_roots=()``.
+    """
+    if target == "macos-arm64":
+        return (Path("/Applications"), Path.home() / "Applications")
+    if target == "windows-x64":
+        base = os.environ.get("LOCALAPPDATA")
+        return (Path(base) / "apostate",) if base else ()
+    return (Path.home() / ".cache" / "apostate", Path("/opt/apostate"))
+
+
+def _read_build_record(path: Path) -> dict[str, str] | None:
+    """Parse Apostate's build record, or return ``None`` if this is not one.
+
+    ``scripts/build.sh`` writes ``key = "value"`` lines with ``#`` comments and
+    a trailing ``[outputs]`` section. The patch digests are the discriminator:
+    no other file called MANIFEST.lock carries them, so a tree that does was
+    built from this patch series rather than merely named like one.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    record: dict[str, str] = {}
+    for line in text.splitlines():
+        match = _BUILD_RECORD_LINE.match(line.strip())
+        if match is not None:
+            record[match.group(1)] = match.group(2)
+    if not record.get("chromium_version"):
+        return None
+    if not any(key in record for key in ("patch_series_sha256", "patch_contents_sha256")):
+        return None
+    return record
+
+
+def _bundle_version(executable: Path) -> str | None:
+    """``CFBundleShortVersionString`` from the bundle around *executable*.
+
+    A build's Info.plist is XML text, so a regex reads it without plistlib and
+    without caring which of the two plist encodings a future build emits: a
+    binary plist simply fails to match and the caller falls through.
+    """
+    contents = executable.parent.parent
+    if contents.name != "Contents":
+        return None
+    try:
+        text = (contents / "Info.plist").read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return None
+    match = _PLIST_VERSION.search(text)
+    return match.group(1).strip() if match else None
+
+
+def _reported_version(executable: Path, target: str) -> str | None:
+    """Ask the binary its version -- only ever after a marker vouched for it.
+
+    Never on Windows. ``chrome.exe --version`` does not print a version there:
+    ``HandleVersionSwitches()`` is called inside ``#if BUILDFLAG(IS_POSIX)`` in
+    chrome/app/chrome_main_delegate.cc, so off POSIX the switch is not handled
+    at all and falls through into a full browser start, and chrome.exe is a
+    GUI-subsystem binary so nothing arrives on stdout either way.
+    scripts/smoke-binary.sh reads the file's version resource for that reason;
+    here the build record has already answered by the time it would matter.
+    """
+    if target == "windows-x64" or os.name == "nt":
+        return None
+    try:
+        completed = subprocess.run([str(executable), "--version"],
+                                   capture_output=True, timeout=10, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    match = _REPORTED_VERSION.search(completed.stdout.decode("utf-8", "ignore"))
+    return match.group(1) if match else None
+
+
+class DiscoveredBinary(NamedTuple):
+    """Where a runnable browser was found, and what vouched for it."""
+
+    executable: Path
+    source: str
+    chromium_version: str | None
+    payload_root: Path | None
+
+
+def _verify_payload(root: Path, executable: Path,
+                    target: str) -> tuple[str | None, str | None]:
+    """``(chromium version, rejection reason)`` for one discovered candidate.
+
+    Marker first, then version, and that order is the safety property rather
+    than an optimisation. Stock Chrome started with Apostate's switches is a
+    session with no protection at all and nothing on screen to say so, which
+    is the worst thing this package could do; so nothing is executed until a
+    file only an Apostate payload carries has already vouched for the tree.
+    Both halves are required: the marker proves the build, the version proves
+    it is the one this package speaks to.
+    """
+    record = _read_build_record(root.joinpath(*_PAYLOAD_MANIFEST))
+    if record is None and not root.joinpath(*_PAYLOAD_RESOURCES).is_file():
+        return None, _NO_PAYLOAD
+    version = record.get("chromium_version") if record is not None else None
+    if version is None and target == "macos-arm64":
+        version = _bundle_version(executable)
+    if version is None:
+        version = _reported_version(executable, target)
+    if version is None:
+        return None, _NO_VERSION
+    if version != CHROMIUM_VERSION:
+        return None, f"reports Chromium {version}, not {CHROMIUM_VERSION}"
+    if os.name != "nt" and not os.access(executable, os.X_OK):
+        return None, _NOT_EXECUTABLE
+    return version, None
+
+
+def _discovery_candidates(root: Path, target: str) -> Iterator[tuple[Path, Path]]:
+    """``(payload root, executable)`` pairs under one well-known root.
+
+    The root itself and its immediate children, and no deeper. An archive
+    extracted in place leaves the payload at ``<root>/apostate-<version>-<target>/``
+    while a bundle moved into /Applications leaves it at the root, so both
+    levels are needed -- and a recursive walk of /Applications is not something
+    to do on the way to every launch.
+    """
+    layout = _DISCOVERY_LAYOUT.get(target, ())
+    payload_roots = [root]
+    try:
+        # Symlinks followed: a directory in /opt/apostate that points at a
+        # build elsewhere is a perfectly ordinary way to keep one. Nothing is
+        # trusted for being reachable -- what is found still has to prove
+        # itself -- and one level deep cannot loop.
+        payload_roots.extend(sorted(entry for entry in root.iterdir() if entry.is_dir()))
+    except OSError:
+        pass
+    for payload_root in payload_roots:
+        for relative in layout:
+            candidate = payload_root.joinpath(*relative.split("/"))
+            if candidate.is_file():
+                yield payload_root, candidate
+
+
 class BinaryManager:
     """Resolve a verified release artifact into a deterministic cache install."""
 
     def __init__(self, *, cache_dir: str | Path | None = None,
                  manifest: Mapping[str, Any] | str | Path | None = None,
-                 downloader: Callable[[str], Any] | None = None) -> None:
+                 downloader: Callable[[str], Any] | None = None,
+                 search_roots: Iterable[str | Path] | None = None) -> None:
         self.cache_dir = Path(cache_dir).expanduser() if cache_dir is not None else _default_cache_dir()
         self.manifest_value = manifest
         self.downloader = downloader
+        #: ``None`` means the documented locations for the target; an empty
+        #: sequence means search nowhere, which is how a caller that must not
+        #: depend on what is installed on the host opts out.
+        self.search_roots = None if search_roots is None else tuple(
+            Path(root).expanduser() for root in search_roots)
 
     def _manifest(self) -> dict[str, Any]:
         return _read_manifest(self.manifest_value)
@@ -587,14 +782,120 @@ class BinaryManager:
             return None
         return executable
 
+    def _well_known(self, target: str) -> tuple[Path, ...]:
+        return _well_known_roots(target) if self.search_roots is None else self.search_roots
+
+    def _cached_install(self, target: str) -> DiscoveredBinary | None:
+        """This package's own install, if the marker still vouches for it."""
+        try:
+            manifest = self._manifest()
+            record = _artifact_record(manifest, target)
+        except BinaryError:
+            # Validating the cache needs the artifact digest, so an unpublished
+            # or unreadable manifest is not a cache miss: it is a question that
+            # cannot be asked. The well-known search still can be.
+            return None
+        _root, install, marker = self._paths(target, manifest, record)
+        executable = self._cached(marker, install, target, manifest,
+                                  str(record["sha256"]).lower())
+        if executable is None:
+            return None
+        return DiscoveredBinary(executable, "cache",
+                                str(manifest["chromium_version"]), install)
+
+    def _discover_well_known(self, target: str, searched: list[str],
+                             rejected: list[dict[str, str]]) -> DiscoveredBinary | None:
+        # Exhaustive rather than first-hit: the first acceptable candidate is
+        # what gets adopted, but every refusal is still recorded, so `apostate
+        # info` can say "I passed over the Chromium in /Applications because
+        # nothing beside it says it is ours" instead of staying silent about a
+        # browser the user can see. Bounded by construction -- two roots, one
+        # level of children, at most three layout paths each.
+        found: DiscoveredBinary | None = None
+        for root in self._well_known(target):
+            if not root.is_dir():
+                continue
+            searched.append(str(root))
+            for payload_root, candidate in _discovery_candidates(root, target):
+                version, reason = _verify_payload(payload_root, candidate, target)
+                if reason is not None:
+                    rejected.append({"path": str(candidate), "reason": reason})
+                elif found is None:
+                    found = DiscoveredBinary(candidate, "well-known", version, payload_root)
+        return found
+
+    def _discover(self, target: str, searched: list[str],
+                  rejected: list[dict[str, str]],
+                  binary_path: str | Path | None = None) -> DiscoveredBinary | None:
+        # The first two sources are the user naming a file, so neither is
+        # verified: a caller who says which browser to run has said it. Only
+        # the searches can adopt something the user did not name, so only the
+        # searches have to prove what they found.
+        for value, source, label in (
+            (binary_path, "argument", "the configured path"),
+            (os.environ.get("APOSTATE_BINARY"), "environment", "APOSTATE_BINARY"),
+        ):
+            if not value:
+                continue
+            candidate = Path(value).expanduser()
+            if candidate.is_file():
+                return DiscoveredBinary(candidate, source, None, None)
+            # Recorded rather than raised: `discover` answers a question and
+            # `ensure` is the one that refuses. A stale path should show up in
+            # `apostate info` rather than make it unreadable.
+            rejected.append({"path": str(candidate),
+                             "reason": f"{label} does not name a file"})
+        cached = self._cached_install(target)
+        if cached is not None:
+            return cached
+        return self._discover_well_known(target, searched, rejected)
+
+    def discover(self, *, target: str | None = None,
+                 binary_path: str | Path | None = None) -> DiscoveredBinary | None:
+        """The browser a launch would use without downloading, or ``None``."""
+        return self._discover(target_platform(target), [], [], binary_path)
+
+    def discovery(self, *, target: str | None = None,
+                  binary_path: str | Path | None = None) -> dict[str, Any]:
+        """Report which browser was found and what was passed over.
+
+        A launch that downloads 150 MB over an install the user already has is
+        indistinguishable, from outside, from one that could not find it. So
+        the search is inspectable rather than implicit: ``apostate info``
+        prints this, including why each candidate was refused.
+        """
+        searched: list[str] = []
+        rejected: list[dict[str, str]] = []
+        found = self._discover(target_platform(target), searched, rejected, binary_path)
+        return {
+            "order": list(DISCOVERY_ORDER),
+            "searched": searched,
+            "found": None if found is None else {
+                "executable": str(found.executable),
+                "source": found.source,
+                "chromium_version": found.chromium_version,
+                "payload_root": None if found.payload_root is None else str(found.payload_root),
+            },
+            "rejected": rejected,
+        }
+
     def assert_published(self, *, target: str | None = None) -> None:
-        """Raise unless this release publishes an artifact for *target*.
+        """Raise unless a browser for *target* can be had at all.
 
         The publication question on its own. Reading the manifest and looking
         up the record are both local, with no acquisition behind them, which
         is what lets a caller ask it before paying for anything else.
+
+        A browser already on disk answers it the other way: telling someone
+        who downloaded the archive by hand that nothing is published is both
+        useless and, in the only sense they care about, false.
         """
-        _artifact_record(self._manifest(), target_platform(target))
+        target_name = target_platform(target)
+        try:
+            _artifact_record(self._manifest(), target_name)
+        except BinaryError:
+            if self._discover(target_name, [], []) is None:
+                raise
 
     def ensure(self, *, target: str | None = None,
                artifact: Mapping[str, Any] | str | Path | None = None,
@@ -608,16 +909,40 @@ class BinaryManager:
             return candidate
 
         target_name = target_platform(target)
-        manifest = self._manifest()
-        record = _artifact_record(manifest, target_name,
-                                  artifact if isinstance(artifact, Mapping) else None)
-        root, install, marker = self._paths(target_name, manifest, record)
-        expected = str(record["sha256"]).lower()
+        manifest: dict[str, Any] | None = None
+        record: dict[str, Any] | None = None
+        unavailable: BinaryError | None = None
+        try:
+            manifest = self._manifest()
+            record = _artifact_record(manifest, target_name,
+                                      artifact if isinstance(artifact, Mapping) else None)
+        except BinaryError as exc:
+            # An unpublished or unusable manifest does not end the search. A
+            # browser already installed is still runnable, and answering
+            # "nothing is published" over one the user put there by hand sends
+            # them to build a binary they already have.
+            unavailable = exc
 
-        if not force:
-            cached = self._cached(marker, install, target_name, manifest, expected)
-            if cached is not None:
-                return cached
+        cache_paths: tuple[Path, Path, Path] | None = None
+        if record is not None and manifest is not None:
+            cache_paths = self._paths(target_name, manifest, record)
+            if not force:
+                cached = self._cached(cache_paths[2], cache_paths[1], target_name,
+                                      manifest, str(record["sha256"]).lower())
+                if cached is not None:
+                    return cached
+        # `force` means reinstall, so it skips the searches rather than the
+        # download. An explicit artifact is a request to install that archive.
+        if not force and artifact is None:
+            found = self._discover_well_known(target_name, [], [])
+            if found is not None:
+                return found.executable
+        if unavailable is not None:
+            raise unavailable
+        # `unavailable` is None exactly when both lookups above succeeded, so
+        # the manifest, the record and the cache paths are all present here.
+        root, install, marker = cache_paths
+        expected = str(record["sha256"]).lower()
 
         if isinstance(artifact, (str, Path)):
             source_path = Path(artifact).expanduser()
@@ -707,23 +1032,40 @@ class BinaryManager:
         it answers rather than failing the way ``ensure`` does.
         """
         target_name = target_platform(target)
+        discovery = self.discovery(target=target_name)
+        found = discovery["found"]
+        located = {
+            "executable": found["executable"] if found else None,
+            "executable_source": found["source"] if found else None,
+            "discovery": discovery,
+        }
+        # Validating the install re-hashes the executable, so ask once. The
+        # search already asked unless an explicitly named binary short-circuited
+        # it, in which case the cache is still an open question; a "well-known"
+        # answer means the cache was consulted and missed.
+        if found is not None and found["source"] == "cache":
+            cached: Path | None = Path(found["executable"])
+        elif found is not None and found["source"] in ("argument", "environment"):
+            entry = self._cached_install(target_name)
+            cached = None if entry is None else entry.executable
+        else:
+            cached = None
         try:
             manifest = self._manifest()
         except (ManifestError, UnpublishedArtifactError) as exc:
             return {"available": False, "platform": target_name,
                     "chromium_version": CHROMIUM_VERSION,
                     "package_version": PACKAGE_VERSION,
-                    "cache_dir": str(self.cache_dir), "reason": str(exc)}
+                    "cache_dir": str(self.cache_dir), "reason": str(exc), **located}
         try:
             record = _artifact_record(manifest, target_name)
         except BinaryError as exc:
             return {"available": False, "platform": target_name,
                     "chromium_version": manifest["chromium_version"],
                     "package_version": manifest["package_version"],
-                    "cache_dir": str(self.cache_dir), "reason": str(exc)}
+                    "cache_dir": str(self.cache_dir), "reason": str(exc), **located}
         root, install, marker = self._paths(target_name, manifest, record)
         expected = str(record["sha256"]).lower()
-        cached = self._cached(marker, install, target_name, manifest, expected)
         return {
             "available": True,
             "cached": cached is not None,
@@ -736,8 +1078,11 @@ class BinaryManager:
             "sha256": expected,
             "cache_dir": str(self.cache_dir),
             "install_dir": str(install),
-            "executable": str(cached) if cached is not None else None,
             "archive_retained": (root / _artifact_name(record)).is_file(),
+            # `executable` is what a launch would run without downloading, from
+            # whichever of the four sources answered; `cached` stays the
+            # narrower question of whether this package's own install is valid.
+            **located,
         }
 
     def clear(self) -> None:
@@ -762,11 +1107,33 @@ def binary_info(*, target: str | None = None, cache_dir: str | Path | None = Non
     return BinaryManager(cache_dir=cache_dir, manifest=manifest).info(target=target)
 
 
+def discover_binary(*, target: str | None = None, cache_dir: str | Path | None = None,
+                    manifest: Mapping[str, Any] | str | Path | None = None,
+                    binary_path: str | Path | None = None,
+                    search_roots: Iterable[str | Path] | None = None) -> Path | None:
+    """The browser a launch would use without downloading, or ``None``."""
+    found = BinaryManager(cache_dir=cache_dir, manifest=manifest,
+                          search_roots=search_roots).discover(target=target,
+                                                              binary_path=binary_path)
+    return None if found is None else found.executable
+
+
+def discovery_report(*, target: str | None = None, cache_dir: str | Path | None = None,
+                     manifest: Mapping[str, Any] | str | Path | None = None,
+                     binary_path: str | Path | None = None,
+                     search_roots: Iterable[str | Path] | None = None) -> dict[str, Any]:
+    """Where the browser was found, what was searched, and what was refused."""
+    return BinaryManager(cache_dir=cache_dir, manifest=manifest,
+                         search_roots=search_roots).discovery(target=target,
+                                                              binary_path=binary_path)
+
+
 def clear_cache(*, cache_dir: str | Path | None = None) -> None:
     BinaryManager(cache_dir=cache_dir).clear()
 
 
 __all__ = [
-    "BinaryManager", "RELEASE_REPOSITORY", "artifact_url", "binary_info", "clear_cache",
+    "BinaryManager", "DISCOVERY_ORDER", "DiscoveredBinary", "RELEASE_REPOSITORY",
+    "artifact_url", "binary_info", "clear_cache", "discover_binary", "discovery_report",
     "ensure_binary", "target_platform",
 ]

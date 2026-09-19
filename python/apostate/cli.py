@@ -36,8 +36,8 @@ def _parser() -> argparse.ArgumentParser:
     install.add_argument("--keep-archive", action="store_true",
                          help="retain the verified archive for `gh attestation verify`")
 
-    commands.add_parser("path", help="print the browser executable path, installing if needed")
-    commands.add_parser("info", help="print install and manifest state as JSON")
+    commands.add_parser("path", help="print the browser executable path, finding or installing it")
+    commands.add_parser("info", help="print install, discovery and manifest state as JSON")
     commands.add_parser("clear", help="delete the install cache")
 
     drm = commands.add_parser(

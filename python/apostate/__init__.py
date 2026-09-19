@@ -1,6 +1,15 @@
 """Public Python API for the Apostate native Chromium distribution."""
 
-from .binary import BinaryManager, binary_info, clear_cache, ensure_binary, target_platform
+from .binary import (
+    BinaryManager,
+    DiscoveredBinary,
+    binary_info,
+    clear_cache,
+    discover_binary,
+    discovery_report,
+    ensure_binary,
+    target_platform,
+)
 from .config import (
     CATALOGUE_VERSION,
     CHROMIUM_VERSION,
@@ -55,6 +64,7 @@ __all__ = [
     "ConfigurationError",
     "DEFAULT_PERSONA_BY_HOST",
     "DeterministicResolver",
+    "DiscoveredBinary",
     "GeoIPError",
     "GeoIPProvider",
     "GeoIPResult",
@@ -75,6 +85,8 @@ __all__ = [
     "binary_info",
     "clear_cache",
     "default_persona_for_host",
+    "discover_binary",
+    "discovery_report",
     "ensure_binary",
     "host_persona",
     "launch",

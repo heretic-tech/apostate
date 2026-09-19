@@ -54,26 +54,29 @@ the profile-composition boundary.
 
 ## The default launch
 
-A launch with no arguments composes a profile. Every launch draws a fresh seed
-from OS entropy and composes a fresh coherent device, whether or not
-`--user-data-dir` is set. Nothing about the identity is written to disk.
+A launch with no arguments composes a profile. Where the seed comes from
+depends on whether the launch has a persistent profile directory:
 
 | Launch | Seed source | Result |
 | --- | --- | --- |
-| no arguments | fresh OS entropy, per launch | a new device every launch |
-| `--fingerprint=<seed>` | the argument | the same device anywhere, every launch |
+| no `--user-data-dir` | fresh OS entropy, per launch | a new device every launch |
+| `--user-data-dir=DIR` | `DIR/apostate/identity`, minted on first use | the same device every launch of that directory |
+| `--fingerprint=<seed>` | the argument | the same device anywhere, every launch, over either of the above |
 | `--fingerprint=host` | none | no composition; the host's own values |
 
-There is no persisted seed. Earlier builds wrote one to the user-data directory
-and reused it, so relaunching the same directory reproduced the identity. That
-file is gone and the precedence step that read it is gone with it. A stable
-identity comes from `--fingerprint=<seed>`, which reproduces on another machine
-as well, which a file never did.
+A persistent profile keeps one identity because that directory holds the
+cookies and logged-in sessions a site associates with a machine, and a cookie
+jar whose hardware changes between visits is a stronger signal than any single
+value. The identity file is one seed and a newline, so it can be read and
+passed as `--fingerprint=<seed>` to reproduce the machine elsewhere; copying
+the directory copies the identity, which is intended; deleting the file mints
+a new one. An explicit `--fingerprint` wins over the file and does not touch
+it.
 
 The practical consequence for automation: Playwright's
-`launch_persistent_context` reuses one user-data directory by design, and under
-this default it presents a different device on every launch. Pass
-`--fingerprint=<seed>` for returning-visitor behaviour.
+`launch_persistent_context` reuses one user-data directory by design, and that
+reuse is what makes the identity stable, with no flag. A launcher that wants a
+fresh device per run uses a fresh directory or no directory.
 
 The profile is fully materialized before the first renderer starts, and nothing
 inside the session varies.

@@ -10,12 +10,18 @@ requires-python = ">=3.10"
 readme = "README.md"
 license = "GPL-3.0-only"
 authors = [{name = "Apostate contributors"}]
-dependencies = []
+# Patchright is required, not optional: the launcher drives it, and a package
+# that needs a second `pip install` before it can do anything is not installed.
+# 1.49 is the first clean release of the current line (1.48.0.post0 is the only
+# earlier one). It pins pyee>=13,<14 and greenlet>=3.1.1,<4, which are exactly
+# the ranges playwright pins, so installing both resolves one of each and a
+# user who already has Playwright is not broken. It is a fork rather than a
+# plugin, so it does not depend on playwright itself.
+dependencies = ["patchright>=1.49"]
 
 [project.optional-dependencies]
-# The browser ships itself; these are only the drivers that can steer it, and
-# neither needs `playwright install`.
-patchright = ["patchright>=1.40"]
+# The alternative driver, for a caller who wants `driver="playwright"`. Neither
+# driver needs `playwright install`: Apostate supplies its own browser.
 playwright = ["playwright>=1.40"]
 
 [project.scripts]

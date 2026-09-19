@@ -218,14 +218,16 @@ randomizer and it never reaches a value at read time.
 
 | Launch | Seed source | Result |
 | --- | --- | --- |
-| no arguments | fresh OS entropy, per launch | a new device every launch |
-| `--fingerprint=<seed>` | the argument | the same device anywhere, every launch |
+| no `--user-data-dir` | fresh OS entropy, per launch | a new device every launch |
+| `--user-data-dir=DIR` | `DIR/apostate/identity`, minted on first use | the same device every launch of that directory |
+| `--fingerprint=<seed>` | the argument | the same device anywhere, every launch, over either of the above |
 | `--fingerprint=host` | none | no composition; the host's own values |
 
-A seed is never written to disk. Earlier builds persisted one per user-data
-directory so that relaunching the directory reproduced the identity; that file
-and the precedence step that read it are both gone. A stable identity comes from
-`--fingerprint=<seed>` only, which reproduces on a second machine as well.
+A persistent profile keeps one identity because the cookies and sessions in
+that directory are what a site ties to a machine; the file holds one seed and
+a newline, so `--fingerprint=<seed>` reproduces the same machine on a second
+host, and an explicit `--fingerprint` wins over the file without touching it.
+[docs/FLAGS.md](FLAGS.md) has the precedence and the failure cases.
 
 Either way the profile is fully materialized before the first renderer starts,
 and nothing inside the session varies.

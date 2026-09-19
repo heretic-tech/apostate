@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { createHash } from "node:crypto";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import {
   request as httpRequest,
 } from "node:http";
@@ -9,6 +9,7 @@ import {
 } from "node:https";
 import { isIP } from "node:net";
 import {
+  access,
   chmod,
   copyFile,
   cp,
@@ -23,7 +24,7 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
-import { readFileSync as readFileSyncNative } from "node:fs";
+import { constants as fsConstants, readFileSync as readFileSyncNative } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { homedir, platform as hostPlatform, arch as hostArch } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -1999,6 +2000,281 @@ async function resolvePublishedArtifact(options, target) {
   return { manifest, artifact };
 }
 
+// ---------------------------------------------------------------------------
+// Finding a browser that is already on disk.
+//
+// The package downloads its own copy, but it is not the only way an Apostate
+// build arrives on a machine: a release archive unpacked by hand, a packaged
+// .app dragged into /Applications, an image that bakes one into /opt. Asking
+// the network for 150 MB that is already sitting there is the wrong first
+// move, so the search below runs before the download and after the cache.
+//
+// Everything here is subordinate to one hazard. A stock Chrome and an
+// Apostate build are the same executable name in the same layout, and
+// launching stock Chrome with Apostate's switches produces a session with
+// none of the protections those switches name -- silently, because the
+// unknown switches are simply ignored. So identification is never by name or
+// location: a candidate is adopted only once the tree around it has been
+// shown to be an Apostate payload.
+
+// The order is part of the published contract and is reported verbatim by
+// discoveryReport(), so both packages can be diffed against it.
+const DISCOVERY_ORDER = Object.freeze(["argument", "environment", "cache", "well-known"]);
+
+// scripts/package-artifact.sh copies build/MANIFEST.lock and the whole of
+// resources/profiles/ into every release archive. Stock Chrome and stock
+// Chromium ship neither, which is what makes their presence beside an
+// executable evidence rather than a guess.
+const PAYLOAD_MARKER_REASON = "no Apostate payload beside it (build/MANIFEST.lock or resources/profiles/catalogue.json)";
+
+// Where a hand-installed build plausibly lives, per target. Deliberately
+// short: every extra root is another tree that gets stat'd on every launch,
+// and a location nobody uses only adds latency.
+function wellKnownRoots(target) {
+  const home = homedir();
+  if (target === "macos-arm64") return ["/Applications", join(home, "Applications")];
+  if (target === "linux-x64" || target === "linux-arm64") return [join(home, ".cache", "apostate"), "/opt/apostate"];
+  if (target === "windows-x64") {
+    // No LOCALAPPDATA means no per-user application data directory to search;
+    // guessing C:\Users\... from the username would be a worse answer.
+    return process.env.LOCALAPPDATA ? [join(process.env.LOCALAPPDATA, "apostate")] : [];
+  }
+  return [];
+}
+
+// Where the executable sits inside a payload root. macOS gets three because
+// the archive ships Chromium.app while a rebranded local build may ship
+// Apostate.app, and either bundle may name its executable either way.
+const DISCOVERY_EXECUTABLES = {
+  "macos-arm64": [
+    "Chromium.app/Contents/MacOS/Chromium",
+    "Apostate.app/Contents/MacOS/Chromium",
+    "Apostate.app/Contents/MacOS/Apostate",
+  ],
+  "linux-x64": ["chrome"],
+  "linux-arm64": ["chrome"],
+  "windows-x64": ["chrome.exe"],
+};
+
+async function isDirectory(path) {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+// A root and its immediate subdirectories, and no deeper. One level is what
+// makes both /opt/apostate/chrome and the unpacked archive directory beside
+// it, /opt/apostate/apostate-<version>-<target>/chrome, reachable; recursing
+// further would walk the whole of /Applications for no further layout.
+// Sorted, so the report does not depend on the order a filesystem hands back.
+async function payloadRootsUnder(root) {
+  const roots = [root];
+  let entries;
+  try {
+    entries = await readdir(root, { withFileTypes: true });
+  } catch {
+    return roots;
+  }
+  for (const name of entries.map((entry) => entry.name).sort()) {
+    if (await isDirectory(join(root, name))) roots.push(join(root, name));
+  }
+  return roots;
+}
+
+// The scalar head of build/MANIFEST.lock, or null if this is not Apostate's
+// own build record. The format is scripts/build.sh's: `key = "value"` lines,
+// `#` comments and blanks skipped, an `[outputs]` hash table below. Lines
+// that are not scalar assignments are ignored rather than fatal -- only two
+// questions are being asked of the file, and refusing to read a valid payload
+// because a table row did not parse would be a worse answer than reading it.
+const BUILD_RECORD_ASSIGNMENT = /^([A-Za-z_][A-Za-z\d_]*)\s*=\s*"([^"]*)"$/;
+
+async function readBuildRecord(path) {
+  let text;
+  try {
+    text = await readFile(path, "utf8");
+  } catch {
+    return null;
+  }
+  const values = {};
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const match = BUILD_RECORD_ASSIGNMENT.exec(line);
+    if (match) values[match[1]] = match[2];
+  }
+  // Some other project's MANIFEST.lock parses just as well, so the file only
+  // vouches for the tree when it carries the fields Apostate's build writes.
+  if (typeof values.chromium_version !== "string" || !values.chromium_version) return null;
+  if (typeof values.patch_series_sha256 !== "string" && typeof values.patch_contents_sha256 !== "string") return null;
+  return values;
+}
+
+// CFBundleShortVersionString out of a plain-text plist. A binary plist simply
+// does not match, which is the right outcome: the next step can still ask the
+// executable, and inventing a parser for a format Apostate does not ship
+// would be code with no reader.
+const PLIST_SHORT_VERSION = /<key>\s*CFBundleShortVersionString\s*<\/key>\s*<string>([^<]*)<\/string>/;
+
+async function bundleShortVersion(executable) {
+  // <root>/Foo.app/Contents/MacOS/<exe> -> <root>/Foo.app/Contents/Info.plist
+  const plist = join(dirname(dirname(executable)), "Info.plist");
+  try {
+    const match = PLIST_SHORT_VERSION.exec(await readFile(plist, "utf8"));
+    return match ? match[1].trim() || null : null;
+  } catch {
+    return null;
+  }
+}
+
+// The last resort: ask the browser. Never on Windows, where chrome.exe does
+// not answer --version at all -- chrome_main_delegate.cc calls
+// HandleVersionSwitches() inside `#if BUILDFLAG(IS_POSIX)`, so the switch
+// falls straight through into a full browser start, and a GUI-subsystem
+// binary writes nothing to stdout either way. See scripts/smoke-binary.sh,
+// which refuses the same call for the same reason.
+function probeVersion(executable) {
+  const { promise, resolve: settle } = Promise.withResolvers();
+  try {
+    execFile(executable, ["--version"], { timeout: 10000, windowsHide: true, encoding: "utf8" }, (_error, stdout) => {
+      // The exit status is not consulted. A browser that printed its version
+      // and then failed to shut down cleanly has still answered the question,
+      // and a browser that printed nothing is rejected by the match either way.
+      const match = /\d+\.\d+\.\d+\.\d+/.exec(String(stdout ?? ""));
+      settle(match ? match[0] : null);
+    });
+  } catch {
+    settle(null);
+  }
+  return promise;
+}
+
+async function isExecutableFile(path) {
+  try {
+    await access(path, fsConstants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Marker first, then version, and that order is the safety property rather
+// than an optimisation: step 2c executes the candidate, and nothing may be
+// executed until step 1 has already established that the tree is an Apostate
+// payload. Reversing the two would run an unknown binary found in a
+// well-known directory, which is exactly the thing discovery must not do.
+async function verifyPayload(payloadRoot, executable, target) {
+  const record = await readBuildRecord(join(payloadRoot, "build", "MANIFEST.lock"));
+  const catalogue = await isRegularFile(join(payloadRoot, "resources", "profiles", "catalogue.json"));
+  if (!record && !catalogue) return { reason: PAYLOAD_MARKER_REASON };
+  let version = record?.chromium_version ?? null;
+  if (!version && target === "macos-arm64") version = await bundleShortVersion(executable);
+  if (!version && target !== "windows-x64") version = await probeVersion(executable);
+  if (!version) return { reason: "version could not be established" };
+  if (version !== CHROMIUM_VERSION) return { reason: `reports Chromium ${version}, not ${CHROMIUM_VERSION}` };
+  // Extraction by hand loses the mode bit often enough to be worth naming:
+  // EACCES out of the driver is a much harder error to read than this one.
+  if (target !== "windows-x64" && !(await isExecutableFile(executable))) return { reason: "not executable" };
+  return { executable, source: "well-known", chromium_version: version, payload_root: payloadRoot };
+}
+
+// Scans every root to the end even after a hit. The alternative -- return on
+// the first acceptance -- makes the rejection list depend on which sibling
+// the filesystem happened to enumerate first, and the rejections are the
+// whole value of the report: "I have Apostate installed, why is it
+// downloading" is answered by the reason beside the path, not by its absence.
+// The cost is a handful of stat() calls; the version probe runs only for a
+// tree that already passed the marker check.
+async function scanWellKnown(target, searchRoots) {
+  const roots = searchRoots === undefined || searchRoots === null
+    ? wellKnownRoots(target)
+    : [...searchRoots].map((value) => resolve(String(value)));
+  const candidates = DISCOVERY_EXECUTABLES[target] ?? [];
+  const searched = [];
+  const rejected = [];
+  let found = null;
+  for (const root of roots) {
+    // A root that does not exist is not a rejection; it is the normal state
+    // of three of the four platforms' locations on any given machine.
+    if (!(await isDirectory(root))) continue;
+    searched.push(root);
+    for (const payloadRoot of await payloadRootsUnder(root)) {
+      for (const relativeExecutable of candidates) {
+        const executable = join(payloadRoot, relativeExecutable);
+        if (!(await isRegularFile(executable))) continue;
+        const verdict = await verifyPayload(payloadRoot, executable, target);
+        if (verdict.reason !== undefined) rejected.push({ path: executable, reason: verdict.reason });
+        else if (!found) found = verdict;
+      }
+    }
+  }
+  return { searched, rejected, found };
+}
+
+// Where a launch would get its browser from right now, without downloading
+// anything, and what was refused on the way. This is the diagnostic behind
+// `apostate info`; discoverBinary() is the same search with only the answer.
+export async function discoveryReport(options = {}) {
+  if (typeof options === "string") options = { binaryPath: options };
+  if (!isObject(options)) throw new TypeError("discoveryReport options must be an object.");
+  const order = [...DISCOVERY_ORDER];
+  const target = normalizeTarget(options.target);
+  const rejected = [];
+  const answer = (executable, source, chromiumVersion, payloadRoot, searched = []) => ({
+    order,
+    searched,
+    found: { executable, source, chromium_version: chromiumVersion, payload_root: payloadRoot },
+    rejected,
+  });
+
+  // The two configured routes are instructions rather than candidates: each
+  // is honoured verbatim, with no marker or version check, because a caller
+  // who names a path is entitled to point this package at a build it made
+  // itself. Existence is still established, because a path that names
+  // nothing is not an instruction anybody can carry out -- and the report
+  // exists to say so rather than to stop.
+  const explicitBinary = options.binaryPath ?? options.executablePath;
+  if (explicitBinary !== undefined && explicitBinary !== null && explicitBinary !== "") {
+    const path = resolve(String(explicitBinary));
+    if (await isRegularFile(path)) return answer(path, "argument", null, null);
+    rejected.push({ path, reason: "the configured path does not name a file" });
+  }
+  const configured = process.env.APOSTATE_BINARY;
+  if (configured) {
+    const path = resolve(String(configured));
+    if (await isRegularFile(path)) return answer(path, "environment", null, null);
+    // ensureBinary() still treats both misses as fatal -- a caller who named
+    // a path wants that path and not a substitute. The report describes the
+    // machine instead of acting on it, so it records the miss and looks on.
+    rejected.push({ path, reason: "APOSTATE_BINARY does not name a file" });
+  }
+
+  const cacheDir = options.cacheDir ?? options.cache_dir ?? defaultCacheDir();
+  const paths = cachePaths(cacheDir, target);
+  let artifact = null;
+  try {
+    ({ artifact } = await resolvePublishedArtifact(options, target));
+  } catch {
+    // An unpublished or unreachable manifest says nothing about what is on
+    // disk, and this function's whole job is to look at what is on disk.
+    artifact = null;
+  }
+  const cached = artifact ? await validCachedInstall(paths, target, artifact) : null;
+  if (cached) return answer(cached, "cache", CHROMIUM_VERSION, paths.install);
+
+  const scan = await scanWellKnown(target, options.searchRoots);
+  rejected.push(...scan.rejected);
+  return { order, searched: scan.searched, found: scan.found, rejected };
+}
+
+// The browser a launch would use without downloading, or null.
+export async function discoverBinary(options = {}) {
+  return (await discoveryReport(options)).found;
+}
+
+
 export async function ensureBinary(options = {}) {
   if (typeof options === "string") options = { binaryPath: options };
   if (!isObject(options)) throw new TypeError("ensureBinary options must be an object.");
@@ -2011,11 +2287,34 @@ export async function ensureBinary(options = {}) {
   const target = normalizeTarget(options.target);
   const cacheDir = options.cacheDir ?? options.cache_dir ?? defaultCacheDir();
   const paths = cachePaths(cacheDir, target);
-  const { manifest, artifact } = await resolvePublishedArtifact(options, target);
-  if (!options.force) {
+  // Publication is resolved first but not acted on yet. A release that ships
+  // no artifact for this target is a reason not to download; it is not a
+  // reason to ignore a browser already sitting on the disk, and raising here
+  // used to make an unpublished manifest look like "no browser anywhere"
+  // to a user who had one installed. The failure is held and raised only if
+  // downloading turns out to be the sole remaining route.
+  let manifest = null;
+  let artifact = null;
+  let unavailable = null;
+  try {
+    ({ manifest, artifact } = await resolvePublishedArtifact(options, target));
+  } catch (error) {
+    // Only a publication answer is deferred. Anything else is a fault in the
+    // lookup itself and must not be turned into a silent fallback.
+    if (!(error instanceof ApostateError)) throw error;
+    unavailable = error;
+  }
+  if (!options.force && artifact) {
     const cached = await validCachedInstall(paths, target, artifact);
     if (cached) return cached;
   }
+  if (!options.force) {
+    // Skipped under force for the same reason the cache is: force means
+    // reinstall, and a browser found elsewhere is not this install.
+    const discovered = await scanWellKnown(target, options.searchRoots);
+    if (discovered.found) return discovered.found.executable;
+  }
+  if (unavailable) throw unavailable;
   let archive;
   try {
     const local = artifact.path ?? artifact.local_path ?? artifact.file;
@@ -2093,7 +2392,16 @@ export async function binaryInfo(options = {}) {
   const paths = cachePaths(cacheDir, target);
   const manifest = await readOrDownloadManifest(options);
   const artifact = artifactFromManifest(manifest, target);
-  const cached = artifact ? await validCachedInstall(paths, target, artifact) : null;
+  const discovery = await discoveryReport(options);
+  // `cache_hit` still means this package's own install is valid, which is a
+  // narrower question than where a launch would get its browser: a configured
+  // path wins over a perfectly good cache, and discovery stops before looking
+  // at it. Reuse the answer when discovery already computed it -- validating
+  // an install re-hashes the executable, and doing that twice per `info` is a
+  // few hundred milliseconds of nothing on a 200 MB binary.
+  const cached = discovery.found?.source === "cache"
+    ? discovery.found.executable
+    : (artifact ? await validCachedInstall(paths, target, artifact) : null);
   return {
     package_version: PACKAGE_VERSION,
     chromium_version: CHROMIUM_VERSION,
@@ -2105,10 +2413,14 @@ export async function binaryInfo(options = {}) {
     sha256: artifact?.sha256 ?? null,
     cache_dir: resolve(cacheDir),
     install_dir: paths.install,
-    executable: cached,
+    // Where a launch would get its browser right now, with no download. On a
+    // machine whose only copy is this package's own install, unchanged.
+    executable: discovery.found?.executable ?? null,
+    executable_source: discovery.found?.source ?? null,
     cache_hit: cached !== null,
     archive_retained: await isRegularFile(paths.archive),
     available: Boolean(artifact),
+    discovery,
   };
 }
 
@@ -2212,10 +2524,13 @@ export class ApostateProcess {
 // a puppeteer___-prefixed global alongside the requested name.
 export const DRIVERS = ["patchright", "playwright", "playwright-core", "puppeteer", "puppeteer-core"];
 const DRIVER_MODULES = DRIVERS;
-const DRIVER_HINT = "no Playwright-compatible or Puppeteer driver is installed. Run one of:\n"
+// Patchright is a real dependency, so reaching this hint means a partial or
+// pruned install rather than a step the user skipped -- worth saying, because
+// the old message told them to run an install they had already run.
+const DRIVER_HINT = "no Playwright-compatible or Puppeteer driver is installed. Patchright is a\n"
+  + "dependency of this package, so this is a partial install. Repair it:\n"
   + "    npm install patchright\n"
-  + "    npm install playwright-core\n"
-  + "    npm install puppeteer-core\n"
+  + "Or use an alternative: npm install playwright-core, or puppeteer-core\n"
   + "None of them needs to download a browser: Apostate supplies its own.";
 
 async function loadDriver(requested, injected) {
@@ -2331,6 +2646,20 @@ function contextOwnsBrowser(context, browser) {
   return context;
 }
 
+// The publication question, asked only while its answer can still change the
+// outcome. Publication decides whether there is anything to download; a
+// browser already on disk means there is nothing to download, so the answer
+// stops mattering and refusing the launch over it would be refusing a launch
+// that would have worked.
+async function assertPublishedOrDiscoverable(options, target) {
+  try {
+    await resolvePublishedArtifact(options, target);
+  } catch (error) {
+    if (!(error instanceof ApostateError)) throw error;
+    if (await discoverBinary(options) === null) throw error;
+  }
+}
+
 // Returns a real browser object from whichever driver is installed: a
 // Playwright `Browser` (newPage, newContext, close) or a Puppeteer `Browser`.
 // An existing Playwright or Puppeteer script works by changing only the import.
@@ -2351,9 +2680,12 @@ export async function launch(options = {}) {
   // user's bandwidth to tell them something knowable up front.
   const explicitBinary = options.executablePath ?? options.binaryPath;
   // APOSTATE_BINARY is resolved inside ensureBinary, so a configured binary
-  // by any route means there is no publication question to ask.
+  // by any route means there is no publication question to ask. Neither is
+  // there one when a browser is already installed somewhere this package
+  // knows to look: an unpublished release cannot stop a launch that needs to
+  // download nothing.
   if (!(explicitBinary ?? process.env.APOSTATE_BINARY)) {
-    await resolvePublishedArtifact(options, normalizeTarget(options.target));
+    await assertPublishedOrDiscoverable(options, normalizeTarget(options.target));
   }
   const driver = await loadDriver(options.driver, options._driverModule);
   const binary = explicitBinary ?? await ensureBinary(options);
@@ -2611,6 +2943,8 @@ export const launch_persistent_context = launchPersistentContext;
 export const launch_process = launchProcess;
 export const ensure_binary = ensureBinary;
 export const binary_info = binaryInfo;
+export const discover_binary = discoverBinary;
+export const discovery_report = discoveryReport;
 export const clear_cache = clearCache;
 export const translateOptions = toCanonicalLaunchConfig;
 export const load_catalogue = loadCatalogue;
