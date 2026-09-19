@@ -27,14 +27,18 @@ extension is installed); three are the GPU-less host (`webgpu` adapter null,
 `speech.voices` empty, two fewer hardware video codecs); one is Widevine not
 provisioned (`apostate drm`); one is the reference having two monitors.
 
-**Against live detectors.** On a GPU-less Linux server through a residential
-proxy: sannysoft 23 passed, 0 failed; iphey trustworthy; browserscan
-bot-detection every row normal; CreepJS 0% headless and 0% stealth with no
-main-thread/worker disagreement and every prototype getter native. Stock
-Chromium 153 on the same host and harness scored 33% headless with
-`hasSwiftShader: true`. The one lie CreepJS found and the one deduction
-browserscan applied were the same defect, a user agent that named the host's
-OS beside a `navigator.platform` that named the persona's; it is fixed.
+**Against live detectors.** On a GPU-less Linux server with no Windows fonts
+installed, Windows persona, through a residential proxy: browserscan 100%
+with no deduction and every bot-detection row normal; sannysoft 23 passed, 0
+failed; CreepJS 0% headless and 0% stealth, no client-side lie, no
+main-thread/worker disagreement; pixelscan's consistency comparison passes,
+where stock Chromium fails it. Stock Chromium 153 on the same host and harness
+scored 33% headless on CreepJS with `hasSwiftShader: true`. The one deduction
+left is iphey's, and it is the missing font files -- see **Fonts are yours to
+install** for the control that isolates it. The previous build's one CreepJS
+lie and browserscan's "Different operating systems" row were the same defect,
+a user agent that named the host's OS beside a `navigator.platform` that
+named the persona's, and both are gone.
 
 **Against the behaviours only a running binary shows.**
 `scripts/checks/release-smoke.mjs` asserts the user agent agrees with the
@@ -165,6 +169,18 @@ What remains a limitation, rather than a setup step, is that no amount of
 configuration substitutes for the files. A family the machine genuinely lacks
 cannot be presented, so a Windows persona on a host without Windows fonts shows
 a Windows computer with no Windows fonts.
+
+That is measured, and it is the one detector deduction the release candidate
+still carries on an unprovisioned Linux server. iphey reads a Windows persona
+there as "Detected an inconsistent browser fingerprint" and scores it 80
+rather than 100, with every hardware and software member reported as fine.
+The same binary with a Linux persona on the same host and exit scores 100,
+and the pre-fix binary -- whose user agent wrongly said Linux under a Windows
+persona -- also scored 100, because its Linux user agent happened to match
+the Linux text metrics. Fixing the user agent exposed the fonts rather than
+creating a new problem: every other member iphey reports is byte-identical
+between the two builds. Install the Windows set and this goes away; run the
+Linux persona and it never arises.
 
 All four routes a page has to ask about fonts go through one predicate, so they
 cannot disagree: `document.fonts.check()`, `measureText` and CSS width,
