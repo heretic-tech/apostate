@@ -511,6 +511,71 @@ class CompositionTests(unittest.TestCase):
         with self.assertRaises(resolver.ResolverError):
             resolver._anchor_capability_layer(record, "ANGLE (NVIDIA, fabricated RTX 5090)")
 
+    def test_webgpu_architecture_follows_the_drawn_identity(self) -> None:
+        """A 4090 persona must not report the donor's `ampere`.
+
+        The D3D11 identity pool rotates across silicon generations on one
+        anchor, because ANGLE builds the renderer string from the DXGI adapter
+        description and derives every limit from the feature level. WebGPU is
+        the one surface that does NOT follow the anchor: Dawn resolves
+        `GPUAdapterInfo.architecture` from the PCI device id, so a persona
+        claiming a 4090 while `adapter.info` says `ampere` is a contradiction
+        a page reads in two calls.
+
+        `member.webgpu_architecture` overrides exactly that one field and
+        nothing else -- vendor, features and the measured limits still come
+        from the donor, because those are what the donor measured. Composed
+        rather than computed here: the branch under test lives in the
+        resolution loop, and recomputing the rule would test the test.
+        """
+        _, tables, records = resolver._load_catalogue()
+        stated: dict[str, str | None] = {}
+        donor_of: dict[str, str] = {}
+        for option_set in tables["gpu_identity"]["option_sets"]:
+            for option in option_set["options"]:
+                block = option.get("member") or {}
+                if "webgpu_measured_on" not in block:
+                    continue
+                stated[option["id"]] = block.get("webgpu_architecture")
+                donor_of[option["id"]] = block["webgpu_measured_on"]
+        self.assertTrue(any(value for value in stated.values()),
+                        "no identity states its own architecture, so this asserts nothing")
+
+        windows = [anchor for anchor in resolver.load_catalogue()["anchors"]
+                   if anchor["platform"] == "windows"]
+        self.assertTrue(windows)
+        for anchor in windows:
+            record = records[anchor["id"]]["record"]
+            renderer_of = {
+                member.get("device"):
+                    ((member.get("identity") or {}).get("webgl1") or {}).get("unmaskedRenderer")
+                for member in record["members"]
+            }
+            covered: set[bool] = set()
+            for seed in range(400):
+                resolved = resolver.resolve_with_diagnostics(
+                    dict(BASE_CONFIG, fingerprint=f"arch-{seed}", anchor=anchor["id"]))
+                identity = resolved["diagnostics"]["axes"]["gpu_identity"]["options"][0]
+                if identity not in donor_of:
+                    continue
+                override = stated[identity]
+                if (override is not None) in covered:
+                    continue
+                covered.add(override is not None)
+                served = resolved["profile"]["webgpu"]
+                donor = resolver._anchor_capability_layer(
+                    record, renderer_of[donor_of[identity]])["webgpu"]
+                self.assertEqual(override or donor["info"]["architecture"],
+                                 served["info"]["architecture"], identity)
+                self.assertEqual(donor["info"]["vendor"], served["info"]["vendor"], identity)
+                for field in ("features", "limits"):
+                    self.assertEqual(donor.get(field), served.get(field), identity)
+                if len(covered) == 2:
+                    break
+            self.assertEqual({False, True}, covered,
+                             f"{anchor['id']} never drew both an overriding and a "
+                             "non-overriding identity")
+
     def test_a_measured_point_size_fraction_is_carried(self) -> None:
         """A float-valued GL parameter keeps its fraction; a count does not.
 

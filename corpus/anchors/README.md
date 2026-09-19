@@ -143,8 +143,8 @@ Table `resources/profiles/dispersion/gpu_identity.json`, conditioned on `anchor`
 | `linux-swiftshader-google-6922d61bab83` | 1: SwiftShader Device (Subzero) | yes | none |
 | `linux-vulkan-nvidia-adf287b8f0ee` | 11: NVIDIA GeForce RTX 3090, NVIDIA GeForce RTX 4070 Ti SUPER, NVIDIA GeForce RTX 4080 SUPER, NVIDIA RTX PRO 4000 Blackwell | **no: vulkan-nvidia-geforce-rtx-4060, vulkan-nvidia-geforce-rtx-4060-ti, vulkan-nvidia-geforce-rtx-4070, vulkan-nvidia-geforce-rtx-4070-super, vulkan-nvidia-geforce-rtx-4070-ti, vulkan-nvidia-geforce-rtx-4080, vulkan-nvidia-geforce-rtx-4090** | none |
 | `macos-metal-apple-850a91233555` | 12: Apple M4 Max | **no: metal-apple-m1, metal-apple-m1-max, metal-apple-m1-pro, metal-apple-m2, metal-apple-m2-max, metal-apple-m2-pro, metal-apple-m3, metal-apple-m3-max, metal-apple-m3-pro, metal-apple-m4, metal-apple-m4-pro** | none |
-| `windows-d3d11-intel-79dfeb5b4f99` | 6: Intel(R) UHD Graphics 630 | **no: d3d11-intel-uhd-graphics-630-3e91, d3d11-intel-uhd-graphics-630-3e92, d3d11-intel-uhd-graphics-630-3e98, d3d11-intel-uhd-graphics-630-3e9b, d3d11-intel-uhd-graphics-630-9bc5** | none |
-| `windows-d3d11-nvidia-0947761dfbe9` | 9: NVIDIA GeForce RTX 3070 Ti, NVIDIA RTX A4500 | **no: d3d11-nvidia-geforce-rtx-3060-ti, d3d11-nvidia-geforce-rtx-3070, d3d11-nvidia-geforce-rtx-3080, d3d11-nvidia-geforce-rtx-3080-ti, d3d11-nvidia-geforce-rtx-3090, d3d11-nvidia-rtx-a2000, d3d11-nvidia-rtx-a4000** | none |
+| `windows-d3d11-intel-79dfeb5b4f99` | 12: Intel(R) UHD Graphics 630 | **no: d3d11-intel-iris-xe-graphics-46a6, d3d11-intel-iris-xe-graphics-9a49, d3d11-intel-uhd-graphics-620-3ea0, d3d11-intel-uhd-graphics-620-5917, d3d11-intel-uhd-graphics-630-3e91, d3d11-intel-uhd-graphics-630-3e92, d3d11-intel-uhd-graphics-630-3e98, d3d11-intel-uhd-graphics-630-3e9b, d3d11-intel-uhd-graphics-630-9bc5, d3d11-intel-uhd-graphics-730-4682, d3d11-intel-uhd-graphics-770-4680** | none |
+| `windows-d3d11-nvidia-0947761dfbe9` | 45: NVIDIA GeForce RTX 3070 Ti, NVIDIA RTX A4500 | **no: d3d11-nvidia-geforce-gtx-1050, d3d11-nvidia-geforce-gtx-1050-ti, d3d11-nvidia-geforce-gtx-1060-3gb, d3d11-nvidia-geforce-gtx-1060-6gb, d3d11-nvidia-geforce-gtx-1070, d3d11-nvidia-geforce-gtx-1070-ti, d3d11-nvidia-geforce-gtx-1080, d3d11-nvidia-geforce-gtx-1080-ti, d3d11-nvidia-geforce-gtx-1650, d3d11-nvidia-geforce-gtx-1660, d3d11-nvidia-geforce-gtx-1660-super, d3d11-nvidia-geforce-gtx-1660-ti, d3d11-nvidia-geforce-rtx-2060, d3d11-nvidia-geforce-rtx-2060-super, d3d11-nvidia-geforce-rtx-2070, d3d11-nvidia-geforce-rtx-2070-super, d3d11-nvidia-geforce-rtx-2080, d3d11-nvidia-geforce-rtx-2080-super, d3d11-nvidia-geforce-rtx-2080-ti, d3d11-nvidia-geforce-rtx-3050, d3d11-nvidia-geforce-rtx-3060, d3d11-nvidia-geforce-rtx-3060-ti, d3d11-nvidia-geforce-rtx-3070, d3d11-nvidia-geforce-rtx-3080, d3d11-nvidia-geforce-rtx-3080-ti, d3d11-nvidia-geforce-rtx-3090, d3d11-nvidia-geforce-rtx-4060, d3d11-nvidia-geforce-rtx-4060-ti, d3d11-nvidia-geforce-rtx-4070, d3d11-nvidia-geforce-rtx-4070-super, d3d11-nvidia-geforce-rtx-4070-ti, d3d11-nvidia-geforce-rtx-4070-ti-super, d3d11-nvidia-geforce-rtx-4080, d3d11-nvidia-geforce-rtx-4080-super, d3d11-nvidia-geforce-rtx-4090, d3d11-nvidia-geforce-rtx-5060, d3d11-nvidia-geforce-rtx-5060-ti, d3d11-nvidia-geforce-rtx-5070, d3d11-nvidia-geforce-rtx-5070-ti, d3d11-nvidia-geforce-rtx-5080, d3d11-nvidia-geforce-rtx-5090, d3d11-nvidia-rtx-a2000, d3d11-nvidia-rtx-a4000** | none |
 
 **Unbacked offers:**
 
@@ -171,6 +171,12 @@ Table `resources/profiles/dispersion/gpu_identity.json`, conditioned on `anchor`
 - anchor windows-d3d11-intel-79dfeb5b4f99 offers unmeasured identity 'd3d11-intel-uhd-graphics-630-3e92'
 - anchor windows-d3d11-intel-79dfeb5b4f99 offers unmeasured identity 'd3d11-intel-uhd-graphics-630-3e91'
 - anchor windows-d3d11-intel-79dfeb5b4f99 offers unmeasured identity 'd3d11-intel-uhd-graphics-630-3e9b'
+- anchor windows-d3d11-intel-79dfeb5b4f99 offers unmeasured identity 'd3d11-intel-uhd-graphics-770-4680'
+- anchor windows-d3d11-intel-79dfeb5b4f99 offers unmeasured identity 'd3d11-intel-uhd-graphics-730-4682'
+- anchor windows-d3d11-intel-79dfeb5b4f99 offers unmeasured identity 'd3d11-intel-uhd-graphics-620-5917'
+- anchor windows-d3d11-intel-79dfeb5b4f99 offers unmeasured identity 'd3d11-intel-uhd-graphics-620-3ea0'
+- anchor windows-d3d11-intel-79dfeb5b4f99 offers unmeasured identity 'd3d11-intel-iris-xe-graphics-9a49'
+- anchor windows-d3d11-intel-79dfeb5b4f99 offers unmeasured identity 'd3d11-intel-iris-xe-graphics-46a6'
 - anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-rtx-3060-ti'
 - anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-rtx-3070'
 - anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-rtx-3080'
@@ -178,6 +184,42 @@ Table `resources/profiles/dispersion/gpu_identity.json`, conditioned on `anchor`
 - anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-rtx-3090'
 - anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-rtx-a2000'
 - anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-rtx-a4000'
+- anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-rtx-4090'
+- anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-rtx-4080-super'
+- anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-rtx-4080'
+- anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-rtx-4070-ti-super'
+- anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-rtx-4070-ti'
+- anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-rtx-4070-super'
+- anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-rtx-4070'
+- anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-rtx-4060-ti'
+- anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-rtx-4060'
+- anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-rtx-3060'
+- anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-rtx-3050'
+- anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-rtx-2080-ti'
+- anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-rtx-2080-super'
+- anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-rtx-2080'
+- anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-rtx-2070-super'
+- anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-rtx-2070'
+- anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-rtx-2060-super'
+- anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-rtx-2060'
+- anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-gtx-1660-ti'
+- anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-gtx-1660-super'
+- anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-gtx-1660'
+- anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-gtx-1650'
+- anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-gtx-1080-ti'
+- anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-gtx-1080'
+- anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-gtx-1070-ti'
+- anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-gtx-1070'
+- anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-gtx-1060-6gb'
+- anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-gtx-1060-3gb'
+- anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-gtx-1050-ti'
+- anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-gtx-1050'
+- anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-rtx-5090'
+- anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-rtx-5080'
+- anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-rtx-5070-ti'
+- anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-rtx-5070'
+- anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-rtx-5060-ti'
+- anchor windows-d3d11-nvidia-0947761dfbe9 offers unmeasured identity 'd3d11-nvidia-geforce-rtx-5060'
 
 
 ### The retired family catalogue

@@ -1727,6 +1727,18 @@ def _resolve_internal(config: Mapping[str, Any] | None = None, **overrides: Any)
             layer = _anchor_capability_layer(
                 anchor_records[anchor["id"]]["record"], identity_renderer,
             )
+            # Dawn resolves GPUAdapterInfo.architecture from the PCI device id,
+            # so it is the one borrowed adapter field that follows the claimed
+            # board rather than the donor. Everything else -- vendor, features,
+            # the measured limits -- stays the donor's, because that is what was
+            # measured. Mirrors register_identities in
+            # scripts/generate-dispersion-tables.py; the compiled table and this
+            # resolver must not disagree about what a persona reports.
+            if isinstance(block, Mapping) and block.get("webgpu_architecture") \
+                    and isinstance(layer.get("webgpu"), dict) \
+                    and isinstance(layer["webgpu"].get("info"), dict) \
+                    and "architecture" in layer["webgpu"]["info"]:
+                layer["webgpu"]["info"]["architecture"] = block["webgpu_architecture"]
             profile = _merge(profile, layer)
             chosen["anchor"] = {
                 "options": [anchor["id"]],

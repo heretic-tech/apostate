@@ -24,8 +24,20 @@
 //                is the symptom, kept as its own assertion so a regression
 //                names itself.
 //
-//   3 IDENTITY   the renderer string still matches the anchor, so a fix to
-//                the limits cannot be bought by breaking what already worked.
+//   3 IDENTITY   the renderer string is one the catalogue pairs with THIS
+//                anchor, so a fix to the limits cannot be bought by breaking
+//                what already worked. Not "is a measured member": the product
+//                rotates the identity inside an anchor on purpose -- a D3D11
+//                NVIDIA persona is any common NVIDIA board, because ANGLE's
+//                Renderer11 builds the string from the DXGI adapter
+//                description and d3d11_gl::GenerateCaps derives every limit
+//                from the feature level, never from the device id. So the
+//                servable set is the option set that
+//                resources/profiles/dispersion/gpu_identity.json keys on this
+//                anchor. A string paired with a DIFFERENT anchor is still a
+//                failure (that is the cross-anchor swap the retired family
+//                catalogue shipped), and a string paired with no anchor at
+//                all is the host showing through.
 //
 // Usage: node gl-caps-check.mjs [binaryPath] [repoRoot]
 import http from 'node:http';
@@ -54,6 +66,29 @@ const FLAGGED = [
   'MIN_PROGRAM_TEXEL_OFFSET', 'UNIFORM_BUFFER_OFFSET_ALIGNMENT',
 ];
 
+// Which renderer strings the catalogue pairs with which anchor. Read from the
+// table the binary was generated from, so widening the identity pool cannot
+// make this check fail and cannot make it stop checking either: the pairing is
+// what it asserts, not a hardcoded list.
+function catalogueIdentities() {
+  const table = JSON.parse(fs.readFileSync(
+    path.join(ROOT, 'resources/profiles/dispersion/gpu_identity.json'), 'utf8'));
+  const byAnchor = new Map();
+  for (const set of table.option_sets || []) {
+    const anchor = set.key && set.key.anchor;
+    if (!anchor) continue;
+    const renderers = new Set();
+    for (const option of set.options || []) {
+      const renderer = option.value && option.value.gpu
+        && option.value.gpu.unmasked_renderer;
+      if (renderer) renderers.add(renderer);
+    }
+    byAnchor.set(anchor, renderers);
+  }
+  return byAnchor;
+}
+const IDENTITIES = catalogueIdentities();
+
 // What each anchor measured, read from the corpus rather than hardcoded, so
 // this check cannot drift away from the data the binary was built from.
 function anchorExpectations(file) {
@@ -68,10 +103,13 @@ function anchorExpectations(file) {
     }
   }
   const members = raw.members || [];
-  const renderers = members
+  const measured = members
     .map((m) => m.identity && m.identity.webgl1 && m.identity.webgl1.unmaskedRenderer)
     .filter(Boolean);
-  return { id: raw.anchor_id, params, renderers };
+  // Every measured member is also a catalogue option, but union them anyway:
+  // an anchor with no option set would otherwise silently assert nothing.
+  const servable = new Set([...(IDENTITIES.get(raw.anchor_id) || []), ...measured]);
+  return { id: raw.anchor_id, params, measured, servable };
 }
 
 const srv = http.createServer((q, s) => {
@@ -133,8 +171,16 @@ for (const f of files) {
     const ok = JSON.stringify(expected) === JSON.stringify(actual);
     if (!ok) { bad++; rows.push(`       ${name}: anchor ${JSON.stringify(expected)} served ${JSON.stringify(actual)}`); }
   }
-  const idOk = want.renderers.length === 0 || want.renderers.includes(got.renderer);
-  if (!idOk) { bad++; rows.push(`       renderer: served ${JSON.stringify(got.renderer)}, not a measured member`); }
+  if (want.servable.size && !want.servable.has(got.renderer)) {
+    bad++;
+    const elsewhere = [...IDENTITIES].find(([, set]) => set.has(got.renderer));
+    rows.push(`       renderer: served ${JSON.stringify(got.renderer)}, `
+      + (elsewhere
+        ? `which the catalogue pairs with ${elsewhere[0]}, not this anchor`
+        : 'which the catalogue pairs with no anchor at all')
+      + ` (${want.servable.size} servable here, `
+      + `${want.measured.length} of them measured)`);
+  }
   console.log(`${bad ? 'FAIL' : ' ok '} ${want.id}`);
   for (const r of rows) console.log(r);
   failures += bad ? 1 : 0;

@@ -742,6 +742,15 @@ def register_identities(axes: list[dict], anchors: list[dict]) -> int:
     measured WebGPU adapter, `webgpu_measured_on` naming that member's device.
     Anything else is a build failure here instead of a crash at launch.
 
+    `webgpu_architecture` is the one field of the borrowed adapter that does not
+    travel with the donor. Dawn resolves `GPUAdapterInfo.architecture` from the
+    PCI device id (`third_party/dawn/src/dawn/gpu_info.json`), so an identity
+    that rotates across silicon generations on one backend anchor -- every
+    D3D11 NVIDIA board sits on the same feature-level caps, but a 4090 reports
+    `lovelace` where the measured 3070 Ti reports `ampere` -- must state its own.
+    It overrides only that one string; vendor, features and the measured limits
+    still come from the donor, because those are what the donor measured.
+
     Returns the number of identities registered.
     """
     by_id = {anchor["id"]: anchor for anchor in anchors}
@@ -838,7 +847,9 @@ def register_identities(axes: list[dict], anchors: list[dict]) -> int:
                         "non-empty string; it is what --fingerprint-explain reports as the "
                         "WebGPU source"
                     )
-                unknown = sorted(set(block) - {"label", "webgpu_measured_on"})
+                unknown = sorted(
+                    set(block) - {"label", "webgpu_measured_on", "webgpu_architecture"}
+                )
                 if unknown:
                     raise GeneratorError(
                         f"gpu_identity option {option['id']!r}: unrecognised `member` keys "
@@ -875,6 +886,33 @@ def register_identities(axes: list[dict], anchors: list[dict]) -> int:
                             "instead of claiming a cluster nothing measured"
                         )
                     webgpu = donor["webgpu"]
+
+                architecture = block.get("webgpu_architecture")
+                if architecture is not None:
+                    if not isinstance(architecture, str) or not architecture:
+                        raise GeneratorError(
+                            f"gpu_identity option {option['id']!r}: "
+                            "`member.webgpu_architecture` must be a non-empty string"
+                        )
+                    # `webgpu` is the profile fragment `{"webgpu": {...}}` that
+                    # member_webgpu built, so the adapter sits one level in.
+                    section = webgpu.get("webgpu") or {}
+                    info = dict(section.get("info") or {})
+                    if "architecture" not in info:
+                        raise GeneratorError(
+                            f"gpu_identity option {option['id']!r}: "
+                            "`member.webgpu_architecture` overrides one field of a borrowed "
+                            "adapter, and this option borrows none that reported an "
+                            "architecture. Name a donor in `member.webgpu_measured_on` that "
+                            "did, or drop the field"
+                        )
+                    info["architecture"] = architecture
+                    # Fresh dicts all the way down: `webgpu` is the donor
+                    # member's own object and every other identity registered on
+                    # that donor shares it.
+                    webgpu = {
+                        "webgpu": dict(section, info=dict(sorted(info.items())))
+                    }
 
                 anchor["members"].append(
                     {
