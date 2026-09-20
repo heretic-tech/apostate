@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import importlib
 import inspect
 import re
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Protocol, Sequence
 from urllib.parse import quote, urlsplit, urlunsplit
 
+from .config import country_locale
 from .errors import GeoIPError, GeoIPUnavailableError
 
 
@@ -67,16 +67,16 @@ def redact_proxy(proxy: str | None) -> str | None:
 
 def _provider_callable(provider: Any) -> Callable[..., Any]:
     if provider is None:
-        try:
-            module = importlib.import_module("scripts.geoip")
-        except ImportError as exc:
-            raise GeoIPUnavailableError(
-                "geoip=True requires the repository GeoIP helper or an injected geoip_provider"
-            ) from exc
-        method = getattr(module, "resolve_prelaunch_geoip", None)
-        if callable(method):
-            return method
-        provider = module
+        # The default provider ships inside this package. It used to be
+        # imported as ``scripts.geoip``, which is in the repository and not in
+        # the wheel, so every installed package answered ``geoip=True`` with
+        # "requires the repository GeoIP helper" -- naming something the user
+        # could not obtain. Imported here rather than at module scope because
+        # it pulls in ssl and http.client for the SOCKS5 transport, which a
+        # launch that passes ``geoip=False`` should not pay for.
+        from . import _prelaunch_geoip
+
+        return _prelaunch_geoip.resolve_prelaunch_geoip
     if callable(provider):
         return provider
     for name in ("lookup", "resolve_prelaunch_geoip", "lookup_exit_ip", "resolve_geoip", "resolve"):
@@ -115,23 +115,11 @@ def _first(mapping: Mapping[str, Any], *names: str) -> Any:
     return None
 
 
-#: Apostate-owned country -> locale policy, mirroring ``scripts/geoip.py``'s
-#: ``_COUNTRY_LOCALES`` and the npm package's ``GEOIP_COUNTRY_LOCALES`` so one
-#: provider payload resolves to one locale everywhere. A country the table does
-#: not name stays unresolved: ``en-<COUNTRY>`` for an unnamed country invents a
-#: language rather than deriving one, and an unresolved field is the honest
-#: answer.
-_COUNTRY_LOCALES = {
-    "AR": "es-AR", "AT": "de-AT", "AU": "en-AU", "BE": "nl-BE", "BR": "pt-BR",
-    "CA": "en-CA", "CH": "de-CH", "CL": "es-CL", "CN": "zh-CN", "CO": "es-CO",
-    "CZ": "cs-CZ", "DE": "de-DE", "DK": "da-DK", "ES": "es-ES", "FI": "fi-FI",
-    "FR": "fr-FR", "GB": "en-GB", "GR": "el-GR", "HK": "zh-HK", "HU": "hu-HU",
-    "IE": "en-IE", "IL": "he-IL", "IN": "en-IN", "IT": "it-IT", "JP": "ja-JP",
-    "KR": "ko-KR", "MX": "es-MX", "NL": "nl-NL", "NO": "nb-NO", "NZ": "en-NZ",
-    "PL": "pl-PL", "PT": "pt-PT", "RO": "ro-RO", "RU": "ru-RU", "SA": "ar-SA",
-    "SE": "sv-SE", "SG": "en-SG", "TH": "th-TH", "TR": "tr-TR", "TW": "zh-TW",
-    "UA": "uk-UA", "US": "en-US", "VE": "es-VE", "VN": "vi-VN", "ZA": "en-ZA",
-}
+#: Country -> locale comes from ``config/country-locales.json``, shipped as
+#: package data and shared byte-for-byte with the npm package, so one provider
+#: payload resolves to one locale everywhere. It used to be a 45-country table
+#: written out here and copied into two other files; a Malaysian exit matched
+#: none of them.
 
 _TIMEZONE_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9._+-]*(?:/[A-Za-z0-9._+-]+)+$")
 
@@ -143,7 +131,7 @@ def _provider_timezone(value: Any) -> str | None:
     (``{"id": "Europe/Berlin"}``), and a bare UTC offset (``"+02:00"``, which
     freeipapi returns). Only an identifier is usable, so anything else is
     unresolved rather than patched up into something that looks like one. This
-    mirrors ``scripts/geoip.py``'s ``_valid_provider_timezone``.
+    mirrors ``_prelaunch_geoip``'s ``_valid_provider_timezone``.
     """
 
     if isinstance(value, Mapping):
@@ -175,7 +163,7 @@ def normalize_result(value: Any) -> GeoIPResult:
         languages = tuple(str(part) for part in languages if part)
     else:
         languages = ()
-    # A two-letter code or nothing, as scripts/geoip.py's _country_code does: a
+    # A two-letter code or nothing, as _prelaunch_geoip's _country_code does: a
     # provider that answers "Germany" under `country` has given a name rather
     # than a code, and a name maps to nothing.
     country = _first(value, "country_code", "countryCode", "country")
@@ -183,7 +171,7 @@ def normalize_result(value: Any) -> GeoIPResult:
     if country is not None and not re.fullmatch(r"[A-Z]{2}", country):
         country = None
     if not isinstance(locale, str) and not languages and country:
-        locale = _COUNTRY_LOCALES.get(country)
+        locale = country_locale(country)
     provider_name = value.get("provider") if isinstance(value.get("provider"), str) else None
     version = value.get("provider_version") if isinstance(value.get("provider_version"), str) else None
     return GeoIPResult(

@@ -950,12 +950,14 @@ def _accept_languages_for(locale: str) -> str:
 def _geoip_fields(value: Any) -> tuple[str | None, str | None]:
     """The locale and timezone one GeoIP result contributed, or None each.
 
-    The shape is `scripts/geoip.py`'s `GeoIPResult.to_dict()` and the mapping
+    The shape is `apostate._prelaunch_geoip`'s `GeoIPResult.to_dict()` -- also
+    reachable as `scripts/geoip.py`, which re-exports it -- and the mapping
     `python/apostate/resolver.py` already accepts, so one lookup feeds both
     implementations. A field the lookup did not resolve is absent rather than
-    guessed: `_COUNTRY_LOCALES` deliberately names no locale for a country it
-    has no policy for, and the standing decision on a failed or partial lookup
-    is to proceed with no override, warn, and invent nothing.
+    guessed: a locale is inferred from the exit country through
+    `config/country-locales.json`, so a result with no country carries no
+    locale, and the standing decision on a failed or partial lookup is to
+    proceed with no override, warn, and invent nothing.
     """
     if not isinstance(value, Mapping):
         return None, None
