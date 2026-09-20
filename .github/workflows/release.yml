@@ -177,6 +177,17 @@ jobs:
       ref: ${{ needs.release-gate.outputs.tag }}
       artifact_prefix: release
       retention_days: 7
+    # The macOS leg signs and notarizes with these; the other three targets
+    # ignore them. Named rather than `inherit` so the reusable workflow is
+    # handed exactly the six it declares. A repository that has not set them
+    # yet passes empty strings and still gets an unsigned macOS archive.
+    secrets:
+      APPLE_DEVELOPER_ID_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}
+      APPLE_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_NOTARY_KEY_P8_BASE64: ${{ secrets.APPLE_NOTARY_KEY_P8_BASE64 }}
+      APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+      APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
 
   publish:
     name: verify all artifacts and publish release

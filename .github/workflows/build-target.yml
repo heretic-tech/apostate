@@ -33,6 +33,30 @@ on:
         required: false
         type: number
         default: 14
+    # Optional, and named rather than inherited: `secrets: inherit` would hand
+    # this job every secret the repository holds, including ones that have
+    # nothing to do with a build. A caller that omits them -- a fork, or a
+    # nightly before the certificate exists -- passes empty strings, and
+    # scripts/sign-macos.sh then leaves the bundle unsigned instead of failing.
+    secrets:
+      APPLE_DEVELOPER_ID_P12_BASE64:
+        description: "Base64 of the Developer ID Application certificate and private key, exported as .p12"
+        required: false
+      APPLE_DEVELOPER_ID_P12_PASSWORD:
+        description: "Export password for that .p12"
+        required: false
+      APPLE_SIGNING_IDENTITY:
+        description: "Certificate common name, e.g. Developer ID Application: Example Inc (AB12CD34EF)"
+        required: false
+      APPLE_NOTARY_KEY_P8_BASE64:
+        description: "Base64 of the App Store Connect API key .p8 used by notarytool"
+        required: false
+      APPLE_NOTARY_KEY_ID:
+        description: "Key ID of that API key"
+        required: false
+      APPLE_NOTARY_ISSUER_ID:
+        description: "Issuer ID of the App Store Connect API key"
+        required: false
 
 # id-token and attestations are what replace a release signing key: the
 # attestation is signed by a Sigstore-minted keypair that exists only for this
@@ -123,7 +147,7 @@ jobs:
             scripts/verify-runner.sh \
             scripts/bootstrap.sh scripts/fetch-sources.sh scripts/apply-patches.sh \
             scripts/run-chromium-hooks.sh scripts/configure.sh scripts/build.sh \
-            scripts/smoke-binary.sh scripts/package-artifact.sh \
+            scripts/smoke-binary.sh scripts/package-artifact.sh scripts/sign-macos.sh \
             scripts/validate-release-baseline.py scripts/test_profile_resolver.py \
             build/CHROMIUM_VERSION build/DEPOT_TOOLS_REVISION build/args/common.gni \
             "build/args/$APOSTATE_TARGET.gn" patches/series LICENSE \
@@ -189,6 +213,26 @@ jobs:
           # patch set it was given rather than an earlier one.
           python3 scripts/validate-release-baseline.py --root . --release
           bash scripts/smoke-binary.sh "$APOSTATE_TARGET"
+      # After the smoke check and before packaging. The smoke check runs the
+      # binary the build produced, so it has to see the unsigned tree in out/;
+      # packaging is the step that decides which tree ships, and it can only
+      # choose the signed one once it exists. Signing writes to
+      # $APOSTATE_WORKSPACE/signed/macos-arm64 and never touches out/, so
+      # build/MANIFEST.lock still describes what ninja built.
+      #
+      # Without the six secrets the script prints one line and exits 0, which
+      # is what keeps nightlies and forks building.
+      - name: Sign and notarize (macOS)
+        if: ${{ inputs.target == 'macos-arm64' }}
+        shell: bash
+        env:
+          APPLE_DEVELOPER_ID_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}
+          APPLE_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_NOTARY_KEY_P8_BASE64: ${{ secrets.APPLE_NOTARY_KEY_P8_BASE64 }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: bash scripts/sign-macos.sh "$APOSTATE_TARGET"
       - name: Package artifact and manifest
         shell: bash
         run: bash scripts/package-artifact.sh "$APOSTATE_TARGET" "$ARCHIVE"

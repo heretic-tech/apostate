@@ -73,18 +73,21 @@ found where it sits. Or skip placement and name it: `binary_path` and
 `APOSTATE_BINARY` each accept the executable, a macOS `.app` bundle, or the
 extracted directory.
 
-**macOS: "Chromium is damaged and can't be opened."** It is not damaged.
-Gatekeeper marked the archive when a browser downloaded it, and an unsigned
-bundle carrying that quarantine attribute is reported as damaged rather than
-as unsigned. Clear it on what you extracted:
+**macOS: "Chromium is damaged and can't be opened."** Releases from v0.2.0
+are signed with a Developer ID certificate, notarized by Apple and stapled,
+so they open on a double-click however you obtained them. If you see this on
+an earlier release, it is not damaged: Gatekeeper marked the archive when a
+browser downloaded it, and an unsigned bundle carrying that quarantine
+attribute is reported as damaged rather than as unsigned. Clear it on what
+you extracted:
 
 ```sh
 xattr -dr com.apple.quarantine ~/Applications/apostate-152.0.7977.83-macos-arm64
 ```
 
-`apostate install` never needs this. It fetches the archive itself and sets
-no quarantine attribute, so only a copy you downloaded through a browser is
-affected.
+`apostate install` never needs this, on any release. It fetches the archive
+itself and sets no quarantine attribute, so only a copy you downloaded
+through a browser was ever affected.
 
 **A stock Chrome or Chromium is never adopted.** The executable is named
 `chrome` and the bundle `Chromium.app` exactly as upstream names them, and

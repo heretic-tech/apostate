@@ -29,6 +29,38 @@ Linux arm64 is a cross-build on the x64 runner inside the pinned
 Visual Studio and Windows SDK.
 See [Build contract](BUILD.md) for runner mappings and toolchain requirements.
 
+The macOS archive is Developer ID signed, notarized and stapled from v0.2.0
+onward. The signed bundle is not the bundle whose hashes
+`build/MANIFEST.lock` records: signing runs after the build, writes to a
+separate tree, and adds a signature carrying a timestamp and a certificate,
+which is the one part of a release that cannot be reproducible. Everything
+else is byte-identical to the reproducible build output, and the archive's
+`sha256` in the release manifest is computed over the signed archive, so the
+digest a user checks is the digest of what they downloaded. The three other
+platforms carry no platform signature.
+
+To verify a macOS release:
+
+```sh
+codesign -dv --verbose=4 Chromium.app
+spctl -a -t exec -vv Chromium.app
+xcrun stapler validate Chromium.app
+```
+
+`codesign` reports the authority chain, the team identifier and the hardened
+runtime flag; `spctl` answers `accepted` with `source=Notarized Developer
+ID`; `stapler` confirms the notarization ticket travels with the bundle, so
+a first launch works with no network. Provenance is a separate claim with a
+separate check — see [Verify a download](#verify-a-download).
+
+The six `APPLE_*` repository secrets that make this happen, and how to
+create the certificate and the notary key, are documented under
+[Signing the macOS bundle](BUILD.md#signing-the-macos-bundle). A release
+built without them still succeeds and produces an unsigned macOS archive;
+check the `Sign and notarize (macOS)` step in the build log, which says
+`no signing identity configured` when that happened, and the packaging step,
+which names the tree it staged from.
+
 ## Cut a release
 
 For a source revision that satisfies the release gate:

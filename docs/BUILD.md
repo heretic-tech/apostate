@@ -81,6 +81,7 @@ The build scripts share workspace and tool paths through `scripts/lib.sh`.
 | `scripts/series-absences.tsv` | Declared absences: the files a target legitimately builds no object from, with the GN condition as evidence |
 | `scripts/series-symbol-closure.py` | Prove the symbol closure of every library a patch adds GN sources to |
 | `scripts/verify-reproducible.sh` | Compare clean-build output hashes |
+| `scripts/sign-macos.sh` | Developer ID sign, notarize and staple the macOS bundle into a tree beside the build output |
 
 On Linux, `scripts/fetch-sources.sh` treats a failed Chromium build-dependency
 installation as fatal. A missing dependency otherwise tends to surface much
@@ -164,6 +165,127 @@ required SDK from <https://developer.apple.com/download/all/>. A deliberate
 SDK update changes both pin files and requires an LLD compatibility check,
 reproducibility verification and new reference measurements.
 
+### Signing the macOS bundle
+
+`scripts/sign-macos.sh macos-arm64` signs `Chromium.app` with a Developer ID
+Application certificate, submits it to Apple's notary service, staples the
+resulting tickets, and verifies the result. Only macOS is signed; the Linux
+and Windows archives carry no platform signature and none is expected of
+them.
+
+It writes to `$APOSTATE_WORKSPACE/signed/macos-arm64/` and never into
+`out/`. That separation is a requirement, not tidiness. `build/MANIFEST.lock`
+records a SHA-256 over `out/macos-arm64/Chromium.app`, and
+`scripts/verify-reproducible.sh` proves the build by comparing those digests
+across two clean builds. A code signature contains a signing timestamp and a
+certificate, so it is not reproducible by construction: signing in place
+would make every reproducibility comparison fail for a reason that has
+nothing to do with the build. The out directory stays exactly as ninja left
+it, and the signed tree is a derived artifact beside it.
+
+`scripts/build.sh` builds `chrome/installer/mac` alongside `chrome` on
+macos-arm64. That group copies Chromium's own signing driver
+(`sign_chrome.py`, the `signing` package, the generated
+`build_props_config.py`) and the three entitlements plists into
+`out/macos-arm64/Chromium Packaging/`, and builds `dmg_tool` and `hfs_tool`.
+It is 61 edges and takes seconds. The packaging directory is not in the
+manifest's `[outputs]` list, which enumerates `Chromium.app` and
+`chrome_crashpad_handler` by name for this target, so it does not enter the
+reproducibility hash set — correctly, since none of it reaches the shipped
+payload.
+
+What gets signed is the whole bundle: the outer app, the framework, every
+helper app and every nested executable, each with the entitlements Chromium's
+own configuration assigns it, under the hardened runtime. After notarization
+the script staples a ticket to the outer app and to every nested `.app` and
+`.xpc`, deepest first, which is what Chromium's `staple_bundled_parts` does —
+a helper left unstapled fails to launch on a machine that is offline the
+first time the bundle runs.
+
+`scripts/package-artifact.sh` then stages from the signed tree when it
+exists and from `out/` when it does not, and says which in the job log.
+
+#### The six secrets
+
+| Secret | Value |
+| --- | --- |
+| `APPLE_DEVELOPER_ID_P12_BASE64` | Base64 of the Developer ID Application certificate and its private key, exported as a `.p12` |
+| `APPLE_DEVELOPER_ID_P12_PASSWORD` | The export password for that `.p12` |
+| `APPLE_SIGNING_IDENTITY` | The certificate's common name, e.g. `Developer ID Application: Example Inc (AB12CD34EF)` |
+| `APPLE_NOTARY_KEY_P8_BASE64` | Base64 of the App Store Connect API key `.p8` |
+| `APPLE_NOTARY_KEY_ID` | That key's Key ID |
+| `APPLE_NOTARY_ISSUER_ID` | The issuer UUID of the App Store Connect API key |
+
+All six or none. With none, the script prints `sign-macos: no signing
+identity configured; the bundle stays unsigned` and exits zero, so nightlies
+and forks keep building. With some but not all it fails and names the missing
+ones, because a release that quietly shipped unsigned is the failure this
+script exists to prevent.
+
+Creating the certificate. In Xcode, Settings → Accounts → Manage
+Certificates → + → Developer ID Application, or create it at
+<https://developer.apple.com/account/resources/certificates>. It has to be a
+**Developer ID Application** certificate; Apple Development and Mac App
+Distribution certificates do not produce a bundle Gatekeeper accepts outside
+the App Store. Export it from Keychain Access together with its private key
+as a `.p12` with an export password, then
+`base64 -i DeveloperID.p12 | tr -d '\n'` for the secret value.
+`security find-identity -v -p codesigning` prints the common name to use for
+`APPLE_SIGNING_IDENTITY`.
+
+Creating the notary key. At
+<https://appstoreconnect.apple.com/access/integrations/api>, Team Keys, add a
+key with the **Developer** role — `notarytool` is refused by anything less.
+Download the `.p8` once (Apple does not offer it again), and note the Key ID
+beside it and the Issuer ID above the table.
+`base64 -i AuthKey_XXXX.p8 | tr -d '\n'` for the secret value.
+
+Set all six as repository secrets. `.github/workflows/build-target.yml`
+declares them as optional `workflow_call` secrets and both callers pass them
+by name rather than with `secrets: inherit`, so the build job receives these
+six and nothing else.
+
+#### How the script handles them
+
+The certificate is imported into a keychain created for the run under
+`mktemp -d`, added to the front of the user search list, and deleted on exit
+along with the decoded `.p12` and `.p8`; the search list is restored to what
+it was. The trap covers failures and interrupts, so a failed job leaves no
+key material and no keychain behind. The `.p8` is written with mode 0600.
+Nothing decoded is ever printed.
+
+Notarization waits for Apple's answer with a 30-minute ceiling
+(`APOSTATE_NOTARY_TIMEOUT`). The service usually answers in two to five
+minutes; the ceiling is long enough to absorb a queue backlog and short
+enough that a wedged submission fails the job instead of holding a paid macOS
+runner for hours. When the service rejects the bundle the script prints
+`notarytool log` for the submission, because the status alone never says
+which binary failed.
+
+Two deviations from Chromium's driver, both forced:
+
+- The driver is invoked through a small in-script wrapper that turns off
+  `run_spctl_assess`. Chromium's `signing/parts.py` runs `spctl --assess`
+  immediately after signing and before any notarization, and a Developer ID
+  signature that has not been notarized yet is always rejected there with
+  `source=Unnotarized Developer ID`, so the unmodified driver cannot complete
+  a Developer ID run. The assessment is not dropped: the script runs
+  `spctl -a -t exec -vv` after stapling, which is the only point at which the
+  answer means anything. `--development` would also disable it, but it strips
+  the designated requirements and injects `get-task-allow`, which the notary
+  service rejects.
+- The driver's own `--notarize` is not used. With it, `pipeline.py` puts the
+  signed bundle in a temporary work directory that is deleted on exit, and
+  copies to `--output` only when a distribution is packaged as a dmg, pkg or
+  zip. Chromium branding has one distribution and packages as none of them,
+  so `--notarize` combined with `--disable-packaging` produces no artifact at
+  all. The script therefore lets the driver sign, and drives
+  `notarytool submit --wait` and `stapler staple` itself.
+
+Verification before the script exits: `codesign --verify --deep --strict`,
+`spctl -a -t exec -vv`, and `xcrun stapler validate`. Any of the three
+failing fails the build.
+
 ## Build manifest
 
 `scripts/build.sh` writes `build/MANIFEST.lock` after a successful build. It
@@ -230,8 +352,15 @@ workspace has no recorded fresh build for that target. Both CI paths record
 initializes the workspace, checks host tooling, checks out the requested
 revision, verifies build inputs and runner identity, resolves the artifact
 name, bootstraps, fetches, applies patches, runs Linux hooks and sysroot
-installation, configures, builds, checks, packages, optionally attests and
-uploads.
+installation, configures, builds, checks, signs and notarizes on macOS,
+packages, optionally attests and uploads.
+
+The signing step sits between the smoke check and packaging, and runs only
+for `macos-arm64`. The smoke check has to see the tree ninja produced, and
+packaging is the step that chooses which tree ships. It takes the six
+`APPLE_*` secrets described under
+[Signing the macOS bundle](#signing-the-macos-bundle); both callers pass
+them by name, and a caller without them still produces an unsigned bundle.
 
 The host-tooling check runs immediately after the repository checkout and
 before bootstrap, so it can read the pins in `build/` but not the Chromium
@@ -262,6 +391,7 @@ The two callers are `.github/workflows/build-nightly.yml` and
 | Actions artifact retention | 14 days | 7 days |
 | Matrix `max-parallel` | `1` | `1` |
 | Matrix `fail-fast` | `false` | `true` |
+| macOS signing secrets | Passed | Passed |
 | Additional jobs | Resolve targets | Version-tag and baseline gate, target resolution, publication |
 
 Each build job has a 600-minute timeout. Blacksmith runners register as

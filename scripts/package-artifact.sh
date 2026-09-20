@@ -98,14 +98,33 @@ esac
 stage="$archive_dir/$stage_name"
 
 OUT="$SRC/out/$TARGET"
+
+# Where the payload is copied FROM. Normally the build output; on macOS the
+# Developer ID signed, notarized and stapled tree when scripts/sign-macos.sh
+# produced one. Signing writes outside out/ so the reproducibility hashes in
+# build/MANIFEST.lock keep describing what ninja built, which means the
+# shipped bundle and the hashed bundle live in different directories and
+# packaging is the step that has to choose. Same path as sign-macos.sh.
+# Announced either way: "was this release signed" must be answerable from the
+# job log alone.
+PAYLOAD="$OUT"
+if [ "$TARGET" = macos-arm64 ]; then
+  signed="${APOSTATE_SIGNED_ROOT:-$WORKSPACE/signed}/$TARGET"
+  if [ -d "$signed/Chromium.app" ]; then
+    PAYLOAD="$signed"
+    say "staging the signed and notarized bundle from $signed"
+  else
+    say "staging the unsigned bundle from $OUT (no signed tree at $signed)"
+  fi
+fi
 rm -rf "$stage" "$ARCHIVE" "$ARCHIVE.manifest.json" "$ARCHIVE.sig"
 mkdir -p "$stage"
 
 stage_entry() {
-  local relative="$1" kind="$2" from="$OUT/$1" to
+  local relative="$1" kind="$2" from="$PAYLOAD/$1" to
   if [ ! -e "$from" ]; then
     if [ "$kind" = required ]; then
-      die "missing required payload file for $TARGET: out/$TARGET/$relative (in $OUT)"
+      die "missing required payload file for $TARGET: $relative (in $PAYLOAD)"
     fi
     return 0
   fi

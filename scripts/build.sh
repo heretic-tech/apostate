@@ -20,8 +20,24 @@ JOBS="${APOSTATE_JOBS:-$(python3 -c "import os;print(max(1,int(os.cpu_count()*0.
 
 [ -x "$NINJA" ] || die "no ninja at $NINJA; the checkout is incomplete"
 
+# chrome/installer/mac carries the signing driver: the group copies
+# sign_chrome.py, the signing package, the generated build_props_config.py and
+# the three entitlements plists into "$OUT/Chromium Packaging/", and builds
+# dmg_tool and hfs_tool. 61 edges, seconds, and without it
+# scripts/sign-macos.sh has nothing to run. It is not added to [outputs]
+# below: that list is an explicit per-target enumeration, macos-arm64 names
+# Chromium.app and chrome_crashpad_handler only, and the packaging directory
+# is therefore already outside the reproducibility hash set. It has to stay
+# outside it -- these are copies of checked-in scripts and two host tools that
+# never reach the shipped payload, so hashing them would widen the
+# reproducibility claim to files the artifact does not contain.
+ninja_targets=(chrome)
+if [ "$TARGET" = macos-arm64 ]; then
+  ninja_targets+=(chrome/installer/mac)
+fi
+
 say "building $TARGET with $JOBS jobs"
-( cd "$SRC" && nice -n 10 "$NINJA" -j "$JOBS" -C "out/$TARGET" chrome )
+( cd "$SRC" && nice -n 10 "$NINJA" -j "$JOBS" -C "out/$TARGET" "${ninja_targets[@]}" )
 
 manifest="$REPO_ROOT/build/MANIFEST.lock"
 lineage="$WORKSPACE/.apostate-build-lineage.jsonl"
