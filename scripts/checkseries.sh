@@ -474,7 +474,8 @@ if [ "$MODE" != "list" ]; then
     [ -n "$archive" ] || continue
     closure_archives+=("$archive")
     objects+=("$archive")
-  done < <(python3 "$CLOSURE_TOOL" plan --root "$REPO_ROOT" --source-index "$SOURCE_INDEX")
+  done < <(python3 "$CLOSURE_TOOL" plan --root "$REPO_ROOT" --source-index "$SOURCE_INDEX" \
+             --out "$OUT" --ninja "$NINJA")
   [ "${#closure_archives[@]}" -eq 0 ] ||
     say "phase 1e: ${#closure_archives[@]} library archive(s) join the build for symbol closure"
 fi
@@ -586,6 +587,7 @@ if [ "${#closure_archives[@]}" -gt 0 ]; then
     --root "$REPO_ROOT" \
     --source-index "$SOURCE_INDEX" \
     --out "$OUT" \
+    --ninja "$NINJA" \
     --nm "$NM_BIN" || closure_status=$?
 fi
 

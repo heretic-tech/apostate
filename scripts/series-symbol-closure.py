@@ -217,6 +217,30 @@ def affected_libraries(added, index):
     return libraries, skipped
 
 
+def drop_unarchived(libraries, ninja, out):
+    """-> [(key, archive)] removed because ninja knows no archive for the target.
+
+    The object path names the target but not its kind. A static_library
+    stops at alink and leaves an archive nm can read; an executable or a
+    source_set produces the same objects and no archive, and its symbols are
+    resolved by the link that consumes them, which the full build proves and
+    this gate does not. Asking ninja whether the archive is a target it can
+    plan is the only way to tell the two apart without GN, and a name ninja
+    cannot plan would otherwise stop the whole compile with "unknown target"
+    (which is exactly what patch 0063's angle_test executable did to the
+    Linux gate).
+    """
+    dropped = []
+    for key in sorted(libraries):
+        archive = libraries[key]["archive"]
+        known = subprocess.run([ninja, "-C", out, "-t", "query", archive],
+                               capture_output=True, text=True).returncode == 0
+        if not known:
+            dropped.append((key, archive))
+            del libraries[key]
+    return dropped
+
+
 def read_symbols(nm, archive, out):
     """-> ({member: defined}, {member: undefined}) for one archive.
 
@@ -403,8 +427,10 @@ def main(argv):
         p = sub.add_parser(name)
         p.add_argument("--root", required=True, help="repository root holding patches/")
         p.add_argument("--source-index", required=True, help="source<TAB>objects from ninja -t compdb")
+        p.add_argument("--out", required=(name == "check"), help="build directory")
+        p.add_argument("--ninja", help="ninja binary; with --out, drops targets that "
+                                       "link directly and leave no archive")
         if name == "check":
-            p.add_argument("--out", required=True, help="build directory")
             p.add_argument("--nm", default="llvm-nm", help="nm binary")
             p.add_argument("--verbose", action="store_true",
                            help="also print every added source with no library here")
@@ -418,6 +444,9 @@ def main(argv):
     added = gn_source_additions(root)
     index = parse_source_index(args.source_index)
     libraries, skipped = affected_libraries(added, index)
+    unarchived = []
+    if args.ninja and args.out:
+        unarchived = drop_unarchived(libraries, args.ninja, args.out)
 
     if args.command == "plan":
         if hasattr(sys.stdout, "reconfigure"):
@@ -428,13 +457,20 @@ def main(argv):
               f"{len(libraries)} library/libraries affected on this platform, "
               f"{len(skipped)} source(s) not in this platform's build graph",
               file=sys.stderr)
+        for key, archive in unarchived:
+            print(f"  no archive for {key}: the target links directly (executable or "
+                  f"source_set), so its symbol closure is the link's and {archive} "
+                  f"is not a ninja target", file=sys.stderr)
         return 0
 
     if args.library:
         libraries = {k: v for k, v in libraries.items() if k in set(args.library)}
     print(f"==> symbol closure: {len(added)} GN-added source(s), "
           f"{len(libraries)} affected library/libraries, "
-          f"{len(skipped)} not in this platform's graph")
+          f"{len(skipped)} not in this platform's graph, "
+          f"{len(unarchived)} target(s) with no archive")
+    for key, archive in unarchived:
+        print(f"  {key}: links directly, no archive; closure is the link's")
     findings, rows = closure(libraries, args.nm, args.out, tuple(args.omit))
     for row in rows:
         print(f"  {row['library']}")
