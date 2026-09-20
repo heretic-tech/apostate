@@ -146,10 +146,17 @@ page-visible.
 
 ### What the host still decides
 
-One thing, and it is the subject of **Software rendering is measurable** below:
-the rasteriser that actually draws. A claimed GPU's throughput and its rendered
-bytes come from the host's backend, not from the claim, and no selection change
-touches that.
+Two things. The first is the subject of **Software rendering is measurable**
+below: the rasteriser that actually draws. A claimed GPU's throughput and its
+rendered bytes come from the host's backend, not from the claim, and no
+selection change touches that.
+
+The second is what happens when a page stops reading a limit and starts using
+it. The numbers are the anchor's on every backend, but the operation behind
+one is the host's, so a draw, a shader link or an allocation taken to a claim
+the host cannot meet is refused by the host. **A limit served to WebGL is
+readable everywhere and usable only where the host can**, below, has the
+per-limit measurements.
 
 ## Fonts are yours to install
 
@@ -422,42 +429,69 @@ because it reports what it can do.
 reported `FRAMEBUFFER_UNSUPPORTED` at 8192 as well as above it, so it does not
 discriminate and no number for it belongs here.
 
-### A Windows persona on a Metal host reports the host's limits
+### A limit served to WebGL is readable everywhere and usable only where the host can
 
-On a macOS host every WebGL limit the release check covers is the host's,
-under whichever anchor was drawn. Measured on the shipped v0.1.0 macOS
-artifact on an Apple M4 Max by `scripts/checks/gl-caps-check.mjs`: with a
-Windows NVIDIA anchor the renderer string is the anchor's, and
-`ALIASED_POINT_SIZE_RANGE`, `ALIASED_LINE_WIDTH_RANGE`, `MAX_VIEWPORT_DIMS`,
-`MAX_VERTEX_UNIFORM_VECTORS`, `MAX_VERTEX_UNIFORM_COMPONENTS`, `MAX_SAMPLES`
-and `UNIFORM_BUFFER_OFFSET_ALIGNMENT` are all the Apple GPU's -- 511,
-16384, 1024, 4096, 4, 16 -- where the anchor measured 1024, 32767, 4095,
-16380, 8, 256. The same check passes for every anchor on the Linux artifact,
-so the limit-serving path works and the Metal backend bypasses it. Only the
-viewport row below has been attributed, to Metal enforcing what it reports;
-the other six are a defect in the shipped binary, to be fixed in the next
-binary release, and until then a cross-OS persona on a Mac is a renderer
-string over Apple's capability table. The macOS persona on a Mac is coherent
-because its anchor was measured on Apple silicon.
+Until v0.2.0 a macOS host served every WebGL limit from its own Apple GPU, no
+matter which anchor was drawn. Measured on the shipped v0.1.0 macOS artifact on
+an Apple M4 Max by `scripts/checks/gl-caps-check.mjs`: with a Windows NVIDIA
+anchor the renderer string was the anchor's while
+`ALIASED_POINT_SIZE_RANGE`, `MAX_VIEWPORT_DIMS`, `MAX_VERTEX_UNIFORM_VECTORS`,
+`MAX_VERTEX_UNIFORM_COMPONENTS`, `MAX_SAMPLES` and
+`UNIFORM_BUFFER_OFFSET_ALIGNMENT` were all the Apple GPU's -- 511, 16384, 1024,
+4096, 4, 16 -- where the anchor measured 1024, 32767, 4095, 16380, 8, 256. A
+claimed GeForce beside an Apple capability table is a contradiction a page
+reads in one `getParameter` call and no GL work at all.
 
-**The viewport row.** `MAX_VIEWPORT_DIMS` shows no residual on a software
-backend: SwiftShader reports 32767 by 32767, which is what the Windows
-anchors measured, and a viewport at 32767 raises no error. On ANGLE/Metal it
-is different, and this is the one place where an honest number is served in
-preference to the anchor's by design.
+Patch `0119` closes it. The numeric limits are served as composed to WebGL on
+every backend, Metal included. What is left is the opposite residual, and it is
+the one this page exists for: the numbers are now the anchor's, and on a
+backend that enforces them an *operation* taken to the claim can still be
+refused by the host. Every row below is falsifiable by a page willing to do the
+work, none of them needs a large allocation, and all of them are cheaper for us
+than the lookup they replace.
 
-The Windows D3D11 anchors measure 32767 by 32767, which Direct3D shader model
-5 mandates. An Apple GPU reports 16384. Metal enforces what it reports, so the
-limit is served at the host's 16384 and a Windows persona on a Mac reports a
-viewport maximum no Direct3D device has. That is a readable contradiction and
-it is not being hidden.
+Measured on an Apple M4 Max under the Windows NVIDIA anchor, which is the
+widest gap the catalogue can produce on that host:
 
-Serving the anchor's 32767 there was considered and rejected on measurement,
-not on principle. `glViewport` is specified to clamp rather than fail, so the
-obvious objection — that an over-claim breaks on first use — does not apply,
-and the exemption looked free. It is not. Measured through the shipped
-152.0.7977.83 macOS artifact on an Apple M4 Max, on both the WebGL1 and WebGL2
-paths:
+| Limit | Served to WebGL | ANGLE/Metal host | What a page can still see |
+| --- | --- | --- | --- |
+| `ALIASED_POINT_SIZE_RANGE` | `[1, 1024]` | `[1, 511]` | A point drawn with `gl_PointSize` above 511 has a 511-pixel footprint. One draw and one `readPixels`. |
+| `MAX_VIEWPORT_DIMS` | `[32767, 32767]` | `[16384, 16384]` | `viewport()` at the claim reads back clamped. Two calls, no draw — the table below. |
+| `MAX_VERTEX_UNIFORM_VECTORS` | `4095` | `1024` | A vertex shader declaring uniforms at the claim fails to compile or link, with the driver's own info log. One compile. |
+| `MAX_VERTEX_UNIFORM_COMPONENTS` | `16380` | `4096` | Same probe, same failure. The two are one limit expressed twice. |
+| `MAX_SAMPLES` | `8` | `4` | `renderbufferStorageMultisample` at 8 samples returns `GL_INVALID_OPERATION`. One small renderbuffer. |
+| `UNIFORM_BUFFER_OFFSET_ALIGNMENT` | `256` | `16` | `bindBufferRange` at offset 16 succeeds under the default passthrough decoder, where ANGLE validates against its own caps. Under `--use-cmd-decoder=validating` the served 256 is enforced instead, and offset 16 is rejected exactly as a real 256-byte-aligned device rejects it. |
+
+The alignment row is the only one where the fork's own machinery can enforce a
+claim the hardware does not, and it does so on the decoder nobody ships. Read
+it as a statement about where enforcement lives rather than as a mitigation.
+
+The point-size, uniform and sample rows are all ANGLE's doing and deliberately
+left alone: `ApplyProfilePointSizeCaps` and `ApplyProfileIntegerCaps` combine a
+profile value with the native cap by taking the lower of the two, so ANGLE's
+compiler resources, state validation and format table keep describing the
+machine that is really there. Removing that would not close any row above; it
+would move the failure from a refused call to a wrong render.
+
+**Skia, raster and the compositor still see the host.** The same six GL query
+entry points serve the GPU process as a whole:
+`ui/gl/init/create_gr_gl_interface.cc` binds Skia's `get_integerv` straight to
+`gl::GLApi`, and `GrGLCaps` reads `MAX_TEXTURE_SIZE`, `MAX_RENDERBUFFER_SIZE`
+and `MAX_SAMPLES` through it. `0119` gates on the kind of GL context that is
+asking, so only a WebGL-compatibility context is served the claim. Everything
+else -- compositor, raster, canvas2D through Ganesh -- gets the intersection of
+claim and host, which can lower a cap below the host's but never raise it. This
+is by design and it is not a gap: nothing there is page-visible, and telling
+Skia that a 4-sample device does 8 would break canvas2D and raster
+multisampling for every page, fingerprinted or not.
+
+**The viewport row in full.** `MAX_VIEWPORT_DIMS` shows no residual on a
+software backend: SwiftShader reports 32767 by 32767, which is what the Windows
+anchors measured, and a viewport at 32767 raises no error. On ANGLE/Metal it is
+different, and it is the cheapest of the residuals above, so it is worth the
+measurement in full. Taken through the shipped 152.0.7977.83 macOS artifact on
+an Apple M4 Max, on both the WebGL1 and WebGL2 paths, while the host's 16384
+was still being served:
 
 | Call | Result |
 | --- | --- |
@@ -468,16 +502,36 @@ paths:
 | `getParameter(SCISSOR_BOX)` | `[0, 0, 32767, 32767]` |
 
 The viewport state is silently clamped to the driver's real maximum and the
-clamped value is readable. So a page that read a 32767 claim, set a viewport to
-exactly that, and read the viewport back would get 16384 and a contradiction in
-two calls, with no allocation and no rendering — cheaper than the contradiction
-the claim was meant to remove. The `SCISSOR_BOX` row is the control: it is not
-clamped, so the clamp tracks `MAX_VIEWPORT_DIMS` specifically rather than being
-a generic bound on integer state, and a page can compare the two to isolate it.
+clamped value is readable. So a page that reads the 32767 claim, sets a
+viewport to exactly that and reads the viewport back gets 16384 and a
+contradiction in two calls, with no allocation and no rendering. The
+`SCISSOR_BOX` row is the control: it is not clamped, so the clamp tracks
+`MAX_VIEWPORT_DIMS` specifically rather than being a generic bound on integer
+state, and a page can compare the two to isolate it.
 
-An honest 16384 beats a claim a page can break in two calls. The pairing is
-what carries the cost: on a Windows or Linux host with the corresponding
-silicon the anchor's 32767 is both claimed and real.
+v0.1.0's note here argued from that table that an honest 16384 beats a claim a
+page can break in two calls, and served the host's number on purpose. That
+reasoning is withdrawn, for two reasons. It priced one limit and ignored the
+set: the same gate was discarding six others at once, and six host values under
+a claimed GeForce is a lookup, which is cheaper for a detector than any probe.
+And it left the table internally split, one row honest and the rest of the
+cluster the anchor's, which is a shape no machine produces. A whole anchor with
+a measured probe cost beats a mixture.
+
+The pairing is still what carries the cost, and it has not changed: on a
+Windows or Linux host with the corresponding silicon the anchor's 32767 is both
+claimed and real, and none of the rows above exist.
+
+**`ALIASED_LINE_WIDTH_RANGE` is not in the table, and `[1, 64]` is not an
+error.** The Windows D3D11 anchors and the Apple anchor all measure `[1, 1]`,
+so on a Mac under a Windows persona the claim and the host agree and there is
+nothing to falsify. The `linux-vulkan-nvidia` anchor measures `[1, 64]`, in all
+four of its captures, and that is the real value a Vulkan NVIDIA machine
+reports -- Direct3D and Metal both cap line width at 1 and Vulkan does not.
+Under that anchor on a Mac the claim is served and a 64-pixel line rasterises
+one pixel wide, so it belongs with the rows above; it is listed separately only
+because a reader who knows the Windows numbers will otherwise read 64 as a
+typo.
 
 ### Pinning across platforms
 
@@ -622,12 +676,15 @@ larger than the host's panel is refused rather than served.
 Options the host cannot serve are dropped before the seed draws, so a small host
 draws from a smaller set of identities than a large one.
 
-WebGL limits on a software backend are the exception, and the next section is
-about it. A backend that enforces nothing about the numbers it reports is not a
-capacity the way core count is, so there the claim is served upward instead of
-being clamped down. The price of that is a claimed maximum that cannot be
-allocated at, which is stated in full under **Allocating at the reported maximum
-fails on a software backend** above.
+WebGL limits are the exception, on every backend. What a WebGL context reports
+is the anchor's cluster whatever the host is running, because a claimed GPU
+beside the host's own capability table is a contradiction a page reads in one
+call, where the over-claim that avoids costs it a draw, a shader link or an
+allocation. Two sections state the price. **Allocating at the reported maximum
+fails on a software backend** above has the software case; **A limit served to
+WebGL is readable everywhere and usable only where the host can** has the
+per-limit table for a backend that does enforce. Nothing outside a WebGL
+context is affected: the compositor, raster and Skia keep the host's caps.
 
 ## The extension list, and the five names that are served
 

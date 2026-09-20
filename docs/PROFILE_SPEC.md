@@ -397,7 +397,7 @@ The schema groups fields as follows:
 | `cpu`, `memory` | Logical cores, installed memory | Bucket values only, and clamped down to host capability, never up. |
 | `audio` | Output buffer frames | NOT clamped to the host, unlike the two above: patch 0019 clears the host device's own `min_frames_per_buffer` and `max_frames_per_buffer` alongside the override, because a backend advertising a 480-frame floor would otherwise clamp a claimed 256 straight back up and the override would silently do nothing. Accepted range is `[128, 8192]`, which is `kMinWebAudioBufferSize` to `kMaxWebAudioBufferSize`. The claim is not falsifiable by capacity the way cores and memory are — the browser really does run the buffer it reports — but the sample rate it is divided by stays the host's. |
 | `screen`, `window` | Panel geometry, DPR, gamut, HDR, work-area insets, window chrome deltas | Impossible display arrangements are rejected. `avail_*` is derived from the panel plus the furniture insets; insets exceeding the panel fail the launch. |
-| `gpu`, `gl_limits`, `gl_extensions`, `gl_precisions` | Renderer/vendor identity, WebGL limits, extensions and shader precision | These are native target inputs. Limits are capped by native capability on a backend that enforces what it reports, and served as claimed on one that does not (`0103`); five claimed extensions whose objects carry only constants are served from Blink's own classes (`0104`) and the rest cannot be added. Exact equality requires native behavior validation, not renderer identity alone, and the residuals are in [docs/LIMITATIONS.md](LIMITATIONS.md). |
+| `gpu`, `gl_limits`, `gl_extensions`, `gl_precisions` | Renderer/vendor identity, WebGL limits, extensions and shader precision | These are native target inputs. A numeric limit is served as composed to a WebGL context on every backend (`0103`, `0112`, `0119`), while the compositor, raster and Skia keep the host's own caps; five claimed extensions whose objects carry only constants are served from Blink's own classes (`0104`) and the rest cannot be added. What the backend enforces is unchanged, so an operation taken to a claim the host cannot meet is refused. Exact equality requires native behavior validation, not renderer identity alone, and the residuals are in [docs/LIMITATIONS.md](LIMITATIONS.md). |
 | `webgpu` | Adapter vendor, architecture, features, limits | Served from the same measured anchor member the WebGL cluster comes from, so the two surfaces cannot disagree: pinning `windows-d3d11-nvidia` on a Metal host returns `{nvidia, ampere}` and its 36 measured limits, where an unpinned launch on that host returns `{apple, metal-3}`. A member that recorded no adapter has nothing to serve and leaves the surface host-inherited; [docs/LIMITATIONS.md](LIMITATIONS.md) has that case. |
 | `locale`, `theme`, `input` | Timezone, language list, color scheme, pointer/hover | Locale and timezone can be overridden by the launch precedence rules. |
 | `media`, `speech` | Hardware decode codecs, device counts, registered voices | Names do not create codecs, devices, or speech providers. `media.hw_decode_codecs` sets what `MediaCapabilities` reports as `powerEfficient` and deliberately does not touch `supported`, which answers from the decoders this build actually has. Device counts are a floor: inputs are added to reach the count and the host's own devices are never removed. Network voices are a build capability, not a profile value. |
@@ -464,17 +464,20 @@ the user-facing version of this list.
    it does not turn it into a measurement.
 2. A composed profile does not claim the host owns the corresponding GPU,
    display, fonts, audio stack or codec hardware.
-3. Native capability is a ceiling where the backend enforces one. A media claim
-   cannot create a decoder or provider that is absent, and WebGL and WebGPU
-   limits cannot exceed a backend that enforces what it reports. A software
-   rasteriser enforces nothing about those numbers, so patch `0103` serves the
-   claim there instead of clamping it, and patch `0104` serves the claimed
-   extensions whose objects carry constants rather than methods. Both are in the
-   series and in no binary. The residual is measured and stated in
-   [docs/LIMITATIONS.md](LIMITATIONS.md): the claimed `MAX_TEXTURE_SIZE` cannot
-   be allocated at on a software backend.
-4. Capacity only ever goes down, with GPU limits on a software backend as the
-   exception in item 3. A profile may claim fewer cores than the host has, never
+3. Native capability is a ceiling for what an operation can do, not for what a
+   limit reports. A media claim cannot create a decoder or provider that is
+   absent. WebGL and WebGPU limits are reported as composed to a WebGL context
+   on every backend -- patches `0103`, `0112` and `0119`, the last of which
+   replaced the backend test with a context test -- because a claimed GPU
+   beside the host's capability table is a one-call contradiction. Patch `0104`
+   serves the claimed extensions whose objects carry constants rather than
+   methods. All of them are in the series and in no binary. The residuals are
+   measured and stated in [docs/LIMITATIONS.md](LIMITATIONS.md): the claimed
+   `MAX_TEXTURE_SIZE` cannot be allocated at on a software backend, and on a
+   backend that enforces, a point size, a uniform count or a sample count
+   taken to the claim is refused by the driver.
+4. Capacity only ever goes down, with the GPU limits in item 3 as the
+   exception. A profile may claim fewer cores than the host has, never
    more, and the same holds for memory, codec support, font families, speech
    voices, and display area against window bounds. A page can measure parallel
    throughput, allocate until allocation fails, compile a shader at the

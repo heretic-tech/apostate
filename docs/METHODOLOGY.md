@@ -86,8 +86,9 @@ physical device produces it.
 
 A profile may claim fewer cores than the host has, never more. Same for memory,
 codec support, font families, speech voices, and display area against window
-bounds. GPU limits follow the same rule on a backend that enforces them, and
-the opposite one on a backend that does not; §9 has the exception and
+bounds. GPU limits are the exception on every backend: what a WebGL context
+reports is the composed cluster, and only the operation behind it is held to
+the host. §9 has the reasoning and
 [docs/LIMITATIONS.md](LIMITATIONS.md) has its cost.
 
 This is falsifiability, not modesty. A page can measure parallel throughput,
@@ -230,19 +231,36 @@ stay the host's. So the persona is a choice to be made with the trade-off in
 view, and the compositor's job is to report the trade-off rather than to
 pretend it away or to refuse the choice.
 
-Rule 6 is not weakened by this, but it is now sharper. A renderer string is an
-identity rather than a capacity, and rule 6 is about capacity. For the
-capacities: on a backend that enforces what it reports, the claim is still
-clamped to the host. On a backend that enforces nothing — a software rasteriser,
-where the reported figures are soft constants — patch `0103` serves the claim
-instead, and patch `0104` serves the claimed extensions whose objects carry
-constants rather than methods. Rule 6 still governs the result, because whatever
-a launch advertises has to survive being exercised: a page allocates at the
-advertised limit and calls methods on the extension object it is handed. Where
-that cannot be made to hold, the residual is measured and written down rather
-than assumed away — the claimed `MAX_TEXTURE_SIZE` is not allocatable on a
-software backend, and [docs/LIMITATIONS.md](LIMITATIONS.md) says so with the
-numbers.
+Rule 6 is not weakened by this, but it is now sharper, and the sharpening took
+two goes. A renderer string is an identity rather than a capacity, and rule 6
+is about capacity. For the capacities, the first answer was to key the decision
+on the backend: clamp the claim where the backend enforces what it reports,
+serve it whole where the backend enforces nothing. Patch `0103` shipped that
+and `0112` corrected which backends enforce.
+
+Patch `0119` replaces the axis, because the backend was never the right one to
+ask about. These numbers leave the GPU process through six shared query entry
+points, and three unrelated consumers come through them: a WebGL context,
+whose numbers a page reads verbatim; the compositor and raster; and Skia
+Ganesh, whose `GrGLCaps` reads three of them through the same function
+pointer. Only the first is a fingerprint, and gating on the backend applied
+one answer to all three — which on ANGLE/Metal meant discarding the whole
+anchor on the only surface that mattered, and, had the clamp simply been
+dropped, would have meant telling Skia that a four-sample device does eight.
+So the gate is now the kind of context asking. A WebGL context is served the
+composed cluster on every backend; everything else keeps the host's caps.
+Patch `0104` serves the claimed extensions whose objects carry constants
+rather than methods, on the same reasoning.
+
+Rule 6 still governs the result, because whatever a launch advertises has to
+survive being exercised: a page allocates at the advertised limit, links a
+shader at the advertised uniform count, and calls methods on the extension
+object it is handed. Where that cannot be made to hold, the residual is
+measured and written down rather than assumed away — the claimed
+`MAX_TEXTURE_SIZE` is not allocatable on a software backend, and on a backend
+that enforces, a point size, a uniform count or a sample count taken to the
+claim is refused. [docs/LIMITATIONS.md](LIMITATIONS.md) says so per limit,
+with the numbers.
 
 ## 10. Verification
 

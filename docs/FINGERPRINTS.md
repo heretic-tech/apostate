@@ -83,11 +83,16 @@ voice to speak. A claim below host capability survives every one of those
 probes; a claim above it fails the first. `scripts/check-servable.py` is the
 gate.
 
-GPU limits are the exception, and it is a deliberate one. On a backend that
-enforces nothing about the numbers it reports — a software rasteriser — the
-claim is served upward rather than clamped down, because there the reported
-figure is a soft constant and not a ceiling. The price is a claimed maximum that
-cannot be allocated at, which
+GPU limits are the exception, and it is a deliberate one. A numeric WebGL limit
+is served as the anchor measured it to a WebGL context on every backend, rather
+than clamped to the host, because the alternative is a claimed GeForce sitting
+on the host's own capability table -- a contradiction a page reads in one
+`getParameter` call, where the over-claim it avoids costs a detector a draw, a
+shader link or an allocation. Everything that is not a WebGL context --
+compositor, raster, Skia -- still gets the host's caps, because nothing there
+is page-visible and a raised cap would be a rendering bug rather than a
+fingerprint. The price is a claimed maximum that cannot be reached by the
+operation behind it, per limit and per backend, which
 [docs/LIMITATIONS.md](LIMITATIONS.md) states in full with the measurements.
 
 This is the specific respect in which clamping beats spoofing. Reporting the
