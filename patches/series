@@ -311,6 +311,33 @@
 # orders it there. Independent of 0112 and 0113.
 0115-composed-locale-outranks-the-platform.patch
 
+
+# 0118 makes the address families WebRTC is offered follow the configured
+# proxy's relay instead of this host's interfaces, and makes candidate
+# gathering finish in every case.
+#
+# After 0086, which it corrects on its own terms. 0086 gave WebRTC's UDP
+# sockets a SOCKS5 association and refused the ones the proxy could not carry,
+# and a refused socket orphans its webrtc::UDPPort -- measured stuck at
+# iceGatheringState "gathering" after 50 s behind an IPv4-only exit, and after
+# 25 s with zero candidates under --fingerprint-webrtc-udp=block. It edits
+# 0086's net/socket/socks5_datagram_server_socket.{h,cc} (the listen-family
+# filter that produced the -109 becomes a preference plus a rebind), 0086's
+# ResolveUdpEgress and CreateSocket in services/network/p2p/socket_manager.cc
+# (the egress decision becomes a per-manager snapshot with a family pair), and
+# 0086's refusal comment in services/network/p2p/socket_udp.cc, so it cannot
+# sit anywhere before it.
+#
+# Nothing else in the series touches services/network/public/mojom/p2p.mojom,
+# third_party/blink/renderer/platform/p2p/* or third_party/webrtc/p2p/base/*,
+# so nothing else orders it there. It is the second patch to touch
+# third_party/blink/renderer/modules/peerconnection/peer_connection_dependency_factory.cc
+# after 0092, and it edits a different function -- CreatePortAllocator rather
+# than the capture-device path -- so the two do not interact. Independent of
+# 0116 and 0117, which are the profile axis and the font-render-params
+# projection, and independent of 0119.
+0118-webrtc-udp-families-follow-the-proxy.patch
+
 # 0119 makes the composed capability limits reach WebGL on ANGLE/Metal, which
 # is the backend the macOS artifact runs. It replaces 0103's backend test --
 # clamp the claim where the backend honours what it reports, serve it whole
