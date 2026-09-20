@@ -159,85 +159,117 @@ patch 0049 gives a macOS persona off a Mac.
 WHAT MOVES AND WHAT DOES NOT
 
 Moves: the glyph coverage bytes a canvas readback returns, the same bytes
-under the compositor's raster of DOM text, the gamma and contrast curve
-applied to them, LCD versus grayscale coverage, and whether a glyph may be
-placed at a fractional x.
+under the compositor's raster of DOM text, LCD versus grayscale coverage, the
+gamma and contrast curve applied to the coverage on the platforms whose scaler
+keeps it, and whether a glyph may be placed at a fractional x.
 
-Does not move: anything shaped. `measureText().width` is
-`ShapeResult::Width()`, a sum of advances read off the font binary
-(coh.font-set-vs-text-geometry), and the client rect of the same run comes
-from the same `ShapeResult` (coh.measuretext-vs-clientrects). This patch
-touches neither -- it sets `SkFont` flags and `SkSurfaceProps`, both of which
-are consumed downstream of shaping, in the scaler. The measured advances
-under both personas, before and after, are
+That last one reaches an advance, and it is worth being exact about because
+the rest of this section says shaping does not move. `subpixel_positioning`
+is an input to advance quantisation by design: `SkFont::setSubpixel(false)`
+makes `SkFontGetGlyphWidthForHarfBuzz` round every glyph advance to a whole
+pixel (skia_text_metrics.cc:41-45), which is exactly what a Linux desktop at
+scale factor 1 reports and what `fonts.text-advances` and
+coh.text-advance-subpixel-quantisation describe. So a Linux persona's
+advances become integral, measured below, and that is the surface being served
+rather than shaping being disturbed. Coherence holds across it because
+`measureText` and a client rect come from the same `ShapeResult`: both go
+integral together, which coh.measuretext-vs-clientrects requires and the probe
+checks.
 
-    16px Helvetica   177.9296875
-    28px Georgia     252.08203125
-    13.5px Arial     134.347412109375
+Does not move: anything else shaped. This patch sets `SkFont` flags and
+`SkSurfaceProps`, consumed in the scaler, downstream of shaping. At equal
+`subpixel_positioning` the advances are byte-identical, and the probe pins
+every advance, ink box, font bounding box, client rect and layout rect against
+a recording of the pre-patch binary.
 
 Two things in this area already differ per persona and are NOT this patch.
 Integer ascent and descent and glyph ink boxes follow patch 0040's Apple font
 metric policy, which is coh.font-metrics-platform-rounding being served rather
 than a coherence break; and a family the persona's installation does not have
-resolves to a fallback with its own advances, which is the font axis. The
-probe measures around both: it asserts advances across personas, and asserts
-everything else against a recorded pre-patch run of the same binary.
+resolves to a fallback with its own advances, which is the font axis.
 
-EXPECTED OUTCOME OF THE PROBE AFTER THE NEXT BUILD
+MEASURED ON THE BUILD, AND ONE THING THE PLAN GOT RIGHT
 
-/tmp/w2/FontRender/probe.js with /tmp/w2/FontRender/page.html, run against the
-rebuilt macos-arm64 binary with the recorded baseline.json beside it. Five
-checks fail today and must pass; four pass today and must keep passing.
+/tmp/w2/FontRender/probe.js with page.html and baseline.json, against the
+macos-arm64 build carrying this patch. 22 checks, all passing. The three
+personas at seed 0122, metric-stable canvas (Helvetica, Georgia, Arial at
+named baselines), two launches each:
 
-    a  RASTER-PERSONA opaque canvas     FAIL -> pass. windows != macos.
-                                        Windows carries contrast 1.0 and no
-                                        embedded bitmaps, macOS 0.0 and
-                                        bitmaps on.
-    a  RASTER-PERSONA alpha canvas      FAIL -> pass. Weaker but independent:
-                                        ComputeSurfaceProps keeps contrast and
-                                        gamma on the branch that disables LCD.
-    a  RASTER-MOVED windows canvas      FAIL -> pass. df91c47fa322e806 must
-                                        become something else. This is the
-                                        load-bearing one: a cross-persona
-                                        difference could come from anything
-                                        this fork already does, a Windows
-                                        persona whose pixels moved between two
-                                        builds on one host moved because of
-                                        this patch.
-    d  RASTER-MOVED windows dom         FAIL -> pass. The SVG crop
-                                        6a4525c3e0bfc265 and the HTML crop
-                                        dd7fcfb06a7b3f53, taken with
-                                        Page.captureScreenshot
-                                        captureBeyondViewport, must both move
-                                        -- the compositor's raster, not
-                                        canvas's resource provider.
-    e  SMOOTHING-ORACLE windows inert   FAIL -> pass. smoothOn == smoothOff
-                                        under a Windows persona.
-    b  RASTER-STABLE (four rows)        pass -> pass. Two launches at one seed
-                                        and two reads in one launch agree.
-    c  METRICS-COHERENT advances        pass -> pass, at the three numbers
-                                        above.
-    c  METRICS-UNCHANGED vs baseline    pass -> pass. Every advance, ink box,
-                                        font bounding box, client rect and
-                                        layout rect identical to the pre-patch
-                                        recording, for both personas and for
-                                        the divergent family too.
+    persona   canvas digest      advances (Helvetica/Georgia/Arial)
+    windows   df91c47fa322e806   177.9296875  252.08203125  134.347412109375
+    macos     df91c47fa322e806   177.9296875  252.08203125  134.347412109375
+    linux     f02d5c18b74b2222   180          241           142
 
-The macOS persona's own digests may or may not move, and the probe does not
-assert either way: on this host the macOS tuple's contrast and gamma are the
-build's own, and the only field that differs from the hard-coded path is
-`use_bitmaps`, which changes nothing for a font with no embedded strike.
+Read the first two rows first, because they are the interesting ones. On a Mac
+host a Windows persona and a macOS persona rasterise text identically, and
+identically to what the PRE-patch binary produced. That is not this patch
+failing to arrive. Those two tuples differ in exactly two of their eight
+fields, and neither can reach a glyph on this host:
+
+  text_contrast  Skia's own CoreText typeface throws it away before any mask
+                 is made. `SkTypeface_Mac::onFilterRec` calls
+                 `rec->ignorePreBlend()` for an unhinted A8 mask unless
+                 `SK_GAMMA_APPLY_TO_A8` is defined, and skia/BUILD.gn defines
+                 that for Android alone (:118-125); every other branch ends in
+                 `rec->setContrast(0)` with the comment "CoreGraphics dialates
+                 smoothed text to provide contrast"
+                 (third_party/skia/src/ports/SkTypeface_mac_ct.cpp:959-986).
+                 Since Apple removed subpixel antialiasing
+                 `SkCTFontGetSmoothBehavior()` is `none` here, which forces
+                 hinting to kNone and the mask to A8, so the first branch is
+                 the one that runs. Checked from outside this patch as well:
+                 `--text-contrast` and `--text-gamma`, which content copies to
+                 the renderer and which override at `GetSkSurfaceProps` time,
+                 move no pixel at any value from 0 to 3.9, under GPU raster
+                 and under `--disable-gpu` alike, while `--disable-gpu` itself
+                 changes the digest -- so the probe is sensitive and the lever
+                 is not.
+  use_bitmaps    only reaches a face carrying an embedded strike, and these
+                 three do not.
+
+So Windows-on-Mac canvas text is the Mac's, which is what
+docs/METHODOLOGY.md section 9 says about the surfaces a fork cannot reach: the
+claimed operating system costs whatever the host will not give up, and the
+compositor's job is to report that rather than pretend it away. It is now
+measured instead of assumed, with the Skia line that causes it.
+
+The third row is the proof that the chain works, and it is the reason the
+linux persona is in the probe at all. Its tuple differs from the Windows one
+in four fields, and `subpixel_positioning` is one CoreText does honour: the
+canvas digest moves, both screenshot crops move, and the advances go integral.
+Profile -> `gfx::ComposedFontRenderParams` -> `blink::RendererPreferences` ->
+`FontPlatformData::CreateSkFont` -> `SkFont::setSubpixel`, end to end, on the
+host that is hardest to serve.
+
+The rest of the battery: two launches of one persona and two reads in one
+launch agree for all three (determinism); advances identical across windows
+and macos at the three numbers above; every metric identical to the pre-patch
+recording for windows and macos; and the `-webkit-font-smoothing` oracle now
+reads on == off under the Windows and Linux personas and on != off under the
+macOS one, which is the one page-visible tell this patch closes on a Mac host.
 
 RESIDUALS
 
-The glyph masks stay CoreText's. These are the flags a Windows Chrome sets on
-its `SkFont`; the coverage bytes underneath are produced by the platform's
-scaler, and DirectWrite's are not reachable from a Mac or a Linux host by any
-setting. Same for the reverse: a macOS persona on Windows gets DirectWrite
-masks. Hinting is inert on CoreText-backed typefaces, so of the four macOS
-`SkFont` settings only three are observable on a Mac host.
-docs/LIMITATIONS.md now carries this as its own section rather than as a
-sentence on a ledger row.
+The glyph masks stay the host scaler's. These are the flags a Windows Chrome
+sets on its `SkFont`; the coverage bytes underneath come from CoreText on a
+Mac and FreeType on Linux, and DirectWrite's are not reachable from either by
+any setting. Same in reverse: a macOS persona on Windows gets DirectWrite
+masks.
+
+Of the eight fields, four are inert on a Mac host and the reasons differ.
+`text_contrast` and `text_gamma` are discarded by
+`SkTypeface_Mac::onFilterRec` as above. `hinting` is overridden by the same
+function, which collapses every level to kNormal or kNone. `autohinter` is
+stripped there too, in `flagsWeDontSupport`. All four are live on a Linux
+host, where `SkTypeface_FreeType::onFilterRec` keeps the pre-blend whenever
+LCD text is on (SkFontHost_FreeType.cpp:892-896) and the hinting level reaches
+FreeType intact -- and a Linux host is the deployment target, which is where
+the surface leaked worst to begin with.
+
+What this means for an operator is one sentence, and docs/LIMITATIONS.md
+'Text rendering follows the persona' says it: on a Mac host the rasterisation
+a page can read is the Mac's for a Windows persona, on a Linux host it is the
+persona's.
 
 Verified: `scripts/checkfile.sh` clean on ui/gfx/font_render_params.cc,
 ui/gfx/font_render_params_mac.cc, skia/ext/legacy_display_globals.cc,
@@ -252,9 +284,11 @@ compile of an unconditional `Read` is the EnableIf removal taking effect.
 ui/gfx/font_render_params_linux.cc and ui/gfx/font_render_params_win.cc cannot
 be compiled on this host and were not; both are a single guarded assignment
 placed where the surrounding code's own comments say the value is finished.
-The probe above ran against the shipped binary and produced the baseline in
-this patch; the post-build run is what turns the five expectations into
-results, and this wave does not build.
+The probe ran twice: against the shipped pre-patch binary, which produced the
+baseline this patch quotes, and against a macos-arm64 build carrying this
+patch, where all 22 checks pass. What is still unmeasured is a Linux host,
+which is where four of the eight fields are live and where the leak is worst;
+the same probe answers it unchanged, given a Linux build.
 
 Ledger: fonts.text-render-params, canvas.2d, fonts.text-advances,
 emit.gfx.composed-font-render-params,

@@ -274,26 +274,46 @@ constants. A macOS identity gets macOS's, a Linux identity gets what an
 ordinary Linux desktop produces, and none of the three reads the machine the
 browser is running on.
 
-**The glyph masks are still the host's.** The six settings above are what a
-real Chrome sets on the same Skia font object, and underneath them the coverage
-bytes are produced by whatever text engine the host has: CoreText on a Mac,
-FreeType on Linux. DirectWrite's masks are not obtainable on either at any
-setting, so a Windows persona on a Mac gets Windows' rasterisation settings
-over CoreText's glyph masks. That is the same kind of residual as the font
-files: a property of the machine the browser is on, which no source change
-reaches.
+**How much of that a page can see depends on the host, and on a Mac it is
+less than the list suggests.** Four of the six are delivered and then dropped
+by Skia's own CoreText code before a glyph is drawn: text contrast and gamma
+are discarded because CoreGraphics applies its own dilation instead, hinting
+is collapsed to on-or-off, and the autohinter is a FreeType setting CoreText
+has no equivalent for. What is left on a Mac is antialiasing, the subpixel
+order, embedded bitmaps and subpixel positioning. On a Linux host all six are
+live, because FreeType honours the contrast curve whenever LCD text is on and
+takes the hinting level as given.
 
-Hinting is the one of the six with no effect on a CoreText-backed face, so it
-is delivered and inert on a Mac host. And rasterisation settings decide how a
-glyph is inked, never which glyphs the machine has: Segoe UI Emoji under a
-Windows persona still needs the Segoe UI Emoji file, exactly as
-[docs/FONTS.md](FONTS.md) says for every other family.
+That has a blunt consequence, and it is measured rather than estimated. On a
+Mac, the two tuples for a Windows identity and a macOS identity differ only in
+text contrast and embedded bitmaps, so a Windows identity's canvas text on a
+Mac is byte-identical to a Mac's. A Linux identity on the same host is not,
+because subpixel positioning survives. Put plainly: on a Mac host, choose the
+macOS persona if canvas text matters to you.
 
-Text measurement does not move with any of this. `measureText`, the width of a
-client rect and a font's metrics come from shaping the real font file, which
-happens before rasterisation. The advances a Windows persona and a macOS
-persona report for the same family on one host are identical to the digit,
-before the change and after it.
+**The glyph masks are the host's whatever the settings say.** The six above
+are what a real Chrome sets on the same Skia font object, and underneath them
+the coverage bytes come from whatever text engine the host has: CoreText on a
+Mac, FreeType on Linux. DirectWrite's masks are not obtainable on either at
+any setting. That is the same kind of residual as the font files: a property
+of the machine the browser is on, which no source change reaches.
+
+Rasterisation settings decide how a glyph is inked, never which glyphs the
+machine has. Segoe UI Emoji under a Windows persona still needs the Segoe UI
+Emoji file, exactly as [docs/FONTS.md](FONTS.md) says for every other family.
+
+Text measurement is untouched by the rasterisation curve. `measureText`, the
+width of a client rect and a font's metrics come from shaping the real font
+file, which happens before a glyph is inked, and the advances a Windows
+persona and a macOS persona report for the same family on one host are
+identical to the digit, before this change and after it.
+
+Subpixel positioning is the one setting on both sides of that line, and it
+belongs there. Turning it off is what makes glyph advances whole numbers, so a
+Linux identity reports integral advances exactly as an unscaled Linux desktop
+does. `measureText` and a client rect around the same text are produced by one
+shaping run, so they go integral together and continue to agree, which is the
+invariant that matters.
 
 ## Software rendering is measurable
 

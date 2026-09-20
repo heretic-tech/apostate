@@ -186,12 +186,14 @@ font at runtime rather than replayed from a recording, so any family you install
 measures the way it does on the platform it came from.
 
 How those glyphs are inked is a separate thing from which font files you have,
-and the browser does own that half: antialiasing, the subpixel order, hinting,
-embedded bitmaps, subpixel positioning and Skia's text contrast and gamma all
-follow the persona rather than the machine, so a Windows identity rasterises
-text with Windows' settings wherever it runs. What stays the host's is the text
-engine underneath, CoreText on a Mac and FreeType on Linux, and no setting
-reaches DirectWrite from either.
+and the browser owns that half: antialiasing, the subpixel order, hinting,
+embedded bitmaps, subpixel positioning and Skia's text contrast and gamma
+follow the persona rather than the machine. How much of it a page can see
+depends on the host. All six are live on Linux; on a Mac, Skia's CoreText code
+drops the contrast curve, the hinting level and the autohinter before a glyph
+is drawn, so a Windows identity's canvas text there is a Mac's. The text
+engine underneath is always the host's, CoreText on a Mac and FreeType on
+Linux, and no setting reaches DirectWrite from either.
 
 [docs/LIMITATIONS.md](LIMITATIONS.md) covers both: what remains visible when a
 persona is missing faces, under "Fonts are yours to install", and what
