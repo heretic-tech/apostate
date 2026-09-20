@@ -31,7 +31,7 @@ import { fileURLToPath } from "node:url";
 import { SocksProxyAgent } from "socks-proxy-agent";
 import { HttpProxyAgent } from "http-proxy-agent";
 import { HttpsProxyAgent } from "https-proxy-agent";
-export const PACKAGE_VERSION = "0.1.0";
+export const PACKAGE_VERSION = "0.1.1";
 export const CHROMIUM_VERSION = "152.0.7977.83";
 export const CATALOGUE_VERSION = 2;
 const PROFILE_SCHEMA_VERSION = 3;
@@ -55,6 +55,7 @@ const EXPECTED_TARGETS = new Set([
   "windows-x64",
 ]);
 const DEFAULT_PROFILE_SCHEMA_PATH = join(ASSET_ROOT, "profile.schema.json");
+const DEFAULT_COUNTRY_LOCALES_PATH = join(ASSET_ROOT, "country-locales.json");
 const CATALOGUE_MODEL = "anchors+dispersion";
 // Catalogue version 1 shipped the fourteen-family model; version 2 retired it.
 const RETIRED_CATALOGUE_KEYS = ["families", "family_count", "distributions"];
@@ -1120,21 +1121,28 @@ async function defaultGeoipLookup(url, proxy, signal) {
   throw lastError || new Error("All default GeoIP endpoints failed.");
 }
 
-// Apostate-owned country -> locale policy, mirroring scripts/geoip.py's
-// _COUNTRY_LOCALES so a payload resolves to the same locale in both packages
-// and in the repository helper. A country the table does not name stays
-// unresolved: `en-<COUNTRY>` for an unnamed country invents a language rather
-// than deriving one, and an unresolved field is the honest answer.
-const GEOIP_COUNTRY_LOCALES = {
-  AR: "es-AR", AT: "de-AT", AU: "en-AU", BE: "nl-BE", BR: "pt-BR", CA: "en-CA",
-  CH: "de-CH", CL: "es-CL", CN: "zh-CN", CO: "es-CO", CZ: "cs-CZ", DE: "de-DE",
-  DK: "da-DK", ES: "es-ES", FI: "fi-FI", FR: "fr-FR", GB: "en-GB", GR: "el-GR",
-  HK: "zh-HK", HU: "hu-HU", IE: "en-IE", IL: "he-IL", IN: "en-IN", IT: "it-IT",
-  JP: "ja-JP", KR: "ko-KR", MX: "es-MX", NL: "nl-NL", NO: "nb-NO", NZ: "en-NZ",
-  PL: "pl-PL", PT: "pt-PT", RO: "ro-RO", RU: "ru-RU", SA: "ar-SA", SE: "sv-SE",
-  SG: "en-SG", TH: "th-TH", TR: "tr-TR", TW: "zh-TW", UA: "uk-UA", US: "en-US",
-  VE: "es-VE", VN: "vi-VN", ZA: "en-ZA",
-};
+// Country -> locale, read from the asset scripts/generate-country-locales.py
+// derives from CLDR territoryInfo and Chromium's own kAcceptLanguageList, and
+// shipped byte-identical to the Python package and resources/. It replaces a
+// hand-written table of 45 countries that left most of the world unresolved:
+// a Malaysian exit got no locale at all, and "no locale" means the host's own
+// is served from a foreign IP, which is the leak the lookup exists to close.
+//
+// The table covers all 257 territories CLDR knows, so a payload carrying a
+// country always derives a locale. Read at import: a package whose asset is
+// missing cannot answer the question at all, and finding that out at the
+// moment of a launch is worse than finding it out at the import.
+const GEOIP_COUNTRY_LOCALES = (() => {
+  try {
+    const parsed = JSON.parse(readFileSyncNative(DEFAULT_COUNTRY_LOCALES_PATH, "utf8"));
+    if (!isObject(parsed) || !isObject(parsed.locales)) throw new Error("no locales table");
+    return Object.freeze(parsed.locales);
+  } catch (error) {
+    throw new ApostateError(`Package country-locale table ${DEFAULT_COUNTRY_LOCALES_PATH} is missing or invalid.`, "INVALID_PACKAGE_ASSET", {
+      cause: error instanceof Error ? error.message : String(error),
+    });
+  }
+})();
 
 const GEOIP_TIMEZONE_PATTERN = /^[A-Za-z][A-Za-z0-9._+-]*(?:\/[A-Za-z0-9._+-]+)+$/;
 
@@ -1160,7 +1168,10 @@ function geoipLocale(result) {
     const first = languages.split(",")[0].trim();
     if (first) return first;
   }
-  const country = result.country_code ?? result.countryCode;
+  // `country` last and behind the two-letter test: ip-api answers it with
+  // "Malaysia" while ipapi.co answers it with "MY", and only one of those is
+  // a key into the table.
+  const country = result.country_code ?? result.countryCode ?? result.country;
   if (typeof country === "string" && /^[A-Za-z]{2}$/.test(country.trim())) {
     return GEOIP_COUNTRY_LOCALES[country.trim().toUpperCase()] ?? null;
   }
@@ -1305,13 +1316,22 @@ async function prepareLaunch(options = {}) {
   // resolver returning a locale and no timezone got an invented UTC even
   // though nothing had failed.
   if (geoipResult !== null) {
-    const unresolved = [
-      askedForLocale && geoipResult.locale === null ? "locale" : null,
-      askedForTimezone && geoipResult.timezone === null ? "timezone" : null,
-    ].filter((field) => field !== null);
-    if (unresolved.length > 0) {
+    // Locale and timezone are reported apart because they now fail for
+    // different reasons. A locale is DERIVED from the country through a table
+    // that covers every territory CLDR knows, so it can only come back
+    // unresolved when the provider named no country at all -- saying "the
+    // lookup resolved no locale" of a Malaysian exit sent people looking for
+    // a locale the provider was never asked for.
+    if (askedForLocale && geoipResult.locale === null) {
       geoipWarnings.push(
-        `the GeoIP lookup resolved no ${unresolved.join(" and no ")}. None is invented, so the `
+        "the GeoIP lookup returned no country, so no locale is derived; the host's own is "
+        + "served for that field. Pass locale explicitly to guarantee a match.",
+      );
+      console.warn(`\x1b[33m[Apostate] ${geoipWarnings[geoipWarnings.length - 1]}\x1b[0m`);
+    }
+    if (askedForTimezone && geoipResult.timezone === null) {
+      geoipWarnings.push(
+        "the GeoIP lookup resolved no timezone. None is invented, so the "
         + "host's own is served for that field; pass it explicitly to guarantee a match.",
       );
       console.warn(`\x1b[33m[Apostate] ${geoipWarnings[geoipWarnings.length - 1]}\x1b[0m`);
@@ -1503,10 +1523,6 @@ export function expectedArtifactName(target) {
   return TARGET_ARTIFACTS[target];
 }
 
-function unpublishedArtifactError(manifest) {
-  return new UnpublishedArtifactError(undefined, { status: manifest.status ?? "unpublished" });
-}
-
 function manifestDeclaresUnpublished(manifest) {
   if (manifest.status === "unpublished") return true;
   if (isObject(manifest.artifacts) && Object.keys(manifest.artifacts).length === 0 && manifest.artifact === undefined) return true;
@@ -1514,9 +1530,17 @@ function manifestDeclaresUnpublished(manifest) {
   return false;
 }
 
+// A manifest's `package_version` is NOT required to equal this package's.
+//
+// It names the binary release the archive came from, and the launcher moves
+// independently of it: this package is 0.1.1 and installs the binaries
+// published as v0.1.0. That is not a mismatch to be caught, it is the normal
+// relationship between a launcher release and a browser release. What binds a
+// manifest to this package is the Chromium version and the catalogue version,
+// and those are still exact.
 function normalizeManifest(manifest, source = "manifest") {
   if (!isObject(manifest)) throw new ManifestError(`${source} must contain a JSON object.`);
-  for (const [key, expected] of [["package_version", PACKAGE_VERSION], ["chromium_version", CHROMIUM_VERSION], ["catalogue_version", CATALOGUE_VERSION]]) {
+  for (const [key, expected] of [["chromium_version", CHROMIUM_VERSION], ["catalogue_version", CATALOGUE_VERSION]]) {
     if (manifest[key] !== undefined && manifest[key] !== expected) {
       throw new ManifestError(`${source}.${key} does not match this package.`, { expected, actual: manifest[key] });
     }
@@ -1532,31 +1556,40 @@ function normalizeManifest(manifest, source = "manifest") {
   };
 }
 
+// Returns the manifest and where it came from. `baked` is true only for the
+// copy shipped inside this package, and it is the one thing that decides
+// whether the runtime release-manifest route below may be taken: a caller who
+// names a manifest is pinning a digest, and going to the network behind that
+// instruction would quietly unpin it.
 async function readOrDownloadManifest(options = {}) {
   if (options.manifest !== undefined && options.manifest !== null) {
     if (typeof options.manifest === "string") {
       const source = options.manifest;
-      if (/^[a-z][a-z\d+.-]*:\/\//i.test(source)) return normalizeManifest(await downloadUrl(source, options, "manifest"), source);
+      if (/^[a-z][a-z\d+.-]*:\/\//i.test(source)) {
+        return { manifest: normalizeManifest(await downloadUrl(source, options, "manifest"), source), source, baked: false };
+      }
       try {
-        return normalizeManifest(JSON.parse(await readFile(resolve(source), "utf8")), source);
+        return { manifest: normalizeManifest(JSON.parse(await readFile(resolve(source), "utf8")), source), source, baked: false };
       } catch (error) {
         if (error instanceof ManifestError) throw error;
         throw new ManifestError(`Unable to read release manifest ${source}.`, { cause: error?.message ?? String(error) });
       }
     }
-    return normalizeManifest(options.manifest, "manifest option");
+    return { manifest: normalizeManifest(options.manifest, "manifest option"), source: "manifest option", baked: false };
   }
   if (options.manifestPath) {
     try {
-      return normalizeManifest(JSON.parse(await readFile(resolve(options.manifestPath), "utf8")), options.manifestPath);
+      return { manifest: normalizeManifest(JSON.parse(await readFile(resolve(options.manifestPath), "utf8")), options.manifestPath), source: String(options.manifestPath), baked: false };
     } catch (error) {
       if (error instanceof ManifestError) throw error;
       throw new ManifestError(`Unable to read release manifest ${options.manifestPath}.`, { cause: error?.message ?? String(error) });
     }
   }
-  if (options.manifestUrl) return normalizeManifest(await downloadUrl(options.manifestUrl, options, "manifest"), options.manifestUrl);
+  if (options.manifestUrl) {
+    return { manifest: normalizeManifest(await downloadUrl(options.manifestUrl, options, "manifest"), options.manifestUrl), source: String(options.manifestUrl), baked: false };
+  }
   try {
-    return normalizeManifest(JSON.parse(await readFile(DEFAULT_MANIFEST_PATH, "utf8")), DEFAULT_MANIFEST_PATH);
+    return { manifest: normalizeManifest(JSON.parse(await readFile(DEFAULT_MANIFEST_PATH, "utf8")), DEFAULT_MANIFEST_PATH), source: "package", baked: true };
   } catch (error) {
     if (error instanceof ManifestError) throw error;
     throw new ManifestError(`Unable to read package release manifest ${DEFAULT_MANIFEST_PATH}.`, { cause: error?.message ?? String(error) });
@@ -1592,6 +1625,156 @@ function artifactFromManifest(manifest, target) {
     throw new ManifestError(`Manifest artifact platform ${candidate.platform} does not match ${target}.`, { target, actual: candidate.platform });
   }
   return { ...cloneJson(candidate), target, platform: target, artifact: expected, name: expected };
+}
+
+// The per-asset manifest published beside every archive in a GitHub release.
+const RELEASE_MANIFEST_SUFFIX = ".manifest.json";
+
+// Where an artifact's own manifest is looked for when the copy baked into
+// this package does not describe it.
+//
+// Two URLs, tried in order. The tagged one first, so a launcher published in
+// step with a browser release reads exactly that release; `latest` second,
+// because a launcher-only release -- this package is 0.1.1 and installs the
+// binaries published as v0.1.0 -- has no tag of its own to read.
+//
+// APOSTATE_DOWNLOAD_BASE_URL deliberately does NOT redirect these. It points
+// the ARCHIVE at a mirror, and leaving the digest on the release keeps the
+// property that makes a mirror safe: a wrong base URL cannot install the
+// wrong thing, because the digest and the bytes still come from two
+// different places.
+function releaseManifestUrls(artifactName) {
+  return [
+    `https://github.com/${RELEASE_REPOSITORY}/releases/download/v${PACKAGE_VERSION}/${artifactName}${RELEASE_MANIFEST_SUFFIX}`,
+    `https://github.com/${RELEASE_REPOSITORY}/releases/latest/download/${artifactName}${RELEASE_MANIFEST_SUFFIX}`,
+  ];
+}
+
+// How each URL is labelled in `apostate info`, positionally: the two routes
+// are the two URLs and nothing else produces one.
+const RELEASE_MANIFEST_SOURCES = ["release-tag", "release-latest"];
+
+// Every field that binds a fetched manifest to this package, checked before
+// its digest is trusted with a 150 MB download.
+//
+// `package_version` is deliberately absent. It names the binary release the
+// archive belongs to, and a launcher installing an older binary release is
+// exactly the case this route exists for.
+function releaseManifestRecord(payload, target, url) {
+  const expected = expectedArtifactName(target);
+  const refuse = (detail) => new ManifestError(`release manifest at ${url} does not describe this package: ${detail}`, { url, target, detail });
+  if (!isObject(payload)) throw refuse("it is not a JSON object");
+  for (const [key, want] of [["chromium_version", CHROMIUM_VERSION], ["catalogue_version", CATALOGUE_VERSION], ["platform", target], ["artifact", expected]]) {
+    if (payload[key] !== want) throw refuse(`${key} is ${payload[key] === undefined ? "absent" : String(payload[key])}, not ${want}`);
+  }
+  if (typeof payload.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(payload.sha256)) {
+    throw refuse("sha256 is not a 64-character lowercase digest");
+  }
+  // The archive is taken from the directory the manifest came from, so the
+  // two can never be paired across releases.
+  return { ...cloneJson(payload), target, platform: target, artifact: expected, name: expected, url: new URL(expected, url).toString() };
+}
+
+// The first candidate URL that answers with a manifest this package accepts,
+// plus every URL tried -- which is what an unpublished error has to name.
+async function fetchReleaseArtifact(options, target) {
+  const expected = expectedArtifactName(target);
+  const tried = [];
+  const failures = [];
+  for (const [index, url] of releaseManifestUrls(expected).entries()) {
+    tried.push(url);
+    let payload;
+    try {
+      payload = await downloadUrl(url, options, "manifest");
+    } catch (error) {
+      failures.push({ url, reason: error?.message ?? String(error) });
+      continue;
+    }
+    try {
+      const artifact = releaseManifestRecord(payload, target, url);
+      return { manifest: cloneJson(payload), artifact, url, source: RELEASE_MANIFEST_SOURCES[index], tried, failures };
+    } catch (error) {
+      // A manifest that parsed but describes something else is not a reason
+      // to stop: the tagged URL can legitimately answer for a different build
+      // while `latest` answers for this one.
+      failures.push({ url, reason: error?.message ?? String(error) });
+    }
+  }
+  return { manifest: null, artifact: null, url: null, source: null, tried, failures };
+}
+
+function unpublishedArtifactError(target, tried = []) {
+  const artifact = expectedArtifactName(target);
+  // No trailing full stop after the last URL: a terminal that wraps the line
+  // makes a period look like part of the address, and these get pasted.
+  const suffix = tried.length
+    ? ` No release manifest for ${artifact} could be fetched. Tried: ${tried.join(", ")}`
+    : "";
+  return new UnpublishedArtifactError(
+    `Release manifest is unpublished; Apostate binary artifacts are not available for acquisition.${suffix}`,
+    { target, artifact, urls_tried: [...tried] },
+  );
+}
+
+// Which refusal applies when nothing local describes an artifact and the
+// runtime route is closed. Two messages, because they answer different
+// questions: a manifest that declares itself unpublished carries no binaries
+// at all, while one that simply omits this target published a subset.
+function localRefusal(manifest, target) {
+  if (manifestDeclaresUnpublished(manifest)) return unpublishedArtifactError(target);
+  return new UnpublishedArtifactError(`Apostate binary for ${target} is not published for this release.`, { target });
+}
+
+// What `apostate info` says about how far a manifest can be trusted. Mirrored
+// verbatim in the Python package.
+const MANIFEST_NOTE_PINNED = "This manifest ships inside the package, so the digest was pinned at publish time rather than fetched from the same place as the bytes it describes.";
+const MANIFEST_NOTE_FETCHED = "A manifest fetched at run time is a transport-integrity check: it detects a corrupted or truncated download, not a substituted release. For provenance run: gh attestation verify <archive> --repo heretic-tech/apostate";
+
+// Everything needed to acquire the archive for `target`, and where the digest
+// that will be checked against it came from.
+//
+// Two sources, in this order:
+//
+//  1. The manifest baked into this package, or one the caller named, when it
+//     declares itself published and carries a record for this target. The
+//     pinned path and the strongest one: the digest shipped inside the
+//     package, so it and the bytes it describes came from two different
+//     places.
+//
+//  2. The artifact's own manifest, published beside it in the release and
+//     fetched at run time. A launcher release and a browser release move
+//     independently, so a launcher cannot always carry the digest of the
+//     archive it installs. This is a transport-integrity check -- it catches
+//     a corrupted or truncated download -- and it is NOT provenance, because
+//     the digest then travels with the bytes. Provenance is
+//     `gh attestation verify`.
+//
+// `remote: false` keeps the whole thing local. Discovery and launch need
+// that: "where would this launch get its browser" must not turn into a
+// network round trip on every call.
+async function resolveArtifact(options, target, { remote = true } = {}) {
+  const { manifest, baked } = await readOrDownloadManifest(options);
+  const local = manifest.status === "unpublished" ? null : artifactFromManifest(manifest, target);
+  if (local) return { manifest, artifact: local, source: baked ? "baked" : "manifest", url: null, tried: [], trust: "pinned" };
+  // A caller who named a manifest is pinning a digest. Fetching a different
+  // one behind that instruction would quietly unpin it, so the runtime route
+  // is reserved for the copy this package ships.
+  if (!remote || !baked) {
+    return { manifest, artifact: null, source: baked ? "baked" : "manifest", url: null, tried: [], trust: null };
+  }
+  const fetched = await fetchReleaseArtifact(options, target);
+  if (!fetched.artifact) {
+    return { manifest, artifact: null, source: null, url: null, tried: fetched.tried, failures: fetched.failures, trust: null };
+  }
+  return {
+    manifest: fetched.manifest,
+    artifact: fetched.artifact,
+    source: fetched.source,
+    url: fetched.url,
+    tried: fetched.tried,
+    failures: fetched.failures,
+    trust: "transport-integrity",
+  };
 }
 async function downloadUrl(url, options, kind) {
   const proxy = normalizeProxy(options.proxy);
@@ -1924,35 +2107,50 @@ function cachePaths(cacheDir, target) {
   };
 }
 
-function missingBinary(target, cacheDir, proxy, reason) {
-  const details = { target, cache_dir: resolve(cacheDir), proxy: redactProxy(proxy) };
-  const suffix = reason ? ` ${reason}` : "";
-  return new MissingBinaryError(`Apostate Chromium ${CHROMIUM_VERSION} for ${target} is not installed in ${details.cache_dir}.${suffix} Call ensureBinary() to download it, or pass executablePath.`, details);
-}
-
-// A wrong base URL cannot install the wrong thing: the digest always comes from
-// the manifest shipped inside this package, so a mismatch fails verification.
+// The digest never comes from here, so a wrong base URL cannot install the
+// wrong thing: it fails verification instead. APOSTATE_DOWNLOAD_BASE_URL is
+// consulted first because it is an explicit operator instruction -- "take the
+// bytes from this mirror" -- and a url carried by the manifest would
+// otherwise silently ignore it.
 function artifactUrlFor(manifest, artifact) {
-  if (typeof artifact.url === "string" && artifact.url) return artifact.url;
-  if (typeof artifact.download_url === "string" && artifact.download_url) return artifact.download_url;
   const name = artifact.artifact;
   const base = process.env.APOSTATE_DOWNLOAD_BASE_URL || manifest.base_url;
   if (typeof base === "string" && base) return new URL(name, base.endsWith("/") ? base : `${base}/`).toString();
+  if (typeof artifact.url === "string" && artifact.url) return artifact.url;
+  if (typeof artifact.download_url === "string" && artifact.download_url) return artifact.download_url;
   const repository = manifest.repository ?? RELEASE_REPOSITORY;
-  // docs/RELEASE.md step 2: releases are tagged vMAJOR.MINOR.PATCH.
+  // docs/RELEASE.md step 2: releases are tagged vMAJOR.MINOR.PATCH. The tag
+  // comes from the MANIFEST's package_version, which is the binary release's
+  // identity -- v0.1.0 -- and not this launcher's.
   const tag = manifest.tag ?? `v${manifest.package_version ?? PACKAGE_VERSION}`;
   return `https://github.com/${repository}/releases/download/${tag}/${name}`;
 }
 
+// `artifact` may be null, and that is the interesting case. It means no
+// manifest record could be had -- the copy baked into this package describes
+// nothing and the network was not consulted -- and the question then is not
+// "is this install the one the manifest names" but "is this install intact".
+// The marker answers that on its own: it records the layout format, the
+// Chromium version, the platform, the archive it came from and the digest of
+// the executable, and the executable is re-hashed against it here. Refusing
+// a good install because a manifest was unreachable is how the 0.1.0 packages
+// made a perfectly valid cache invisible.
+//
+// package_version is not compared against this package's. The install is of a
+// browser, identified by its Chromium version and archive; a launcher-only
+// release would otherwise throw away 600 MB and re-download it unchanged.
 async function validCachedInstall(paths, target, artifact) {
   if (!(await isRegularFile(paths.metadata))) return null;
   try {
     const metadata = JSON.parse(await readFile(paths.metadata, "utf8"));
     if (!isObject(metadata) || metadata.format !== INSTALL_FORMAT) return null;
-    if (metadata.package_version !== PACKAGE_VERSION || metadata.chromium_version !== CHROMIUM_VERSION) return null;
+    if (metadata.chromium_version !== CHROMIUM_VERSION) return null;
     if (metadata.platform !== target || metadata.artifact !== expectedArtifactName(target)) return null;
-    if (typeof artifact?.sha256 !== "string" || !/^[0-9a-f]{64}$/i.test(artifact.sha256)) return null;
-    if (String(metadata.artifact_sha256).toLowerCase() !== artifact.sha256.toLowerCase()) return null;
+    if (typeof metadata.artifact_sha256 !== "string" || !/^[0-9a-f]{64}$/i.test(metadata.artifact_sha256)) return null;
+    if (artifact) {
+      if (typeof artifact.sha256 !== "string" || !/^[0-9a-f]{64}$/i.test(artifact.sha256)) return null;
+      if (metadata.artifact_sha256.toLowerCase() !== artifact.sha256.toLowerCase()) return null;
+    }
     if (typeof metadata.executable !== "string" || !metadata.executable) return null;
     const executable = resolve(paths.install, metadata.executable);
     if (!withinDirectory(paths.install, executable) || !(await isRegularFile(executable))) return null;
@@ -1986,18 +2184,16 @@ async function replaceTree(staged, destination) {
 }
 
 
-// The publication question on its own: does this release carry a binary for
-// this target. Every branch here is a local manifest lookup with no
-// acquisition behind it, which is what lets it run before the driver check.
-async function resolvePublishedArtifact(options, target) {
-  const manifest = await readOrDownloadManifest(options);
-  if (manifest.status === "unpublished") throw unpublishedArtifactError(manifest);
-  const artifact = artifactFromManifest(manifest, target);
-  if (!artifact) {
-    if (manifestDeclaresUnpublished(manifest)) throw unpublishedArtifactError(manifest);
-    throw new UnpublishedArtifactError(`Apostate binary for ${target} is not published for this release.`, { target });
-  }
-  return { manifest, artifact };
+// The publication question as far as it can be answered without the network:
+// does a manifest already on this machine carry a record for this target.
+//
+// A `null` artifact here no longer means "nothing is published". It means
+// nothing local says so, and the answer has moved to the release, where
+// resolveArtifact() will go when acquisition is actually about to happen.
+// `remote_available` is what tells a caller which of the two it got.
+async function resolveLocalArtifact(options, target) {
+  const resolved = await resolveArtifact(options, target, { remote: false });
+  return { ...resolved, remote_available: resolved.artifact === null && resolved.source === "baked" };
 }
 
 // ---------------------------------------------------------------------------
@@ -2055,6 +2251,49 @@ const DISCOVERY_EXECUTABLES = {
   "linux-arm64": ["chrome"],
   "windows-x64": ["chrome.exe"],
 };
+
+// Where the executable sits inside a macOS bundle. Separate from the table
+// above because a caller may name the bundle itself -- dragging Chromium.app
+// out of the archive is the obvious thing to do with it -- and the path
+// inside it is then one level shorter.
+const BUNDLE_EXECUTABLES = {
+  "macos-arm64": ["Contents/MacOS/Chromium", "Contents/MacOS/Apostate"],
+};
+
+// Reported verbatim by `apostate info` and mirrored in
+// python/apostate/binary.py, so these two strings are part of the contract.
+const NO_FILE_REASON = "does not name a file";
+const NO_BROWSER_REASON = "names a directory with no browser inside it (expected Chromium.app, chrome or chrome.exe)";
+
+// A path the caller named, resolved to something runnable.
+//
+// Three forms, because all three are what people actually have on disk. The
+// first is the executable itself. The other two are directories, and
+// refusing them was the most common way this package told someone who had
+// the browser that they did not: `Chromium.app` is a directory, so the
+// obvious answer to "where is the browser" failed an is-a-file test, and so
+// did the extracted `apostate-<version>-<target>/` tree.
+//
+// A directory is resolved through the same layout the well-known search
+// uses, so there is one description of where a browser sits inside a tree.
+// Nothing beyond existence is verified: a caller who names a path has named
+// it, and the marker and version checks belong to the searches, which adopt
+// a browser nobody pointed at.
+async function resolveNamedBinary(value, target = null) {
+  const path = resolve(String(value));
+  if (await isRegularFile(path)) return { executable: path, payload_root: null };
+  if (!(await isDirectory(path))) return { path, reason: NO_FILE_REASON };
+  // Only a directory consults the layout table, and only the table needs a
+  // host this package ships a binary for. Someone who names an executable on
+  // an unsupported host is still naming an executable, and resolving the
+  // target eagerly refused it.
+  const layout = target ?? normalizeTarget();
+  for (const relativeExecutable of [...(BUNDLE_EXECUTABLES[layout] ?? []), ...(DISCOVERY_EXECUTABLES[layout] ?? [])]) {
+    const executable = join(path, relativeExecutable);
+    if (await isRegularFile(executable)) return { executable, payload_root: path };
+  }
+  return { path, reason: NO_BROWSER_REASON };
+}
 
 async function isDirectory(path) {
   try {
@@ -2235,33 +2474,32 @@ export async function discoveryReport(options = {}) {
   // itself. Existence is still established, because a path that names
   // nothing is not an instruction anybody can carry out -- and the report
   // exists to say so rather than to stop.
-  const explicitBinary = options.binaryPath ?? options.executablePath;
-  if (explicitBinary !== undefined && explicitBinary !== null && explicitBinary !== "") {
-    const path = resolve(String(explicitBinary));
-    if (await isRegularFile(path)) return answer(path, "argument", null, null);
-    rejected.push({ path, reason: "the configured path does not name a file" });
-  }
-  const configured = process.env.APOSTATE_BINARY;
-  if (configured) {
-    const path = resolve(String(configured));
-    if (await isRegularFile(path)) return answer(path, "environment", null, null);
+  for (const [value, source, label] of [
+    [options.binaryPath ?? options.executablePath, "argument", "the configured path"],
+    [process.env.APOSTATE_BINARY, "environment", "APOSTATE_BINARY"],
+  ]) {
+    if (value === undefined || value === null || value === "") continue;
+    const named = await resolveNamedBinary(value, target);
+    if (named.executable) return answer(named.executable, source, null, named.payload_root);
     // ensureBinary() still treats both misses as fatal -- a caller who named
     // a path wants that path and not a substitute. The report describes the
     // machine instead of acting on it, so it records the miss and looks on.
-    rejected.push({ path, reason: "APOSTATE_BINARY does not name a file" });
+    rejected.push({ path: named.path, reason: `${label} ${named.reason}` });
   }
 
   const cacheDir = options.cacheDir ?? options.cache_dir ?? defaultCacheDir();
   const paths = cachePaths(cacheDir, target);
   let artifact = null;
   try {
-    ({ artifact } = await resolvePublishedArtifact(options, target));
+    ({ artifact } = await resolveLocalArtifact(options, target));
   } catch {
-    // An unpublished or unreachable manifest says nothing about what is on
-    // disk, and this function's whole job is to look at what is on disk.
+    // An unusable manifest says nothing about what is on disk, and this
+    // function's whole job is to look at what is on disk. Nor is the release
+    // asked: "where would a launch get its browser right now, without
+    // downloading anything" must not itself become a network round trip.
     artifact = null;
   }
-  const cached = artifact ? await validCachedInstall(paths, target, artifact) : null;
+  const cached = await validCachedInstall(paths, target, artifact);
   if (cached) return answer(cached, "cache", CHROMIUM_VERSION, paths.install);
 
   const scan = await scanWellKnown(target, options.searchRoots);
@@ -2278,43 +2516,56 @@ export async function discoverBinary(options = {}) {
 export async function ensureBinary(options = {}) {
   if (typeof options === "string") options = { binaryPath: options };
   if (!isObject(options)) throw new TypeError("ensureBinary options must be an object.");
-  const explicitBinary = options.binaryPath ?? options.executablePath ?? process.env.APOSTATE_BINARY;
+  const configured = options.binaryPath ?? options.executablePath;
+  const explicitBinary = configured ?? process.env.APOSTATE_BINARY;
   if (explicitBinary !== undefined && explicitBinary !== null && explicitBinary !== "") {
-    const path = resolve(String(explicitBinary));
-    if (!(await isRegularFile(path))) throw missingBinary(normalizeTarget(options.target), options.cacheDir ?? defaultCacheDir(), options.proxy, `The configured binary path ${path} does not exist.`);
-    return path;
+    // The target is left unresolved here on purpose. Only a named DIRECTORY
+    // needs it, and resolveNamedBinary asks for it then.
+    const named = await resolveNamedBinary(explicitBinary, options.target ? normalizeTarget(options.target) : null);
+    if (named.executable) return named.executable;
+    const label = configured ? "the configured path" : "APOSTATE_BINARY";
+    throw new MissingBinaryError(`${label} ${named.reason}: ${named.path}`, { path: named.path });
   }
   const target = normalizeTarget(options.target);
   const cacheDir = options.cacheDir ?? options.cache_dir ?? defaultCacheDir();
   const paths = cachePaths(cacheDir, target);
-  // Publication is resolved first but not acted on yet. A release that ships
+  // Resolved locally first, and not acted on yet. A manifest that describes
   // no artifact for this target is a reason not to download; it is not a
   // reason to ignore a browser already sitting on the disk, and raising here
-  // used to make an unpublished manifest look like "no browser anywhere"
-  // to a user who had one installed. The failure is held and raised only if
-  // downloading turns out to be the sole remaining route.
-  let manifest = null;
-  let artifact = null;
+  // used to make an unpublished manifest look like "no browser anywhere" to
+  // a user who had one installed.
+  //
+  // The release itself is asked only below, once downloading is the sole
+  // remaining route. A machine with a valid cache never touches the network.
+  let local = null;
   let unavailable = null;
   try {
-    ({ manifest, artifact } = await resolvePublishedArtifact(options, target));
+    local = await resolveLocalArtifact(options, target);
   } catch (error) {
     // Only a publication answer is deferred. Anything else is a fault in the
     // lookup itself and must not be turned into a silent fallback.
     if (!(error instanceof ApostateError)) throw error;
     unavailable = error;
   }
-  if (!options.force && artifact) {
-    const cached = await validCachedInstall(paths, target, artifact);
-    if (cached) return cached;
-  }
   if (!options.force) {
+    const cached = await validCachedInstall(paths, target, local?.artifact ?? null);
+    if (cached) return cached;
     // Skipped under force for the same reason the cache is: force means
     // reinstall, and a browser found elsewhere is not this install.
     const discovered = await scanWellKnown(target, options.searchRoots);
     if (discovered.found) return discovered.found.executable;
   }
   if (unavailable) throw unavailable;
+  let { manifest, artifact } = local;
+  if (!artifact) {
+    if (!local.remote_available) throw localRefusal(manifest, target);
+    const fetched = await fetchReleaseArtifact(options, target);
+    if (!fetched.artifact) throw unpublishedArtifactError(target, fetched.tried);
+    ({ manifest, artifact } = fetched);
+    // Said on the acquisition that actually used the fallback: silence would
+    // leave an operator believing the digest was pinned when it was not.
+    console.warn(`\x1b[33m[Apostate] release manifest fetched from ${fetched.url} (no published manifest is baked into this package). A fetched manifest verifies transport integrity only; for provenance run: gh attestation verify ${artifact.artifact} --repo ${RELEASE_REPOSITORY}\x1b[0m`);
+  }
   let archive;
   try {
     const local = artifact.path ?? artifact.local_path ?? artifact.file;
@@ -2385,13 +2636,28 @@ export async function ensureBinary(options = {}) {
   }
 }
 
+// The one caller allowed on the network.
+//
+// `info` exists to explain where a browser would come from, and after this
+// release that includes which of the two release URLs answered -- a question
+// no local file can settle. It never raises over it: a lookup that fails is
+// reported as a failure, because an unreachable release is a fact about the
+// machine and this function's job is to state facts about the machine.
 export async function binaryInfo(options = {}) {
   if (!isObject(options)) throw new TypeError("binaryInfo options must be an object.");
   const target = normalizeTarget(options.target);
   const cacheDir = options.cacheDir ?? options.cache_dir ?? defaultCacheDir();
   const paths = cachePaths(cacheDir, target);
-  const manifest = await readOrDownloadManifest(options);
-  const artifact = artifactFromManifest(manifest, target);
+  let resolved;
+  try {
+    // Shorter than the acquisition timeout on purpose: `info` is something a
+    // person waits on, and two unreachable URLs at 30s each is a minute of
+    // silence before a diagnostic.
+    resolved = await resolveArtifact({ downloadTimeoutMs: 15000, ...options }, target);
+  } catch (error) {
+    resolved = { manifest: {}, artifact: null, source: null, url: null, tried: [], failures: [{ url: null, reason: error?.message ?? String(error) }], trust: null };
+  }
+  const { manifest, artifact } = resolved;
   const discovery = await discoveryReport(options);
   // `cache_hit` still means this package's own install is valid, which is a
   // narrower question than where a launch would get its browser: a configured
@@ -2401,7 +2667,8 @@ export async function binaryInfo(options = {}) {
   // few hundred milliseconds of nothing on a 200 MB binary.
   const cached = discovery.found?.source === "cache"
     ? discovery.found.executable
-    : (artifact ? await validCachedInstall(paths, target, artifact) : null);
+    : await validCachedInstall(paths, target, artifact);
+  const failures = resolved.failures ?? [];
   return {
     package_version: PACKAGE_VERSION,
     chromium_version: CHROMIUM_VERSION,
@@ -2411,6 +2678,14 @@ export async function binaryInfo(options = {}) {
     artifact: artifact?.artifact ?? expectedArtifactName(target),
     artifact_url: artifact ? artifactUrlFor(manifest, artifact) : null,
     sha256: artifact?.sha256 ?? null,
+    // Where the digest came from, and how far that lets it be trusted.
+    manifest_source: resolved.source,
+    manifest_url: resolved.url ?? null,
+    manifest_urls_tried: resolved.tried ?? [],
+    manifest_trust: resolved.trust,
+    manifest_note: resolved.trust === "pinned" ? MANIFEST_NOTE_PINNED : (resolved.trust === "transport-integrity" ? MANIFEST_NOTE_FETCHED : null),
+    reason: failures.length ? failures.map((failure) => (failure.url ? `${failure.url}: ${failure.reason}` : failure.reason)).join("; ") : null,
+    provenance: `gh attestation verify ${expectedArtifactName(target)} --repo ${RELEASE_REPOSITORY}`,
     cache_dir: resolve(cacheDir),
     install_dir: paths.install,
     // Where a launch would get its browser right now, with no download. On a
@@ -2595,6 +2870,17 @@ function playwrightProxy(proxy) {
   if (!proxy) return undefined;
   const parsed = new URL(proxy);
   const result = { server: proxyEndpoint(proxy) };
+  // SOCKS credentials are withheld from the driver on purpose.
+  //
+  // The browser already has them: buildLaunchArguments puts them in the
+  // --apostate-profile envelope, which is the route that keeps a credential
+  // out of NetLog, socket-pool group keys and error strings (docs/FLAGS.md,
+  // "The proxy"). Playwright, meanwhile, refuses to start at all when a
+  // socks5 server carries a username -- "Browser does not support socks5
+  // proxy authentication" -- because upstream Chromium has no way to supply
+  // one. Handing the driver a credential it will not use, and failing a
+  // launch the browser can serve, is the worst of both.
+  if (parsed.protocol.startsWith("socks")) return result;
   if (parsed.username) result.username = decodeURIComponent(parsed.username);
   if (parsed.password) result.password = decodeURIComponent(parsed.password);
   return result;
@@ -2651,13 +2937,24 @@ function contextOwnsBrowser(context, browser) {
 // browser already on disk means there is nothing to download, so the answer
 // stops mattering and refusing the launch over it would be refusing a launch
 // that would have worked.
+//
+// It is also asked only while it is still free. The point of running this
+// before the driver check is that a local manifest lookup costs nothing; the
+// moment the answer moves to the release, ensureBinary() is the one that
+// goes and gets it, and asking here too would buy a second round trip to
+// reorder two error messages.
 async function assertPublishedOrDiscoverable(options, target) {
+  let local;
   try {
-    await resolvePublishedArtifact(options, target);
+    local = await resolveLocalArtifact(options, target);
   } catch (error) {
     if (!(error instanceof ApostateError)) throw error;
     if (await discoverBinary(options) === null) throw error;
+    return;
   }
+  if (local.artifact || local.remote_available) return;
+  if (await discoverBinary(options) !== null) return;
+  throw localRefusal(local.manifest, target);
 }
 
 // Returns a real browser object from whichever driver is installed: a
@@ -2688,7 +2985,11 @@ export async function launch(options = {}) {
     await assertPublishedOrDiscoverable(options, normalizeTarget(options.target));
   }
   const driver = await loadDriver(options.driver, options._driverModule);
-  const binary = explicitBinary ?? await ensureBinary(options);
+  // Always through ensureBinary, even for a named path: that is where a
+  // bundle or a payload root is turned into the executable inside it, and
+  // handing the driver a directory only moves the failure somewhere it
+  // cannot be explained.
+  const binary = await ensureBinary(options);
   const args = buildLaunchArguments(prepared.config, prepared.resolution, { driverOwnsProfile: true });
   const env = {
     // Set, not inherited: only host mode inherits the host's locale
@@ -2740,7 +3041,7 @@ export async function launch(options = {}) {
 export async function launchProcess(options = {}) {
   if (!isObject(options)) throw new TypeError("Launch options must be an object.");
   const prepared = await prepareLaunch(options);
-  const binary = options.executablePath ?? options.binaryPath ?? await ensureBinary(options);
+  const binary = await ensureBinary(options);
   const args = buildLaunchArguments(prepared.config, prepared.resolution);
   const env = {
     // Set, not inherited: only host mode inherits the host's locale
