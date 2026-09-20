@@ -48,9 +48,30 @@ Pass `driver: "puppeteer-core"` to force one, and read
 `browser.apostateDriverName` to see what was used.
 
 The browser is not bundled. On first use the package downloads the ~150 MB
-archive for your platform from the GitHub release, checks its SHA-256 against a
-manifest shipped inside the package, extracts it, and reuses it afterwards. No
-driver needs to download a browser of its own — Apostate supplies it.
+archive for your platform from the GitHub release, checks its SHA-256 before
+opening it, extracts it, and reuses it afterwards. No driver needs to download
+a browser of its own — Apostate supplies it.
+
+The digest comes from one of two places, and `npx apostate info` tells you
+which:
+
+| `manifest_source` | Where the digest came from | `manifest_trust` |
+|---|---|---|
+| `baked` | the manifest shipped inside this package | `pinned` |
+| `release-tag` | `…/releases/download/v<package version>/<archive>.manifest.json` | `transport-integrity` |
+| `release-latest` | `…/releases/latest/download/<archive>.manifest.json` | `transport-integrity` |
+
+A launcher release and a browser release move independently — this package is
+0.1.1 and installs the binaries published as v0.1.0 — so the package cannot
+always carry the digest of the archive it needs. When it cannot, it fetches
+the manifest the release publishes beside the archive, and it says so on
+stderr. **That is a transport-integrity check, not provenance:** it catches a
+corrupted or truncated download, and nothing more, because the digest then
+travels with the bytes. Provenance is `gh attestation verify` — see
+[Integrity](#integrity).
+
+Both URLs are tried, tagged first. Only if both fail does acquisition refuse,
+and the refusal names both.
 
 Or fetch it ahead of time:
 
@@ -69,16 +90,44 @@ Four sources, in this order, and the first one that answers wins:
 | this package's own install | whatever `npx apostate install` wrote |
 | well-known locations | macOS `/Applications` and `~/Applications` for a `Chromium.app` or `Apostate.app`; Linux `~/.cache/apostate` and `/opt/apostate` for a `chrome`; Windows `%LOCALAPPDATA%\apostate` for a `chrome.exe` — each directory and one level below it |
 
-The first two are you naming a file and are taken at your word. The last two
-are searches, and **a stock Chrome or Chromium is never adopted.** The
-executable is named `chrome` and the bundle `Chromium.app` exactly as upstream
-names them, and Chromium 152.0.7977.83 exists upstream too, so the file alone
-proves nothing. What is checked is the payload staged beside it —
-`build/MANIFEST.lock`, which carries this build's patch-series digests, or
-`resources/profiles/` — and the version, and both are required. Marker first,
-then version: nothing is executed until a file only an Apostate payload carries
-has already vouched for the tree, because a stock Chrome started with these
-switches is a session with no protection at all and nothing to say so.
+The first two are you naming a path and are taken at your word. Three forms
+are accepted, because all three are things people have:
+
+| What you name | What runs |
+|---|---|
+| the executable | itself |
+| a macOS bundle directory, `Chromium.app` | `Contents/MacOS/Chromium`, then `Contents/MacOS/Apostate` |
+| a payload root, the extracted `apostate-152.0.7977.83-<target>/` | the `Chromium.app`, `chrome` or `chrome.exe` inside it |
+
+A path that names nothing is refused with `does not name a file`; a directory
+with no browser in it with `names a directory with no browser inside it
+(expected Chromium.app, chrome or chrome.exe)`.
+
+**Unpacked the release archive by hand?** Move the *whole* extracted
+directory, not just `Chromium.app` — the build record and the profile
+resources beside it are what identify the tree as Apostate's. Put it in
+`/Applications` or `~/Applications` on macOS, `~/.cache/apostate` or
+`/opt/apostate` on Linux, `%LOCALAPPDATA%\apostate` on Windows, and the
+search finds it with no configuration at all: it looks in each of those
+directories and one level below.
+
+On macOS, an archive downloaded with a browser carries a quarantine flag and
+Gatekeeper will refuse the unsigned build. Clear it on the extracted tree:
+
+```sh
+xattr -dr com.apple.quarantine ~/Applications/apostate-152.0.7977.83-macos-arm64
+```
+
+The last two sources are searches, and **a stock Chrome or Chromium is never
+adopted.** The executable is named `chrome` and the bundle `Chromium.app`
+exactly as upstream names them, and Chromium 152.0.7977.83 exists upstream
+too, so the file alone proves nothing. What is checked is the payload staged
+beside it — `build/MANIFEST.lock`, which carries this build's patch-series
+digests, or `resources/profiles/` — and the version, and both are required.
+Marker first, then version: nothing is executed until a file only an Apostate
+payload carries has already vouched for the tree, because a stock Chrome
+started with these switches is a session with no protection at all and
+nothing to say so.
 
 ```javascript
 import { discoveryReport } from "@heretic-tech/apostate";
@@ -96,8 +145,10 @@ console.log(await discoveryReport());
 // }
 ```
 
-`npx apostate info` prints the same thing as JSON, alongside the manifest
-state, as `executable`, `executable_source` and `discovery`.
+`npx apostate info` prints the same thing as JSON, as `executable`,
+`executable_source` and `discovery`, alongside where the digest came from
+(`manifest_source`, `manifest_url`, `manifest_urls_tried`, `manifest_trust`,
+`manifest_note`) and the `provenance` command to run against the archive.
 
 Supported hosts: `macos-arm64`, `linux-x64`, `linux-arm64`, `windows-x64`.
 
@@ -181,7 +232,7 @@ const browser = await launch({
 | `fingerprint` | a fresh random seed | Seed for the whole identity. `"host"` (also `"off"`, `"false"`, `"0"`, `"disable"`, `"disabled"`) inherits the real machine and composes nothing. |
 | `fingerprintPlatform` | host's own OS on macOS and Windows; `"windows"` on Linux | `windows`, `macos` or `linux`. Selects the GPU cluster as well as the OS identity. Needs that platform's fonts installed — see below. Cannot be combined with host inheritance. |
 | `locale`, `timezone` | GeoIP of the effective egress, else the host's own | Override just these. Never drawn from the seed: a timezone the seed chose cannot correlate with the exit IP, so the precedence is this override, then GeoIP, then the host. The resolved locale is also written into the browser process environment (`LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG`), which is what moves `Intl` formatting rather than only the language list; a composed launch never inherits those from your shell, so your own locale cannot leak into a synthetic identity. Host inheritance is the one exception and does inherit them. Takes effect once the artifact ships the full locale pak set — see docs/FINGERPRINTS.md section 8. |
-| `geoip` | `true` | Best-effort: derive locale and timezone from the effective egress — the proxy exit when one is configured, the direct IP otherwise. A failed or partial lookup never invents one — it warns into `browser.apostateDiagnostics.warnings`, sends no override for the fields it could not answer for, and the launch serves the host's own for those. Behind a proxy that is the host's and not the exit's. Pass `locale` and `timezone` explicitly when geo-matching has to be guaranteed. |
+| `geoip` | `true` | Best-effort: derive locale and timezone from the effective egress — the proxy exit when one is configured, the direct IP otherwise. The timezone is the provider's; the **locale is inferred from the country** through `assets/country-locales.json`, generated from CLDR territoryInfo and Chromium's own accept-language list and covering all 257 territories CLDR knows (`MY` → `ms`, `GT` → `es-419`, `IN` → `en-IN`). A lookup that fails, or one that names no country, never invents one — it warns into `browser.apostateDiagnostics.warnings`, sends no override for the field it could not answer for, and the launch serves the host's own. Behind a proxy that is the host's and not the exit's. Pass `locale` and `timezone` explicitly when geo-matching has to be guaranteed. |
 | `proxy` | none | `http://`, `https://`, `socks5://`; credentials are kept out of the command line. |
 | `headless` | `true` | |
 | `userDataDir` | off-the-record | Persist cookies and storage. |
@@ -316,19 +367,28 @@ layout, so both share one install.
 | Variable | Effect |
 |---|---|
 | `APOSTATE_CACHE_DIR` | Where the browser is installed. |
-| `APOSTATE_BINARY` | Use this executable and skip acquisition entirely. |
-| `APOSTATE_DOWNLOAD_BASE_URL` | Fetch archives from a mirror. The digest still comes from the package manifest. |
+| `APOSTATE_BINARY` | Use this browser and skip acquisition entirely. An executable, a `.app` bundle or an extracted payload root. |
+| `APOSTATE_DOWNLOAD_BASE_URL` | Fetch archives from a mirror. The digest is never taken from the mirror: it comes from the package, or from the release. |
 | `APOSTATE_KEEP_ARCHIVE` | Keep the verified archive after extracting, for `gh attestation verify`. |
 
 ## Integrity
 
-The archive's SHA-256 is checked against the manifest **before** the archive is
-opened, and a mismatch aborts without extracting anything. That manifest ships
-inside this package rather than being fetched alongside the download, because a
-digest served from the same place as the bytes it describes proves nothing.
+The archive's SHA-256 is checked **before** the archive is opened, and a
+mismatch aborts without extracting anything. Where that digest came from
+decides what the check is worth, and the two cases are not the same strength:
 
-Releases also carry GitHub build-provenance attestations. There is no signing
-key to hold or rotate; verification is an optional extra step:
+- **A manifest baked into this package** (`manifest_trust: pinned`). The
+  digest and the bytes come from two different places, so it detects a
+  substituted archive as well as a damaged one.
+- **A manifest fetched from the release** (`manifest_trust:
+  transport-integrity`). The digest travels with the bytes, so it detects a
+  corrupted or truncated download and nothing else. This is the path a
+  launcher-only release takes — 0.1.1 installing the v0.1.0 binaries — and it
+  says so on stderr when it happens.
+
+For the stronger claim in either case, releases carry GitHub build-provenance
+attestations, which bind the archive to the repository, commit and workflow
+that produced it. There is no signing key to hold or rotate:
 
 ```sh
 gh attestation verify apostate-152.0.7977.83-macos-arm64.zip --repo heretic-tech/apostate
