@@ -63,13 +63,13 @@ jobs:
       matrix:
         include:
           - target: linux-x64
-            runner: blacksmith-2vcpu-ubuntu-2404
+            runner: warp-ubuntu-latest-x64-2x
           - target: linux-arm64
-            runner: blacksmith-2vcpu-ubuntu-2404
+            runner: warp-ubuntu-latest-x64-2x
           - target: macos-arm64
-            runner: blacksmith-6vcpu-macos-latest
+            runner: warp-macos-26-arm64-6x
           - target: windows-x64
-            runner: blacksmith-2vcpu-windows-2025
+            runner: warp-windows-2025-x64-4x
     steps:
       - name: Check out source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -153,7 +153,7 @@ jobs:
   measure-windows-checkout:
     name: measure-windows-checkout
     if: ${{ inputs.measure_windows_disk }}
-    runs-on: blacksmith-2vcpu-windows-2025
+    runs-on: warp-windows-2025-x64-4x
     timeout-minutes: 120
     env:
       # Named rather than left to target_default(), so this job says what it is
@@ -205,7 +205,7 @@ jobs:
     # probe exists to be cheap. Paired with the checkout measurement because
     # neither number decides anything on its own.
     if: ${{ inputs.measure_windows_disk }}
-    runs-on: blacksmith-32vcpu-windows-2025
+    runs-on: warp-windows-2025-x64-32x
     timeout-minutes: 20
     steps:
       - name: Check out source

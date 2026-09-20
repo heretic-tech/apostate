@@ -161,7 +161,7 @@ jobs:
       contents: read
       id-token: write
       attestations: write
-    # All targets concurrently. Each leg is its own ephemeral VM and Blacksmith
+    # All targets concurrently. Each leg is its own ephemeral VM and WarpBuild
     # imposes no concurrency limit, so serializing only lengthens the release
     # without saving anything. fail-fast is the cost control: a release is dead
     # the moment any target fails, and cancelling the siblings immediately

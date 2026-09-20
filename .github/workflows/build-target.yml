@@ -11,7 +11,7 @@ on:
         required: true
         type: string
       runner_labels:
-        description: "JSON array literal of Blacksmith runner labels, e.g. [\"blacksmith-12vcpu-macos-latest\"]"
+        description: "JSON array literal of WarpBuild runner labels, e.g. [\"warp-macos-26-arm64-12x\"]"
         required: true
         type: string
       attest:
@@ -47,7 +47,7 @@ jobs:
   build:
     name: ${{ inputs.artifact_prefix }}-${{ inputs.target }}
     runs-on: ${{ fromJSON(inputs.runner_labels) }}
-    # Blacksmith runners register with GitHub as self-hosted, so the 6-hour
+    # WarpBuild runners register with GitHub as self-hosted, so the 6-hour
     # GitHub-hosted job cap does not apply here -- the limit is 5 days. 600
     # minutes is our own ceiling, chosen so the 12-vCPU macOS build has room
     # to finish a full fetch plus official build instead of being killed at

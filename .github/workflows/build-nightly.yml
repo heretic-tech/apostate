@@ -59,7 +59,7 @@ jobs:
       contents: read
       id-token: write
       attestations: write
-    # All targets concurrently: each leg is its own ephemeral VM and Blacksmith
+    # All targets concurrently: each leg is its own ephemeral VM and WarpBuild
     # imposes no concurrency limit. fail-fast stays off here because a nightly
     # exists to report the state of every target, so one failing platform must
     # not hide the others.

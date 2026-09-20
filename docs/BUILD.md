@@ -517,14 +517,21 @@ integer.
 
 ## Hosted runners and workspaces
 
-`scripts/resolve-build-targets.sh` selects these Blacksmith runners:
+`scripts/resolve-build-targets.sh` selects these WarpBuild runners:
 
 | Target | Runner label | Build environment |
 | --- | --- | --- |
-| `linux-x64` | `blacksmith-32vcpu-ubuntu-2404` | Pinned `linux/amd64` container on Linux x64 |
-| `linux-arm64` | `blacksmith-32vcpu-ubuntu-2404` | ARM64 cross-build in the same container architecture |
-| `macos-arm64` | `blacksmith-12vcpu-macos-latest` | Native macOS ARM64 with the pinned SDK |
-| `windows-x64` | `blacksmith-32vcpu-windows-2025` | Native Windows x64 against the runner's own VS Build Tools and SDK |
+| `linux-x64` | `warp-ubuntu-latest-x64-32x` | Pinned `linux/amd64` container on Linux x64 |
+| `linux-arm64` | `warp-ubuntu-latest-x64-32x` | ARM64 cross-build in the same container architecture |
+| `macos-arm64` | `warp-macos-26-arm64-12x` | Native macOS ARM64 with the pinned SDK |
+| `windows-x64` | `warp-windows-2025-x64-32x` | Native Windows x64 against the runner's own VS Build Tools and SDK |
+
+The macOS and Windows labels are dated, so a runner image change is a visible
+edit here rather than a drift under a moving alias. The Linux label is the
+`-latest-` alias, currently Ubuntu 24.04, because WarpBuild offers no dated
+24.04 label; that is acceptable only because the Linux build runs inside the
+pinned `linux/amd64` container and the host image is not its reproducibility
+boundary.
 
 Linux arm64 runs on x64 because the pinned `linux/amd64` container is the
 reproducibility boundary. `scripts/in-linux-build-container.sh` explicitly
@@ -535,7 +542,7 @@ Linux targets against `RUNNER_OS=Linux` and `RUNNER_ARCH=X64` before bootstrap.
 The cross-built binary's smoke check inspects its ELF architecture rather
 than executing it on x64.
 
-`windows-x64` builds natively on `blacksmith-32vcpu-windows-2025`. It cannot
+`windows-x64` builds natively on `warp-windows-2025-x64-32x`. It cannot
 use the Linux container. `scripts/lib.sh` exports
 `DEPOT_TOOLS_WIN_TOOLCHAIN=0` so `vs_toolchain.py` resolves Visual Studio and
 the Windows SDK from the runner's own installation; `build/args/windows-x64.gn`

@@ -31,10 +31,10 @@ if not raw:
 # lacks the SDK's Debugging Tools feature and the Visual Studio ATL component,
 # both of which scripts/provision-windows-toolchain.sh installs before the sync.
 runner_labels = {
-    "linux-x64": ["blacksmith-32vcpu-ubuntu-2404"],
-    "linux-arm64": ["blacksmith-32vcpu-ubuntu-2404"],
-    "macos-arm64": ["blacksmith-12vcpu-macos-latest"],
-    "windows-x64": ["blacksmith-32vcpu-windows-2025"],
+    "linux-x64": ["warp-ubuntu-latest-x64-32x"],
+    "linux-arm64": ["warp-ubuntu-latest-x64-32x"],
+    "macos-arm64": ["warp-macos-26-arm64-12x"],
+    "windows-x64": ["warp-windows-2025-x64-32x"],
 }
 
 if not raw:

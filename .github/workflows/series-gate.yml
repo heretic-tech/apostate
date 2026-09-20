@@ -19,10 +19,10 @@ name: series compile gate
 #
 # WHAT IT COSTS
 #
-# Blacksmith bills per vCPU-minute: an x64 2 vCPU minute is $0.004 and a
+# WarpBuild bills per vCPU-minute: an x64 2 vCPU minute is $0.004 and a
 # Windows 2 vCPU minute bills as two x64 ones, scaling proportionally with
-# vCPU count, so blacksmith-32vcpu-ubuntu-2404 is ~$0.064/min and
-# blacksmith-32vcpu-windows-2025 ~$0.128/min. That model reproduces this
+# vCPU count, so warp-ubuntu-latest-x64-32x is ~$0.064/min and
+# warp-windows-2025-x64-32x ~$0.128/min. That model reproduces this
 # project's own "over $100" figure for a four-target build: 180 min x $0.064
 # twice for Linux, 240 x $0.128 for Windows, 300 x $0.16 for the 12 vCPU
 # macOS runner is $102.
