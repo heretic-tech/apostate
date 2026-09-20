@@ -24,6 +24,7 @@ import {
   provisionWidevine,
   WidevineError,
   loadCatalogue,
+  resolveLaunchConfig,
   resolveProfile,
   toCanonicalLaunchConfig,
 } from "../dist/index.js";
@@ -723,15 +724,231 @@ test("binaryInfo reports where the browser was found", async () => {
   }
 });
 
-test("launch reports an unpublished package before fabricating a browser", async () => {
-  const cacheDir = await mkdtemp(join(tmpdir(), "apostate-node-launch-"));
+// The manifest baked into this package describes nothing -- a launcher
+// release installs binaries published under an older tag, so it cannot carry
+// their digest. These four tests cover the route that replaced the dead end.
+
+const TAG_MANIFEST_URL = `https://github.com/heretic-tech/apostate/releases/download/v0.1.1/${artifactNameFor(target)}.manifest.json`;
+const LATEST_MANIFEST_URL = `https://github.com/heretic-tech/apostate/releases/latest/download/${artifactNameFor(target)}.manifest.json`;
+
+// The per-asset manifest the release publishes beside each archive.
+function assetManifest(archive, platform = target, overrides = {}) {
+  return {
+    artifact: artifactNameFor(platform),
+    build_manifest_sha256: "b1".repeat(32),
+    catalogue_version: CATALOGUE_VERSION,
+    chromium_version: CHROMIUM_VERSION,
+    // Deliberately NOT this package's version: a 0.1.1 launcher installs the
+    // binaries published as v0.1.0, and that must not be treated as a
+    // mismatch.
+    package_version: "0.1.0",
+    patch_series_sha256: "a1".repeat(32),
+    platform,
+    sha256: createHash("sha256").update(archive).digest("hex"),
+    source_revision: "0".repeat(40),
+    ...overrides,
+  };
+}
+
+test("falls back from the tagged release manifest to latest and installs against it", async () => {
+  const cacheDir = await mkdtemp(join(tmpdir(), "apostate-node-release-manifest-"));
   try {
-    await assert.rejects(
-      launch({ target, searchRoots: [], cacheDir, geoip: false, fingerprint: "host" }),
-      (error) => error instanceof UnpublishedArtifactError,
-    );
+    const archive = Buffer.from("real archive bytes");
+    const requested = [];
+    const binary = await ensureBinary({
+      target,
+      searchRoots: [],
+      cacheDir,
+      download: async (url, context) => {
+        requested.push(url);
+        if (context.kind === "manifest") {
+          // The tagged URL is the launcher's own version, which has no binary
+          // release behind it. GitHub answers 404.
+          if (url === TAG_MANIFEST_URL) throw new Error("HTTP 404");
+          assert.equal(url, LATEST_MANIFEST_URL);
+          return assetManifest(archive);
+        }
+        return archive;
+      },
+      extract: async (_bytes, destination) => {
+        const tree = join(destination, "tree");
+        await mkdir(tree, { recursive: true });
+        await writeFile(join(tree, "chrome"), "binary bytes");
+        return tree;
+      },
+    });
+    assert.deepEqual(requested, [
+      TAG_MANIFEST_URL,
+      LATEST_MANIFEST_URL,
+      // The archive comes from the directory the manifest came from.
+      `https://github.com/heretic-tech/apostate/releases/latest/download/${artifactNameFor(target)}`,
+    ]);
+    assert.equal(await readFile(binary, "utf8"), "binary bytes");
+
+    // And the install is reusable without the network: a launcher-only bump
+    // must not throw away 600 MB, and no manifest is reachable to re-pin it.
+    const again = await ensureBinary({
+      target,
+      searchRoots: [],
+      cacheDir,
+      download: async () => { throw new Error("must not touch the network"); },
+    });
+    assert.equal(again, binary);
   } finally {
     await rm(cacheDir, { recursive: true, force: true });
+  }
+});
+
+test("a fetched manifest that describes something else is refused, and latest is still tried", async () => {
+  const cacheDir = await mkdtemp(join(tmpdir(), "apostate-node-release-manifest-wrong-"));
+  try {
+    const archive = Buffer.from("real archive bytes");
+    const binary = await ensureBinary({
+      target,
+      searchRoots: [],
+      cacheDir,
+      download: async (url, context) => {
+        if (context.kind !== "manifest") return archive;
+        // Parses, binds to another build. Stopping here would strand a
+        // launcher whose own tag published a different Chromium.
+        if (url === TAG_MANIFEST_URL) return assetManifest(archive, target, { chromium_version: "151.0.0.1" });
+        return assetManifest(archive);
+      },
+      extract: async (_bytes, destination) => {
+        const tree = join(destination, "tree");
+        await mkdir(tree, { recursive: true });
+        await writeFile(join(tree, "chrome"), "binary bytes");
+        return tree;
+      },
+    });
+    assert.equal(await readFile(binary, "utf8"), "binary bytes");
+  } finally {
+    await rm(cacheDir, { recursive: true, force: true });
+  }
+});
+
+test("a digest that does not match the archive aborts before extraction", async () => {
+  const cacheDir = await mkdtemp(join(tmpdir(), "apostate-node-release-manifest-digest-"));
+  try {
+    let extracts = 0;
+    await assert.rejects(
+      ensureBinary({
+        target,
+        searchRoots: [],
+        cacheDir,
+        download: async (_url, context) => (context.kind === "manifest"
+          ? assetManifest(Buffer.from("what the manifest describes"))
+          : Buffer.from("what the server sent")),
+        extract: async () => { extracts += 1; return null; },
+      }),
+      (error) => error.code === "BINARY_HASH_MISMATCH",
+    );
+    assert.equal(extracts, 0);
+  } finally {
+    await rm(cacheDir, { recursive: true, force: true });
+  }
+});
+
+test("launch refuses only after both release manifest URLs failed, and names them", async () => {
+  const cacheDir = await mkdtemp(join(tmpdir(), "apostate-node-launch-"));
+  try {
+    const tried = [];
+    await assert.rejects(
+      launch({
+        target,
+        searchRoots: [],
+        cacheDir,
+        geoip: false,
+        fingerprint: "host",
+        download: async (url) => { tried.push(url); throw new Error("HTTP 404"); },
+      }),
+      (error) => {
+        assert.ok(error instanceof UnpublishedArtifactError, error?.message);
+        assert.equal(
+          error.message,
+          "Release manifest is unpublished; Apostate binary artifacts are not available for acquisition."
+          + ` No release manifest for ${artifactNameFor(target)} could be fetched.`
+          + ` Tried: ${TAG_MANIFEST_URL}, ${LATEST_MANIFEST_URL}`,
+        );
+        assert.deepEqual(error.details.urls_tried, [TAG_MANIFEST_URL, LATEST_MANIFEST_URL]);
+        return true;
+      },
+    );
+    assert.deepEqual(tried, [TAG_MANIFEST_URL, LATEST_MANIFEST_URL]);
+  } finally {
+    await rm(cacheDir, { recursive: true, force: true });
+  }
+});
+
+test("a named bundle or payload root resolves to the executable inside it", async () => {
+  const root = await mkdtemp(join(tmpdir(), "apostate-node-named-path-"));
+  try {
+    await withoutConfiguredBinary(async () => {
+      // The macos-arm64 layout: the extracted payload root holds the bundle,
+      // the build record and the profile resources.
+      const payloadRoot = join(root, `apostate-${CHROMIUM_VERSION}-macos-arm64`);
+      const bundle = join(payloadRoot, "Chromium.app");
+      const executable = join(bundle, "Contents", "MacOS", "Chromium");
+      await mkdir(dirname(executable), { recursive: true });
+      await writeFile(executable, "binary bytes");
+      await chmod(executable, 0o755);
+
+      for (const named of [executable, bundle, payloadRoot]) {
+        assert.equal(await ensureBinary({ target: "macos-arm64", binaryPath: named }), executable, named);
+        const report = await discoveryReport({ target: "macos-arm64", binaryPath: named });
+        assert.equal(report.found.executable, executable, named);
+        assert.equal(report.found.source, "argument");
+      }
+
+      // The same three forms through the environment variable.
+      process.env.APOSTATE_BINARY = bundle;
+      try {
+        assert.equal(await ensureBinary({ target: "macos-arm64" }), executable);
+        assert.equal((await discoveryReport({ target: "macos-arm64" })).found.source, "environment");
+      } finally {
+        delete process.env.APOSTATE_BINARY;
+      }
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a named directory with no browser in it is refused by name, not by is-a-file", async () => {
+  const root = await mkdtemp(join(tmpdir(), "apostate-node-named-empty-"));
+  try {
+    await withoutConfiguredBinary(async () => {
+      const empty = join(root, "empty");
+      const missing = join(root, "missing");
+      await mkdir(empty, { recursive: true });
+
+      await assert.rejects(
+        ensureBinary({ target: "macos-arm64", binaryPath: empty }),
+        (error) => error.message === `the configured path names a directory with no browser inside it (expected Chromium.app, chrome or chrome.exe): ${empty}`,
+      );
+      await assert.rejects(
+        ensureBinary({ target: "macos-arm64", binaryPath: missing }),
+        (error) => error.message === `the configured path does not name a file: ${missing}`,
+      );
+
+      const report = await discoveryReport({ target: "macos-arm64", binaryPath: empty, searchRoots: [] });
+      assert.deepEqual(report.rejected, [{
+        path: empty,
+        reason: "the configured path names a directory with no browser inside it (expected Chromium.app, chrome or chrome.exe)",
+      }]);
+
+      process.env.APOSTATE_BINARY = missing;
+      try {
+        await assert.rejects(
+          ensureBinary({ target: "macos-arm64" }),
+          (error) => error.message === `APOSTATE_BINARY does not name a file: ${missing}`,
+        );
+      } finally {
+        delete process.env.APOSTATE_BINARY;
+      }
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });
 
@@ -1046,6 +1263,43 @@ test("locale travels as an override, never as a partial profile envelope", async
   }
 });
 
+test("an authenticated SOCKS5 proxy reaches the browser through the envelope, not the driver", async () => {
+  // Playwright refuses to start at all when a socks5 server carries a
+  // username -- "Browser does not support socks5 proxy authentication" --
+  // because upstream Chromium has no way to supply one. This build does: the
+  // credential rides the --apostate-profile envelope into the network stack
+  // and never touches Chromium's proxy configuration. Handing the driver a
+  // credential it will refuse to launch with, for a proxy the browser can
+  // serve, made every residential SOCKS5 proxy unusable.
+  const root = await mkdtemp(join(tmpdir(), "apostate-node-socks-"));
+  try {
+    const executable = join(root, "browser");
+    await writeFile(executable, "#!/bin/sh\nexit 0\n");
+    await chmod(executable, 0o755);
+    let seen = null;
+    const fakeDriver = { chromium: { async launch(options) { seen = options; return { async close() {} }; } } };
+    const base = { executablePath: executable, _driverModule: fakeDriver, geoip: false, fingerprint: "host" };
+
+    const socks = await launch({ ...base, proxy: "socks5://u:p@proxy.invalid:1080" });
+    await socks.close();
+    assert.deepEqual(seen.proxy, { server: "socks5://proxy.invalid:1080" });
+    assert.ok(seen.args.includes("--proxy-server=socks5://proxy.invalid:1080"));
+    const envelope = seen.args.find((arg) => arg.startsWith("--apostate-profile="));
+    assert.deepEqual(
+      JSON.parse(Buffer.from(envelope.slice("--apostate-profile=".length), "base64").toString("utf8")).proxy_credentials,
+      { username: "u", password: "p" },
+    );
+
+    // An HTTP proxy keeps the driver-side credential: Playwright answers the
+    // 407 itself there, and nothing refuses the launch.
+    const http = await launch({ ...base, proxy: "http://u:p@proxy.invalid:8080" });
+    await http.close();
+    assert.deepEqual(seen.proxy, { server: "http://proxy.invalid:8080", username: "u", password: "p" });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("a GeoIP failure sends no override rather than inventing en-US and UTC", async () => {
   // Two independent invention sites used to live in prepareLaunch: the catch
   // handler substituted { locale: "en-US", timezone: "UTC" }, and a second
@@ -1086,19 +1340,28 @@ test("a GeoIP failure sends no override rather than inventing en-US and UTC", as
       // from, independently of the handler above.
       ["a result with no timezone", { geoipResolver: async () => ({ locale: "de-DE,de" }) },
         ["--fingerprint-locale=de-DE,de"], "resolved no timezone"],
-      ["a result with no locale", { geoipResolver: async () => ({ timezone: "Europe/Berlin" }) },
-        ["--fingerprint-timezone=Europe/Berlin"], "resolved no locale"],
+      ["a result with no country at all", { geoipResolver: async () => ({ timezone: "Europe/Berlin" }) },
+        ["--fingerprint-timezone=Europe/Berlin"], "returned no country"],
       // freeipapi answers `timeZone` with a UTC offset, which cannot drive
       // --fingerprint-timezone. Unresolved, not adjusted into a lookalike.
       ["an offset instead of an identifier",
         { geoipResolver: async () => ({ locale: "de-DE", timeZone: "+02:00" }) },
         ["--fingerprint-locale=de-DE"], "resolved no timezone"],
-      // A country code derives its locale from the Apostate-owned table that
-      // scripts/geoip.py and the Python package share, so a German exit is
-      // de-DE. The old code built `en-${countryCode}` and served en-DE.
-      ["a country code and a timezone",
+      // The locale is DERIVED from the country through assets/country-locales.json,
+      // which covers all 257 territories CLDR knows. The old 45-country hand
+      // table left most exits with no locale at all, so a Malaysian exit
+      // served the host's own language from a Malaysian IP.
+      ["a European country code and a timezone",
         { geoipResolver: async () => ({ country_code: "DE", timezone: "Europe/Berlin" }) },
         ["--fingerprint-locale=de-DE", "--fingerprint-timezone=Europe/Berlin"], null],
+      ["the Malaysian exit the hand table missed",
+        { geoipResolver: async () => ({ country_code: "MY", timezone: "Asia/Kuala_Lumpur" }) },
+        ["--fingerprint-locale=ms", "--fingerprint-timezone=Asia/Kuala_Lumpur"], null],
+      // es-419 is Latin American Spanish: a regional tag whose base language
+      // still trails it in accept_languages.
+      ["a Latin American exit",
+        { geoipResolver: async () => ({ countryCode: "GT", timezone: "America/Guatemala" }) },
+        ["--fingerprint-locale=es-419", "--fingerprint-timezone=America/Guatemala"], null],
     ];
 
     for (const [label, options, expected, warning] of cases) {
@@ -1111,8 +1374,8 @@ test("a GeoIP failure sends no override rather than inventing en-US and UTC", as
       assert.ok(seen.args.includes("--fingerprint=4242"), `${label}: the seed must survive`);
       assert.equal(seen.args.some((arg) => arg.startsWith("--lang=")),
         expected.some((arg) => arg.startsWith("--fingerprint-locale")), label);
-      assert.equal(seen.env.TZ, expected.some((arg) => arg.startsWith("--fingerprint-timezone"))
-        ? "Europe/Berlin" : undefined, label);
+      const expectedTimezone = expected.find((arg) => arg.startsWith("--fingerprint-timezone="));
+      assert.equal(seen.env.TZ, expectedTimezone ? expectedTimezone.slice("--fingerprint-timezone=".length) : undefined, label);
       const warnings = browser.apostateDiagnostics.warnings;
       if (warning === null) assert.deepEqual(warnings, [], label);
       else assert.ok(warnings.some((entry) => entry.includes(warning)),
@@ -1125,4 +1388,48 @@ test("a GeoIP failure sends no override rather than inventing en-US and UTC", as
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("a country derives its locale and its accept-language list for every territory", async () => {
+  // The country -> locale table is assets/country-locales.json, generated
+  // from CLDR territoryInfo and Chromium's own kAcceptLanguageList and
+  // shipped byte-identical to the Python package. What is asserted here is
+  // the shape it is turned into: the tag drives --fingerprint-locale, and
+  // accept_languages carries the tag with its base language behind it -- or
+  // just the tag, when the tag has no region to strip.
+  for (const [country, locale, acceptLanguages] of [
+    ["MY", "ms", "ms"],
+    ["GT", "es-419", "es-419,es"],
+    ["IN", "en-IN", "en-IN,en"],
+    ["CZ", "cs", "cs"],
+    ["HK", "zh-HK", "zh-HK,zh"],
+  ]) {
+    const config = await resolveLaunchConfig({
+      fingerprint: "host",
+      geoipResolver: async () => ({ country_code: country, timezone: "Etc/UTC" }),
+    });
+    assert.equal(config.locale, locale, country);
+    assert.equal(config.profile.locale.accept_languages, acceptLanguages, country);
+  }
+
+  // No country means no derivation, and the message says so: "resolved no
+  // locale" sent people looking for a field the provider was never asked for.
+  const warnings = [];
+  const original = console.warn;
+  console.warn = (line) => warnings.push(line);
+  let config;
+  try {
+    config = await resolveLaunchConfig({
+      fingerprint: "host",
+      geoipResolver: async () => ({ timezone: "Etc/UTC" }),
+    });
+  } finally {
+    console.warn = original;
+  }
+  assert.equal(config.locale, null);
+  assert.deepEqual(warnings, [
+    "\u001b[33m[Apostate] the GeoIP lookup returned no country, so no locale is derived;"
+    + " the host's own is served for that field."
+    + " Pass locale explicitly to guarantee a match.\u001b[0m",
+  ]);
 });
