@@ -834,6 +834,42 @@ persona. A profile claiming a laptop panel while that header says `Desktop` is a
 contradiction readable from one header. Closing it is a catalogue question rather
 than something a patch can fix, since the vocabulary is Chromium's.
 
+## chrome.runtime on a page is a persona, present on about a quarter of them
+
+A detector you may meet reads a missing `chrome.runtime` on an ordinary page as
+a headless tell. It is wrong: fresh stock Chrome has no `chrome.runtime` there
+either, and this browser has always matched it. What decides the surface is one
+question asked of the installed extension set -- does any extension name this
+page in its `externally_connectable` manifest key -- and a browser with no such
+extension answers no.
+
+Because the honest population splits, the answer is drawn. About a quarter of
+identities carry the wallet-user state and the rest carry fresh Chrome's,
+deterministic per seed: the same `--fingerprint` always lands on the same state
+and `--fingerprint-explain` prints it on the `extensions` line. The present
+state is MetaMask's shape -- every http and https page gets `chrome.runtime`
+and `window.browser` with `browser.runtime === chrome.runtime`, `file://` and
+`about:blank` get neither. `chrome.runtime.id` reads `undefined`, and a message
+or a port to any extension id comes back "Could not establish connection.
+Receiving end does not exist." from the browser process, which is what a page
+gets for an extension it cannot reach. No extension is installed to produce
+any of this and no extension id is ever named, because a fixed id would
+correlate every launch that showed it.
+
+The cost is that it is a visibly different page. A site that branches on
+`chrome.runtime` takes its extension path on those identities: a wallet-connect
+flow offers the injected-provider button, some SSO widgets try the extension
+handshake before falling back. That is what those sites do for a real user
+whose wallet extension is disabled, so it is a real state rather than a broken
+one, but if your target site is one of them, pin a seed that draws the state
+you want and check it with `--fingerprint-explain` before the session.
+
+One thing the draw does not override: if you install an extension into the
+user-data-dir yourself, its own `externally_connectable` still answers too. The
+profile widens the gate and never narrows it, because a page that can already
+see that extension's content script and injected objects, and could not see
+`chrome.runtime`, would be in a state no install produces.
+
 ## The window chrome delta is the host's, not the profile's
 
 `outerHeight - innerHeight` is the height of the browser's own frame, tabstrip

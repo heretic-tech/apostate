@@ -436,6 +436,16 @@ extension id: a fixed id is a cross-instance correlator that survives every
 other axis, which is also why no inert component extension is shipped to
 produce the observable.
 
+Patch `0116` composed the axis and `0121` serves it, as one predicate in
+`CanWebpageContextConnectExternally`: the profile's boolean and an http-or-https
+test on the context URL, with everything downstream left as the real binding
+path. The predicate only ever widens. `nullopt` is `--fingerprint=host` and an
+explicit `false` still lets a wallet extension you installed yourself answer,
+because a page that sees that extension's content script and not
+`chrome.runtime` is in a state no install produces. The browser process
+re-checks `externally_connectable` before opening any channel and is not
+patched, so what a real installed extension receives is unchanged.
+
 ### Not an axis: text rasterisation
 
 `gfx::FontRenderParams` -- antialiasing and its subpixel order, hinting level
