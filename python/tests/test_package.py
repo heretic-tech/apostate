@@ -1411,6 +1411,42 @@ print(catalogue['browser_build'])
                 provision(target="macos-arm64", source=empty, cache_dir=temporary,
                           chromium_version=CHROMIUM_VERSION, install=Path(temporary) / "install")
 
+    def test_provisioning_without_an_install_path_targets_this_package_s_own(self) -> None:
+        # `apostate provision-drm` with no --source and no install path is the
+        # documented way to do this, and it is the one path that has to work
+        # out what the install directory is rather than being handed it. That
+        # calculation went stale once and nothing noticed: it is the cache
+        # keyed by Chromium version, and it must not need a manifest, because
+        # on a release that publishes nothing the install has already
+        # succeeded by the time it is asked for.
+        from apostate import widevine
+        archive_bytes = self._zip_archive({
+            "apostate-test/Chromium.app/Contents/MacOS/Chromium": b"native binary",
+        })
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "WidevineCdm"
+            platform_dir = source / "_platform_specific" / "mac_arm64"
+            platform_dir.mkdir(parents=True)
+            (platform_dir / "libwidevinecdm.dylib").write_bytes(b"cdm")
+            (source / "manifest.json").write_text('{"version": "4.10.3050.0"}',
+                                                  encoding="utf-8")
+            manager = BinaryManager(cache_dir=temporary,
+                                    manifest=self._zip_manifest(archive_bytes),
+                                    downloader=lambda url: archive_bytes)
+            binary_module = importlib.import_module("apostate.binary")
+            with mock.patch.object(binary_module, "BinaryManager",
+                                   lambda **kwargs: manager):
+                with _release() as requested:
+                    result = widevine.provision(target="macos-arm64", source=source,
+                                                cache_dir=temporary)
+            self.assertEqual(requested, [])
+            self.assertEqual(
+                result["installed"],
+                str(Path(temporary) / CHROMIUM_VERSION / "macos-arm64" / "install"
+                    / "Chromium.app" / "Contents" / "Frameworks"
+                    / f"Chromium Framework.framework/Versions/{CHROMIUM_VERSION}"
+                    / "Libraries" / "WidevineCdm"))
+
     def test_component_update_switch_is_dropped_from_driver_defaults(self) -> None:
         # Playwright passes --disable-component-update by default, and it blocks
         # ComponentInstaller::Register outright, so a provisioned Widevine CDM is

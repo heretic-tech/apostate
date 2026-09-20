@@ -42,6 +42,7 @@ import shutil
 from pathlib import Path
 from typing import Any, Iterator
 
+from .config import CHROMIUM_VERSION
 from .errors import ApostateError, BinaryError
 
 #: The component directory name, both in a profile and in the browser.
@@ -294,14 +295,18 @@ def provision(*, target: str | None = None, source: str | Path | None = None,
         # to provision into otherwise, and the caller asked for a working
         # browser rather than a populated cache directory.
         try:
-            manifest = manager._manifest()
             manager.ensure(target=target_name)
         except BinaryError as exc:
             result["reason"] = str(exc)
             return result
-        version = chromium_version or str(manifest["chromium_version"])
-        install_root = manager._paths(target_name, manifest,
-                                      {"artifact": COMPONENT})[1]
+        # The cache is keyed by Chromium version, and this package speaks to
+        # exactly one: a manifest naming another is refused when it is read.
+        # Asking a manifest for the number would only be a second route to
+        # the same answer, and -- when nothing is published and the install
+        # came from the release's own manifest -- a way to fail after the
+        # install already succeeded.
+        version = chromium_version or CHROMIUM_VERSION
+        install_root = manager._paths(target_name, version)[1]
 
     destination = install_root / relative.format(chromium_version=version) / COMPONENT
     _copy(store, destination, subdir, library)
