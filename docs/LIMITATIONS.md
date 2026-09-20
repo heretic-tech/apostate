@@ -51,6 +51,32 @@ asserts every WebGL limit the anchor measured reaches the page, for each
 anchor against its own values rather than launches against each other. Both
 were verified to fail against the pre-fix binary before being trusted to pass.
 
+**What the v0.2.0 build was measured against before tagging**, on the macOS
+arm64 build of the full series, on the host that surfaced each defect. WebGL
+limits: `gl-caps-check.mjs` 5 of 5 anchors on a Metal host, where v0.1.0
+served the host's table under every cross-backend anchor; canvas 2D and WebGL
+antialiasing still render, because the claim is served only to WebGL
+contexts and Skia keeps the host's caps. WebRTC: through the IPv4-only
+residential relay, one mDNS host candidate plus one server-reflexive IPv4
+candidate and `iceGatheringState` reaching `complete` in under five seconds,
+where v0.1.0 never completed; `--fingerprint-webrtc-udp=block` completes
+with zero candidates; direct gathering is unchanged at four. `chrome.runtime`:
+a seed that draws the extensions axis present serves `chrome.runtime` and
+`window.browser` on https pages with the eleven properties, the undefined
+`id`, and the exact "Could not establish connection" rejection a real
+externally-connectable extension produces, and nothing on `file://`; a seed
+that draws it absent is field-for-field a fresh stock Chrome, 26 of 26
+assertions. Readback noise: 38 of 38 harness checks with the switch on --
+two launches of one seed agree, seeds differ, every 2D, WebGL and pixel-pack
+route reads back the same perturbed pixels, a solid fill and a transparent
+clear are byte-exact, host mode is untouched -- and the switch off is
+byte-identical to the switch never having existed. Text rendering: the
+persona's tuple reaches every process; on a Mac host the Windows and macOS
+tuples differ only in two fields CoreText discards, so those two personas
+still rasterise alike there (see **Text rendering follows the persona**),
+while the Linux persona's tuple visibly moves canvas and DOM text and
+quantises advances exactly as an unscaled Linux desktop does.
+
 Two things to do before relying on any surface you care about. Run
 `--fingerprint-explain` and confirm it resolved the way you expect. Then read
 it the way a page would, from a page, and check the value.
