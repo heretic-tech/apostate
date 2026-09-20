@@ -32,7 +32,7 @@ That last result is also the most useful thing the old corpus produced, because
 it is exactly the failure mode a detector looks for, and it is the reason
 section 4 exists.
 
-## 2. Three layers
+## 2. The layers
 
 Every observable belongs to exactly one layer. The layer decides who owns the
 value and what may vary it.
@@ -42,6 +42,7 @@ value and what may vary it.
 | **Invariant** | the binary | never | the build itself |
 | **Anchor** | a measured device cluster | per anchor, atomically | T0 capture |
 | **Dispersion** | the compositor | per profile, by seed | enumerated real-world options |
+| **Projection** | the claimed platform | per persona, not per seed | Chromium's own per-platform code |
 
 **Invariants** are what the binary is: Chromium version, brand list, API
 surface, `Function.prototype.toString` output, which codecs are compiled in,
@@ -65,6 +66,13 @@ microphones, which voice packs, panel size, taskbar position, core count. This
 is where per-profile uniqueness comes from, and it is large enough to carry the
 whole product: the dispersion space is combinatorially big while every point in
 it remains a machine someone could own.
+
+**Projection** is the one case where a surface is neither the build's, a
+device cluster's, nor the owner's: Chromium computes it per platform and only
+per platform, so the claimed OS determines it outright and there is nothing
+for a seed to vary. Text rasterisation is the whole of this layer today --
+section 6 has it -- and a surface only belongs here when a table would have
+to invent variation the platform does not have.
 
 ## 3. The two rules that keep dispersion honest
 
@@ -270,7 +278,7 @@ than by validation.
 platform persona -> os release -> anchor (claimed platform)
   -> identity string -> cpu bucket -> memory bucket -> panel -> furniture
   -> font packs -> media topology -> audio buffer -> voice table
-  -> locale/timezone
+  -> extensions -> locale/timezone
 ```
 
 A coherence-graph violation after resolution is a defect in the option tables,
@@ -295,6 +303,7 @@ prevalence; they are not uniform.
 | `media_topology` | input/output/camera counts + labels + group pairing | platform | none |
 | `audio` | output buffer size in frames | platform | none |
 | `voices` | voice table for an OS release and language set | platform, os release, languages | provider must be able to speak |
+| `extensions` | whether an installed extension is externally connectable to a page | nothing | none |
 | `locale` | language list + timezone | launch precedence, then GeoIP, then the host | none; never drawn |
 
 Notes that matter per axis:
@@ -409,6 +418,50 @@ follow from the panel plus the furniture model; `outerWidth`/`outerHeight`
 follow from the OS's window chrome for that release. A forced device scale
 factor makes a claimed DPR real at rasterization time rather than only at the
 accessor.
+
+**Extensions.** One boolean: whether some installed extension's
+`externally_connectable` manifest key matches an ordinary http/https page.
+That is the entire gate on `chrome.runtime` and `window.browser` existing
+there, so it is the whole axis. Absence is weighted 75 and is what fresh
+Chrome does -- measured, stock Chrome 153 on a fresh profile has
+`window.chrome` as exactly `loadTimes`/`csi`/`app` with `chrome.runtime`
+undefined, and this fork already matched it. Presence is weighted 25 and is
+the MetaMask shape: every http and https page gets `chrome.runtime` and
+`window.browser.runtime`, `file://` and `about:blank` do not. Conditioned on
+nothing, because the same extension is installed on Windows, macOS and Linux
+desktops alike and keying it on the platform would invent a correlation the
+population does not have; the 75/25 split is authored and says so in the
+table, because no public dataset gives the fraction. The axis never names an
+extension id: a fixed id is a cross-instance correlator that survives every
+other axis, which is also why no inert component extension is shipped to
+produce the observable.
+
+### Not an axis: text rasterisation
+
+`gfx::FontRenderParams` -- antialiasing and its subpixel order, hinting level
+and autohinter, embedded bitmaps, subpixel positioning, and Skia's text
+contrast and gamma -- is composed from the persona and not drawn. It sits on
+its own layer in the report, `platform-projection`, because there is nothing
+to draw from: Chromium has one implementation of these per platform, each
+deriving the tuple from that platform's text engine, so the answer is a
+function of the claimed OS and of nothing else a profile carries, and a tuple
+mixing two platforms' answers is a machine that does not exist.
+
+It has to be composed at all because on Linux the values come from the host's
+fontconfig and desktop settings and are pushed to every renderer as
+`blink::RendererPreferences`, so leaving them alone serves the host's text
+rasterisation -- glyph coverage bytes, gamma correction, and whether advances
+are fractional -- under a machine that would have produced different ones. The
+values and the Chromium source behind each of them are in
+`config/profile.schema.json` and in `base/apostate/compose.cc`.
+
+The profile carries the tuple as of patch `0117`; writing
+`blink::RendererPreferences` from it is a separate patch, so no launch serves
+it yet. What it will not reach even then is recorded on the ledger row
+`fonts.text-render-params`: `WebViewImpl::UpdateFontRenderingFromRendererPrefs`
+is compiled out entirely on Apple, so on a Mac host the tuple cannot reach
+Skia through that path, and DirectWrite glyph masks are not reachable from a
+Linux or macOS host under any setting.
 
 ## 7. Where composition runs
 

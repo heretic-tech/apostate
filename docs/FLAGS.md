@@ -210,9 +210,11 @@ cpu                      dispersion        physical-ground-truth  cores-14
 memory                   dispersion        catalogue-value        gib-8
 panel                    dispersion        catalogue-value        mba13-default
 audio                    dispersion        physical-ground-truth  coreaudio-256
+extensions               dispersion        physical-ground-truth  absent
 locale.application       composed-default  native-derived         en-US
 locale.accept_languages  composed-default  native-derived         (the en-US bundle's default)
 locale.timezone          host-inherited    host-inherited         (inherited)
+fonts.render_params      platform-projection  native-derived      macos text rendering
 
 limitations
   - anchor macos-metal-apple-850a91233555 has one measured member, so no
@@ -224,6 +226,15 @@ limitations
     package, which resolves it from GeoIP of the effective egress and passes
     that same switch
 ```
+
+The `layer` column says who decided a surface. `dispersion` is a weighted draw
+from an option table and a different seed can move it; `anchor` is a measured
+capability cluster taken whole; `command-line` is an override the launch
+named; `host-inherited` is a surface left alone; `composed-default` is neither
+the operator's choice nor the host's value; and `platform-projection` is a
+value the claimed OS determines outright, with no table behind it and nothing
+for a seed to vary. Text rasterisation is the only surface on that last layer,
+because Chromium computes it per platform and only per platform.
 
 The three locale rows are the surface an operator checks against their exit IP,
 so the report names the layer that decided each one.
