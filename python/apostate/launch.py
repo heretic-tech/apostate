@@ -144,11 +144,6 @@ def _encode_envelope(payload: Mapping[str, Any]) -> str:
     return base64.b64encode(encoded).decode("ascii")
 
 
-def _profile_payload(profile: Mapping[str, Any] | None) -> str | None:
-    payload = _profile_dict(profile)
-    return None if payload is None else _encode_envelope(payload)
-
-
 def _proxy_credentials(value: str | Mapping[str, Any] | None) -> dict[str, str] | None:
     """The proxy's credential, for the envelope rather than the command line.
 
