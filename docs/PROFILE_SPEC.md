@@ -167,11 +167,12 @@ host's own zone, which is what the row displaced, matches a direct egress
 exactly and is at worst wrong the way a traveller's is.
 
 The chain is per field, not per pair. A GeoIP lookup that resolves a timezone
-and no locale contributes the timezone and leaves the language list to the host,
-because `scripts/geoip.py` maps only countries it has a stated locale policy
-for and inventing `en-<COUNTRY>` for the rest would be synthesis. What the chain
-guarantees is that no field is ever filled in by something that cannot answer
-for where the connection comes out.
+and no country contributes the timezone and leaves the language list to the
+host: a locale is inferred from the exit country through
+`config/country-locales.json`, which both packages ship, so with no country
+there is nothing to infer from and inventing one would be synthesis. What the
+chain guarantees is that no field is ever filled in by something that cannot
+answer for where the connection comes out.
 
 **How a locale reaches the browser, and why it matters.** A resolved locale or
 timezone travels as the per-field switches `--fingerprint-locale` and

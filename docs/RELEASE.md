@@ -220,6 +220,44 @@ Packaging writes UTF-8 JSON with sorted keys, compact separators and exactly
 one trailing newline. Each release identity binds the source and build inputs
 to its archive; do not replace published artifacts with different bytes.
 
+## After the binaries publish
+
+The packages are published separately from the binaries and are not blocked
+on them. Each launcher can install a release it was built before, by fetching
+the per-artifact manifest the release published beside each archive:
+`releases/download/v<package version>/<archive>.manifest.json` first, then
+`releases/latest/download/<archive>.manifest.json`. So `pip install apostate`
+and `npm install @heretic-tech/apostate` work the moment a binary release
+exists, whatever the launcher's own version is, and a launcher-only fix
+ships without rebuilding Chromium.
+
+That fallback is a transport-integrity check: it detects a corrupted or
+truncated download, because the digest and the bytes come from the same
+place. A digest baked into the package is the stronger claim, and this is how
+to bake it in once a release exists:
+
+```sh
+gh release download vX.Y.Z -D /tmp/apostate-release
+scripts/sync-packages.py --release /tmp/apostate-release --tag vX.Y.Z
+```
+
+`sync-packages.py` re-hashes every archive rather than trusting the manifest
+that travelled with it, then writes one package manifest into
+`python/apostate/assets/` and `npm/assets/`. Bump the launcher version in
+`python/pyproject.toml`, `python/apostate/config.py` and `npm/package.json`
+-- the script requires all three to agree and to be at or above the policy's
+`package_version` -- commit both assets, and publish the packages.
+
+The two version lines are deliberately separate. The manifest's `tag` binds a
+package to a binary release; the package's own version moves on its own. A
+0.1.1 launcher that installs the v0.1.0 binaries is the ordinary case, not a
+mistake, and `.github/release/artifact-policy.json` keeps naming the binary
+release's identity rather than the launcher's.
+
+Neither provenance claim changes here: run
+`gh attestation verify <archive> --repo heretic-tech/apostate` for that, from
+either path.
+
 ## Verify a download
 
 The Python and Node installers read the manifest and validate its artifact

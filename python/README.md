@@ -65,8 +65,22 @@ Four sources, in this order, and the first one that answers wins:
 | this package's own install | whatever `python -m apostate install` wrote |
 | well-known locations | macOS `/Applications` and `~/Applications` for a `Chromium.app` or `Apostate.app`; Linux `~/.cache/apostate` and `/opt/apostate` for a `chrome`; Windows `%LOCALAPPDATA%\apostate` for a `chrome.exe` — each directory and one level below it |
 
-The first two are you naming a file and are taken at your word. The last two
-are searches, and **a stock Chrome or Chromium is never adopted.** The
+The first two accept three spellings of "this browser", because a release
+archive gives you all three: the executable, a macOS `.app` bundle
+(`Contents/MacOS/Chromium` is resolved inside it), and the directory the
+archive unpacks to, `apostate-152.0.7977.83-<platform>/`. A path that is a
+directory with none of those inside is refused with `names a directory with
+no browser inside it (expected Chromium.app, chrome or chrome.exe)`, and one
+that is nothing at all with `does not name a file`.
+
+If you extracted the archive yourself and want it found without naming it,
+move the **whole** extracted directory into one of the well-known locations
+above, not just the browser out of it: `build/MANIFEST.lock` and
+`resources/profiles/` have to travel with it, and they are what the search
+checks.
+
+The first two are you naming a browser and are taken at your word. The last
+two are searches, and **a stock Chrome or Chromium is never adopted.** The
 executable is named `chrome` and the bundle `Chromium.app` exactly as upstream
 names them, and Chromium 152.0.7977.83 exists upstream too, so the file alone
 proves nothing. What is checked is the payload staged beside it —
@@ -170,8 +184,8 @@ browser = launch(
 | `fingerprint` | a fresh random seed | Seed for the whole identity. `"host"` (also `"off"`, `"false"`, `"0"`, `"disable"`, `"disabled"`) inherits the real machine and composes nothing. |
 | `fingerprint_platform` | host's own OS on macOS and Windows; `"windows"` on Linux | `windows`, `macos` or `linux`. Selects the GPU cluster as well as the OS identity. Needs that platform's fonts installed — see below. Cannot be combined with host inheritance. |
 | `locale`, `timezone` | GeoIP of the effective egress, else the host's own | Override just these. Never drawn from the seed: a timezone the seed chose cannot correlate with the exit IP, so the precedence is this override, then GeoIP, then the host. The resolved locale is also written into the browser process environment (`LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG`), which is what moves `Intl` formatting rather than only the language list; a composed launch never inherits those from your shell, so your own locale cannot leak into a synthetic identity. Host inheritance is the one exception and does inherit them. Takes effect once the artifact ships the full locale pak set — see docs/FINGERPRINTS.md section 8. |
-| `geoip` | `True` | Best-effort: derive locale and timezone from the effective egress — the proxy exit when one is configured, the direct IP otherwise. A failed or partial lookup never invents one and no longer raises from `launch()` — it warns into the plan's `diagnostics["warnings"]`, sends no override for the fields it could not answer for, and the launch serves the host's own for those. Behind a proxy that is the host's and not the exit's. Pass `locale` and `timezone` explicitly when geo-matching has to be guaranteed. `resolve_geoip()` called directly still raises. |
-| `proxy` | none | `http://`, `https://`, `socks5://`; credentials are kept out of the command line. |
+| `geoip` | `True` | Best-effort: derive locale and timezone from the effective egress — the proxy exit when one is configured, the direct IP otherwise. The lookup ships with the package and needs no repository checkout and no extra dependency: it speaks `http(s)://`, `socks5://` and `socks5h://` proxies, including RFC 1929 username/password, out of the standard library. A failed or partial lookup never invents one and no longer raises from `launch()` — it warns into the plan's `diagnostics["warnings"]`, sends no override for the fields it could not answer for, and the launch serves the host's own for those. Behind a proxy that is the host's and not the exit's. Pass `locale` and `timezone` explicitly when geo-matching has to be guaranteed. `resolve_geoip()` called directly still raises. Inject your own with `geoip_provider=`. |
+| `proxy` | none | `http://`, `https://`, `socks5://`. The endpoint goes on the command line and the credential travels in the launch envelope, so it is in no log and no socket-pool key — and a SOCKS credential is deliberately withheld from the driver, which refuses to start when one is present. `socks5h://` is not a Chromium proxy scheme; use `socks5://`, which already resolves the destination proxy-side. |
 | `headless` | `True` | |
 | `user_data_dir` | off-the-record | Persist cookies and storage. |
 | `args` | none | Extra switches passed to the browser. |
@@ -315,19 +329,45 @@ layout, so both share one install.
 | Variable | Effect |
 |---|---|
 | `APOSTATE_CACHE_DIR` | Where the browser is installed. |
-| `APOSTATE_BINARY` | Use this executable and skip acquisition entirely. |
-| `APOSTATE_DOWNLOAD_BASE_URL` | Fetch archives from a mirror. The digest still comes from the package manifest. |
+| `APOSTATE_BINARY` | Use this browser and skip acquisition entirely. An executable, a macOS `.app` bundle, or the directory the archive unpacks to. |
+| `APOSTATE_DOWNLOAD_BASE_URL` | Fetch archives from a mirror. The digest is never taken from the mirror: it comes from the package, or from the release. |
 | `APOSTATE_KEEP_ARCHIVE` | Keep the verified archive after extracting, for `gh attestation verify`. |
 
 ## Integrity
 
-The archive's SHA-256 is checked against the manifest **before** the archive is
-opened, and a mismatch aborts without extracting anything. That manifest ships
-inside this package rather than being fetched alongside the download, because a
-digest served from the same place as the bytes it describes proves nothing.
+The archive's SHA-256 is checked **before** the archive is opened, and a
+mismatch aborts without extracting anything. Where that digest comes from
+depends on whether this package is older than the binaries it installs, and
+`python -m apostate info` reports which of the two answered as
+`manifest_source`:
 
-Releases also carry GitHub build-provenance attestations. There is no signing
-key to hold or rotate; verification is an optional extra step:
+| `manifest_source` | Where the digest came from |
+|---|---|
+| `baked` | The manifest shipped inside this package, pinned at publish time. The strong case: the digest did not travel with the bytes. |
+| `configured` | A manifest you passed as `manifest=` or `--manifest`. Never replaced by a fetched one — pinning a digest and then fetching a different one would unpin it. |
+| `release-tag` | `releases/download/v<this package's version>/<archive>.manifest.json`, fetched at run time. |
+| `release-latest` | `releases/latest/download/<archive>.manifest.json`, fetched at run time. |
+
+The last two are the reason a launcher installs at all before a matching
+binary release exists — 0.1.1 installs the binaries published as v0.1.0, and
+a launcher fix does not wait on a Chromium rebuild. They are a
+transport-integrity check and not provenance: they catch a truncated or
+corrupted download, and they cannot catch a substituted release, because the
+digest came from the same place as the bytes. `manifest_trust` says `pinned`
+or `transport-integrity` for exactly this reason, and an install that used a
+fetched manifest says so on stderr before it downloads anything.
+
+If neither URL answers, the refusal names both:
+
+```
+apostate: Release manifest is unpublished; Apostate binary artifacts are not
+available for acquisition. No release manifest for
+apostate-152.0.7977.83-macos-arm64.zip could be fetched. Tried: <url>, <url>
+```
+
+Releases also carry GitHub build-provenance attestations, which is the check
+that does establish where an archive came from. There is no signing key to
+hold or rotate; verification is an optional extra step:
 
 ```sh
 gh attestation verify apostate-152.0.7977.83-macos-arm64.zip --repo heretic-tech/apostate

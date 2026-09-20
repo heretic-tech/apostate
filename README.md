@@ -61,6 +61,31 @@ are searches, and what they find has to prove itself.
 Each directory and one level below it, so an archive extracted where it landed
 is found where it sits, and nothing deeper is walked.
 
+**Extracted it by hand?** Move the whole extracted directory, not just the
+browser inside it. The archive unpacks to
+`apostate-152.0.7977.83-<platform>/`, holding the browser next to
+`build/MANIFEST.lock` and `resources/profiles/`, and those two are what say
+the browser is this one — a lone `Chromium.app` dragged into `/Applications`
+is passed over with "no Apostate payload beside it". Put the directory in
+`/Applications` or `~/Applications` on macOS, `~/.cache/apostate` or
+`/opt/apostate` on Linux, `%LOCALAPPDATA%\apostate` on Windows, and it is
+found where it sits. Or skip placement and name it: `binary_path` and
+`APOSTATE_BINARY` each accept the executable, a macOS `.app` bundle, or the
+extracted directory.
+
+**macOS: "Chromium is damaged and can't be opened."** It is not damaged.
+Gatekeeper marked the archive when a browser downloaded it, and an unsigned
+bundle carrying that quarantine attribute is reported as damaged rather than
+as unsigned. Clear it on what you extracted:
+
+```sh
+xattr -dr com.apple.quarantine ~/Applications/apostate-152.0.7977.83-macos-arm64
+```
+
+`apostate install` never needs this. It fetches the archive itself and sets
+no quarantine attribute, so only a copy you downloaded through a browser is
+affected.
+
 **A stock Chrome or Chromium is never adopted.** The executable is named
 `chrome` and the bundle `Chromium.app` exactly as upstream names them, and
 Chromium 152.0.7977.83 exists upstream too, so the file on its own proves
@@ -99,14 +124,27 @@ apostate info      # npx apostate info
 The archive itself comes from this repository's GitHub release, at
 `https://github.com/heretic-tech/apostate/releases/download/v<version>/apostate-<chromium-version>-<platform>.tar.zst`
 for the Linux targets and `.zip` for macOS and Windows, which is what
-`binary_info()["artifact_url"]` returns. Its SHA-256 is checked
-against a manifest shipped inside the package — not fetched alongside the bytes
-it describes — before the archive is opened, and a mismatch aborts without
-extracting anything. When that manifest names no artifact for your platform,
-`launch()` says so rather than downloading, and the answers are to point the
-package at a local archive, at an existing install, or to [build the archive
-yourself](docs/BUILD.md). [docs/RELEASE.md](docs/RELEASE.md) covers how
-releases are cut and verified.
+`binary_info()["artifact_url"]` returns. Its SHA-256 is checked before the
+archive is opened, and a mismatch aborts without extracting anything.
+
+Where that digest came from is the part worth being exact about, and
+`apostate info` reports it as `manifest_source`. A package published after
+its binaries carries the manifest inside it (`baked`): the digest was pinned
+before the download existed and does not depend on it. A package published
+*before* them fetches the manifest the release publishes beside each archive
+— `releases/download/v<package version>/<archive>.manifest.json` first, then
+`releases/latest/download/<archive>.manifest.json` (`release-tag`,
+`release-latest`) — which is how a launcher installs binaries released under
+another version, and why a launcher fix does not wait on a Chromium rebuild.
+A fetched manifest is a transport-integrity check and not provenance: it
+catches a truncated or corrupted download and cannot catch a substituted
+release, because the digest came from the same place as the bytes. For
+provenance, `gh attestation verify <archive> --repo heretic-tech/apostate`.
+
+`launch()` refuses only after both URLs fail, and names both. The answers
+then are to point the package at a local archive, at an existing install, or
+to [build the archive yourself](docs/BUILD.md). [docs/RELEASE.md](docs/RELEASE.md)
+covers how releases are cut, verified, and baked into a package afterwards.
 
 `python/README.md` and `npm/README.md` have the option tables and the cache
 layout.
