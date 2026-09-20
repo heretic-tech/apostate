@@ -249,6 +249,52 @@ the machine. The browser assumes that has been done rather than checking, so a
 script whose Windows families the machine lacks keeps the host's own answer.
 [docs/FONTS.md](FONTS.md) lists what to install.
 
+## Text rendering follows the persona
+
+Chromium reads the settings that turn a glyph into pixels from the operating
+system it was built for, and until patch `0122` a composed identity got the
+host's. A Windows persona on a Mac rasterised text the way that Mac does; on a
+Linux server it rasterised text the way that server's fontconfig was
+configured. Measured on a Mac before the fix: a Windows persona and a macOS
+persona drew the same three families at the same positions and produced one
+identical canvas digest, which was this Mac's.
+
+The persona now decides, in every process that draws text. Six settings move
+with it:
+
+- antialiasing, and whether it is LCD subpixel coverage or grayscale
+- the subpixel order, RGB or BGR, horizontal or vertical
+- hinting level, and the autohinter
+- embedded bitmap strikes
+- subpixel positioning, which is whether a glyph may sit between two pixels
+- Skia's text contrast and gamma, the curve applied to glyph coverage
+
+A Windows identity gets Windows' ClearType defaults and Skia's Windows gamma
+constants. A macOS identity gets macOS's, a Linux identity gets what an
+ordinary Linux desktop produces, and none of the three reads the machine the
+browser is running on.
+
+**The glyph masks are still the host's.** The six settings above are what a
+real Chrome sets on the same Skia font object, and underneath them the coverage
+bytes are produced by whatever text engine the host has: CoreText on a Mac,
+FreeType on Linux. DirectWrite's masks are not obtainable on either at any
+setting, so a Windows persona on a Mac gets Windows' rasterisation settings
+over CoreText's glyph masks. That is the same kind of residual as the font
+files: a property of the machine the browser is on, which no source change
+reaches.
+
+Hinting is the one of the six with no effect on a CoreText-backed face, so it
+is delivered and inert on a Mac host. And rasterisation settings decide how a
+glyph is inked, never which glyphs the machine has: Segoe UI Emoji under a
+Windows persona still needs the Segoe UI Emoji file, exactly as
+[docs/FONTS.md](FONTS.md) says for every other family.
+
+Text measurement does not move with any of this. `measureText`, the width of a
+client rect and a font's metrics come from shaping the real font file, which
+happens before rasterisation. The advances a Windows persona and a macOS
+persona report for the same family on one host are identical to the digit,
+before the change and after it.
+
 ## Software rendering is measurable
 
 On a host with no usable GPU the browser renders through SwiftShader, a software

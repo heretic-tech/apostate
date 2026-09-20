@@ -185,5 +185,14 @@ Text measurement follows from the same files. Metrics are read from the real
 font at runtime rather than replayed from a recording, so any family you install
 measures the way it does on the platform it came from.
 
-[docs/LIMITATIONS.md](LIMITATIONS.md) covers what remains visible when a persona
-is missing faces.
+How those glyphs are inked is a separate thing from which font files you have,
+and the browser does own that half: antialiasing, the subpixel order, hinting,
+embedded bitmaps, subpixel positioning and Skia's text contrast and gamma all
+follow the persona rather than the machine, so a Windows identity rasterises
+text with Windows' settings wherever it runs. What stays the host's is the text
+engine underneath, CoreText on a Mac and FreeType on Linux, and no setting
+reaches DirectWrite from either.
+
+[docs/LIMITATIONS.md](LIMITATIONS.md) covers both: what remains visible when a
+persona is missing faces, under "Fonts are yours to install", and what
+rasterisation can and cannot carry, under "Text rendering follows the persona".
