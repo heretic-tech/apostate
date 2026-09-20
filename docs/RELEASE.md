@@ -29,11 +29,11 @@ Linux arm64 is a cross-build on the x64 runner inside the pinned
 Visual Studio and Windows SDK.
 See [Build contract](BUILD.md) for runner mappings and toolchain requirements.
 
-The macOS archive is Developer ID signed, notarized and stapled when the
-release runs with the six signing secrets configured (see
-[Signing the macOS bundle](BUILD.md#signing-the-macos-bundle)); without
-them the leg says so and ships the unsigned bundle, which is how v0.2.0 was
-built. The signed bundle is not the bundle whose hashes
+The macOS archive is Developer ID signed, notarized and stapled from v0.2.0
+onward; the release runs with the six signing secrets configured (see
+[Signing the macOS bundle](BUILD.md#signing-the-macos-bundle)), and a run
+without them says so and ships the unsigned bundle rather than failing. The
+signed bundle is not the bundle whose hashes
 `build/MANIFEST.lock` records: signing runs after the build, writes to a
 separate tree, and adds a signature carrying a timestamp and a certificate,
 which is the one part of a release that cannot be reproducible. Everything
