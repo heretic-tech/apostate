@@ -144,7 +144,15 @@ security import "$p12" -k "$keychain" -P "$APPLE_DEVELOPER_ID_P12_PASSWORD" \
 # Without this, codesign prompts for the keychain password and hangs a headless
 # runner until the job times out.
 security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" >/dev/null
-security list-keychains -d user -s "$keychain" "${saved_keychains[@]}" >/dev/null
+# Prepended, so the run's identity is found first and the host's own
+# keychains keep working. Split because bash 3.2, which is what /usr/bin/env
+# bash resolves to on a macOS runner, errors on an empty array expansion
+# under set -u.
+if [ "${#saved_keychains[@]}" -gt 0 ]; then
+  security list-keychains -d user -s "$keychain" "${saved_keychains[@]}" >/dev/null
+else
+  security list-keychains -d user -s "$keychain" >/dev/null
+fi
 
 # Not printed: the identity name is a repository secret and GitHub only masks
 # what it knows verbatim.
