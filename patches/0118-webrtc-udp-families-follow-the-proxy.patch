@@ -190,7 +190,10 @@ Compile-verified: `scripts/checkfile.sh` on out/macos-arm64 for all ten changed
 translation units -- socks5_datagram_server_socket.cc, socket_manager.cc,
 socket_udp.cc, socket_test_utils.cc, socket_dispatcher.cc,
 ipc_network_manager.cc, ipc_network_manager_test.cc, ipc_socket_factory.cc,
-peer_connection_dependency_factory.cc and stun_port.cc.
+peer_connection_dependency_factory.cc and stun_port.cc -- and for the three
+existing tests that compile against the changed declarations without needing an
+edit of their own: socket_manager_unittest.cc, ipc_socket_factory_test.cc and
+filtering_network_manager_test.cc.
 
 Behaviour-unverified: no linked browser has run this, because the next build has
 not happened. `/tmp/nr/drive.js <label> <binary> [args...]` is the CDP gatherer
