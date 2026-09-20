@@ -13,10 +13,18 @@ beside the executable. So the whole tree is installed and the executable is
 located inside it; copying the executable out on its own produces a binary that
 cannot start.
 
-The trust anchor is the manifest in this package, not the download. A digest
-fetched from the same place as the bytes it describes proves nothing, so the
-default manifest is package data, pinned to this package's version, and
-``manifest_url=`` is an explicit opt-in to the weaker path.
+The trust anchor is the manifest, and there are two of them. The strong one is
+package data, pinned at publish time: a digest that travelled inside the
+package cannot have been swapped for the one that describes a substituted
+archive. The weaker one is the per-artifact manifest the release publishes
+beside each archive, fetched at run time when the package carries no published
+manifest of its own. That is a transport-integrity check -- it catches a
+truncated or corrupted download -- and it is not provenance, because it comes
+from the same place as the bytes it describes. Provenance is
+``gh attestation verify <archive> --repo heretic-tech/apostate``. The fallback
+exists because the alternative is worse: a launcher that cannot install
+anything until its own version has a matching binary release, which is how
+0.1.0 shipped with a manifest reading ``{"status": "unpublished"}``.
 """
 
 from __future__ import annotations
@@ -32,8 +40,10 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 import tarfile
 import tempfile
+import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path, PurePosixPath
@@ -152,8 +162,14 @@ def _read_manifest(value: Mapping[str, Any] | str | Path | None) -> dict[str, An
     missing = [key for key in required if key not in parsed]
     if missing:
         raise ManifestError("release manifest is missing " + ", ".join(missing))
-    if parsed["package_version"] != PACKAGE_VERSION:
-        raise ManifestError("release manifest package_version does not match this package")
+    if not isinstance(parsed["package_version"], str) or not parsed["package_version"]:
+        raise ManifestError("release manifest package_version must be a version string")
+    # Deliberately not compared with this package's version. A manifest's
+    # package_version is the identity of the *binary release* -- it is what
+    # ``artifact_url`` turns into the ``v0.1.0`` tag the archives live under --
+    # and the launcher's version moves independently of it. Requiring them to
+    # agree would mean no launcher fix could ship without rebuilding Chromium,
+    # which is the corner 0.1.0 painted itself into.
     if parsed["chromium_version"] != CHROMIUM_VERSION:
         raise ManifestError("release manifest chromium_version does not match this package")
     if parsed["catalogue_version"] != CATALOGUE_VERSION:
@@ -223,23 +239,152 @@ def _artifact_name(record: Mapping[str, Any]) -> str:
 def artifact_url(manifest: Mapping[str, Any], record: Mapping[str, Any]) -> str:
     """Where the archive is fetched from when no local copy was configured.
 
-    A manifest may name the URL outright. Otherwise it is built from the release
-    tag, which is how a package published before its release assets existed
-    still finds them: the manifest supplies the digest, the tag supplies the
-    location, and a wrong location fails verification instead of installing
-    something unexpected.
+    ``APOSTATE_DOWNLOAD_BASE_URL`` wins outright, before the record's own URL:
+    it is how a mirror is pointed at, and a mirror that loses to a URL carried
+    by a manifest is not one. Otherwise a manifest may name the URL, and
+    failing that it is built from the release tag, which is how a package
+    published before its release assets existed still finds them: the manifest
+    supplies the digest, the tag supplies the location, and a wrong location
+    fails verification instead of installing something unexpected.
     """
+    name = _artifact_name(record)
+    base = os.environ.get("APOSTATE_DOWNLOAD_BASE_URL")
+    if base:
+        return urljoin(base if base.endswith("/") else base + "/", name)
     for key in ("url", "download_url"):
         value = record.get(key)
         if isinstance(value, str) and value:
             return value
-    name = _artifact_name(record)
-    base = os.environ.get("APOSTATE_DOWNLOAD_BASE_URL") or manifest.get("base_url")
+    base = manifest.get("base_url")
     if isinstance(base, str) and base:
         return urljoin(base if base.endswith("/") else base + "/", name)
     repository = str(manifest.get("repository") or RELEASE_REPOSITORY)
     tag = str(manifest.get("tag") or _release_tag(manifest["package_version"]))
     return f"https://github.com/{repository}/releases/download/{tag}/{name}"
+
+
+#: Archive extension per target, matching ``artifacts.filenames`` in
+#: .github/release/artifact-policy.json. Needed before any manifest is in
+#: hand, because the per-artifact manifest is fetched *by* archive name.
+_ARCHIVE_EXTENSION = {"linux-x64": "tar.zst", "linux-arm64": "tar.zst",
+                      "macos-arm64": "zip", "windows-x64": "zip"}
+
+#: What a release publishes beside each archive.
+_RELEASE_MANIFEST_SUFFIX = ".manifest.json"
+#: A manifest is a few hundred bytes. The archive gets 120 seconds; this does
+#: not, because two dead URLs must not cost four minutes before the error.
+_MANIFEST_TIMEOUT = 15
+_MAX_MANIFEST_BYTES = 64 * 1024
+
+#: How a record was obtained, reported by ``apostate info`` so the difference
+#: between a pinned digest and a fetched one is visible rather than implied.
+MANIFEST_SOURCES = ("baked", "configured", "release-tag", "release-latest")
+
+
+def policy_artifact_name(target: str) -> str:
+    """The archive file name the release policy gives *target*."""
+    try:
+        return f"apostate-{CHROMIUM_VERSION}-{target}.{_ARCHIVE_EXTENSION[target]}"
+    except KeyError:
+        raise BinaryError(f"unsupported binary target: {target}") from None
+
+
+def release_manifest_urls(target: str) -> tuple[tuple[str, str], ...]:
+    """``(source, url)`` pairs for the per-artifact manifest, strongest first.
+
+    The tag built from this package's own version comes first, so a launcher
+    released alongside its binaries pins exactly those. ``latest`` is what
+    makes a launcher-only release work at all: 0.1.1 installs the binaries
+    published as v0.1.0, and requiring a matching tag would mean no launcher
+    fix could ship without rebuilding Chromium.
+
+    ``APOSTATE_DOWNLOAD_BASE_URL`` deliberately does not redirect these. It
+    points the *archive* somewhere else, and the one property a fetched
+    manifest still has is that it and the bytes came from the release rather
+    than from wherever the bytes are being mirrored. A caller who wants both
+    from one place passes a manifest instead, which pins the digest outright.
+    """
+    name = policy_artifact_name(target) + _RELEASE_MANIFEST_SUFFIX
+    return (
+        ("release-tag",
+         f"https://github.com/{RELEASE_REPOSITORY}/releases/download/"
+         f"{_release_tag(PACKAGE_VERSION)}/{name}"),
+        ("release-latest",
+         f"https://github.com/{RELEASE_REPOSITORY}/releases/latest/download/{name}"),
+    )
+
+
+def _fetch_release_manifest(url: str) -> bytes | None:
+    """The manifest bytes, or ``None`` when that URL did not answer with one.
+
+    Every failure is a ``None`` rather than an exception: the first URL is
+    expected to 404 on a launcher-only release, and a caller that has a second
+    URL to try should not have to catch the first one's failure to reach it.
+    What is *not* silent is the end of the list; see ``BinaryManager._resolve``.
+    """
+    try:
+        with urllib.request.urlopen(url, timeout=_MANIFEST_TIMEOUT) as response:
+            return response.read(_MAX_MANIFEST_BYTES + 1)
+    except (urllib.error.URLError, OSError, ValueError):
+        return None
+
+
+def _mismatch(name: str, actual: Any, expected: Any) -> str | None:
+    """``None`` when they agree, else what the manifest said instead.
+
+    A missing field reads "absent" rather than "None": the two are different
+    complaints, and a manifest that omits ``platform`` is a different mistake
+    from one that names the wrong platform.
+    """
+    if actual == expected:
+        return None
+    return f"{name} is {'absent' if actual is None else actual}, not {expected}"
+
+
+def _release_manifest(payload: bytes, url: str, target: str) -> dict[str, Any]:
+    """Validate a fetched per-artifact manifest into a package-shaped one.
+
+    Everything that binds the manifest to this package is checked except
+    ``package_version``: the whole point of fetching is that a 0.1.1 launcher
+    installs binaries published as 0.1.0. What must agree is what the bytes
+    are -- the Chromium version, the profile catalogue they were built
+    against, the platform, and the archive's own name -- because those are
+    what make the archive the right one to run.
+
+    The archive is then taken from the directory the manifest came from, so a
+    manifest reached through ``releases/latest`` pins the archive in that same
+    release rather than re-resolving ``latest`` a second time.
+    """
+    try:
+        parsed = json.loads(payload)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ManifestError(f"release manifest at {url} is not valid JSON") from exc
+    if not isinstance(parsed, Mapping):
+        raise ManifestError(f"release manifest at {url} is not a JSON object")
+    name = policy_artifact_name(target)
+    digest = parsed.get("sha256")
+    for detail in (
+        _mismatch("chromium_version", parsed.get("chromium_version"), CHROMIUM_VERSION),
+        _mismatch("catalogue_version", parsed.get("catalogue_version"), CATALOGUE_VERSION),
+        _mismatch("platform", parsed.get("platform"), target),
+        _mismatch("artifact", parsed.get("artifact"), name),
+        None if isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest)
+        else "sha256 is not a 64-character lowercase digest",
+    ):
+        if detail is not None:
+            raise ManifestError(
+                f"release manifest at {url} does not describe this package: {detail}")
+    version = parsed.get("package_version")
+    return {
+        "artifacts": {target: {"platform": target, "artifact": name, "sha256": digest,
+                               "url": url.removesuffix(_RELEASE_MANIFEST_SUFFIX)}},
+        "catalogue_version": CATALOGUE_VERSION,
+        "chromium_version": CHROMIUM_VERSION,
+        "package_version": version if isinstance(version, str) and version else PACKAGE_VERSION,
+        "repository": RELEASE_REPOSITORY,
+        "source_revision": parsed.get("source_revision"),
+        "status": "published",
+    }
 
 
 def _payload_bytes(value: Any) -> bytes:
@@ -534,6 +679,15 @@ _NO_PAYLOAD = ("no Apostate payload beside it "
 _NO_VERSION = "version could not be established"
 _NOT_EXECUTABLE = "not executable"
 
+#: Why a path the caller named was refused. ``_NOT_A_FILE`` is what a missing
+#: path gets; ``_NO_BROWSER_INSIDE`` is what a directory that is not a browser
+#: gets, and it exists because ``Chromium.app`` is a directory: pointing at
+#: the bundle used to be answered with "does not name a file", which is true
+#: of every macOS application and tells the user nothing.
+_NOT_A_FILE = "does not name a file"
+_NO_BROWSER_INSIDE = ("names a directory with no browser inside it "
+                      "(expected Chromium.app, chrome or chrome.exe)")
+
 #: Where the executable sits inside a payload root when the payload was put
 #: there by hand rather than by this package. Wider than _EXECUTABLE_LAYOUT on
 #: macOS because a bundle dragged into /Applications may have been renamed.
@@ -699,6 +853,70 @@ def _discovery_candidates(root: Path, target: str) -> Iterator[tuple[Path, Path]
                 yield payload_root, candidate
 
 
+def _browser_in_directory(directory: Path, target: str) -> Path | None:
+    """The browser inside a directory the caller named, or ``None``.
+
+    Two shapes, and both are things a user has in front of them after
+    unzipping a release. A macOS ``.app`` is a directory, so naming the bundle
+    -- the only thing in the archive that looks like "the browser" -- was
+    refused for not being a file. A payload root is the directory the archive
+    unpacks to, ``apostate-<version>-<target>/``, which is what someone who
+    extracted it by hand has a path to.
+
+    Nothing here is verified, deliberately: the caller named this path, and
+    the two named sources have always been taken at their word. What changed
+    is only which spellings of "this one" are understood.
+    """
+    if directory.suffix == ".app":
+        for relative in ("Contents/MacOS/Chromium", "Contents/MacOS/Apostate"):
+            candidate = directory.joinpath(*relative.split("/"))
+            if candidate.is_file():
+                return candidate
+        return None
+    for relative in _DISCOVERY_LAYOUT.get(target, ()):
+        candidate = directory.joinpath(*relative.split("/"))
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def resolve_named_binary(value: str | Path, label: str,
+                         target: str) -> tuple[Path | None, str | None]:
+    """``(executable, rejection reason)`` for a path a caller named.
+
+    One implementation for all three places a path can be named -- the
+    ``binary_path`` argument, ``APOSTATE_BINARY``, and ``apostate info``'s
+    report -- so all three accept the same spellings and refuse with the same
+    sentence.
+    """
+    candidate = Path(value).expanduser()
+    if candidate.is_file():
+        return candidate, None
+    if candidate.is_dir():
+        executable = _browser_in_directory(candidate, target)
+        if executable is not None:
+            return executable, None
+        return None, f"{label} {_NO_BROWSER_INSIDE}"
+    return None, f"{label} {_NOT_A_FILE}"
+
+
+class ResolvedManifest(NamedTuple):
+    """Where the record for one target came from, and how strong it is.
+
+    ``source`` is one of :data:`MANIFEST_SOURCES`; ``url`` is ``None`` for a
+    manifest that did not come off the network, and ``urls_tried`` is empty
+    for the same reason. ``apostate info`` reports all three, because the
+    difference between a pinned digest and one fetched beside the bytes is
+    not something a user should have to infer.
+    """
+
+    manifest: dict[str, Any]
+    record: dict[str, Any]
+    source: str
+    url: str | None
+    urls_tried: tuple[str, ...]
+
+
 class BinaryManager:
     """Resolve a verified release artifact into a deterministic cache install."""
 
@@ -718,11 +936,66 @@ class BinaryManager:
     def _manifest(self) -> dict[str, Any]:
         return _read_manifest(self.manifest_value)
 
-    def _paths(self, target: str, manifest: Mapping[str, Any],
-               record: Mapping[str, Any]) -> tuple[Path, Path, Path]:
+    def _paths(self, target: str, chromium_version: str) -> tuple[Path, Path, Path]:
         """``(root, install directory, marker)`` for one platform and build."""
-        root = self.cache_dir / str(manifest["chromium_version"]) / target
+        root = self.cache_dir / str(chromium_version) / target
         return root, root / _INSTALL_NAME, root / _MARKER_NAME
+
+    def _local(self, target: str, requested: Any = None) -> ResolvedManifest:
+        """The manifest this package was given, with no network behind it."""
+        manifest = self._manifest()
+        record = _artifact_record(manifest, target, requested)
+        source = "configured" if self.manifest_value is not None else "baked"
+        return ResolvedManifest(manifest, record, source, None, ())
+
+    def _resolve(self, target: str, requested: Any = None, *,
+                 network: bool = True) -> ResolvedManifest:
+        """Where the archive for *target* comes from, and how strongly.
+
+        The baked manifest first, because a digest that travelled inside the
+        package is the only one that proves anything about bytes fetched from
+        elsewhere. When it publishes nothing -- which is every 0.1.x launcher,
+        since the package had to exist before the release it describes -- the
+        per-artifact manifest published beside the archive answers instead.
+        That is a weaker claim and is reported as one; it is still the
+        difference between installing a browser and reading an error.
+
+        A manifest the caller supplied is never replaced by a fetched one.
+        Pinning a digest and then silently going to the network for a
+        different one would unpin it, and "this exact build" is the only
+        reason to pass a manifest at all.
+        """
+        try:
+            return self._local(target, requested)
+        except BinaryError as local_failure:
+            if not network or self.manifest_value is not None:
+                raise
+            urls = release_manifest_urls(target)
+            rejected: ManifestError | None = None
+            for source, url in urls:
+                payload = _fetch_release_manifest(url)
+                if payload is None:
+                    continue
+                try:
+                    manifest = _release_manifest(payload, url, target)
+                    record = _artifact_record(manifest, target, requested)
+                except ManifestError as exc:
+                    # A manifest that answered but does not describe this
+                    # package is worth reporting over "nothing was published":
+                    # it is the difference between an absent release and a
+                    # wrong one. The next URL is still tried first.
+                    rejected = exc
+                    continue
+                return ResolvedManifest(manifest, record, source, url,
+                                        tuple(item for _name, item in urls))
+            if rejected is not None:
+                raise rejected from local_failure
+            raise UnpublishedArtifactError(
+                "Release manifest is unpublished; Apostate binary artifacts are not "
+                f"available for acquisition. No release manifest for "
+                f"{policy_artifact_name(target)} could be fetched. Tried: "
+                + ", ".join(item for _name, item in urls)
+            ) from local_failure
 
     def _download(self, manifest: Mapping[str, Any], record: Mapping[str, Any]) -> bytes:
         local = record.get("path") or record.get("local_path") or record.get("file")
@@ -751,18 +1024,27 @@ class BinaryManager:
             raise BinaryError(f"unable to download {_redact(source)}") from exc
 
     def _cached(self, marker: Path, install: Path, target: str,
-                manifest: Mapping[str, Any], expected: str) -> Path | None:
-        """Return the cached executable when the marker still vouches for it."""
+                chromium_version: str, expected: str | None = None) -> Path | None:
+        """Return the cached executable when the marker still vouches for it.
+
+        ``expected`` is the archive digest the current manifest names, and it
+        is optional because there is not always a manifest. When none can be
+        had, the marker is validated against itself -- this package wrote it
+        after verifying that archive and hashed the executable it extracted --
+        which is what keeps an unpublished baked manifest from hiding a
+        perfectly good install behind a 150 MB re-download, or behind an error
+        saying nothing is published while the browser sits in the cache.
+        """
         try:
             data = json.loads(marker.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return None
         if not isinstance(data, Mapping) or data.get("format") != _INSTALL_FORMAT:
             return None
-        if (data.get("artifact_sha256") != expected
-                or data.get("platform") != target
-                or data.get("package_version") != manifest["package_version"]
-                or data.get("chromium_version") != manifest["chromium_version"]):
+        if (data.get("platform") != target
+                or data.get("chromium_version") != chromium_version):
+            return None
+        if expected is not None and data.get("artifact_sha256") != expected:
             return None
         relative = data.get("executable")
         if not isinstance(relative, str) or not relative:
@@ -785,23 +1067,27 @@ class BinaryManager:
     def _well_known(self, target: str) -> tuple[Path, ...]:
         return _well_known_roots(target) if self.search_roots is None else self.search_roots
 
-    def _cached_install(self, target: str) -> DiscoveredBinary | None:
-        """This package's own install, if the marker still vouches for it."""
-        try:
-            manifest = self._manifest()
-            record = _artifact_record(manifest, target)
-        except BinaryError:
-            # Validating the cache needs the artifact digest, so an unpublished
-            # or unreadable manifest is not a cache miss: it is a question that
-            # cannot be asked. The well-known search still can be.
-            return None
-        _root, install, marker = self._paths(target, manifest, record)
-        executable = self._cached(marker, install, target, manifest,
-                                  str(record["sha256"]).lower())
+    def _cached_install(self, target: str,
+                        resolved: ResolvedManifest | None = None) -> DiscoveredBinary | None:
+        """This package's own install, if the marker still vouches for it.
+
+        Network-free by construction: the launch path runs through here, and a
+        launch that already has the browser must not pay a round trip to
+        GitHub to find that out.
+        """
+        if resolved is None:
+            try:
+                resolved = self._local(target)
+            except BinaryError:
+                resolved = None
+        chromium = (CHROMIUM_VERSION if resolved is None
+                    else str(resolved.manifest["chromium_version"]))
+        expected = None if resolved is None else str(resolved.record["sha256"]).lower()
+        _root, install, marker = self._paths(target, chromium)
+        executable = self._cached(marker, install, target, chromium, expected)
         if executable is None:
             return None
-        return DiscoveredBinary(executable, "cache",
-                                str(manifest["chromium_version"]), install)
+        return DiscoveredBinary(executable, "cache", chromium, install)
 
     def _discover_well_known(self, target: str, searched: list[str],
                              rejected: list[dict[str, str]]) -> DiscoveredBinary | None:
@@ -837,14 +1123,13 @@ class BinaryManager:
         ):
             if not value:
                 continue
-            candidate = Path(value).expanduser()
-            if candidate.is_file():
-                return DiscoveredBinary(candidate, source, None, None)
+            executable, reason = resolve_named_binary(value, label, target)
+            if executable is not None:
+                return DiscoveredBinary(executable, source, None, None)
             # Recorded rather than raised: `discover` answers a question and
             # `ensure` is the one that refuses. A stale path should show up in
             # `apostate info` rather than make it unreadable.
-            rejected.append({"path": str(candidate),
-                             "reason": f"{label} does not name a file"})
+            rejected.append({"path": str(Path(value).expanduser()), "reason": reason})
         cached = self._cached_install(target)
         if cached is not None:
             return cached
@@ -882,9 +1167,10 @@ class BinaryManager:
     def assert_published(self, *, target: str | None = None) -> None:
         """Raise unless a browser for *target* can be had at all.
 
-        The publication question on its own. Reading the manifest and looking
-        up the record are both local, with no acquisition behind them, which
-        is what lets a caller ask it before paying for anything else.
+        The publication question on its own, asked before anything expensive
+        happens. Ordered so the answers that cost nothing come first: the
+        manifest this package carries, then what is already on disk, and only
+        then the network. A machine with a browser never reaches the last one.
 
         A browser already on disk answers it the other way: telling someone
         who downloaded the archive by hand that nothing is published is both
@@ -892,56 +1178,60 @@ class BinaryManager:
         """
         target_name = target_platform(target)
         try:
-            _artifact_record(self._manifest(), target_name)
+            self._local(target_name)
+            return
         except BinaryError:
-            if self._discover(target_name, [], []) is None:
-                raise
+            pass
+        if self._discover(target_name, [], []) is not None:
+            return
+        self._resolve(target_name)
 
     def ensure(self, *, target: str | None = None,
                artifact: Mapping[str, Any] | str | Path | None = None,
                keep_archive: bool | None = None, force: bool = False) -> Path:
         """Return a runnable browser executable, downloading it if required."""
+        target_name = target_platform(target)
         override = os.environ.get("APOSTATE_BINARY")
         if override and artifact is None:
-            candidate = Path(override).expanduser()
-            if not candidate.is_file():
-                raise BinaryNotFoundError(f"APOSTATE_BINARY does not name a file: {candidate}")
-            return candidate
+            executable, reason = resolve_named_binary(override, "APOSTATE_BINARY", target_name)
+            if executable is None:
+                raise BinaryNotFoundError(f"{reason}: {Path(override).expanduser()}")
+            return executable
 
-        target_name = target_platform(target)
-        manifest: dict[str, Any] | None = None
-        record: dict[str, Any] | None = None
-        unavailable: BinaryError | None = None
+        resolved: ResolvedManifest | None = None
         try:
-            manifest = self._manifest()
-            record = _artifact_record(manifest, target_name,
-                                      artifact if isinstance(artifact, Mapping) else None)
-        except BinaryError as exc:
-            # An unpublished or unusable manifest does not end the search. A
+            resolved = self._local(target_name,
+                                   artifact if isinstance(artifact, Mapping) else None)
+        except BinaryError:
+            # An unpublished or unusable manifest does not end anything. A
             # browser already installed is still runnable, and answering
             # "nothing is published" over one the user put there by hand sends
-            # them to build a binary they already have.
-            unavailable = exc
+            # them to build a binary they already have. The release's own
+            # manifest is fetched below, once the free answers have missed.
+            resolved = None
 
-        cache_paths: tuple[Path, Path, Path] | None = None
-        if record is not None and manifest is not None:
-            cache_paths = self._paths(target_name, manifest, record)
-            if not force:
-                cached = self._cached(cache_paths[2], cache_paths[1], target_name,
-                                      manifest, str(record["sha256"]).lower())
-                if cached is not None:
-                    return cached
-        # `force` means reinstall, so it skips the searches rather than the
-        # download. An explicit artifact is a request to install that archive.
-        if not force and artifact is None:
-            found = self._discover_well_known(target_name, [], [])
-            if found is not None:
-                return found.executable
-        if unavailable is not None:
-            raise unavailable
-        # `unavailable` is None exactly when both lookups above succeeded, so
-        # the manifest, the record and the cache paths are all present here.
-        root, install, marker = cache_paths
+        if not force:
+            cached = self._cached_install(target_name, resolved)
+            if cached is not None:
+                return cached.executable
+            # `force` means reinstall, so it skips the searches rather than
+            # the download. An explicit artifact is a request to install that
+            # archive, so it skips them too.
+            if artifact is None:
+                found = self._discover_well_known(target_name, [], [])
+                if found is not None:
+                    return found.executable
+        if resolved is None:
+            resolved = self._resolve(target_name,
+                                     artifact if isinstance(artifact, Mapping) else None)
+            if resolved.url is not None:
+                print(f"apostate: release manifest fetched from {resolved.url} (no "
+                      "published manifest is baked into this package). A fetched "
+                      "manifest verifies transport integrity only; for provenance run: "
+                      f"gh attestation verify {_artifact_name(resolved.record)} "
+                      f"--repo {RELEASE_REPOSITORY}", file=sys.stderr)
+        manifest, record = resolved.manifest, resolved.record
+        root, install, marker = self._paths(target_name, str(manifest["chromium_version"]))
         expected = str(record["sha256"]).lower()
 
         if isinstance(artifact, (str, Path)):
@@ -1029,7 +1319,12 @@ class BinaryManager:
         """Report install and manifest state. Never raises for an absent release.
 
         ``info`` is what a user runs to find out why a launch will not work, so
-        it answers rather than failing the way ``ensure`` does.
+        it answers rather than failing the way ``ensure`` does. It is also the
+        one command that may go to the network to answer: the discovery search
+        underneath it stays offline, but "which manifest would an install use,
+        and how much does it prove" is exactly the question being asked, and
+        answering it from a stale baked file would be answering a different
+        one.
         """
         target_name = target_platform(target)
         discovery = self.discovery(target=target_name)
@@ -1051,21 +1346,20 @@ class BinaryManager:
         else:
             cached = None
         try:
-            manifest = self._manifest()
-        except (ManifestError, UnpublishedArtifactError) as exc:
+            resolved = self._resolve(target_name)
+        except BinaryError as exc:
+            tried = [url for _source, url in release_manifest_urls(target_name)]
             return {"available": False, "platform": target_name,
                     "chromium_version": CHROMIUM_VERSION,
                     "package_version": PACKAGE_VERSION,
+                    "manifest_source": None, "manifest_url": None,
+                    "manifest_urls_tried": [] if self.manifest_value is not None else tried,
                     "cache_dir": str(self.cache_dir), "reason": str(exc), **located}
-        try:
-            record = _artifact_record(manifest, target_name)
-        except BinaryError as exc:
-            return {"available": False, "platform": target_name,
-                    "chromium_version": manifest["chromium_version"],
-                    "package_version": manifest["package_version"],
-                    "cache_dir": str(self.cache_dir), "reason": str(exc), **located}
-        root, install, marker = self._paths(target_name, manifest, record)
+        manifest, record = resolved.manifest, resolved.record
+        root, install, _marker = self._paths(target_name, str(manifest["chromium_version"]))
         expected = str(record["sha256"]).lower()
+        artifact = _artifact_name(record)
+        fetched = resolved.url is not None
         return {
             "available": True,
             "cached": cached is not None,
@@ -1073,12 +1367,32 @@ class BinaryManager:
             "chromium_version": manifest["chromium_version"],
             "package_version": manifest["package_version"],
             "catalogue_version": manifest["catalogue_version"],
-            "artifact": _artifact_name(record),
+            "artifact": artifact,
             "artifact_url": artifact_url(manifest, record),
             "sha256": expected,
             "cache_dir": str(self.cache_dir),
             "install_dir": str(install),
-            "archive_retained": (root / _artifact_name(record)).is_file(),
+            "archive_retained": (root / artifact).is_file(),
+            # Which manifest answered, and how much it is worth. A digest that
+            # travelled inside the package was pinned before the archive was
+            # reachable; one fetched from beside the archive proves the
+            # download arrived intact and nothing more. Saying so is the
+            # difference between an integrity check and a claim of provenance.
+            "manifest_source": resolved.source,
+            "manifest_url": resolved.url,
+            "manifest_urls_tried": list(resolved.urls_tried),
+            "manifest_trust": "transport-integrity" if fetched else "pinned",
+            "manifest_note": (
+                "A manifest fetched at run time is a transport-integrity check: it "
+                "detects a corrupted or truncated download, not a substituted "
+                "release. For provenance run: gh attestation verify <archive> "
+                f"--repo {RELEASE_REPOSITORY}"
+            ) if fetched else (
+                "This manifest ships inside the package, so the digest was pinned at "
+                "publish time rather than fetched from the same place as the bytes it "
+                "describes."
+            ),
+            "provenance": f"gh attestation verify {artifact} --repo {RELEASE_REPOSITORY}",
             # `executable` is what a launch would run without downloading, from
             # whichever of the four sources answered; `cached` stays the
             # narrower question of whether this package's own install is valid.
@@ -1133,7 +1447,9 @@ def clear_cache(*, cache_dir: str | Path | None = None) -> None:
 
 
 __all__ = [
-    "BinaryManager", "DISCOVERY_ORDER", "DiscoveredBinary", "RELEASE_REPOSITORY",
-    "artifact_url", "binary_info", "clear_cache", "discover_binary", "discovery_report",
-    "ensure_binary", "target_platform",
+    "BinaryManager", "DISCOVERY_ORDER", "MANIFEST_SOURCES", "DiscoveredBinary",
+    "RELEASE_REPOSITORY", "ResolvedManifest", "artifact_url", "binary_info",
+    "clear_cache", "discover_binary", "discovery_report", "ensure_binary",
+    "policy_artifact_name", "release_manifest_urls", "resolve_named_binary",
+    "target_platform",
 ]
