@@ -1025,6 +1025,40 @@ no-sound-card path rather than a Linux desktop, and the only Linux capture in
 the tree holding a real output device is a non-admissible v1 file reporting
 ALSA's compiled default of 2048 — which is also this project's build host.
 
+### Readback noise is available, off, and detectable
+
+`--fingerprint-noise` is the one switch that puts something between the
+rasteriser and the page. It is off by default and it is not part of any
+profile, because what it buys is not coherence. With it, a page-visible canvas
+or WebGL readback comes back with each colour channel of an edge pixel moved by
+at most one step; without it, the bytes are what this build rendered.
+
+What it gets right is everything about a *machine*: the same profile perturbs
+the same pixels the same way on every launch and every host, two reads agree, a
+1:1 canvas-to-canvas copy reads back identically, `getImageData`,
+`toDataURL`, `toBlob`, `convertToBlob`, a transferred `ImageBitmap` and WebGL
+`readPixels` all agree with each other, and a solid fill is byte-exact because a
+pixel with a flat 3x3 neighbourhood is never moved. A detector that renders
+twice, reads twice, fills a known colour, votes across many reads, or compares
+two routes finds a consistent device.
+
+What gets it is scale. Draw a scene, draw the same scene eight times larger,
+downsample it and compare: a perturbation keyed on a pixel and its immediate
+neighbours does not survive being averaged with 63 of them, so the two images
+disagree in a way no single machine's rasteriser does. Stock Chromium does not
+match itself exactly across that test either, but it mismatches differently.
+That residual is inherent to a per-pixel intervention rather than a defect in
+this one, and it is why the switch is off: a profile is meant to be a machine,
+and this makes it a machine with a policy.
+
+Three narrower gaps, for completeness. `captureStream` and the canvas-to-video
+frame path are out of scope and stay exact, so a page can compare a captured
+frame against `getImageData` of the same canvas. A readback whose format the
+policy does not describe — a canvas colour type no canvas output uses, or an
+alpha-only `readPixels` — stays exact rather than being guessed at. And a
+pixel-pack buffer that script has partly overwritten loses the rows the write
+touched, so `getBufferSubData` returns those exactly.
+
 ## Platform support
 
 Four targets are the contract: `linux-x64`, `linux-arm64`, `macos-arm64` and

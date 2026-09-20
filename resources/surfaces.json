@@ -4261,7 +4261,7 @@
     "severity": "critical",
     "botDetectionTell": true,
     "description": "Detectors draw a server-nonce seeded pseudo-random pixel grid to an opaque sRGB 2D canvas and read back the exact pixel buffer via `getImageData`. Anti-detect browsers that inject random noise/fuzzing into `toDataURL` or `getImageData` alter the written bytes, failing exact bitwise hash verification against the expected input.",
-    "evasion": "Never inject random pixel noise or hash mutations on canvas readback. Canvas fingerprint resistance must be achieved by emulating realistic, static hardware/driver rendering characteristics.",
+    "evasion": "The default is exact: no noise, no hash mutation, and the bytes Chromium's own rasteriser produced under the profile's fonts, metrics, screen and GPU inputs. Where an operator asks for unlinkability instead, --fingerprint-noise is the one opt-in path, and it answers this check specifically: the perturbation is a pure function of the profile seed and the clean pixels, so a server-nonce grid read twice agrees and is byte-exact wherever the grid is flat, off by at most one per channel only at its edges. It remains detectable by comparing the same scene rendered at two scales, which is stated in docs/LIMITATIONS.md rather than claimed away. Never per-call randomness, and never a JavaScript or CDP override of the readback.",
     "layer": "L1b"
   },
   {
