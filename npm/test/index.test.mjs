@@ -11,6 +11,7 @@ import {
   BinaryExtractionError,
   CATALOGUE_VERSION,
   CHROMIUM_VERSION,
+  PACKAGE_VERSION,
   ProfileResolutionError,
   UnpublishedArtifactError,
   binaryInfo,
@@ -728,7 +729,7 @@ test("binaryInfo reports where the browser was found", async () => {
 // release installs binaries published under an older tag, so it cannot carry
 // their digest. These four tests cover the route that replaced the dead end.
 
-const TAG_MANIFEST_URL = `https://github.com/heretic-tech/apostate/releases/download/v0.1.1/${artifactNameFor(target)}.manifest.json`;
+const TAG_MANIFEST_URL = `https://github.com/heretic-tech/apostate/releases/download/v${PACKAGE_VERSION}/${artifactNameFor(target)}.manifest.json`;
 const LATEST_MANIFEST_URL = `https://github.com/heretic-tech/apostate/releases/latest/download/${artifactNameFor(target)}.manifest.json`;
 
 // The per-asset manifest the release publishes beside each archive.

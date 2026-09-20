@@ -9,7 +9,7 @@ Actions artifacts and do not create build-provenance attestations.
 
 `.github/release/artifact-policy.json` defines the package version, Chromium
 version, recognized platforms, artifact filenames and release-manifest fields.
-The package version is `0.1.0`; `build/CHROMIUM_VERSION` pins Chromium to
+The release version is `0.2.0`; `build/CHROMIUM_VERSION` pins Chromium to
 `152.0.7977.83` and must agree with the policy.
 
 The profile catalogue has its own version sequence. Each manifest takes
