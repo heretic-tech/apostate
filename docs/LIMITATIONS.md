@@ -1166,14 +1166,23 @@ page and can be compared elsewhere against a `toDataURL` of the same canvas.
 
 A translucent pixel moves by one unit of what the canvas holds, not one unit
 of what `getImageData` returns. A canvas stores colour multiplied by alpha, so
-straight alpha has coarser resolution than the store: at half alpha the step
-reads out as two, and it grows as alpha approaches zero, while the composited
-pixel still moves by one. Every route agrees on the number, which is what
-stops it being a tell; the alternative — a true one-unit step in straight
-alpha — is not representable, and taking it anyway made `getImageData` and a
-decoded `toDataURL` of one canvas disagree, which is a much louder signal.
-Opaque pixels, which is every pixel of any canvas a fingerprinter draws, are
-unaffected.
+it has less resolution than the value you read back: the step becomes zero or
+one in the store, reads out as two at half alpha and more as alpha approaches
+zero, and what the page sees composited moves by one at most. So the noise is
+weaker on translucent pixels than on opaque ones, and on a nearly transparent
+one it is often nothing at all. Opaque pixels, which is every pixel of any
+canvas a fingerprinter draws, take the full step every time.
+
+Every route agrees on the number, which is what stops this being a tell. It
+is worth saying how, because the obvious implementation does not: the step is
+applied to the pixels the canvas holds and each route's copy is then produced
+from those by the browser's own conversion. Perturbing each route's converted
+copy instead means reproducing that conversion, including its rounding, and
+being wrong by one there does not shift a value by one — it changes the key,
+so one route moves a pixel the other leaves alone. Measured that way, a
+translucent canvas differed on 2359 of 57600 bytes between `getImageData` and
+a decoded `toDataURL`; done the right way round it differs on none, which is
+stock Chromium's answer too.
 
 A readback whose format the policy does not describe — a canvas colour type no
 canvas output uses, or an alpha-only `readPixels` — stays exact rather than

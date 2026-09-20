@@ -56,16 +56,32 @@ step is taken there, and the result is written back through the store's own
 convention. This is not a precaution; the first version of this patch keyed on
 memory, and what that cost is measured below.
 
-A premultiplied store has a second consequence. A straight-alpha view of one
-can only serve the values that survive the round trip, so the step is snapped
-onto that lattice. On an opaque pixel -- every pixel of any canvas a
-fingerprinter draws -- the lattice is every integer and the step is one. On a
-translucent pixel it is coarser: the read-out step is two at half alpha and
-grows as alpha falls, while what the page sees composited still moves by one
-and every route still reports the same number. The alternative, a true
-one-unit step in straight alpha, is not representable in the canvas, and taking
-it anyway is exactly what made `getImageData` and a decoded `toDataURL` of one
-canvas disagree.
+The canonical form is necessary and it is not sufficient, and the other half
+is a routing rule rather than arithmetic. The policy is applied to the pixels
+the canvas HOLDS, and a straight-alpha copy a page receives is produced from
+those by Skia's own conversion -- `ReadPixelsForPage`, used by
+`getImageData`, reads the snapshot in its own premultiplied form, perturbs
+that, and lets Skia unpremultiply, which is the same conversion an encoder
+performs on the same snapshot.
+
+The alternative is to perturb after the conversion, which means reproducing
+that conversion in order to stay in step with the encoder route. It cannot be
+done reliably. Skia's unpremultiply is a float divide finished by
+`to_unorm`, whose rounding is the backend's: `vcvtnq_u32_f32` on NEON, which
+rounds ties to even, `(U32)(v + 0.5f)` in the scalar fallback, which does not.
+An integer round-half-up disagrees with the first of those on exact halves,
+and being wrong by one there is not a rounding error but a different KEY: the
+neighbourhood hash changes, and one route steps a pixel the other leaves
+alone. Measured that way, the two routes differed on 2359 of 57600 bytes of a
+translucent canvas, and the dominant pattern was `one route moved, the other
+did not` rather than `both moved, differently`. Perturbing before the
+conversion has no such dependency, and measures 0 of 57600.
+
+On a translucent pixel the one-unit straight step becomes a change of zero or
+one in what the canvas holds, because that is the resolution the canvas has
+there; read back out it is two units at half alpha and more as alpha falls,
+and what a page sees composited moves by one at most. Opaque pixels -- every
+pixel of any canvas a fingerprinter draws -- take the full step every time.
 
 Two consequences follow from the key rather than from care:
 
@@ -287,19 +303,24 @@ this version, and on 36207 of 57600 with the switch on before this fix, largest
 delta 11. That is a one-unit premultiplied step magnified by the unpremultiply
 on the way out, and it is now a check in the driver rather than a paragraph.
 
-Hence the canonical form and the lattice above. Both are checked outside the
-browser as well as in it, because a claim about arithmetic is cheaper to settle
-in arithmetic: `/tmp/w1/NoiseReadback/sim.js` reimplements the kernel over the
-pixels measured out of the binary and reports that the premultiply round trip
-is exact over every valid (alpha, premultiplied) pair; that this patch's
-premultiply agrees with Skia's `SkMulDiv255Round` on all 65536 inputs; and that
-for the opaque scene an RGBA straight store and a BGRA premultiplied store of
-one image now agree on 12288 of 12288 bytes, largest step one, alpha never
-moved. The translucent scene leaves 15 bytes apart, and all 15 fall in the 3x3
-blocks around the 4 pixels whose straight values cannot be held in a
-premultiplied store at all -- an artefact of the simulation building two stores
-from one measurement, which the browser does not have, holding one store and
-deriving the other from it. Every translation unit compiles after the rewrite.
+Hence the canonical form. It was not enough on its own: with the key taken on
+the canonical colour but the step still applied to the straight-alpha result,
+the opaque routes came into line and the translucent gap fell from 36207 bytes
+to 2359, largest delta 5 -- and the residual was Skia's rounding, as the
+section above sets out. Adding the routing rule closed it: measured on the
+built binary, `getImageData` and a decoded `toDataURL` of one translucent
+canvas now differ on 0 of 57600 bytes, which is the same number stock Chromium
+of this version gives.
+
+The claim about the arithmetic underneath was settled outside the browser
+first, because arithmetic is cheaper to settle in arithmetic:
+`/tmp/w1/NoiseReadback/sim.js` reimplements the kernel over pixels measured out
+of the binary and reports that the premultiply round trip is exact over every
+valid (alpha, premultiplied) pair, and that this patch's premultiply agrees
+with Skia's `SkMulDiv255Round` on all 65536 inputs.
+
+The harness then reports every check passing on the rebuilt binary: 38
+checks, 0 failures, 9 measurements recorded beside them.
 
 Ledger: canvas.2d, canvas.todataurl-encoding, canvas.offscreen-2d,
 webgl.readpixels, webgl.readpixels-pixel-pack-buffer,
@@ -347,7 +368,7 @@ diff --git a/third_party/blink/renderer/core/canvas_interventions/apostate_readb
 new file mode 100644
 --- /dev/null
 +++ b/third_party/blink/renderer/core/canvas_interventions/apostate_readback_noise.h
-@@ -0,0 +1,131 @@
+@@ -0,0 +1,155 @@
 +// Copyright 2026 The Apostate Authors
 +// Use of this source code is governed by a GPL-3.0 license that can be
 +// found in the LICENSE file.
@@ -363,6 +384,10 @@ new file mode 100644
 +#include "third_party/blink/renderer/core/core_export.h"
 +
 +class SkPixmap;
++
++namespace cc {
++class PaintImage;
++}  // namespace cc
 +
 +namespace blink {
 +
@@ -391,6 +416,16 @@ new file mode 100644
 +// page sees: at alpha 2 it is a step of 127. So the key and the step are both
 +// taken in a canonical form, straight alpha in logical R,G,B,A order, and the
 +// result is written back through the store's own premultiplication.
++//
++// That is necessary but not sufficient, and the remaining half is a routing
++// rule rather than arithmetic: the policy is applied to the pixels a canvas
++// HOLDS, and any straight-alpha copy a page receives is then produced from
++// those by Skia's own conversion. Reproducing that conversion instead would
++// mean reproducing its rounding, which on this architecture is the NEON
++// round-to-nearest-even of a float divide and not something a fork should
++// pin. Getting it wrong by one is not a rounding error, it is a different
++// KEY: the two routes then disagree about whether a pixel moves at all.
++// `ReadPixelsForPage` is where that rule is kept.
 +//
 +// Alpha is never moved, and neither is a backing store: each route perturbs
 +// the copy the caller is about to see and nothing upstream of it.
@@ -431,12 +466,6 @@ new file mode 100644
 +  // the straight value and written back multiplied, so it is a step of one in
 +  // the value a page reads rather than in the value the store holds.
 +  bool premultiplied = false;
-+  // The store holds straight alpha but is a view of a premultiplied canvas,
-+  // which is what an ImageData is. Such a view can only serve values that
-+  // survive the round trip through that canvas, so the step is snapped onto
-+  // the same lattice; without it, getImageData and an encoded snapshot of one
-+  // canvas disagree on a translucent pixel by up to a lattice step.
-+  bool straight_of_premultiplied = false;
 +};
 +
 +// A rectangle of interleaved pixels a page is about to see. `bytes` begins at
@@ -474,6 +503,22 @@ new file mode 100644
 +CORE_EXPORT scoped_refptr<StaticBitmapImage> ApplyToSnapshot(
 +    scoped_refptr<StaticBitmapImage> snapshot);
 +
++// `image.readPixels(dst)`, with the policy applied to the pixels the image
++// holds rather than to the converted result. Returns what readPixels returns.
++//
++// The difference matters only where the destination is straight alpha and the
++// image is premultiplied, which is exactly `getImageData`. Perturbing after
++// the conversion would mean the policy had to reproduce that conversion to
++// keep an encoded snapshot of the same canvas in step with it, and a
++// disagreement of one in the reproduced value changes the KEY rather than the
++// answer -- so one route steps a pixel the other leaves alone. Perturbing
++// before it leaves the conversion to Skia on both routes, which is exact by
++// construction and stays exact when Skia's rounding changes.
++CORE_EXPORT bool ReadPixelsForPage(const cc::PaintImage& image,
++                                   const SkPixmap& dst,
++                                   int src_x,
++                                   int src_y);
++
 +}  // namespace apostate_readback_noise
 +
 +}  // namespace blink
@@ -502,6 +547,7 @@ new file mode 100644
 +#include "base/hash/hash.h"
 +#include "base/numerics/safe_conversions.h"
 +#include "base/strings/strcat.h"
++#include "cc/paint/paint_image.h"
 +#include "third_party/blink/public/common/fingerprinting_protection/noise_token.h"
 +#include "third_party/blink/renderer/core/canvas_interventions/noise_hash.h"
 +#include "third_party/blink/renderer/platform/graphics/static_bitmap_image.h"
@@ -760,39 +806,6 @@ new file mode 100644
 +              std::clamp<int64_t>(premultiplied, 0, ceiling));
 +}
 +
-+// A straight-alpha view of a premultiplied canvas can only serve the values
-+// that survive the round trip through that canvas. Snapping the step onto the
-+// same lattice is what makes `getImageData` and an encoded snapshot of one
-+// canvas agree on a translucent pixel: without it the encoded route lands on
-+// the lattice and the ImageData route does not, and the two disagree by up to
-+// a lattice step. The cost is that on a nearly transparent pixel the step,
-+// read out in straight alpha, is that lattice step rather than one -- which
-+// is one unit of what the canvas actually holds, and one unit of what the
-+// page sees composited.
-+int64_t SnapToPremultipliedLattice(base::span<const uint8_t> pixel,
-+                                   const Channels& channels,
-+                                   uint8_t storage_index,
-+                                   int64_t straight) {
-+  const uint8_t alpha_index = channels.logical[3];
-+  if (alpha_index == Channels::kAbsent) {
-+    return straight;
-+  }
-+  const int64_t alpha = LoadStored(pixel, channels, alpha_index);
-+  const int64_t alpha_max = ChannelMax(channels, alpha_index);
-+  const int64_t colour_max = ChannelMax(channels, storage_index);
-+  if (alpha_max <= 0) {
-+    return straight;
-+  }
-+  if (alpha <= 0) {
-+    // A fully transparent pixel carries no colour in a premultiplied store.
-+    return 0;
-+  }
-+  const int64_t ceiling = std::min(colour_max, (alpha * colour_max) / alpha_max);
-+  const int64_t premultiplied = std::clamp<int64_t>(
-+      (straight * alpha + alpha_max / 2) / alpha_max, 0, ceiling);
-+  return std::min(colour_max, (premultiplied * alpha_max + alpha / 2) / alpha);
-+}
-+
 +// One {-1, 0, +1} step on logical channel `logical_index`, taken on the value
 +// a page reads. For a floating-point channel the step is one unit in the last
 +// place, which is the same statement about the stored value and is invisible
@@ -817,13 +830,9 @@ new file mode 100644
 +      if (max == 0) {
 +        return;
 +      }
-+      int64_t straight = std::clamp<int64_t>(
-+          CanonicalValue(pixel, channels, logical_index) + step, 0, max);
-+      if (channels.straight_of_premultiplied) {
-+        straight = SnapToPremultipliedLattice(pixel, channels, storage_index,
-+                                              straight);
-+      }
-+      StoreCanonical(pixel, channels, logical_index, straight);
++      const int64_t straight = CanonicalValue(pixel, channels, logical_index);
++      StoreCanonical(pixel, channels, logical_index,
++                     std::clamp<int64_t>(straight + step, 0, max));
 +      return;
 +    }
 +    case Storage::kInt8: {
@@ -934,10 +943,6 @@ new file mode 100644
 +  constexpr uint8_t kNone = Channels::kAbsent;
 +  const bool premultiplied = alpha_type == kPremul_SkAlphaType;
 +  Channels channels;
-+  // Every surface this reaches is a canvas's output, and a canvas stores
-+  // premultiplied. An unpremultiplied pixmap is therefore a view of one, and
-+  // is held to the same lattice so the two agree.
-+  channels.straight_of_premultiplied = alpha_type == kUnpremul_SkAlphaType;
 +  switch (color_type) {
 +    case kRGBA_8888_SkColorType:
 +      channels.storage = Storage::kUint8;
@@ -1168,6 +1173,46 @@ new file mode 100644
 +  return result;
 +}
 +
++bool ReadPixelsForPage(const cc::PaintImage& image,
++                       const SkPixmap& dst,
++                       int src_x,
++                       int src_y) {
++  const auto plain = [&] {
++    return image.readPixels(dst.info(), dst.writable_addr(), dst.rowBytes(),
++                            src_x, src_y);
++  };
++  if (!Enabled() || !dst.writable_addr() || dst.width() <= 0 ||
++      dst.height() <= 0) {
++    return plain();
++  }
++  const SkImageInfo source_info = image.GetSkImageInfo();
++  if (dst.alphaType() != kUnpremul_SkAlphaType ||
++      source_info.alphaType() != kPremul_SkAlphaType) {
++    // Either the destination holds what the image holds, or the image has no
++    // alpha association to undo. Perturbing the result is already perturbing
++    // the pixels the canvas holds.
++    const bool ok = plain();
++    ApplyToPixmap(dst);
++    return ok;
++  }
++  // Read the image's own pixels, in its own form, and perturb those; then let
++  // Skia convert, which is the same conversion `plain()` would have done and
++  // the same one an encoder does to the same snapshot. Both routes therefore
++  // agree without the policy knowing anything about how Skia rounds.
++  SkBitmap held;
++  if (!held.tryAllocPixels(source_info.makeWH(dst.width(), dst.height()))) {
++    const bool ok = plain();
++    ApplyToPixmap(dst);
++    return ok;
++  }
++  if (!image.readPixels(held.info(), held.getPixels(), held.rowBytes(), src_x,
++                        src_y)) {
++    return false;
++  }
++  ApplyToPixmap(held.pixmap());
++  return held.pixmap().readPixels(dst);
++}
++
 +}  // namespace apostate_readback_noise
 diff --git a/third_party/blink/renderer/core/canvas_interventions/build.gni b/third_party/blink/renderer/core/canvas_interventions/build.gni
 --- a/third_party/blink/renderer/core/canvas_interventions/build.gni
@@ -1327,20 +1372,28 @@ diff --git a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_c
  #include "third_party/blink/renderer/core/css/properties/computed_style_utils.h"
  #include "third_party/blink/renderer/core/css/style_change_reason.h"
  #include "third_party/blink/renderer/core/dom/events/event.h"
-@@ -514,6 +515,13 @@
-           snapshot->PaintImageForCurrentFrame().GetSkImageInfo().bounds();
-       DCHECK(!bounds.intersect(SkIRect::MakeXYWH(sx, sy, sw, sh)));
+@@ -504,11 +505,18 @@
+       return image_data;
      }
-+
-+    // Apostate: the clean read above is what the canvas holds; this is the
-+    // copy the page is handed, so the opt-in readback policy is applied to it
-+    // and to nothing upstream. Covers the HTML and the offscreen 2D context,
-+    // every ImageData pixel format, and the accelerated and software backends
-+    // alike, because all four arrive here.
-+    apostate_readback_noise::ApplyToPixmap(image_data_pixmap);
-   }
  
-   return image_data;
++    // Apostate: ReadPixelsForPage is a plain readPixels with the policy off,
++    // and with it on it perturbs the pixels the canvas HOLDS and then lets
++    // Skia unpremultiply, rather than perturbing the straight-alpha result.
++    // An encoded snapshot of the same canvas is perturbed at the same point
++    // and unpremultiplied by the same code, so the two agree; doing it the
++    // other way round made them disagree, measured. Covers the HTML and the
++    // offscreen 2D context, every ImageData pixel format and both raster
++    // backends, because all of them arrive here.
+     SkPixmap image_data_pixmap = image_data->GetSkPixmap();
+     const bool read_pixels_successful =
+-        snapshot->PaintImageForCurrentFrame().readPixels(
+-            image_data_pixmap.info(), image_data_pixmap.writable_addr(),
+-            image_data_pixmap.rowBytes(), sx, sy);
++        apostate_readback_noise::ReadPixelsForPage(
++            snapshot->PaintImageForCurrentFrame(), image_data_pixmap, sx, sy);
+     if (!read_pixels_successful) {
+       SkIRect bounds =
+           snapshot->PaintImageForCurrentFrame().GetSkImageInfo().bounds();
 diff --git a/third_party/blink/renderer/modules/webgl/BUILD.gn b/third_party/blink/renderer/modules/webgl/BUILD.gn
 --- a/third_party/blink/renderer/modules/webgl/BUILD.gn
 +++ b/third_party/blink/renderer/modules/webgl/BUILD.gn

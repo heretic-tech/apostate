@@ -438,17 +438,23 @@ every route above agrees with every other for the same pixels. A pixel whose
 fill byte-exact and keeps the change to the edges a rasteriser signs its name
 on. Alpha is never moved.
 
-"One step" means one unit of what the canvas holds, and the step is decided
-from the colour rather than from the bytes — a canvas is read out through more
-than one memory layout, and keying on the layout would make two routes
-disagree about one image. A canvas stores colour multiplied by alpha and
-`getImageData` divides that back out, so on an opaque pixel — every pixel of
-any canvas a fingerprinter draws — one step is one unit of the value you read.
-On a translucent pixel the straight-alpha value has coarser resolution than
-the store does, so that same one-unit step reads out as the next value the
-store can actually hold: two units at half alpha, more as alpha approaches
-zero, while the composited result still moves by one. Every route reports the
-same number, which is the property that matters.
+"One step" means one unit of what the canvas holds. The step is decided from
+the colour rather than from the bytes — a canvas is read out through more than
+one memory layout, and keying on the layout makes two routes disagree about
+one image — and it is applied to the pixels the canvas holds rather than to a
+copy that has already been converted, so every route's copy is produced from
+the same perturbed pixels by the browser's own conversion. Measured, that
+makes `getImageData` and a decoded `toDataURL` of one canvas return identical
+bytes, which is also what stock Chromium does.
+
+A canvas stores colour multiplied by alpha and `getImageData` divides that
+back out. On an opaque pixel — every pixel of any canvas a fingerprinter draws
+— the two are the same and one step is one unit of the value you read. On a
+translucent pixel the canvas has less resolution than the value you read does,
+so the step becomes zero or one in the store and reads back out as two units
+at half alpha, more as alpha approaches zero; what a page sees composited
+moves by one at most. Every route reports the same number, which is the
+property that matters.
 
 The tamper checks a detector actually runs, and how this answers them:
 
