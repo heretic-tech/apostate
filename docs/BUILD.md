@@ -231,7 +231,9 @@ the App Store. Export it from Keychain Access together with its private key
 as a `.p12` with an export password, then
 `base64 -i DeveloperID.p12 | tr -d '\n'` for the secret value.
 `security find-identity -v -p codesigning` prints the common name to use for
-`APPLE_SIGNING_IDENTITY`.
+`APPLE_SIGNING_IDENTITY`. It prints the name inside quotation marks; the
+secret is the bare name without them (the script refuses a quoted value at
+its first check rather than after the build).
 
 Creating the notary key. At
 <https://appstoreconnect.apple.com/access/integrations/api>, Team Keys, add a

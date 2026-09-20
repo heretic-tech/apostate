@@ -154,10 +154,31 @@ else
   security list-keychains -d user -s "$keychain" >/dev/null
 fi
 
-# Not printed: the identity name is a repository secret and GitHub only masks
-# what it knows verbatim.
-security find-identity -v -p codesigning "$keychain" | grep -qF "$APPLE_SIGNING_IDENTITY" ||
-  die "APPLE_SIGNING_IDENTITY names no code-signing identity in the imported certificate"
+# The identity is resolved to its certificate hash here and codesign is given
+# the hash, not the name. Two reasons. The name has to match exactly, and the
+# obvious way to obtain it -- copying the line `security find-identity`
+# prints -- brings its quotation marks along; grep would find that quoted
+# string in the same command's output and pass it on, and codesign then
+# fails with "no identity found" an hour of build later. Matching whole
+# names and signing by hash also makes the keychain search order irrelevant
+# to which certificate signs. The names are not printed: the identity name is
+# a repository secret and GitHub only masks what it knows verbatim.
+identity_hash="$(security find-identity -v -p codesigning "$keychain" |
+  python3 -c '
+import os, re, sys
+want = os.environ["APPLE_SIGNING_IDENTITY"]
+found = {name: sha1 for sha1, name in re.findall(
+    r"^\s*\d+\) ([0-9A-F]{40}) \"(.*)\"$", sys.stdin.read(), re.M)}
+if want in found:
+    print(found[want])
+elif want.strip().strip("\"") in found:
+    sys.exit("APPLE_SIGNING_IDENTITY carries quotation marks or whitespace "
+             "around the name; set the bare name")
+else:
+    sys.exit("APPLE_SIGNING_IDENTITY names none of the %d valid code-signing "
+             "identit%s in the imported certificate"
+             % (len(found), "y" if len(found) == 1 else "ies"))
+')" || die "cannot resolve APPLE_SIGNING_IDENTITY"
 
 rm -rf "$SIGNED"
 mkdir -p "$SIGNED"
@@ -182,7 +203,7 @@ mkdir -p "$SIGNED"
 # leave behind.
 say "signing Chromium.app with the Developer ID identity"
 python3 - "$PACKAGING" \
-  --identity "$APPLE_SIGNING_IDENTITY" \
+  --identity "$identity_hash" \
   --input "$OUT" \
   --output "$SIGNED" \
   --disable-packaging <<'PY'
