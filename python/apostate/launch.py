@@ -12,9 +12,9 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, NamedTuple
-from urllib.parse import quote, urlsplit, urlunsplit
+from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
-from .binary import BinaryManager, ensure_binary
+from .binary import BinaryManager, ensure_binary, resolve_named_binary, target_platform
 from .config import (LaunchConfig, check_fingerprint_switches, is_host_seed,
                      translate_options)
 from .errors import ConfigurationError, GeoIPError, LaunchError, ProfileError
@@ -71,6 +71,18 @@ def _proxy_server_arg(value: str | Mapping[str, Any] | None) -> str | None:
 
 
 def _playwright_proxy(value: str | Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """The driver's proxy option, which is not where a SOCKS credential goes.
+
+    The browser already has it: ``_native_args`` puts it in the
+    ``--apostate-profile`` envelope, which is the route that keeps a
+    credential out of NetLog, socket-pool group keys and error strings
+    (docs/FLAGS.md, "The proxy"). Playwright, meanwhile, refuses to start at
+    all when a socks server carries a username -- "Browser does not support
+    socks5 proxy authentication" -- because upstream Chromium has no way to
+    supply one. Handing the driver a credential it will not use, and failing
+    a launch the browser can serve, is the worst of both. http and https keep
+    theirs, because there the driver is what answers the 407.
+    """
     if value is None:
         return None
     if isinstance(value, Mapping):
@@ -83,6 +95,9 @@ def _playwright_proxy(value: str | Mapping[str, Any] | None) -> dict[str, Any] |
         for key in ("username", "password", "bypass"):
             if key in result and result[key] is not None and not isinstance(result[key], str):
                 raise ConfigurationError(f"proxy {key} must be a string")
+        if urlsplit(result["server"]).scheme.startswith("socks"):
+            result.pop("username", None)
+            result.pop("password", None)
         return result
     raw = _proxy_url(value)
     assert raw is not None
@@ -90,14 +105,17 @@ def _playwright_proxy(value: str | Mapping[str, Any] | None) -> dict[str, Any] |
     server = _proxy_server_arg(raw)
     assert server is not None
     result: dict[str, Any] = {"server": server}
+    if parsed.scheme.startswith("socks"):
+        return result
     if parsed.username is not None:
-        result["username"] = parsed.username
+        result["username"] = unquote(parsed.username)
     if parsed.password is not None:
-        result["password"] = parsed.password
+        result["password"] = unquote(parsed.password)
     return result
 
 
-def _profile_payload(profile: Mapping[str, Any] | None) -> str | None:
+def _profile_dict(profile: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """The validated device payload, or ``None`` when it describes no device."""
     if profile is None:
         return None
     validated = validate_profile(profile)
@@ -117,8 +135,46 @@ def _profile_payload(profile: Mapping[str, Any] | None) -> str | None:
             return [native_value(item) for item in value]
         return copy.deepcopy(value)
 
-    encoded = json.dumps(native_value(validated), sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+    return native_value(validated)
+
+
+def _encode_envelope(payload: Mapping[str, Any]) -> str:
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"),
+                         ensure_ascii=True).encode("utf-8")
     return base64.b64encode(encoded).decode("ascii")
+
+
+def _profile_payload(profile: Mapping[str, Any] | None) -> str | None:
+    payload = _profile_dict(profile)
+    return None if payload is None else _encode_envelope(payload)
+
+
+def _proxy_credentials(value: str | Mapping[str, Any] | None) -> dict[str, str] | None:
+    """The proxy's credential, for the envelope rather than the command line.
+
+    The endpoint goes on the command line credential-free and the credential
+    travels inside ``--apostate-profile``; docs/FLAGS.md "The proxy" is why.
+    This package used to have no such channel and handed the credential to the
+    driver instead, which works for http and cannot work for SOCKS: Playwright
+    refuses to start at all when a socks server carries a username, because
+    upstream Chromium has no way to supply one. Every authenticated
+    residential SOCKS5 proxy -- the commonest thing this package is pointed at
+    -- failed before the browser existed.
+    """
+    raw = _proxy_url(value)
+    if raw is None:
+        return None
+    parsed = urlsplit(raw)
+    if not parsed.username and not parsed.password:
+        return None
+    try:
+        username = unquote(parsed.username or "", errors="strict")
+        password = unquote(parsed.password or "", errors="strict")
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise ConfigurationError("proxy credentials must be valid URL-encoded text") from exc
+    if len(username) > 4096 or len(password) > 4096:
+        raise ConfigurationError("proxy credentials must be at most 4096 characters")
+    return {"password": password, "username": username}
 
 
 def _geoip_dict(value: GeoIPResult | Mapping[str, Any] | None) -> Mapping[str, Any] | None:
@@ -259,20 +315,25 @@ def _resolve_plan(config: LaunchConfig, *, resolver: Any = None, catalogue: Any 
                 "a match."
             )
         else:
-            unresolved = [
-                name
-                for name, requested, value in (
-                    ("locale", config.locale is None,
-                     network_result.locale or network_result.languages),
-                    ("timezone", config.timezone is None, network_result.timezone),
-                )
-                if requested and not value
-            ]
-            if unresolved:
+            # Two different facts, so two different sentences. A timezone is
+            # something the provider either returned or did not. A locale is
+            # never returned by anyone: it is inferred from the country, and
+            # since that inference covers every ISO-3166 territory the only
+            # way to have no locale is to have no country. Saying "resolved no
+            # locale" over a lookup that answered MY was reporting the
+            # launcher's own gap as the network's.
+            if config.timezone is None and not network_result.timezone:
                 geoip_warnings.append(
-                    f"the GeoIP lookup resolved no {' and no '.join(unresolved)}. None is "
-                    "invented, so the host's own is served for that field; pass it "
-                    "explicitly to guarantee a match."
+                    "the GeoIP lookup resolved no timezone. None is invented, so the "
+                    "host's own is served for that field; pass it explicitly to "
+                    "guarantee a match."
+                )
+            if (config.locale is None and not network_result.locale
+                    and not network_result.languages):
+                geoip_warnings.append(
+                    "the GeoIP lookup returned no country, so no locale is derived; "
+                    "the host's own is served for that field. Pass locale explicitly "
+                    "to guarantee a match."
                 )
         for warning in geoip_warnings:
             print(f"apostate: {warning}", file=sys.stderr)
@@ -362,21 +423,26 @@ def _native_args(plan: LaunchPlan, *, persistent: bool = False) -> list[str]:
             if value and not _has_switch(config.args, switch):
                 args.append(f"{switch}={value}")
 
-    encoded = _profile_payload(plan.profile)
-    if encoded:
+    device = _profile_dict(plan.profile)
+    credentials = _proxy_credentials(config.proxy)
+    if device is not None or credentials is not None:
         # A device envelope and a seed are alternatives, not layers. The browser
         # cannot report the conflict -- marking an envelope partial would be a
         # new page-visible surface, and the absent-means-absent rule is what
         # makes a single-surface envelope useful for testing -- so refuse here
         # rather than let the seed be dropped without a word.
         #
-        # Scoped to device content by construction rather than by a check:
-        # ``_profile_payload`` returns None for an empty profile, and unlike the
-        # Node package this one has no proxy-credentials channel, so anything
-        # that reaches here describes a device. That is the payload shape which
-        # suppresses composition permanently; a payload claiming no device does
-        # not, which is what EnvelopeMerge's loader change turns on.
-        if _has_switch(config.args, "--fingerprint"):
+        # Credentials are not a device claim, so they do not trigger that
+        # refusal: InstallComposedProfile() composes normally for a payload
+        # that claims no device and attaches the credentials to what it
+        # composed, which makes an authenticated proxy plus a pinned seed a
+        # legal combination -- and the commonest one this package serves. The
+        # empty ``device_profile`` key below is deliberate and must stay:
+        # base/apostate/profile.cc's ParseOrNull reads ``proxy_credentials``
+        # only inside ``if (FindDict("device_profile"))``, so a wrapper
+        # without the key loses the credentials silently. npm/src/index.ts
+        # builds the identical shape.
+        if device is not None and _has_switch(config.args, "--fingerprint"):
             raise ProfileError(
                 "an authored profile and a --fingerprint seed cannot be combined: "
                 "an --apostate-profile payload describing a device suppresses the "
@@ -384,7 +450,10 @@ def _native_args(plan: LaunchPlan, *, persistent: bool = False) -> list[str]:
                 "ignored and every surface the profile does not describe would "
                 "stay host-inherited"
             )
-        args.append("--apostate-profile=" + encoded)
+        payload: dict[str, Any] = ({"device_profile": device or {},
+                                    "proxy_credentials": credentials}
+                                   if credentials is not None else dict(device or {}))
+        args.append("--apostate-profile=" + _encode_envelope(payload))
     if config.user_data_dir and not persistent:
         args.append("--user-data-dir=" + config.user_data_dir)
     proxy = _proxy_server_arg(config.proxy)
@@ -674,24 +743,27 @@ def _resolve_executable(binary_path: Any, *, cache_dir: Any = None, manifest: An
 
     ``binary_path`` is the first of the four sources
     ``apostate.binary.DISCOVERY_ORDER`` names and is taken at its word: a
-    caller who names a file has said which browser to run. The rest --
-    ``APOSTATE_BINARY``, this package's own install, then the documented
-    well-known locations -- are searched by ``ensure_binary``, which downloads
-    only when none of them answers.
+    caller who names a browser has said which one to run. Three spellings of
+    "this one" are understood -- the executable, a macOS ``.app`` bundle, and
+    the directory the release archive unpacks to -- because all three are
+    things a user has a path to, and only the first used to be accepted. The
+    rest of the search -- ``APOSTATE_BINARY``, this package's own install,
+    then the documented well-known locations -- is ``ensure_binary``'s, which
+    downloads only when none of them answers.
     """
     if binary_path is None:
         return ensure_binary(cache_dir=cache_dir, manifest=manifest,
                              downloader=downloader, target=target)
     binary = Path(binary_path).expanduser()
-    if not binary.is_file():
+    executable, reason = resolve_named_binary(binary, "binary_path", target_platform(target))
+    if executable is None:
         raise LaunchError(
-            f"Apostate browser binary was not found: {binary}. Omit binary_path to let "
-            "the package find an existing install, or download and verify the release "
-            "artifact."
+            f"{reason}: {binary}. Omit binary_path to let the package find an "
+            "existing install, or download and verify the release artifact."
         )
-    if not os.access(binary, os.X_OK):
-        raise LaunchError(f"Apostate browser binary is not executable: {binary}")
-    return binary
+    if not os.access(executable, os.X_OK):
+        raise LaunchError(f"Apostate browser binary is not executable: {executable}")
+    return executable
 
 
 def _assert_published(binary_path: Any, *, cache_dir: Any = None, manifest: Any = None,
