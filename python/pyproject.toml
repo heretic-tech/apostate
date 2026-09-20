@@ -28,8 +28,8 @@ playwright = ["playwright>=1.40"]
 apostate = "apostate.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/heretic-hq/apostate"
-Source = "https://github.com/heretic-hq/apostate"
+Homepage = "https://github.com/heretic-tech/apostate"
+Source = "https://github.com/heretic-tech/apostate"
 
 [tool.setuptools]
 package-dir = {"" = "."}

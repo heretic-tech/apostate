@@ -1,5 +1,5 @@
 {
-  "name": "@heretic-hq/apostate",
+  "name": "@heretic-tech/apostate",
   "version": "0.1.0",
   "description": "Native Apostate Chromium launcher for Node.js",
   "type": "module",
@@ -36,7 +36,7 @@
   "license": "GPL-3.0-or-later",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/heretic-hq/apostate.git"
+    "url": "git+https://github.com/heretic-tech/apostate.git"
   },
   "dependencies": {
     "http-proxy-agent": "7.0.1",

@@ -98,7 +98,7 @@ const MAX_SEED_LENGTH = 512;
 // Where a published release lives, used only to build a download URL. The
 // digest always comes from the manifest in this package, so a wrong base URL
 // fails verification rather than installing something else.
-const RELEASE_REPOSITORY = "heretic-hq/apostate";
+const RELEASE_REPOSITORY = "heretic-tech/apostate";
 
 const PERSONA_ALIASES = new Map([
   ["darwin", "macos"],

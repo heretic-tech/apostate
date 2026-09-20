@@ -645,7 +645,7 @@ browser = launch(
 ```
 
 ```javascript
-import { launch } from "@heretic-hq/apostate";
+import { launch } from "@heretic-tech/apostate";
 
 const browser = await launch({
   fingerprint: 12345,

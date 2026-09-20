@@ -56,7 +56,7 @@ _MANIFEST_RESOURCE = "assets/release-manifest.json"
 #: manifest does not carry an explicit one; the digest still comes from the
 #: manifest, so a wrong base URL fails the integrity check rather than
 #: installing something else.
-RELEASE_REPOSITORY = "heretic-hq/apostate"
+RELEASE_REPOSITORY = "heretic-tech/apostate"
 
 #: ``docs/RELEASE.md`` step 2: releases are tagged ``vMAJOR.MINOR.PATCH``.
 def _release_tag(package_version: str) -> str:

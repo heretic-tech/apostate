@@ -1,4 +1,4 @@
-# @heretic-hq/apostate
+# @heretic-tech/apostate
 
 Node.js interface to the Apostate anti-detect Chromium build. A real browser
 binary whose fingerprint is modified in C++ at the source level, driven through
@@ -9,7 +9,7 @@ Free and open source. No licence key, no account, no telemetry, no paid tier.
 ## Install
 
 ```sh
-npm install @heretic-hq/apostate
+npm install @heretic-tech/apostate
 ```
 
 That is the whole install. Patchright comes with the package and is the default
@@ -40,7 +40,7 @@ names no driver, scheme or path. And `exposeFunction` installs
 nothing in the browser can remove them. Choose Puppeteer knowing that.
 
 ```javascript
-import { driverInfo } from "@heretic-hq/apostate";
+import { driverInfo } from "@heretic-tech/apostate";
 console.log(await driverInfo());
 ```
 
@@ -81,7 +81,7 @@ has already vouched for the tree, because a stock Chrome started with these
 switches is a session with no protection at all and nothing to say so.
 
 ```javascript
-import { discoveryReport } from "@heretic-hq/apostate";
+import { discoveryReport } from "@heretic-tech/apostate";
 console.log(await discoveryReport());
 // {
 //   order: [ 'argument', 'environment', 'cache', 'well-known' ],
@@ -110,7 +110,7 @@ Verified against the macos-arm64 build for Patchright, Playwright and
 puppeteer-core, including `launchPersistentContext` and `launchContext`.
 
 ```javascript
-import { launch } from "@heretic-hq/apostate";
+import { launch } from "@heretic-tech/apostate";
 
 const browser = await launch();
 const page = await browser.newPage();
@@ -200,7 +200,7 @@ capability cluster and renderer string of the OS it claims.
 fonts.** It is the one setup step here and the most common cause of a block: a
 Windows persona missing Windows faces is measurable in text metrics. The
 families and where to copy them from are in
-[docs/FONTS.md](https://github.com/heretic-hq/apostate/blob/main/docs/FONTS.md).
+[docs/FONTS.md](https://github.com/heretic-tech/apostate/blob/main/docs/FONTS.md).
 Passing `fingerprintPlatform: "linux"` composes the host's own OS instead and
 needs nothing installed. Windows-on-Linux is the default because it is the least
 bad cross-OS pairing, not because it is free; `fingerprintPlatform: "macos"` on
@@ -233,7 +233,7 @@ which come from the rasteriser rather than from the identity. The measured
 numbers, the exact extension names a software backend does not currently serve,
 and the status of the served GPU identity — new in this release, and on that
 page's list of behaviours written but not yet run — are in
-[docs/LIMITATIONS.md](https://github.com/heretic-hq/apostate/blob/main/docs/LIMITATIONS.md).
+[docs/LIMITATIONS.md](https://github.com/heretic-tech/apostate/blob/main/docs/LIMITATIONS.md).
 
 ### Fonts for a cross-platform persona
 
@@ -242,7 +242,7 @@ platform's fonts have to be on the host. Apple and Microsoft fonts cannot be
 redistributed, so you supply them; a persona without its fonts is a common
 cause of blocks. Install them into the normal OS font directories (on Linux,
 run `fc-cache -f` afterwards).
-[docs/FONTS.md](https://github.com/heretic-hq/apostate/blob/main/docs/FONTS.md)
+[docs/FONTS.md](https://github.com/heretic-tech/apostate/blob/main/docs/FONTS.md)
 has the per-persona family lists, source directories and a verification
 command.
 
@@ -275,7 +275,7 @@ If you need DRM, or you want that call to answer the way a real browser does,
 provision a CDM that is already on your machine:
 
 ```javascript
-import { provisionWidevine } from "@heretic-hq/apostate";
+import { provisionWidevine } from "@heretic-tech/apostate";
 
 await provisionWidevine({ source: "/path/to/WidevineCdm" });
 ```
@@ -331,7 +331,7 @@ Releases also carry GitHub build-provenance attestations. There is no signing
 key to hold or rotate; verification is an optional extra step:
 
 ```sh
-gh attestation verify apostate-152.0.7977.83-macos-arm64.zip --repo heretic-hq/apostate
+gh attestation verify apostate-152.0.7977.83-macos-arm64.zip --repo heretic-tech/apostate
 ```
 
 That needs the archive, so run `npx apostate install --keep-archive` first, or

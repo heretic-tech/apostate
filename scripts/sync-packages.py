@@ -56,7 +56,7 @@ DATA_ASSETS = {
     "profile.schema.json": REPO_ROOT / "config/profile.schema.json",
     "catalogue.json": REPO_ROOT / "resources/profiles/catalogue.json",
 }
-REPOSITORY = "heretic-hq/apostate"
+REPOSITORY = "heretic-tech/apostate"
 #: Fields copied from a per-artifact manifest into the package manifest. The
 #: rest of the per-artifact contract (patch_series_sha256, build_manifest_sha256)
 #: is build provenance the packages have no use for.

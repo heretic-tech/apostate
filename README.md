@@ -18,7 +18,7 @@ pip install apostate
 ```
 
 ```sh
-npm install @heretic-hq/apostate
+npm install @heretic-tech/apostate
 ```
 
 That is the whole install. Patchright comes with the package and is what drives
@@ -97,7 +97,7 @@ apostate info      # npx apostate info
 ```
 
 The archive itself comes from this repository's GitHub release, at
-`https://github.com/heretic-hq/apostate/releases/download/v<version>/apostate-<chromium-version>-<platform>.tar.zst`
+`https://github.com/heretic-tech/apostate/releases/download/v<version>/apostate-<chromium-version>-<platform>.tar.zst`
 for the Linux targets and `.zip` for macOS and Windows, which is what
 `binary_info()["artifact_url"]` returns. Its SHA-256 is checked
 against a manifest shipped inside the package — not fetched alongside the bytes
@@ -124,7 +124,7 @@ browser.close()
 ```
 
 ```javascript
-import { launch } from "@heretic-hq/apostate";
+import { launch } from "@heretic-tech/apostate";
 
 const browser = await launch({ proxy: "http://user:pass@host:8080" });
 const page = await browser.newPage();
@@ -285,7 +285,7 @@ browser = launch(
 ```
 
 ```javascript
-import { launch } from "@heretic-hq/apostate";
+import { launch } from "@heretic-tech/apostate";
 
 const browser = await launch({
   fingerprint: 12345,
