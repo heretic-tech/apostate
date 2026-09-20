@@ -21,6 +21,17 @@ consumes -- a directory of ``<archive>`` and ``<archive>.manifest.json`` pairs
 platform set and the artifact filenames, so there is one contract rather than
 two.
 
+Two version lines meet here and they are not the same line. The policy's
+``package_version`` is the identity of the *binary release*: the artifacts
+were built for it and their manifests carry it. The launcher's version is
+whatever ``python/apostate/config.py`` and ``npm/package.json`` say, and it
+moves on its own -- 0.1.1 is a launcher fix that installs the binaries
+published as v0.1.0. So the written manifest carries the launcher's version
+(the package it ships in) and the ``tag`` (the release it installs from),
+and the launcher's version is required to be at or above the policy's
+rather than equal to it. Equality was the rule that made a launcher fix
+impossible to ship without rebuilding Chromium.
+
 Usage:
   scripts/sync-packages.py                          copy the data assets
   scripts/sync-packages.py --release <inputs-dir>   also write the release digests
@@ -28,7 +39,8 @@ Usage:
 
   --release   directory holding <archive> and <archive>.manifest.json pairs
   --tag       release tag the artifacts are published under; defaults to
-              v<package_version>, the form docs/RELEASE.md step 2 requires
+              v<policy package_version>, which is the release the artifacts
+              in --release came from, in the form docs/RELEASE.md step 2 requires
   --check     do not write; exit non-zero if either package is out of date.
               This is what CI runs to catch a release whose packages still
               carry the previous build's digests, or a schema edit that never
@@ -55,12 +67,55 @@ MANIFEST_NAME = "release-manifest.json"
 DATA_ASSETS = {
     "profile.schema.json": REPO_ROOT / "config/profile.schema.json",
     "catalogue.json": REPO_ROOT / "resources/profiles/catalogue.json",
+    # The country -> locale policy both launchers infer a locale from. It is
+    # generated (scripts/generate-country-locales.py) rather than hand-kept:
+    # the hand tables it replaces named 45 countries, so a Malaysian exit
+    # resolved no locale at all and the launcher said so instead of serving
+    # ms. An inference that covers a quarter of the world is not one.
+    "country-locales.json": REPO_ROOT / "config/country-locales.json",
 }
 REPOSITORY = "heretic-tech/apostate"
 #: Fields copied from a per-artifact manifest into the package manifest. The
 #: rest of the per-artifact contract (patch_series_sha256, build_manifest_sha256)
 #: is build provenance the packages have no use for.
 ARTIFACT_FIELDS = ("platform", "artifact", "sha256")
+#: Where the launcher's own version is written. All three must agree; the
+#: check lives here because this is the script a release runs, and a bump
+#: that reached two of the three is a package that installs nothing.
+VERSION_SOURCES = {
+    "python/apostate/config.py": re.compile(r'^PACKAGE_VERSION\s*=\s*"([^"]+)"', re.M),
+    "python/pyproject.toml": re.compile(r'^version\s*=\s*"([^"]+)"', re.M),
+    "npm/package.json": re.compile(r'"version"\s*:\s*"([^"]+)"'),
+}
+_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
+
+
+def _version_tuple(value: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in value.split("."))
+
+
+def package_version() -> str:
+    """The launcher's version, once every file that states it agrees."""
+    found: dict[str, str] = {}
+    for relative, pattern in VERSION_SOURCES.items():
+        path = REPO_ROOT / relative
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise SystemExit(f"cannot read {relative}: {exc}")
+        match = pattern.search(text)
+        if match is None:
+            raise SystemExit(f"no package version found in {relative}")
+        found[relative] = match.group(1)
+    versions = set(found.values())
+    if len(versions) != 1:
+        listed = ", ".join(f"{name}={value}" for name, value in sorted(found.items()))
+        raise SystemExit(f"package versions disagree: {listed}")
+    version = versions.pop()
+    if not _VERSION_RE.fullmatch(version):
+        raise SystemExit(f"package version must be MAJOR.MINOR.PATCH: {version}")
+    return version
+
 
 def _canonical(value: Any) -> str:
     return json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":")) + "\n"
@@ -82,6 +137,13 @@ def build(inputs_dir: Path, tag: str | None) -> dict[str, Any]:
     required = set(contract["required_fields"])
     platforms = set(contract["platforms"])
     filenames = set(policy["artifacts"]["filenames"])
+    launcher = package_version()
+    if _version_tuple(launcher) < _version_tuple(str(contract["package_version"])):
+        raise SystemExit(
+            f"package version {launcher} is older than the release policy's "
+            f"{contract['package_version']}: a launcher cannot ship binaries "
+            "published after it"
+        )
 
     manifests = sorted(inputs_dir.glob("*.manifest.json"))
     if not manifests:
@@ -102,6 +164,8 @@ def build(inputs_dir: Path, tag: str | None) -> dict[str, Any]:
             raise SystemExit(f"platform not named by the release policy: {data['platform']}")
         if data["platform"] in artifacts:
             raise SystemExit(f"duplicate platform: {data['platform']}")
+        # The artifact manifests belong to the binary release, so they carry
+        # the policy's version, not the launcher's.
         if data["package_version"] != contract["package_version"]:
             raise SystemExit(f"package_version mismatch: {manifest_path}")
         if data["chromium_version"] != contract["chromium_version"]:
@@ -138,10 +202,13 @@ def build(inputs_dir: Path, tag: str | None) -> dict[str, Any]:
         "artifacts": artifacts,
         "catalogue_version": catalogue_version,
         "chromium_version": contract["chromium_version"],
-        "package_version": contract["package_version"],
+        "package_version": launcher,
         "repository": REPOSITORY,
         "source_revision": revisions.pop(),
         "status": "published",
+        # The release the archives live in, which is what turns a digest into
+        # a download URL. It is the policy's version and not the launcher's:
+        # 0.1.1 installs from v0.1.0.
         "tag": tag or f"v{contract['package_version']}",
     }
 
