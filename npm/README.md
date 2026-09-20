@@ -58,6 +58,7 @@ which:
 | `manifest_source` | Where the digest came from | `manifest_trust` |
 |---|---|---|
 | `baked` | the manifest shipped inside this package | `pinned` |
+| `configured` | a manifest you named with `manifest`, `manifestPath` or `manifestUrl` | `pinned` |
 | `release-tag` | `…/releases/download/v<package version>/<archive>.manifest.json` | `transport-integrity` |
 | `release-latest` | `…/releases/latest/download/<archive>.manifest.json` | `transport-integrity` |
 

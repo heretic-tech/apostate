@@ -1755,12 +1755,12 @@ const MANIFEST_NOTE_FETCHED = "A manifest fetched at run time is a transport-int
 async function resolveArtifact(options, target, { remote = true } = {}) {
   const { manifest, baked } = await readOrDownloadManifest(options);
   const local = manifest.status === "unpublished" ? null : artifactFromManifest(manifest, target);
-  if (local) return { manifest, artifact: local, source: baked ? "baked" : "manifest", url: null, tried: [], trust: "pinned" };
+  if (local) return { manifest, artifact: local, source: baked ? "baked" : "configured", url: null, tried: [], trust: "pinned" };
   // A caller who named a manifest is pinning a digest. Fetching a different
   // one behind that instruction would quietly unpin it, so the runtime route
   // is reserved for the copy this package ships.
   if (!remote || !baked) {
-    return { manifest, artifact: null, source: baked ? "baked" : "manifest", url: null, tried: [], trust: null };
+    return { manifest, artifact: null, source: baked ? "baked" : "configured", url: null, tried: [], trust: null };
   }
   const fetched = await fetchReleaseArtifact(options, target);
   if (!fetched.artifact) {
