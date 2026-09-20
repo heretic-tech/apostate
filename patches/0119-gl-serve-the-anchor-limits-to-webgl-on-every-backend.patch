@@ -1,0 +1,633 @@
+Subject: gl: serve the anchor's limits to WebGL on every backend
+
+`scripts/checks/gl-caps-check.mjs` passes for every anchor on the shipped
+linux-x64 artifact. On the macOS one it passes only for the anchor measured
+on Apple silicon, where the claim and the host are the same numbers, and
+fails for every cross-backend anchor. On an Apple M4 Max under
+`--fingerprint-anchor=windows-d3d11-nvidia` the renderer string is the
+anchor's and the capability table is Apple's:
+
+  ALIASED_POINT_SIZE_RANGE           served [1, 511]      anchor [1, 1024]
+  MAX_VIEWPORT_DIMS                  served 16384         anchor 32767
+  MAX_VERTEX_UNIFORM_VECTORS         served 1024          anchor 4095
+  MAX_VERTEX_UNIFORM_COMPONENTS      served 4096          anchor 16380
+  MAX_SAMPLES                        served 4             anchor 8
+  UNIFORM_BUFFER_OFFSET_ALIGNMENT    served 16            anchor 256
+
+A claimed GeForce beside `UNIFORM_BUFFER_OFFSET_ALIGNMENT` 16 is a lookup, not
+a probe: Direct3D 11 mandates 256 and every Windows capture measures 256, so
+one `getParameter` call and a constant decide it. Every row above is one call
+like that.
+
+The serving path is not broken. All six entry points, the whole table and the
+fractional map landed in 0103, 0112 and their predecessors and work as
+written. What sends Metal down the wrong branch is one predicate:
+`RealGLApi::ApostateEnforces()` asks `BackendEnforcesGlLimits()` whether the
+backend honours what it reports, Metal honours everything it reports, so the
+claim is clamped to the host and the whole anchor is discarded.
+
+The predicate answers its own question correctly. The question is wrong, and
+0103 and 0112 both asked it.
+
+What is actually being decided
+
+A numeric GL limit leaves the GPU process through six shared entry points --
+plain and robust `glGetIntegerv`, `glGetFloatv`, `glGetInteger64v` -- and three
+unrelated consumers come through them:
+
+  a WebGL-compatibility context  the numbers reach a page verbatim, and
+                                 nothing else depends on them
+  the compositor and raster      Chromium sizes tiles and resources from them
+  Skia Ganesh                    ui/gl/init/create_gr_gl_interface.cc binds
+                                 Skia's get_integerv straight to gl::GLApi's,
+                                 and GrGLCaps reads MAX_TEXTURE_SIZE,
+                                 MAX_RENDERBUFFER_SIZE and MAX_SAMPLES
+
+Only the first is a fingerprint. That is why deleting the clamp outright is not
+the fix even though it produces the right numbers on the surface anyone
+measures: telling Skia a four-sample Metal device does eight samples is not a
+coherence trade, it is a rendering defect in canvas2D and raster for every
+page, fingerprinted or not, and no page ever reads the number that caused it.
+The blast radius, not the fingerprint, is what decides the shape of this patch.
+
+So the gate becomes the kind of context asking. A WebGL-compatibility context
+is served the composed claim on every backend; everything else keeps the
+intersection of claim and host it has always had, which can lower a cap below
+the host's and never raise it, so Skia cannot be told this machine does more
+than it does. On an M4 Max under any anchor in the catalogue the intersection
+is the host's own value on every row, because an anchor's limits sit at or
+above Apple's.
+
+The marker, and why it is not an inference
+
+`GL_ANGLE_webgl_compatibility` is ANGLE's own definition of the thing. ANGLE
+sets `extensions->webglCompatibilityANGLE = mWebGLContext` in
+`Context::initializeCaps`; `mWebGLContext` is the
+`EGL_CONTEXT_WEBGL_COMPATIBILITY_ANGLE` attribute
+`ui/gl/gl_context_egl.cc` passes when `GLContextAttribs::
+webgl_compatibility_context` is set; and ANGLE's own `State::isWebGL()` is
+defined as exactly that extension bit.
+`gpu/command_buffer/service/feature_info.cc` asks the same question the same
+way, with `gfx::HasExtension(extensions, "GL_ANGLE_webgl_compatibility")`, so
+this patch adopts an existing convention rather than inventing one.
+
+Two properties make reading it safe. It is not a requestable extension --
+`gles_extensions_autogen.cpp` registers it through `esOnlyExtension`, which
+leaves `ExtensionInfo::Requestable` false -- so the
+`EGL_EXTENSIONS_ENABLED_ANGLE = false` that Chromium passes for WebGL contexts
+does not switch it off, which is the trap a naive extension probe would fall
+into. And it is fixed at context creation, so the answer can be cached: one
+`RealGLApi` is constructed per `gl::GLContext` in `GLContext::CreateGLApi`, and
+the passthrough decoder -- the only thing that ever asks for a
+WebGL-compatibility context, in `GenerateGLContextAttribsForDecoder` -- cannot
+be combined with virtualised contexts, which `SharedContextState::InitializeGL`
+DCHECKs. So one real context never serves a WebGL client and a raster client at
+once, and a per-instance flag is a per-context flag.
+
+It is read through `GLApiBase`, not through `RealGLApi::glGetStringFn`, for the
+same reason the old renderer read was: the derived entry point substitutes the
+profile's strings, and asking the claim about the host answers about the wrong
+device.
+
+The validating decoder is the one configuration this leaves behind, and it
+leaves it behind exactly as it found it. `GenerateGLContextAttribsForDecoder`
+sets `webgl_compatibility_context` only under
+`use_passthrough_cmd_decoder()`, so a WebGL context on the validating decoder
+was never marked and is served the host's limits. That decoder is not what
+ships and not what any measurement here was taken on; it is named rather than
+handled.
+
+What is deliberately not changed
+
+ANGLE's `ApplyProfilePointSizeCaps` and `ApplyProfileIntegerCaps` still combine
+a profile value with the native cap by taking the lower of the two, so ANGLE's
+compiler resources, state validation and format table keep describing the
+machine that is really there. That is what keeps the residual honest. Raising
+those caps would not remove a single row from the table below; it would convert
+a refused call into a wrong render, which is strictly worse.
+
+`ApostateServedLimit`'s floor direction is unchanged -- `MIN_PROGRAM_TEXEL_
+OFFSET` is still a floor and an aliased range is still an interval -- and so is
+every entry in the table. The boolean it takes changes sense and name, from
+`enforces` to `serve_composed`, because the old name described a property of
+the backend and the value is now a property of the context.
+
+The per-query `LOG(WARNING)` on the clamp is gone, and this is the second thing
+the old axis got wrong. It fired whenever a claim exceeded the host, which on
+an M4 Max is most rows, on a code path the compositor and raster hit for every
+lookup, to say that "a page that allocates past the real limit would see
+through the claim" -- about a context no page can reach. The replacement logs
+once, on the serving side, where the statement is true.
+
+What it costs, measured
+
+The residual inverts. It used to be a table a page could read; it is now a set
+of operations a page can attempt. Under `windows-d3d11-nvidia` on an M4 Max:
+
+  point size     gl_PointSize above 511 draws a 511-pixel footprint
+  viewport       viewport(0,0,32767,32767) then getParameter(VIEWPORT) reads
+                 [0,0,16384,16384]; SCISSOR_BOX is the control and is not
+                 clamped
+  uniforms       a vertex shader declaring 4095 vectors fails to compile or
+                 link with the driver's own info log
+  samples        renderbufferStorageMultisample at 8 returns
+                 GL_INVALID_OPERATION where the Metal format table has 4
+  UBO alignment  bindBufferRange at offset 16 SUCCEEDS on the passthrough
+                 decoder, because ANGLE validates against its own 16; on the
+                 validating decoder ContextGroup's cached 256 rejects it, which
+                 is what a real 256-byte-aligned device does
+
+Each is a draw, a compile or a small allocation. Each replaces a constant
+lookup. `docs/LIMITATIONS.md` carries the table, the `SCISSOR_BOX` control and
+the withdrawal of the v0.1.0 argument that an honest 16384 was worth serving in
+preference to the anchor's 32767 -- withdrawn because it priced one row and
+ignored that the same gate was discarding six others, and because one honest
+row inside a composed cluster is a shape no machine produces.
+
+`ALIASED_LINE_WIDTH_RANGE` is not in that list and `[1, 64]` is not a mistake.
+The Windows D3D11 anchors and the Apple anchor all measure `[1, 1]`; the
+`linux-vulkan-nvidia` anchor measures `[1, 64]` in all four of its captures,
+which is what a Vulkan NVIDIA machine reports, because Direct3D and Metal cap
+line width at 1 and Vulkan does not. Under that anchor on a Mac it joins the
+list; under a Windows anchor there is nothing to falsify.
+
+MSAA is the row to re-verify after the build, because it is the one that could
+break rendering rather than a fingerprint. `DrawingBuffer` takes
+`min(preference, MAX_SAMPLES)` with a preference of 4, so a WebGL context
+created with `antialias: true` is still allocated at the host's 4 and
+`SAMPLES`, `SAMPLE_BUFFERS` and the rendered coverage still agree -- and the
+anchor itself measured `MAX_SAMPLES` 8 beside `antialiasSamples` 4, so the
+served pair is a pair a real machine reports. Canvas2D goes through Ganesh on a
+non-WebGL context and sees the host's caps unchanged. Neither is asserted here:
+a throwaway page that draws an antialiased 2D canvas and creates an
+`antialias: true` WebGL context, checks both for GL errors and repeats every
+read, is left at `/tmp/w1/MetalGate/verify-0119.mjs` for the build that follows
+this patch.
+
+The expected outcome of `scripts/checks/gl-caps-check.mjs` on the macOS
+artifact after this patch is 5 of 5 -- SERVED and DISTINCT for every anchor,
+IDENTITY unchanged -- which is what §6 of the release battery is waiting on. It
+is 5 of 5 on linux-x64 already and this patch does not change what a page reads
+there: llvmpipe and SwiftShader were already served the claim, and they are
+still served it, now because the context asking is WebGL rather than because
+the backend enforces nothing. What does change on those backends is the part no
+page reads. Skia and the compositor used to get the claim too, since the old
+gate was per-process; they now get the intersection, so on a SwiftShader host
+GrGLCaps stops being told the device does the anchor's 16 samples when
+SwiftShader has 4 and grants 0. That is a rendering correction this patch
+picks up on the way past, not the thing it is for.
+
+`--fingerprint-explain` no longer says a limit the host enforces below the
+claim is served at the host's value, because it no longer is. The count is
+taken from the merged profile as 0112 left it, and it needs no addition for the
+fractional limits: the profile carries one `gl_limits` dictionary and
+`base/apostate/profile.cc` splits integral from fractional at load time, after
+composition, so the count already includes both.
+
+Ledger: webgl.parameters, webgl2.parameters, emit.gl.real-gl-api-get-integerv,
+coh.angle-backend-vs-gpu-claim, coh.msaa-samples-vs-render.
+
+--- a/ui/gl/gl_gl_api_implementation.cc
++++ b/ui/gl/gl_gl_api_implementation.cc
+@@ -11,12 +11,12 @@
+ 
+ #include <array>
+ #include <optional>
+-#include <string_view>
+ #include <vector>
+ 
+ #include "base/command_line.h"
+ #include "base/strings/string_split.h"
+ #include "base/strings/string_util.h"
++#include "ui/gfx/extension_set.h"
+ #include "ui/gl/gl_context.h"
+ #include "ui/gl/gl_implementation.h"
+ #include "ui/gl/gl_state_restorer.h"
+@@ -368,80 +368,14 @@
+      "ALIASED_POINT_SIZE_RANGE_MAX", /*is_interval=*/true},
+ };
+ 
+-// True when the active backend enforces the limits it reports, so a claim
+-// above one of them would be refused on first use.
+-//
+-// Measured through the shipped 152.0.7977.83 macOS artifact rather than
+-// assumed, with texStorage2D / texStorage3D / renderbufferStorageMultisample
+-// followed by a framebuffer-completeness check and a clear-and-readback:
+-//
+-//   ANGLE/Metal, reporting MAX_TEXTURE_SIZE 16384 and MAX_3D_TEXTURE_SIZE
+-//   2048: 16384 allocates, is framebuffer-complete and reads back the colour
+-//   it was cleared to; 32768 returns GL_INVALID_VALUE; a 3D texture at 4096
+-//   returns GL_INVALID_VALUE; 8x multisample returns GL_INVALID_OPERATION.
+-//   Every reported number is a real ceiling and every one is usable up to it.
+-//
+-//   ANGLE/SwiftShader: nothing errors, at any size, on any of the three. A 3D
+-//   texture eight times the reported maximum is accepted. The numbers it
+-//   reports are soft constants rather than hardware ceilings -- which is what
+-//   patch 0027 established from the other direction when it raised three of
+-//   them by editing the constant.
+-//
+-// So on a software rasteriser min() was giving up what serving a cluster is
+-// for, and buying nothing with it. A page that reads MAX_TEXTURE_SIZE 8192
+-// beside a GeForce renderer string needs no GL work at all to call that a
+-// contradiction -- it is a lookup table -- whereas the over-claim it was
+-// avoiding costs a detector a multi-hundred-megabyte allocation at the
+-// reported maximum. The cheap check is the one to pass.
+-//
+-// Which rasterisers those are is decided by name, not by implementation enum,
+-// and 0112 corrects that test rather than widening the policy behind it. The
+-// rule 0103 stated was always "does the backend enforce what it reports";
+-// naming ANGLEImplementation::kSwiftShader was an under-approximation of it,
+-// because ANGLE over Mesa llvmpipe reports kOpenGL and is indistinguishable
+-// from ANGLE over a real GL driver by enum alone. That is not hypothetical:
+-// on the Linux deployment target, headed under Xvfb, the composed identity
+-// stops Chromium's blocklist matching llvmpipe, so ANGLE/OpenGL on llvmpipe
+-// is what actually runs, and min() clamped every served limit back to a
+-// software rasteriser's table.
+-//
+-// llvmpipe was measured against 0103's own criterion with 0103's own method,
+-// on the shipped 152.0.7977.83 linux-x64 artifact: texStorage2D at 1x and 2x
+-// the reported MAX_TEXTURE_SIZE, texStorage3D at 8x MAX_3D_TEXTURE_SIZE and
+-// renderbufferStorageMultisample at 4x MAX_SAMPLES all return glError 0.
+-// It enforces nothing, identically to the SwiftShader control run beside it.
+-//
+-// Still not IsSoftwareGLImplementation(): that also covers D3D11 WARP, whose
+-// enforcement has not been measured, and guessing permissively is how an
+-// over-claim becomes a failing draw call. WARP cannot arise on the Linux and
+-// macOS targets this list covers, and llvmpipe is Linux-only.
+-bool RendererIsNonEnforcingRasteriser(const char* renderer) {
+-  if (!renderer) {
+-    return false;
+-  }
+-  const std::string_view name(renderer);
+-  return name.find("SwiftShader") != std::string_view::npos ||
+-         name.find("llvmpipe") != std::string_view::npos ||
+-         name.find("softpipe") != std::string_view::npos;
+-}
+-
+-// `renderer` must be the driver's own GL_RENDERER, read through GLApiBase so
+-// it is the unsubstituted string: RealGLApi::glGetStringFn replaces it with
+-// the profile's claim, and asking the claim whether the host enforces would
+-// answer about the wrong device every time.
+-bool BackendEnforcesGlLimits(const char* renderer) {
+-  return GetGLImplementationParts().angle !=
+-             ANGLEImplementation::kSwiftShader &&
+-         !RendererIsNonEnforcingRasteriser(renderer);
+-}
+-
+-// Combine a claim with what the driver reports. On a backend that enforces
+-// what it reports, a ceiling takes the lower of the two and a floor the
+-// higher, so the served value is always one the driver can actually honour.
+-// On a backend that enforces nothing the claim is served whole.
++// Combine a claim with what the driver reports. In a WebGL-compatibility
++// context the claim is served whole. Everywhere else it is intersected with
++// the driver's own value, so a ceiling takes the lower of the two and a floor
++// the higher, and the number Skia and the command decoder are handed is
++// always one this driver can honour.
+ template <typename T>
+-T ApostateServedLimit(T claimed, T real, bool enforces, bool is_minimum) {
+-  if (!enforces) {
++T ApostateServedLimit(T claimed, T real, bool serve_composed, bool is_minimum) {
++  if (serve_composed) {
+     return claimed;
+   }
+   return is_minimum ? std::max(claimed, real) : std::min(claimed, real);
+@@ -474,7 +408,7 @@
+ template <typename T>
+ bool ApostateServeRange(const base::apostate::Profile* profile,
+                         const ApostateGlRange& range,
+-                        bool enforces,
++                        bool serve_composed,
+                         T* params) {
+   const std::optional<double> low = ApostateClaimedLimit(profile, range.low);
+   const std::optional<double> high = ApostateClaimedLimit(profile, range.high);
+@@ -493,9 +427,9 @@
+   // Intersecting an interval takes the higher floor and the lower ceiling.
+   // A pair of independent ceilings takes the lower of each.
+   const std::array<T, 2> served = {
+-      ApostateServedLimit(static_cast<T>(*low), real[0], enforces,
++      ApostateServedLimit(static_cast<T>(*low), real[0], serve_composed,
+                           /*is_minimum=*/range.is_interval),
+-      ApostateServedLimit(static_cast<T>(*high), real[1], enforces,
++      ApostateServedLimit(static_cast<T>(*high), real[1], serve_composed,
+                           /*is_minimum=*/false)};
+   std::copy_n(served.begin(), served.size(), params);
+   return true;
+@@ -530,34 +464,72 @@
+ 
+ // Serve one query in place, whichever entry point asked.
+ //
+-// Serve the claimed device's limit. On a backend that enforces what it
+-// reports, never above what that driver can do: a limit is the one class of
+-// value a page falsifies by *using* it, so allocating a texture past the
+-// reported size collapses an over-claim in one call, and taking the minimum
+-// makes that impossible.
++// `serve_composed` chooses between the claimed device's limit and the host's,
++// and it is a property of the CONTEXT, not of the backend. That is the whole
++// of this change. 0103 clamped every claim to what the driver could honour,
++// because a limit is the one class of value a page falsifies by *using* it;
++// 0112 then exempted the backends that measurably honour nothing. Both were
++// reasoning about the wrong axis, and the cost was that on ANGLE/Metal --
++// which honours everything it reports -- the whole anchor was discarded and a
++// Windows persona on a Mac served Apple's capability table under an NVIDIA
++// renderer string, readable in one lookup with no GL work at all.
+ //
+-// On a backend that enforces nothing the minimum is the wrong rule, and this
+-// is not a corner case: the deployment target is a headless server with no
+-// GPU. There the reported number is the only thing a page can read, the claim
+-// is servable because the rasteriser will accept any size, and clamping
+-// leaves a discrete-GPU renderer string beside a software rasteriser's limit
+-// table -- which is a lookup, not a probe. BackendEnforcesGlLimits() carries
+-// the measurement that decides which.
++// The axis that matters is who is asking. These six entry points are the GPU
++// process's only numeric GL query path, and three unrelated consumers come
++// through them:
+ //
+-// Serving the claim there is not free, and the cost is recorded rather than
+-// softened: a page that allocates at exactly the claimed maximum gets a
+-// framebuffer that is not complete and reads back black, where a real device
+-// returns what it was cleared to. That residual is the backend's, it is
+-// already present at the host's own reported maximum on this fork -- patch
+-// 0027 raised MAX_TEXTURE_SIZE from 8192 to 16384 and 16384 already fails
+-// completeness under SwiftShader -- and the reference product has it too.
++//   a WebGL-compatibility context   the numbers reach a page verbatim and
++//                                   nothing else depends on them
++//   the compositor and raster       Chromium sizes tiles and resources from
++//                                   them
++//   Skia Ganesh                     GrGLCaps reads MAX_TEXTURE_SIZE,
++//                                   MAX_RENDERBUFFER_SIZE and MAX_SAMPLES
++//                                   through this same function pointer, which
++//                                   ui/gl/init/create_gr_gl_interface.cc
++//                                   binds straight to gl::GLApi
+ //
++// Only the first is a fingerprint. Serving a claim to the other two is not a
++// trade of coherence for unlinkability, it is a straight defect: telling Skia
++// the device does 8 samples on a 4-sample Metal device breaks canvas2D and
++// raster multisampling for every page, fingerprinted or not, and no page ever
++// reads the number that did it.
++//
++// So the claim goes to WebGL on every backend, and the other two keep the
++// intersection they have always had -- which on every host measured so far is
++// the host's own value, because an anchor's limits sit at or above Apple's.
++// The intersection can only lower a cap below the host's, never raise it, so
++// Skia cannot be told this machine does more than it does.
++//
++// What that buys on a backend that enforces is a per-limit residual a page can
++// read back without allocating: a point drawn above the real maximum has a
++// clamped footprint, a viewport set to the claim reads back clamped, a shader
++// declared at the claimed uniform count fails to link, an 8x multisample
++// renderbuffer fails on a 4-sample device. Each one is measured and written
++// down in docs/LIMITATIONS.md rather than assumed away. They are all probes;
++// the contradiction they replace was a lookup.
++//
++// Which backends that residual exists on is a measurement, and it is the one
++// the deleted gate was carrying, kept here because it is now what sizes the
++// cost rather than what decides the branch. Taken through the shipped
++// 152.0.7977.83 artifacts with texStorage2D / texStorage3D /
++// renderbufferStorageMultisample followed by a framebuffer-completeness check
++// and a clear-and-readback. ANGLE/Metal enforces everything it reports: at
++// the reported MAX_TEXTURE_SIZE the texture allocates, is complete and reads
++// back the colour it was cleared to, twice that returns GL_INVALID_VALUE, a
++// 3D texture at twice MAX_3D_TEXTURE_SIZE returns GL_INVALID_VALUE and 8x
++// multisample returns GL_INVALID_OPERATION. ANGLE/SwiftShader and Mesa
++// llvmpipe enforce nothing: none of the three errors at any size, a 3D
++// texture at eight times the reported maximum is accepted, and
++// renderbufferStorageMultisample at four times MAX_SAMPLES returns glError 0.
++// So the residual below is real on Metal and empty on a software rasteriser,
++// which is the opposite way round from where the old gate served the claim.
++//
+ // `available` is how many elements the caller's buffer holds, or -1 when the
+ // entry point does not say and the GL contract guarantees enough. The robust
+ // entry points do say, and a range needs two.
+ template <typename T, size_t N>
+ void ApostateServeNumeric(const base::apostate::Profile* profile,
+-                          bool enforces,
++                          bool serve_composed,
+                           const ApostateGlRange (&ranges)[N],
+                           GLenum pname,
+                           T* params,
+@@ -572,7 +544,7 @@
+     if (available >= 0 && available < 2) {
+       return;
+     }
+-    ApostateServeRange(profile, range, enforces, params);
++    ApostateServeRange(profile, range, serve_composed, params);
+     return;
+   }
+   if (available == 0) {
+@@ -589,14 +561,24 @@
+     }
+     const T real = *params;
+     const T claimed = static_cast<T>(*value);
+-    *params = ApostateServedLimit(claimed, real, enforces, limit.is_minimum);
+-    if (enforces && (limit.is_minimum ? claimed < real : claimed > real)) {
+-      LOG(WARNING) << "apostate: profile claims " << limit.name << " = "
+-                   << claimed << " but this driver reports " << real
+-                   << "; serving " << real
+-                   << ". The profile is more capable than the host and a page "
+-                      "that allocates past the real limit would see through "
+-                      "the claim.";
++    *params =
++        ApostateServedLimit(claimed, real, serve_composed, limit.is_minimum);
++    // Logged once, not per query. The old warning fired on the clamp, so on a
++    // Metal host it fired on every compositor and raster lookup of a served
++    // pname -- a hot path, describing a page that was not there. The event
++    // worth a line is the other one: a claim served to WebGL that this driver
++    // will refuse if a page exercises it.
++    if (serve_composed &&
++        (limit.is_minimum ? claimed < real : claimed > real)) {
++      static bool warned = false;
++      if (!warned) {
++        warned = true;
++        LOG(WARNING) << "apostate: profile claims " << limit.name << " = "
++                     << claimed << " where this backend reports " << real
++                     << ". WebGL is served the claim; an operation taken to it "
++                        "will be refused by the driver. The per-limit residual "
++                        "table is in docs/LIMITATIONS.md. Logged once.";
++      }
+     }
+     return;
+   }
+@@ -604,15 +586,37 @@
+ 
+ }  // namespace
+ 
+-// The renderer the *driver* reports. RealGLApi::glGetStringFn substitutes the
+-// profile's claim, so this deliberately goes to the base: asking the claim
+-// whether the host enforces would answer about the wrong device. Cached
+-// because the GL implementation is fixed for process lifetime, which is the
+-// same assumption GetGLImplementationParts() already makes.
+-bool RealGLApi::ApostateEnforces() {
+-  static const bool enforces = BackendEnforcesGlLimits(
+-      reinterpret_cast<const char*>(GLApiBase::glGetStringFn(GL_RENDERER)));
+-  return enforces;
++// True when the GL context this RealGLApi belongs to is a WebGL-compatibility
++// context, which is the only kind whose numeric limits a page ever reads.
++//
++// GL_ANGLE_webgl_compatibility is ANGLE's own marker and ANGLE's own
++// predicate, not an inference from one. Context::initializeCaps sets
++// extensions->webglCompatibilityANGLE = mWebGLContext; mWebGLContext comes
++// from the EGL_CONTEXT_WEBGL_COMPATIBILITY_ANGLE attribute gl_context_egl.cc
++// passes when GLContextAttribs::webgl_compatibility_context is set; and
++// State::isWebGL() is defined as exactly that extension bit.
++// gpu/command_buffer/service/feature_info.cc asks the same question the same
++// way. It is not a requestable extension, so the EGL_EXTENSIONS_ENABLED_ANGLE
++// = false that Chromium passes for WebGL contexts cannot switch it off.
++//
++// Read through GLApiBase so the answer comes from the driver's list rather
++// than the filtered one RealGLApi::glGetStringFn hands out, and cached per
++// instance: GLContext::CreateGLApi constructs one RealGLApi per gl::GLContext
++// and a context's WebGL-compatibility is fixed at creation. Only the
++// passthrough decoder ever asks for one, in
++// GenerateGLContextAttribsForDecoder, and the passthrough decoder cannot be
++// combined with virtualised contexts -- SharedContextState::InitializeGL
++// DCHECKs it -- so one real context never serves a WebGL client and a raster
++// client at the same time.
++bool RealGLApi::ApostateContextIsWebgl() {
++  if (!apostate_context_is_webgl_.has_value()) {
++    const char* extensions =
++        reinterpret_cast<const char*>(GLApiBase::glGetStringFn(GL_EXTENSIONS));
++    apostate_context_is_webgl_ =
++        gfx::HasExtension(gfx::MakeExtensionSet(extensions ? extensions : ""),
++                          "GL_ANGLE_webgl_compatibility");
++  }
++  return *apostate_context_is_webgl_;
+ }
+ 
+ void RealGLApi::glGetIntegervFn(GLenum pname, GLint* params) {
+@@ -624,8 +628,9 @@
+ 
+   GLApiBase::glGetIntegervFn(pname, params);
+   if (const base::apostate::Profile* profile = ApostateProfileForLimits()) {
+-    ApostateServeNumeric(profile, ApostateEnforces(), kApostateGlIntegerRanges,
+-                         pname, params, /*available=*/-1);
++    ApostateServeNumeric(profile, ApostateContextIsWebgl(),
++                         kApostateGlIntegerRanges, pname, params,
++                         /*available=*/-1);
+   }
+ }
+ 
+@@ -639,8 +644,9 @@
+   // the table is one, and rounding a float claim would invent a value the
+   // profile never carried.
+   if (const base::apostate::Profile* profile = ApostateProfileForLimits()) {
+-    ApostateServeNumeric(profile, ApostateEnforces(), kApostateGlFloatRanges,
+-                         pname, params, /*available=*/-1);
++    ApostateServeNumeric(profile, ApostateContextIsWebgl(),
++                         kApostateGlFloatRanges, pname, params,
++                         /*available=*/-1);
+   }
+ }
+ 
+@@ -655,8 +661,9 @@
+   // added to the table and kept reporting the host's value, because nothing
+   // consulted the table for them.
+   if (const base::apostate::Profile* profile = ApostateProfileForLimits()) {
+-    ApostateServeNumeric(profile, ApostateEnforces(), kApostateGlIntegerRanges,
+-                         pname, params, /*available=*/-1);
++    ApostateServeNumeric(profile, ApostateContextIsWebgl(),
++                         kApostateGlIntegerRanges, pname, params,
++                         /*available=*/-1);
+   }
+ }
+ 
+@@ -681,8 +688,8 @@
+                                            GLint* data) {
+   GLApiBase::glGetIntegervRobustANGLEFn(pname, bufSize, length, data);
+   if (const base::apostate::Profile* profile = ApostateProfileForLimits()) {
+-    ApostateServeNumeric(profile, ApostateEnforces(), kApostateGlIntegerRanges,
+-                         pname, data, bufSize);
++    ApostateServeNumeric(profile, ApostateContextIsWebgl(),
++                         kApostateGlIntegerRanges, pname, data, bufSize);
+   }
+ }
+ 
+@@ -692,8 +699,8 @@
+                                          GLfloat* data) {
+   GLApiBase::glGetFloatvRobustANGLEFn(pname, bufSize, length, data);
+   if (const base::apostate::Profile* profile = ApostateProfileForLimits()) {
+-    ApostateServeNumeric(profile, ApostateEnforces(), kApostateGlFloatRanges,
+-                         pname, data, bufSize);
++    ApostateServeNumeric(profile, ApostateContextIsWebgl(),
++                         kApostateGlFloatRanges, pname, data, bufSize);
+   }
+ }
+ 
+@@ -703,8 +710,8 @@
+                                              GLint64* data) {
+   GLApiBase::glGetInteger64vRobustANGLEFn(pname, bufSize, length, data);
+   if (const base::apostate::Profile* profile = ApostateProfileForLimits()) {
+-    ApostateServeNumeric(profile, ApostateEnforces(), kApostateGlIntegerRanges,
+-                         pname, data, bufSize);
++    ApostateServeNumeric(profile, ApostateContextIsWebgl(),
++                         kApostateGlIntegerRanges, pname, data, bufSize);
+   }
+ }
+ 
+--- a/ui/gl/gl_gl_api_implementation.h
++++ b/ui/gl/gl_gl_api_implementation.h
+@@ -6,6 +6,7 @@
+ #define UI_GL_GL_GL_API_IMPLEMENTATION_H_
+ 
+ #include <memory>
++#include <optional>
+ #include <vector>
+ 
+ #include "base/memory/raw_ptr.h"
+@@ -168,10 +169,12 @@
+   // Compute |filtered_exts_| & |filtered_exts_str_| from |disabled_ext_|.
+   void InitializeFilteredExtensionsIfNeeded();
+ 
+-  // True when the active backend enforces the limits it reports. Reads the
+-  // driver's own GL_RENDERER through GLApiBase, so it is not confused by the
+-  // profile's substituted string, and caches the answer.
+-  bool ApostateEnforces();
++  // True when the GL context this RealGLApi belongs to is a WebGL-compatibility
++  // context, which is the only kind whose numeric limits a page ever reads.
++  // Answered from the driver's own extension string through GLApiBase and
++  // cached, because GLContext::CreateGLApi constructs one RealGLApi per
++  // gl::GLContext and WebGL-compatibility is fixed at context creation.
++  bool ApostateContextIsWebgl();
+ 
+   const bool logging_enabled_;
+   std::vector<std::string> disabled_exts_;
+@@ -180,6 +183,11 @@
+   std::string filtered_exts_str_;
+ 
+   std::unique_ptr<GLVersionInfo> version_;
++
++  // Memoised answer for ApostateContextIsWebgl(). Empty until the first
++  // numeric limit query, because the extension string is only readable once
++  // this api's context is current.
++  std::optional<bool> apostate_context_is_webgl_;
+ };
+ 
+ // Inserts a TRACE for every GL call.
+--- a/base/apostate/compose.cc
++++ b/base/apostate/compose.cc
+@@ -1280,6 +1280,13 @@
+     // build; a count taken from the profile that was actually merged cannot
+     // drift away from the truth the same way, because there is nothing left
+     // to keep in sync.
++    //
++    // One dictionary covers both halves of the table. The loader in
++    // base/apostate/profile.cc splits a non-integral value out into
++    // gl_limits_fractional_ when it reads the profile, which happens after
++    // this point, so the count here already includes the Linux/Vulkan
++    // anchor's fractional point-size maximum and there is no second key to
++    // add to it.
+     const DictValue* gl_limits = composition.profile.FindDict("gl_limits");
+     const int served = gl_limits ? static_cast<int>(gl_limits->size()) : 0;
+     if (served == 0) {
+@@ -1297,8 +1304,10 @@
+       composition.limitations.push_back(
+           "anchor " + std::string(anchor->id) + " serves " +
+           NumberToString(served) +
+-          " numeric GL capability limits as composed; a limit this host's "
+-          "backend enforces below the claim is served at the host's value");
++          " numeric GL capability limits, composed rather than this host's, "
++          "to every WebGL context on every backend; the backend underneath "
++          "may still clamp or refuse an operation taken to one of them, and "
++          "docs/LIMITATIONS.md says which");
+     }
+     composition.surfaces.push_back({
+         .surface = "anchor",
