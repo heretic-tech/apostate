@@ -422,12 +422,29 @@ because it reports what it can do.
 reported `FRAMEBUFFER_UNSUPPORTED` at 8192 as well as above it, so it does not
 discriminate and no number for it belongs here.
 
-### A Windows persona on a Metal host reports the host's viewport
+### A Windows persona on a Metal host reports the host's limits
 
-`MAX_VIEWPORT_DIMS` shows no residual on a software backend: SwiftShader
-reports 32767 by 32767, which is what the Windows anchors measured, and a
-viewport at 32767 raises no error. On ANGLE/Metal it is different, and this is
-the one place where an honest number is served in preference to the anchor's.
+On a macOS host every WebGL limit the release check covers is the host's,
+under whichever anchor was drawn. Measured on the shipped v0.1.0 macOS
+artifact on an Apple M4 Max by `scripts/checks/gl-caps-check.mjs`: with a
+Windows NVIDIA anchor the renderer string is the anchor's, and
+`ALIASED_POINT_SIZE_RANGE`, `ALIASED_LINE_WIDTH_RANGE`, `MAX_VIEWPORT_DIMS`,
+`MAX_VERTEX_UNIFORM_VECTORS`, `MAX_VERTEX_UNIFORM_COMPONENTS`, `MAX_SAMPLES`
+and `UNIFORM_BUFFER_OFFSET_ALIGNMENT` are all the Apple GPU's -- 511,
+16384, 1024, 4096, 4, 16 -- where the anchor measured 1024, 32767, 4095,
+16380, 8, 256. The same check passes for every anchor on the Linux artifact,
+so the limit-serving path works and the Metal backend bypasses it. Only the
+viewport row below has been attributed, to Metal enforcing what it reports;
+the other six are a defect in the shipped binary, to be fixed in the next
+binary release, and until then a cross-OS persona on a Mac is a renderer
+string over Apple's capability table. The macOS persona on a Mac is coherent
+because its anchor was measured on Apple silicon.
+
+**The viewport row.** `MAX_VIEWPORT_DIMS` shows no residual on a software
+backend: SwiftShader reports 32767 by 32767, which is what the Windows
+anchors measured, and a viewport at 32767 raises no error. On ANGLE/Metal it
+is different, and this is the one place where an honest number is served in
+preference to the anchor's by design.
 
 The Windows D3D11 anchors measure 32767 by 32767, which Direct3D shader model
 5 mandates. An Apple GPU reports 16384. Metal enforces what it reports, so the
