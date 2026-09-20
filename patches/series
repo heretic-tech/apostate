@@ -435,3 +435,23 @@
 # 0116's extensions axis nor 0117's font render params, and 0119's context-kind
 # gate for GL limits is a different surface entirely.
 0120-opt-in-profile-seeded-readback-noise.patch
+
+# 0121 is the consumer for 0116. After 0116, and that is the only ordering it
+# has: it reads Profile::extensions_externally_connectable(), which 0116's
+# loader parse and accessor create, and before 0116 the predicate would not
+# compile. It needs nothing from 0117 through 0120 and touches no file any of
+# them touches -- it is the first patch in the series to edit
+# extensions/renderer at all, and its whole diff is one include and one
+# early-return inside CanWebpageContextConnectExternally.
+#
+# The files it deliberately does not touch are the reason it can sit last:
+# extensions/common/api/_api_features.json already grants runtime.connect,
+# runtime.sendMessage and runtime.lastError to web_page over <all_urls>,
+# extensions/renderer/api/runtime_hooks_delegate.cc already installs id and
+# dynamicId as undefined-returning native data properties, and
+# extensions/browser/api/messaging/message_service.cc already answers a
+# web-page channel to any extension id with the identical
+# kReceivingEndDoesntExistError. Nothing in the series edits any of the three,
+# so the gate is the whole change and the browser-side externally_connectable
+# re-check still decides what a real installed extension receives.
+0121-extensions-serve-runtime-to-pages-from-the-profile.patch
