@@ -265,8 +265,13 @@ exactly as interactively entered proxy credentials do: that cache is
 per-`NetworkContext`, never written to disk, and not page-visible, and
 populating it is what allows preemptive authentication. Skipping it forces a
 407 round trip on every new connection and leaves multi-round schemes
-unfinished. UDP over SOCKS5 UDP ASSOCIATE, including proxied QUIC/HTTP3, is
-supported natively; WebRTC UDP/STUN/TURN is not offered.
+unfinished. UDP over SOCKS5 UDP ASSOCIATE is supported natively, and carries
+proxied QUIC/HTTP3 and WebRTC's STUN, TURN and media datagrams alike. WebRTC
+gets the address families the proxy can be reached in and no others, so a
+relayed candidate is never in a family the proxy cannot serve; a proxy that
+cannot relay a datagram produces no UDP candidate at all. `docs/FLAGS.md`,
+"WebRTC", is the operator-facing contract and
+`docs/LIMITATIONS.md` has what it does and does not hide.
 
 Proxy credentials are the one remaining envelope user. Credentials have no
 switch of their own — argv is world-readable in `ps` output — so they travel in

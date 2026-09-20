@@ -1064,14 +1064,8 @@ residential exit configured, the only server-reflexive candidate the browser
 gathered carried the exit's address, the host candidate was mDNS-obfuscated,
 `raddr` was masked, and the SDP connection line named the exit. Without the
 proxy the same page gathered the host's real IPv4 and IPv6 addresses, so the
-suppression is the relay's, not the network's. Sockets the proxy cannot carry
--- the IPv6 ones on a dual-stack host, TURN -- are refused rather than let
-out directly, and each refusal logs one warning naming the cause. QUIC rides
-the same UDP ASSOCIATE and a probe saw its datagrams arrive from the exit.
-
-The one thing to plan for is a proxy that grants no UDP ASSOCIATE at all: then
-every WebRTC socket is refused, a page sees no candidates, and that absence is
-itself readable. `--fingerprint-webrtc-udp=block` makes it deliberate.
+suppression is the relay's, not the network's. QUIC rides the same UDP
+ASSOCIATE and a probe saw its datagrams arrive from the exit.
 
 What the code does. WebRTC carries two separate things, the candidate text a
 page reads over SDP and the packets themselves, and they used to disagree.
@@ -1088,11 +1082,41 @@ decides how, and with the switch absent the behaviour is automatic:
 | single-hop SOCKS5 | every datagram relayed through the UDP association, so peers see the proxy |
 | HTTP, HTTPS, SOCKS4, a proxy chain, a PAC script, per-scheme rules | no UDP socket is created |
 
-That last row has a real cost. WebRTC gets no host candidate, no srflx candidate
-and no UDP relay candidate, so a page that offers no TURN server over
-`turn:...?transport=tcp` or `turns:` gets no working media. TCP is unaffected,
-and a TURN server reached over TCP or TLS still produces a relay candidate
-through the proxy.
+**A relayed socket has no address family of its own, so the families are
+decided before any port exists.** The only address such a socket ever sends to
+is its association's relay endpoint, and the ICE candidate it produces is that
+endpoint, so the families WebRTC is offered are the families the configured
+proxy can be reached in and nothing to do with this host's interfaces. The
+browser resolves the proxy once per network change and publishes the answer with
+the interface list; the renderer offers WebRTC only the families that are left,
+and refuses a socket in any other family before one is created. Through an
+IPv4-only exit that yields one mDNS host candidate and one IPv4
+server-reflexive candidate, which is what an IPv4-only desktop emits; through a
+dual-stack exit it yields the usual pair per family.
+
+This replaces the earlier behaviour, where a family the proxy could not carry
+was discovered only after the socket had been requested. That refusal was
+correct about the packets and wrong about everything else: a port whose socket
+dies before it binds never reports an address, so it never completes, and
+`iceGatheringState` stayed at `gathering` for the life of the peer connection.
+A detector reading candidates at its own timeout then saw a short list, and one
+waiting for the end-of-candidates event saw none at all. No stock Chrome
+configuration reaches that state.
+
+**Gathering always completes.** That holds for every outcome above, including a
+proxy that grants no UDP ASSOCIATE at all, a proxy that stops answering
+mid-handshake, and `--fingerprint-webrtc-udp=block`: the socket failure reaches
+the port, the port reports an error, and gathering finishes. With no UDP egress
+the result is a peer connection that completes with no UDP candidate and
+`c=IN IP4 0.0.0.0` on the connection line, which is exactly what stock Chrome
+produces under the `WebRTCIPHandling=disable_non_proxied_udp` enterprise policy
+with no TURN server configured.
+
+A proxy that cannot relay datagrams still has a real cost. WebRTC gets no host
+candidate, no srflx candidate and no UDP relay candidate, so a page that offers
+no TURN server over `turn:...?transport=tcp` or `turns:` gets no working media.
+TCP is unaffected, and a TURN server reached over TCP or TLS still produces a
+relay candidate through the proxy.
 
 `--fingerprint-webrtc-udp=direct` forces direct UDP under a proxy, which
 publishes the host's real address. `block` never creates the socket.
@@ -1105,6 +1129,14 @@ page as the srflx candidate its own STUN server produces over the same
 association. And the enterprise `WebRtcUdpPortRange` constraint no longer
 applies, because the port a page sees is the proxy's rather than one this host
 chose.
+
+One more residual belongs to the proxy rather than to the browser. A proxy that
+resolves in both families but relays only IPv4 destinations answers ASSOCIATE in
+both, so both families produce a host candidate, and the IPv6 one gets no
+server-reflexive partner because the STUN request is dropped on the way out.
+That is what a machine with IPv6 configured and no IPv6 route looks like, and it
+is common enough to be unremarkable; closing it would need an ASSOCIATE probe per
+family before any candidate is offered.
 
 **The interface topology is the host's, whatever the address says.** Nothing in
 the profile describes the machine's network interfaces, so the network service

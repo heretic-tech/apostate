@@ -366,11 +366,82 @@ the SDP.
 
 | Value | Behaviour |
 | --- | --- |
-| absent | Automatic. Relay through the configured proxy when it can carry datagrams, go direct when no proxy is configured, and create no UDP socket at all when the configured proxy cannot relay. |
+| absent | Automatic. Relay through the configured proxy in the address families that proxy can be reached in, go direct in both families when no proxy is configured, and offer WebRTC no family at all when the configured proxy cannot relay. |
 | `direct` | Force direct UDP even under a proxy. An explicit opt-in to publishing the host's real address. |
-| `block` | Never create a WebRTC UDP socket. |
+| `block` | Never create a WebRTC UDP socket. Candidate gathering still completes, with no UDP candidate. |
+
+The families are the decision, not the sockets. A relayed datagram is only ever
+sent to the relay endpoint of its association, and the ICE candidate it produces
+is that endpoint, so a family the proxy has no address in cannot produce a
+candidate however many interfaces this host has in it. The browser resolves the
+proxy once per network change and tells the renderer which families are left,
+and the renderer creates ports only in those. Through an IPv4-only exit that
+means one host candidate and one server-reflexive candidate, both IPv4, which is
+what an IPv4-only desktop emits; through a dual-stack exit it means the usual
+pair per family.
 
 [docs/LIMITATIONS.md](LIMITATIONS.md) has what WebRTC does and does not hide.
+
+## Readback noise
+
+```sh
+./chrome --fingerprint=12345 --fingerprint-noise
+```
+
+`--fingerprint-noise` is off by default and is the one switch in this file that
+trades coherence away rather than buying it. With it, every page-visible canvas
+and WebGL pixel readback comes back one step from the bytes this build
+rendered. Without it, and under `--fingerprint=host`, and under a profile with
+no identity to key on, the readback is byte-for-byte what stock Chromium of
+this version produces.
+
+What it changes, and nothing else:
+
+| Route | Effect |
+| --- | --- |
+| `getImageData` | The returned `ImageData`, in all three pixel formats. |
+| `toDataURL`, `toBlob`, `convertToBlob` | The raster handed to the encoder. The encoders themselves are untouched, so the byte stream is still a PNG, a JPEG or a WebP produced by this build's encoder from those pixels. |
+| `transferToImageBitmap`, `createImageBitmap` of a canvas | The structured clone of the bitmap. Drawing it back into a canvas and reading that is perturbed once, at the read. |
+| WebGL and WebGL2 `readPixels` into a typed array | The caller's view, in every format and type pair `readPixels` accepts, under any `PACK_*` state. |
+| WebGL2 `readPixels` into a `PIXEL_PACK_BUFFER` | The bytes `getBufferSubData` hands back. The buffer itself is never written, because a GPU command may still read it. |
+
+What it does not change: the canvas's backing store, a WebGL drawing buffer,
+`captureStream` and the canvas-to-video frame path, audio, client rects,
+`measureText`, WebGL parameters, or any image, video frame or `ImageData` that
+did not come out of a canvas.
+
+The perturbation is a function of the profile identity and the clean pixels,
+and of nothing else — not a clock, not a call count, not a per-page token. So
+the same seed gives the same bytes on the next launch and on another machine,
+a different seed gives different bytes, two reads of one canvas agree, and
+every route above agrees with every other for the same pixels. A pixel whose
+3x3 neighbourhood is one colour is left exactly as it was, which makes a solid
+fill byte-exact and keeps the change to the edges a rasteriser signs its name
+on. Alpha is never moved.
+
+The tamper checks a detector actually runs, and how this answers them:
+
+| Check | Result |
+| --- | --- |
+| render the same scene twice, compare | identical |
+| read the same canvas twice, compare | identical |
+| fill a known solid colour, compare to the expected bytes | exact |
+| draw a server-chosen pixel grid, read it back, compare | exact where the grid is flat, off by at most one per channel at its edges |
+| read through two routes and compare | agrees |
+| return across sessions with the same profile | identical |
+| average many reads to recover the true pixel | recovers nothing; there is one answer, not a distribution |
+| draw at 1x, draw the same thing at 8x, downsample and compare | **detects it.** A perturbation keyed on the pixel and its neighbourhood does not survive being averaged with 63 neighbours, so the scaled-down image disagrees with the small one. Stock Chromium's own scaling is not exact either, but it is not exact in a different way. |
+
+That last row is the cost, stated rather than papered over: this is an
+intervention, and a detector that looks for an intervention can find it. The
+trade it buys is unlinkability — two profiles render the same page to different
+bytes, so a canvas hash stops joining their sessions. Whether that is worth a
+detectable intervention depends on what is reading the page, which is why the
+switch exists rather than the behaviour.
+
+[docs/LIMITATIONS.md](LIMITATIONS.md) has the same trade from the other side,
+and `docs/METHODOLOGY.md` §5 records why it is an exception to a rule this
+project otherwise keeps.
 
 ## Supplying a profile directly
 
