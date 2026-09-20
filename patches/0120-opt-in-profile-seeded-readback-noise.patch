@@ -1,0 +1,1812 @@
+Subject: canvas: an opt-in, profile-seeded step on every readback route
+
+`--fingerprint-noise`, off by default. This is the only place in this fork
+where coherence is knowingly traded away, which is why it is a switch and not a
+behaviour, and why this header spends as much space on what it costs as on what
+it does.
+
+WHY AT ALL
+
+Coherence and unlinkability are not the same goal, and canvas is where they
+part company. A composed identity renders a page the way *this build on this
+host* renders it, which is exactly right for "a page cannot tell this from a
+real machine" -- and it means two profiles run from one machine produce the
+same canvas hash. A site that stores that hash joins their sessions without
+caring what `navigator.platform` said. Nothing in the catalogue closes that:
+the bytes come out of Skia, ANGLE and the driver, and there is no second
+rasteriser to draw them with.
+
+So this is an operator's decision rather than the compositor's, and it is asked
+for rather than assumed.
+
+WITHOUT THE SWITCH, NOTHING MOVES
+
+The gate is three conditions, all required: the switch is present,
+`base::apostate::Profile::Get()` is non-null, and the profile carries a
+non-empty `source_id()`. `--fingerprint=host`, a launch with no profile, and an
+authored profile with no id therefore all fail closed to stock output. A
+host-derived seed would be a host fact in the pixels, which is the failure this
+project exists to avoid, so there is no fallback. The policy resolves once per
+renderer and `Enabled()` returns false for the rest of the launch; every call
+site below is then a compare-and-return.
+
+The seed is `PersistentHash` over a NUL-separated domain string and the profile
+id, two halves into one 64-bit value -- the `SyntheticDeviceSeed` construction
+from `base/apostate/media_devices.cc`. Stable across builds, processes and
+launches, so the same profile perturbs the same pixels on the next launch and
+on another host.
+
+THE POLICY, AND WHY RULE 5 STILL HOLDS
+
+Per pixel, the key is the seed, the clean pixel, its clean 3x3 clamped
+neighbourhood, and its position in the returned rectangle. From that hash, each
+colour channel takes one of {-1, 0, +1} of its stored value; for a
+floating-point channel that step is one unit in the last place, which is the
+same statement about the stored value and is invisible to an eye. Alpha never
+moves. Nothing consults a clock, a counter, an object identity, a readback
+count, thread-local state, `PaintImage::ContentId` or `base::Rand*`.
+
+Two consequences follow from the key rather than from care:
+
+  - Two reads of one surface agree, so `coh.render-determinism` holds with the
+    switch on. A returning visitor with the same profile gets the same bytes.
+  - A 1:1 canvas-to-canvas copy reads back identically, because the key holds
+    content and position and the copy preserves both.
+
+A pixel whose 3x3 neighbourhood is one value is skipped, and a rectangle that
+is one value throughout is skipped whole. That is not a nicety: a flat fill is
+the one thing a page can predict without knowing anything about the machine,
+and `coh.canvas-compressibility` measures exactly it -- a 60x30 single-colour
+fill encoded to 262 bytes in stock Chrome and 406 in a browser injecting canvas
+noise, 55% larger for identical drawing commands. Under this policy the flat
+fill is byte-exact, so that check sees stock. What moves is the edges, which is
+where a rasteriser signs its name anyway.
+
+The hash is `NoiseHash` from `core/canvas_interventions/noise_hash.cc`, reused
+as-is. `NoisePixels` beside it is not: it perturbs alpha, it changes a nonzero
+solid fill (its own unit test asserts that), it assumes four 8-bit channels,
+and it keys on a per-page token that no code in this tree produces. Each of
+those four is a requirement here inverted.
+
+THE ROUTES, AND WHY THERE IS NO ONE HOOK
+
+The backing store is the source of truth and stays clean. Each route is
+transformed once, at the point the caller sees bytes.
+
+    getImageData (HTML and offscreen 2D)   the returned ImageData, after the
+                                           clean readback
+    toDataURL / toBlob / convertToBlob     a copy of the raster, before the
+                                           encoder
+    transferToImageBitmap                  provenance only; the pixels stay
+                                           exact
+    createImageBitmap of a canvas          provenance, consumed at the
+                                           structured clone
+    WebGL/WebGL2 readPixels to a view      the caller's typed array
+    WebGL2 readPixels to a PIXEL_PACK      the bytes getBufferSubData returns
+    WebGL-on-WebGPU CPU readPixels         the caller's typed array
+
+A single choke point was the obvious design and it is wrong three ways, each
+measured in this tree:
+
+  - `ImageDataBuffer::Create` has six call sites, and three are not canvas:
+    `core/html/media/html_video_element.cc:539`,
+    `core/inspector/inspector_audits_agent.cc:65` and
+    `modules/accessibility/ax_node_object.cc:4314`. A hook there would perturb
+    a video poster, an inspector audit and the accessibility tree.
+  - `ContextGL()->ReadPixels` is also how `DrawingBuffer` takes its own
+    snapshots (`platform/graphics/gpu/drawing_buffer.cc:2012`). A hook there
+    would perturb internal rendering and then perturb it again at the output.
+  - The CPU `createImageBitmap` crop/scale path reads pixels
+    (`platform/graphics/static_bitmap_image_transform.cc:195`) on its way to a
+    result that is itself an output. Perturbing the intermediate applies the
+    policy twice, and twice is a different answer from once.
+
+So provenance travels instead of pixels. `StaticBitmapImage` carries one bool
+saying "this is a canvas's page-visible output", set at
+`transferToImageBitmap` and at `createImageBitmap` of a canvas, propagated by
+the ImageBitmap-of-an-ImageBitmap constructor, and read in exactly one place:
+`ImageBitmap::CopyBitmapData`, which is the single caller of
+`StaticBitmapImage::CopyImageData` and is itself reached only from the V8
+serializer. That is the whole byte egress of an ImageBitmap, measured. The bool
+is not a JavaScript property, not a CDP field, and setting it does not change a
+pixel, so rule 3 is intact: a page can see the effect of the switch, which is
+the point, and cannot see the switch.
+
+FORMAT COVERAGE, MEASURED FROM THE VALIDATORS
+
+An RGBA8-only implementation would leave a clean route out, which is worse than
+no implementation: one format perturbed and another exact is a contradiction a
+page reads in two calls. So the accepted set was extracted from the two
+`ValidateReadPixelsFormatAndType` overrides and diffed against the mapper:
+
+    accepted types    15   handled 15   unhandled none
+    accepted formats  11   handled 10   unhandled GL_ALPHA
+
+`GL_ALPHA` carries nothing but alpha and is deliberately exact. The fifteen
+types include the six packed ones -- 5_6_5, 4_4_4_4, 5_5_5_1, 2_10_10_10_REV,
+10F_11F_11F_REV and 5_9_9_9_REV -- whose bitfields are the spec's layout read
+least significant first, since GL numbers a packed component from the most
+significant end unless the name says _REV. The shared exponent of RGB9_E5
+scales all three mantissae at once, so it sits in the slot the policy never
+touches. Pack state is honoured in full: PACK_ALIGNMENT row padding,
+PACK_ROW_LENGTH, PACK_SKIP_PIXELS, PACK_SKIP_ROWS and the destination offset;
+the rectangle is walked where GL put it.
+
+On the canvas side `ImageData` is `unorm8`, `float16` and `float32`
+(`core/html/canvas/image_data.cc:115-131`) and all three are handled, as are
+the colour types a canvas resource provider produces -- N32 in both byte orders
+and RGBA_F16 (`platform/graphics/canvas_2d_resource_provider.cc:590,595`) --
+plus the 1010102 and norm16 variants. A colour type the policy does not
+describe is left exact rather than guessed at.
+
+THE PIXEL-PACK BUFFER
+
+`readPixels` with a bound `PIXEL_PACK_BUFFER` returns nothing and writes GPU
+memory, so there is no caller-visible byte at the call. Perturbing the buffer
+is not an option: a GPU command may still consume it, and a fork that corrupts
+what a shader reads is a bug rather than a policy.
+
+So the readback records its geometry on the `WebGLBuffer` -- offset, width,
+height, strides, format, type, and nothing else; no pixel value is held in the
+renderer -- and `getBufferSubData` applies the policy to the copy it hands
+back. It re-reads the tagged rectangle out of the buffer first, because the key
+reads each pixel's 3x3 neighbourhood and a request that clipped the rectangle
+would otherwise get a different answer for the same pixels. Only pixels the
+request covers whole are replaced; a pixel cut in half by the requested range
+has no perturbation of its own to report.
+
+The record follows the bytes. `bufferData` clears it. `bufferSubData` drops the
+rows a write touches and keeps whole rows above and below, splitting one record
+into two where the write lands in the middle -- a rectangle half of whose bytes
+came from script is not a readback. `copyBufferSubData` carries across only a
+rectangle that moved whole. Untagged bytes are copied out exactly. Eight
+records per buffer, oldest evicted, so a loop of readbacks cannot grow the list
+without end; the evicted rectangle then reads back exactly, which is the same
+answer the switch-off path gives.
+
+WHAT IT DOES NOT COVER
+
+`captureStream` and the canvas-to-video frame path are out of scope, stated
+here rather than implied: `HTMLCanvasElement::CopyRenderingResultsToVideoFrame`
+is a separate media egress with a frame-format policy of its own, and a page
+can compare a captured frame against `getImageData` of the same canvas. The
+WebGL-on-WebGPU backend's CPU read is covered; its PBO write goes to the driver
+but that backend leaves `getBufferSubData` and `copyBufferSubData`
+`NOTIMPLEMENTED`, so it has no script-visible buffer egress to tag yet, and
+when one arrives it needs the WebGL2 treatment. Audio, client rects,
+`measureText` and WebGL parameters are not touched, and neither is any image,
+video frame or `ImageData` that did not come out of a canvas.
+
+THE CHECK IT FAILS
+
+Draw a scene; draw the same scene eight times larger; downsample and compare. A
+perturbation keyed on a pixel and its immediate neighbours does not survive
+being averaged with 63 of them, so the two images disagree in a way no single
+machine's rasteriser does. Stock Chromium does not match itself exactly across
+that test either, but it mismatches differently. That residual is inherent to a
+per-pixel intervention rather than a defect in this one, and it is why the
+switch is off by default: a profile is meant to be a machine, and this makes it
+a machine with a policy.
+
+The ones it passes, which is the set a detector actually runs: render twice,
+read twice, known-pixel and solid-fill byte equality, majority vote across many
+reads, cross-route agreement, and a returning visit on the same profile.
+
+V1, AND A MEASURED BASELINE
+
+Every translation unit this patch touches compiles on macos-arm64:
+`base_rendering_context_2d.cc`, `apostate_readback_noise.cc`,
+`webgl_readback_noise.cc`, `webgl_buffer.cc`, `image_bitmap.cc`,
+`static_bitmap_image.cc`, `html_canvas_element.cc`, `offscreen_canvas.cc`,
+`webgl_rendering_context_base.cc`, `webgl2_rendering_context_base.cc`,
+`webgl_rendering_context_webgpu_base.cc` and `render_process_host_impl.cc`.
+The last of those is also the check on `base/base_switches.h`, and
+`static_bitmap_image.cc` the check on its header.
+
+No V2, because this patch has not been built yet. What has been done is the
+other half of the pair METHODOLOGY section 10 names: the harness was run
+against the binary *without* the change, seven launches on one macos-arm64
+host, headless with the software GL fallback, and it reports 25 checks passing
+and exactly four failing -- the four that assert the switch did something. A
+harness that passed on that binary would be testing nothing. Measured there, in
+stock behaviour and therefore as the baseline this patch must not move:
+
+  - a 64x32 single-colour fill encodes to 183 PNG bytes, and read back through
+    `getImageData` is exactly rgb(37, 99, 235) in every pixel;
+  - `captureStream` plus `grabFrame` returns the same digest as `getImageData`
+    of the same canvas, which is the equality the out-of-scope note above
+    predicts will break under the switch and stay broken;
+  - the scale comparison already disagrees with itself without any policy in
+    force: 5491 of 57600 bytes differ, maximum delta 162 per channel, a scene
+    drawn at 1x against the same scene drawn at 8x and downsampled. So the
+    residual that check finds is a change in an existing disagreement rather
+    than a new one;
+  - and one finding for an open row that is not this patch's: an OffscreenCanvas
+    2D context created with `willReadFrequently: true` does NOT produce the same
+    bytes as an `HTMLCanvasElement` 2D context for the same drawing operations,
+    while the same offscreen canvas with default options does, through both
+    `transferToImageBitmap` and `convertToBlob`. `coh.canvas-offscreen-parity`
+    has been asking whether stock Chrome satisfies that relation since it was
+    opened; on this host and this scene it does not, and the discriminator is
+    the raster decision rather than the scope. Recorded on the row, still one
+    host and one scene.
+
+The driver is `/tmp/w1/NoiseReadback/verify.js` with `probe.html` beside it,
+throwaway rather than part of the tree. It serves the page over loopback and
+the page posts its own result back, so there is no CDP and no injected script.
+Against the built binary it asserts: two launches of one seed identical, two
+seeds different, switch-on different from a switch-off baseline taken from the
+same binary, `--fingerprint=host` identical with and without the switch, a
+solid fill byte-exact and still 183 bytes encoded, a 1:1 canvas copy reading
+back identically, ten reads producing one value, every encode and clone route
+agreeing with the reference for its own read depth, the PBO route agreeing with
+the CPU route and surviving `bufferSubData` and `copyBufferSubData`, and a
+non-canvas ImageBitmap untouched.
+
+Ledger: canvas.2d, canvas.todataurl-encoding, canvas.offscreen-2d,
+webgl.readpixels, webgl.readpixels-pixel-pack-buffer,
+emit.blink.apostate-readback-noise-policy,
+emit.blink.apostate-readback-noise-kernel,
+emit.blink.apostate-canvas-output-provenance,
+emit.blink.apostate-webgl-readback-noise,
+emit.blink.apostate-webgl-pbo-readback-tag,
+emit.blink.webgl2-read-pixels-pixel-pack-buffer, coh.render-determinism,
+coh.canvas-compressibility, coh.canvas-offscreen-parity.
+
+--- a/base/base_switches.h
++++ b/base/base_switches.h
+@@ -19,6 +19,15 @@
+ // readable by web content, so carrying it here discloses nothing to a page.
+ inline constexpr char kApostateProfile[] = "apostate-profile";
+ 
++// Apostate: opt in to profile-seeded perturbation of canvas and WebGL pixel
++// readback. OFF by default, and deliberately outside the profile: it trades
++// coherence with a real machine for unlinkability between sessions, which is
++// the operator's call and not the composer's. Effective only in a renderer
++// that also carries a profile with an identity to seed from; without one the
++// output is byte-for-byte stock. A page cannot read the switch, only its
++// effect, which is the point.
++inline constexpr char kFingerprintNoise[] = "fingerprint-noise";
++
+ // Delays execution of TaskPriority::BEST_EFFORT tasks until shutdown.
+ inline constexpr char kDisableBestEffortTasks[] = "disable-best-effort-tasks";
+ 
+--- a/content/browser/renderer_host/render_process_host_impl.cc
++++ b/content/browser/renderer_host/render_process_host_impl.cc
+@@ -3900,6 +3900,9 @@
+       switches::kEnableWebGLDraftExtensions,
+       switches::kEnableWebGPUDeveloperFeatures,
+       switches::kFileUrlPathAlias,
++      // Apostate: the readback policy runs in Blink and nowhere else, so the
++      // switch goes to renderers and is not added to the common child list.
++      switches::kFingerprintNoise,
+       switches::kForceDeviceScaleFactor,
+       switches::kForceDisplayColorProfile,
+       switches::kForceHighContrast,
+diff --git a/third_party/blink/renderer/core/canvas_interventions/apostate_readback_noise.h b/third_party/blink/renderer/core/canvas_interventions/apostate_readback_noise.h
+new file mode 100644
+--- /dev/null
++++ b/third_party/blink/renderer/core/canvas_interventions/apostate_readback_noise.h
+@@ -0,0 +1,108 @@
++// Copyright 2026 The Apostate Authors
++// Use of this source code is governed by a GPL-3.0 license that can be
++// found in the LICENSE file.
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_CORE_CANVAS_INTERVENTIONS_APOSTATE_READBACK_NOISE_H_
++#define THIRD_PARTY_BLINK_RENDERER_CORE_CANVAS_INTERVENTIONS_APOSTATE_READBACK_NOISE_H_
++
++#include <array>
++#include <cstdint>
++
++#include "base/containers/span.h"
++#include "base/memory/scoped_refptr.h"
++#include "third_party/blink/renderer/core/core_export.h"
++
++class SkPixmap;
++
++namespace blink {
++
++class StaticBitmapImage;
++
++// The opt-in readback policy behind --fingerprint-noise. OFF unless the switch
++// is present and the profile carries an identity to seed from, in which case
++// every page-visible canvas and WebGL readback comes back one step away from
++// the bytes the renderer produced.
++//
++// The policy is content-keyed, not call-keyed: the perturbation of a pixel is a
++// function of the profile seed, the clean pixel, its clean 3x3 neighbourhood
++// and its position in the returned rectangle, and of nothing else. Two reads of
++// one surface therefore agree, a 1:1 canvas-to-canvas copy reads back
++// identically, and every output route returns the same answer for the same
++// pixels. A pixel whose 3x3 neighbourhood is one value is left alone, so a
++// solid fill is byte-exact at every route.
++//
++// Alpha is never moved, and neither is a backing store: each route perturbs the
++// copy the caller is about to see and nothing upstream of it.
++namespace apostate_readback_noise {
++
++// How the channels of one pixel are stored.
++enum class Storage : uint8_t {
++  kUint8,
++  kInt8,
++  kUint16,
++  kInt16,
++  kUint32,
++  kInt32,
++  kFloat16,
++  kFloat32,
++  // One unsigned integer of `pixel_stride` bytes split into `field_bits`
++  // bitfields, least significant first. GL's packed pixel types.
++  kBitFields,
++};
++
++struct Channels {
++  Storage storage = Storage::kUint8;
++  // Components per pixel, or the number of bitfields for kBitFields.
++  uint8_t count = 4;
++  // Bit 1<<i set: the policy may move channel i. Alpha is never set, and
++  // neither is a padding byte or a shared exponent.
++  uint8_t movable = 0b0111;
++  // kBitFields only: the width in bits of each field, least significant first.
++  std::array<uint8_t, 4> field_bits = {{0, 0, 0, 0}};
++  // With premultiplied pixels a colour channel above alpha is not
++  // representable, so the step is clamped to it rather than to the type.
++  bool premultiplied = false;
++  uint8_t alpha = 3;
++};
++
++// A rectangle of interleaved pixels a page is about to see. `bytes` begins at
++// pixel (0, 0); rows are `row_stride` bytes apart and pixels `pixel_stride`.
++// The rectangle is read in memory order, so a bottom-up GL readback keys its
++// rows from the bottom of the framebuffer. That is the order the caller sees.
++struct Surface {
++  base::span<uint8_t> bytes;
++  int32_t width = 0;
++  int32_t height = 0;
++  size_t row_stride = 0;
++  size_t pixel_stride = 0;
++  Channels channels;
++};
++
++// Whether the opt-in is in force for this renderer. Constant for the process:
++// the switch and the profile are both fixed before the first page loads.
++CORE_EXPORT bool Enabled();
++
++// The profile-derived seed. Exposed for --fingerprint-explain; zero when the
++// policy is off.
++CORE_EXPORT uint64_t Seed();
++
++// Perturbs `surface` in place. A no-op unless Enabled().
++CORE_EXPORT void Apply(const Surface& surface);
++
++// Perturbs a Skia pixmap in place, taking the channel layout from its
++// SkImageInfo. A no-op unless Enabled(), and a no-op for a colour type the
++// policy does not describe.
++CORE_EXPORT void ApplyToPixmap(const SkPixmap& pixmap);
++
++// Returns a perturbed CPU copy of a canvas snapshot that is about to be
++// encoded or copied out, or `snapshot` itself when the policy is off. The
++// snapshot is never written to, so the canvas keeps a clean backing store and
++// the result is perturbed exactly once.
++CORE_EXPORT scoped_refptr<StaticBitmapImage> ApplyToSnapshot(
++    scoped_refptr<StaticBitmapImage> snapshot);
++
++}  // namespace apostate_readback_noise
++
++}  // namespace blink
++
++#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_CANVAS_INTERVENTIONS_APOSTATE_READBACK_NOISE_H_
+diff --git a/third_party/blink/renderer/core/canvas_interventions/apostate_readback_noise.cc b/third_party/blink/renderer/core/canvas_interventions/apostate_readback_noise.cc
+new file mode 100644
+--- /dev/null
++++ b/third_party/blink/renderer/core/canvas_interventions/apostate_readback_noise.cc
+@@ -0,0 +1,500 @@
++// Copyright 2026 The Apostate Authors
++// Use of this source code is governed by a GPL-3.0 license that can be
++// found in the LICENSE file.
++
++#include "third_party/blink/renderer/core/canvas_interventions/apostate_readback_noise.h"
++
++#include <algorithm>
++#include <array>
++#include <optional>
++#include <string_view>
++
++#include "base/apostate/profile.h"
++#include "base/base_switches.h"
++#include "base/command_line.h"
++#include "base/containers/span.h"
++#include "base/hash/hash.h"
++#include "base/numerics/safe_conversions.h"
++#include "base/strings/strcat.h"
++#include "third_party/blink/public/common/fingerprinting_protection/noise_token.h"
++#include "third_party/blink/renderer/core/canvas_interventions/noise_hash.h"
++#include "third_party/blink/renderer/platform/graphics/static_bitmap_image.h"
++#include "third_party/blink/renderer/platform/graphics/unaccelerated_static_bitmap_image.h"
++#include "third_party/blink/renderer/platform/wtf/vector.h"
++#include "third_party/skia/include/core/SkBitmap.h"
++#include "third_party/skia/include/core/SkImage.h"
++#include "third_party/skia/include/core/SkImageInfo.h"
++#include "third_party/skia/include/core/SkPixmap.h"
++#include "ui/gfx/skia_span_util.h"
++
++namespace blink::apostate_readback_noise {
++
++namespace {
++
++// The switch, the profile and the seed, resolved once. Nothing here can change
++// during a launch: the command line is fixed before the renderer starts and
++// Profile::Get() is installed before the first page loads.
++struct Policy {
++  bool enabled = false;
++  uint64_t seed = 0;
++};
++
++Policy ResolvePolicy() {
++  Policy policy;
++  if (!base::CommandLine::InitializedForCurrentProcess() ||
++      !base::CommandLine::ForCurrentProcess()->HasSwitch(
++          switches::kFingerprintNoise)) {
++    return policy;
++  }
++  const base::apostate::Profile* profile = base::apostate::Profile::Get();
++  if (!profile || profile->source_id().empty()) {
++    // --fingerprint=host, no profile, or an authored profile with no id. There
++    // is nothing profile-bound to key on, and a host-derived seed would be a
++    // host fact leaking into the pixels, so the policy stays off and the
++    // output is stock.
++    return policy;
++  }
++  // The NUL keeps the domain from running into the identity. PersistentHash is
++  // stable across builds and processes, which is what makes the same profile
++  // perturb the same way on the next launch; the two halves are the
++  // SyntheticDeviceSeed construction in base/apostate/media_devices.cc.
++  static constexpr std::string_view kDomain("apostate/canvas-noise/v1\0", 25);
++  const std::string material =
++      base::StrCat({kDomain, profile->source_id()});
++  policy.seed =
++      (static_cast<uint64_t>(base::PersistentHash(material)) << 32) |
++      base::PersistentHash(base::StrCat({material, "/2"}));
++  policy.enabled = true;
++  return policy;
++}
++
++const Policy& GetPolicy() {
++  static const Policy policy = ResolvePolicy();
++  return policy;
++}
++
++// FNV-1a over the raw bytes of one clean pixel. This is the pixel's identity
++// in the key: every channel including alpha, and nothing outside the pixel.
++uint64_t PixelDigest(base::span<const uint8_t> pixel) {
++  uint64_t hash = 0xcbf29ce484222325ull;
++  for (uint8_t byte : pixel) {
++    hash ^= byte;
++    hash *= 0x00000100000001b3ull;
++  }
++  return hash;
++}
++
++template <typename T>
++T Load(base::span<const uint8_t> pixel, size_t index) {
++  T value;
++  base::byte_span_from_ref(value).copy_from(
++      pixel.subspan(index * sizeof(T), sizeof(T)));
++  return value;
++}
++
++template <typename T>
++void Store(base::span<uint8_t> pixel, size_t index, T value) {
++  pixel.subspan(index * sizeof(T), sizeof(T))
++      .copy_from(base::byte_span_from_ref(value));
++}
++
++// The upper bound a colour channel may take. Premultiplied pixels cannot carry
++// a colour above their alpha, so a step that would break that is clamped to it
++// rather than allowed to produce an unrepresentable pixel.
++int64_t ColourCeiling(base::span<const uint8_t> pixel,
++                      const Channels& channels,
++                      uint8_t index,
++                      int64_t type_max) {
++  if (!channels.premultiplied || index == channels.alpha ||
++      channels.alpha >= channels.count) {
++    return type_max;
++  }
++  switch (channels.storage) {
++    case Storage::kUint8:
++      return std::min<int64_t>(type_max, Load<uint8_t>(pixel, channels.alpha));
++    case Storage::kUint16:
++      return std::min<int64_t>(type_max, Load<uint16_t>(pixel, channels.alpha));
++    default:
++      // Signed, floating-point and packed channels: the comparison is either
++      // meaningless or handled by the caller.
++      return type_max;
++  }
++}
++
++// Moves one bitfield of a packed pixel. `packed` is the whole pixel read as an
++// unsigned integer; the fields are least significant first.
++uint32_t StepField(uint32_t packed,
++                   const Channels& channels,
++                   uint8_t index,
++                   int step) {
++  uint32_t shift = 0;
++  for (uint8_t i = 0; i < index; ++i) {
++    shift += channels.field_bits[i];
++  }
++  const uint32_t bits = channels.field_bits[index];
++  if (bits == 0 || bits >= 32) {
++    return packed;
++  }
++  const uint32_t mask = (1u << bits) - 1u;
++  int64_t value = (packed >> shift) & mask;
++  int64_t ceiling = mask;
++  if (channels.premultiplied && index != channels.alpha &&
++      channels.alpha < channels.count) {
++    uint32_t alpha_shift = 0;
++    for (uint8_t i = 0; i < channels.alpha; ++i) {
++      alpha_shift += channels.field_bits[i];
++    }
++    const uint32_t alpha_bits = channels.field_bits[channels.alpha];
++    if (alpha_bits > 0 && alpha_bits < 32) {
++      const uint32_t alpha_mask = (1u << alpha_bits) - 1u;
++      const int64_t alpha = (packed >> alpha_shift) & alpha_mask;
++      // The two fields are normalised over different ranges, so alpha is
++      // scaled into this field's range before it becomes the ceiling.
++      ceiling = std::min<int64_t>(ceiling, (alpha * mask) / alpha_mask);
++    }
++  }
++  value = std::clamp<int64_t>(value + step, 0, ceiling);
++  return (packed & ~(mask << shift)) |
++         (static_cast<uint32_t>(value) << shift);
++}
++
++// One {-1, 0, +1} step on the stored value of channel `index`. For a
++// floating-point channel the step is one unit in the last place, which is the
++// same statement about the stored value and is invisible to an eye.
++void StepChannel(base::span<uint8_t> pixel,
++                 const Channels& channels,
++                 uint8_t index,
++                 int step,
++                 size_t pixel_stride) {
++  if (step == 0) {
++    return;
++  }
++  switch (channels.storage) {
++    case Storage::kUint8: {
++      const int64_t value = Load<uint8_t>(pixel, index);
++      Store<uint8_t>(pixel, index,
++                     static_cast<uint8_t>(std::clamp<int64_t>(
++                         value + step, 0,
++                         ColourCeiling(pixel, channels, index, 0xFF))));
++      return;
++    }
++    case Storage::kInt8: {
++      const int64_t value = Load<int8_t>(pixel, index);
++      Store<int8_t>(pixel, index,
++                    static_cast<int8_t>(
++                        std::clamp<int64_t>(value + step, -0x80, 0x7F)));
++      return;
++    }
++    case Storage::kUint16: {
++      const int64_t value = Load<uint16_t>(pixel, index);
++      Store<uint16_t>(pixel, index,
++                      static_cast<uint16_t>(std::clamp<int64_t>(
++                          value + step, 0,
++                          ColourCeiling(pixel, channels, index, 0xFFFF))));
++      return;
++    }
++    case Storage::kInt16: {
++      const int64_t value = Load<int16_t>(pixel, index);
++      Store<int16_t>(pixel, index,
++                     static_cast<int16_t>(
++                         std::clamp<int64_t>(value + step, -0x8000, 0x7FFF)));
++      return;
++    }
++    case Storage::kUint32: {
++      const int64_t value = Load<uint32_t>(pixel, index);
++      Store<uint32_t>(pixel, index,
++                      static_cast<uint32_t>(std::clamp<int64_t>(
++                          value + step, 0, 0xFFFFFFFF)));
++      return;
++    }
++    case Storage::kInt32: {
++      const int64_t value = Load<int32_t>(pixel, index);
++      Store<int32_t>(
++          pixel, index,
++          static_cast<int32_t>(std::clamp<int64_t>(value + step, INT32_MIN,
++                                                   INT32_MAX)));
++      return;
++    }
++    case Storage::kFloat16: {
++      const uint16_t bits = Load<uint16_t>(pixel, index);
++      const uint16_t magnitude = bits & 0x7FFFu;
++      // An infinity or a NaN has no next value, and a zero has no previous one
++      // that is not a sign flip. Both stay exactly as the renderer wrote them.
++      if (magnitude >= 0x7C00u || (step < 0 && magnitude == 0u) ||
++          (step > 0 && magnitude == 0x7BFFu)) {
++        return;
++      }
++      Store<uint16_t>(pixel, index, static_cast<uint16_t>(bits + step));
++      return;
++    }
++    case Storage::kFloat32: {
++      const uint32_t bits = Load<uint32_t>(pixel, index);
++      const uint32_t magnitude = bits & 0x7FFFFFFFu;
++      if (magnitude >= 0x7F800000u || (step < 0 && magnitude == 0u) ||
++          (step > 0 && magnitude == 0x7F7FFFFFu)) {
++        return;
++      }
++      Store<uint32_t>(pixel, index, static_cast<uint32_t>(bits + step));
++      return;
++    }
++    case Storage::kBitFields: {
++      if (pixel_stride == 2u) {
++        const uint16_t packed = Load<uint16_t>(pixel, 0);
++        Store<uint16_t>(pixel, 0,
++                        static_cast<uint16_t>(
++                            StepField(packed, channels, index, step)));
++      } else if (pixel_stride == 4u) {
++        const uint32_t packed = Load<uint32_t>(pixel, 0);
++        Store<uint32_t>(pixel, 0, StepField(packed, channels, index, step));
++      }
++      return;
++    }
++  }
++}
++
++// True when every pixel of the rectangle carries the same bytes. A solid fill
++// is the one case a page can check without knowing anything about the machine,
++// so it comes back exactly as it went in. The 3x3 rule below would reach the
++// same answer; this is the cheap path and the explicit guarantee.
++bool WholeSurfaceIsOneValue(const Surface& surface) {
++  const size_t row_bytes = surface.pixel_stride *
++                           static_cast<size_t>(surface.width);
++  base::span<const uint8_t> first_row = surface.bytes.first(row_bytes);
++  base::span<const uint8_t> first_pixel =
++      first_row.first(surface.pixel_stride);
++  for (int32_t x = 1; x < surface.width; ++x) {
++    if (first_row.subspan(static_cast<size_t>(x) * surface.pixel_stride,
++                          surface.pixel_stride) != first_pixel) {
++      return false;
++    }
++  }
++  for (int32_t y = 1; y < surface.height; ++y) {
++    if (surface.bytes.subspan(static_cast<size_t>(y) * surface.row_stride,
++                              row_bytes) != first_row) {
++      return false;
++    }
++  }
++  return true;
++}
++
++base::span<uint8_t> PixelAt(const Surface& surface, int32_t x, int32_t y) {
++  return surface.bytes.subspan(
++      static_cast<size_t>(y) * surface.row_stride +
++          static_cast<size_t>(x) * surface.pixel_stride,
++      surface.pixel_stride);
++}
++
++void DigestRow(const Surface& surface, int32_t y, base::span<uint64_t> out) {
++  for (int32_t x = 0; x < surface.width; ++x) {
++    out[static_cast<size_t>(x)] = PixelDigest(PixelAt(surface, x, y));
++  }
++}
++
++std::optional<Channels> ChannelsForColorType(SkColorType color_type,
++                                             SkAlphaType alpha_type) {
++  const bool premultiplied = alpha_type == kPremul_SkAlphaType;
++  Channels channels;
++  switch (color_type) {
++    case kRGBA_8888_SkColorType:
++    case kBGRA_8888_SkColorType:
++      channels.storage = Storage::kUint8;
++      channels.premultiplied = premultiplied;
++      return channels;
++    case kRGB_888x_SkColorType:
++      // The fourth byte is padding, not alpha, and stays as it is.
++      channels.storage = Storage::kUint8;
++      return channels;
++    case kRGBA_F16_SkColorType:
++    case kRGBA_F16Norm_SkColorType:
++      channels.storage = Storage::kFloat16;
++      channels.premultiplied = premultiplied;
++      return channels;
++    case kRGBA_F32_SkColorType:
++      channels.storage = Storage::kFloat32;
++      channels.premultiplied = premultiplied;
++      return channels;
++    case kRGBA_1010102_SkColorType:
++    case kBGRA_1010102_SkColorType:
++      channels.storage = Storage::kBitFields;
++      channels.field_bits = {{10, 10, 10, 2}};
++      channels.premultiplied = premultiplied;
++      return channels;
++    case kRGB_101010x_SkColorType:
++    case kBGR_101010x_SkColorType:
++      channels.storage = Storage::kBitFields;
++      channels.field_bits = {{10, 10, 10, 2}};
++      return channels;
++    case kGray_8_SkColorType:
++    case kR8_unorm_SkColorType:
++      channels.storage = Storage::kUint8;
++      channels.count = 1;
++      channels.movable = 0b0001;
++      channels.alpha = 1;
++      return channels;
++    case kR8G8_unorm_SkColorType:
++      channels.storage = Storage::kUint8;
++      channels.count = 2;
++      channels.movable = 0b0011;
++      channels.alpha = 2;
++      return channels;
++    case kR16G16B16A16_unorm_SkColorType:
++      channels.storage = Storage::kUint16;
++      channels.premultiplied = premultiplied;
++      return channels;
++    default:
++      // Alpha-only, depth, and the colour types no canvas output uses. Left
++      // byte-exact rather than guessed at.
++      return std::nullopt;
++  }
++}
++
++}  // namespace
++
++bool Enabled() {
++  return GetPolicy().enabled;
++}
++
++uint64_t Seed() {
++  return GetPolicy().seed;
++}
++
++void Apply(const Surface& surface) {
++  if (!Enabled() || surface.width <= 0 || surface.height <= 0 ||
++      surface.pixel_stride == 0 ||
++      surface.row_stride <
++          surface.pixel_stride * static_cast<size_t>(surface.width)) {
++    return;
++  }
++  const size_t extent =
++      surface.row_stride * static_cast<size_t>(surface.height - 1) +
++      surface.pixel_stride * static_cast<size_t>(surface.width);
++  if (surface.bytes.size() < extent) {
++    return;
++  }
++  if (WholeSurfaceIsOneValue(surface)) {
++    return;
++  }
++
++  // Row digests for the three rows the key reads, rolled forward. Each row is
++  // digested before it is written, so the key is always the clean image even
++  // though the perturbation happens in place.
++  const wtf_size_t width = base::checked_cast<wtf_size_t>(surface.width);
++  std::array<Vector<uint64_t>, 3> rows;
++  for (Vector<uint64_t>& row : rows) {
++    row.resize(width);
++  }
++  DigestRow(surface, 0, base::span<uint64_t>(rows[0]));
++  if (surface.height > 1) {
++    DigestRow(surface, 1, base::span<uint64_t>(rows[1]));
++  }
++
++  const NoiseHash origin{NoiseToken(Seed())};
++  for (int32_t y = 0; y < surface.height; ++y) {
++    if (y >= 1 && y + 1 < surface.height) {
++      DigestRow(surface, y + 1,
++                base::span<uint64_t>(rows[static_cast<size_t>(y + 1) % 3u]));
++    }
++    const std::array<base::span<const uint64_t>, 3> neighbour_rows = {
++        base::span<const uint64_t>(
++            rows[static_cast<size_t>(y == 0 ? 0 : y - 1) % 3u]),
++        base::span<const uint64_t>(rows[static_cast<size_t>(y) % 3u]),
++        base::span<const uint64_t>(
++            rows[static_cast<size_t>(y + 1 < surface.height ? y + 1 : y) % 3u]),
++    };
++    for (int32_t x = 0; x < surface.width; ++x) {
++      const uint64_t centre = neighbour_rows[1][static_cast<size_t>(x)];
++      bool uniform = true;
++      for (int32_t dy = 0; dy < 3 && uniform; ++dy) {
++        for (int32_t dx = -1; dx <= 1; ++dx) {
++          const int32_t nx = std::clamp(x + dx, 0, surface.width - 1);
++          if (neighbour_rows[dy][static_cast<size_t>(nx)] != centre) {
++            uniform = false;
++            break;
++          }
++        }
++      }
++      // A pixel that sits in a patch of one colour is left alone. Flat regions
++      // are what a page can predict; edges are what a renderer's rasteriser
++      // signs its name on.
++      if (uniform) {
++        continue;
++      }
++
++      NoiseHash hash = origin;
++      hash.Update(centre);
++      for (int32_t dy = 0; dy < 3; ++dy) {
++        for (int32_t dx = -1; dx <= 1; ++dx) {
++          const int32_t nx = std::clamp(x + dx, 0, surface.width - 1);
++          hash.Update(neighbour_rows[dy][static_cast<size_t>(nx)]);
++        }
++      }
++      hash.Update((static_cast<uint64_t>(y) << 32) |
++                  static_cast<uint32_t>(x));
++
++      base::span<uint8_t> pixel = PixelAt(surface, x, y);
++      for (uint8_t channel = 0; channel < surface.channels.count; ++channel) {
++        if ((surface.channels.movable & (1u << channel)) == 0) {
++          continue;
++        }
++        StepChannel(pixel, surface.channels, channel,
++                    hash.GetValueBelow(3) - 1, surface.pixel_stride);
++      }
++    }
++  }
++}
++
++void ApplyToPixmap(const SkPixmap& pixmap) {
++  if (!Enabled() || !pixmap.writable_addr() || pixmap.width() <= 0 ||
++      pixmap.height() <= 0) {
++    return;
++  }
++  std::optional<Channels> channels =
++      ChannelsForColorType(pixmap.colorType(), pixmap.alphaType());
++  if (!channels) {
++    return;
++  }
++  Surface surface;
++  surface.bytes = gfx::SkPixmapToWritableSpan(pixmap);
++  surface.width = pixmap.width();
++  surface.height = pixmap.height();
++  surface.row_stride = pixmap.rowBytes();
++  surface.pixel_stride = static_cast<size_t>(pixmap.info().bytesPerPixel());
++  surface.channels = *channels;
++  Apply(surface);
++}
++
++scoped_refptr<StaticBitmapImage> ApplyToSnapshot(
++    scoped_refptr<StaticBitmapImage> snapshot) {
++  if (!Enabled() || !snapshot) {
++    return snapshot;
++  }
++  sk_sp<SkImage> source = snapshot->PaintImageForCurrentFrame().GetSwSkImage();
++  if (!source) {
++    return snapshot;
++  }
++  const SkImageInfo info = source->imageInfo();
++  if (info.isEmpty()) {
++    return snapshot;
++  }
++  SkBitmap perturbed;
++  if (!perturbed.tryAllocPixels(info) ||
++      !source->readPixels(nullptr, perturbed.pixmap(), 0, 0)) {
++    return snapshot;
++  }
++  ApplyToPixmap(perturbed.pixmap());
++  perturbed.setImmutable();
++  sk_sp<SkImage> image = perturbed.asImage();
++  if (!image) {
++    return snapshot;
++  }
++  scoped_refptr<StaticBitmapImage> result =
++      UnacceleratedStaticBitmapImage::Create(std::move(image),
++                                             snapshot->Orientation());
++  if (!result) {
++    return snapshot;
++  }
++  result->SetOriginClean(snapshot->OriginClean());
++  return result;
++}
++
++}  // namespace blink::apostate_readback_noise
+--- a/third_party/blink/renderer/core/canvas_interventions/build.gni
++++ b/third_party/blink/renderer/core/canvas_interventions/build.gni
+@@ -3,6 +3,8 @@
+ # found in the LICENSE file.
+ 
+ blink_core_sources_canvas_interventions = [
++  "apostate_readback_noise.cc",
++  "apostate_readback_noise.h",
+   "noise_hash.cc",
+   "noise_hash.h",
+   "noise_helper.cc",
+--- a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
++++ b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
+@@ -57,6 +57,7 @@
+ #include "third_party/blink/renderer/bindings/core/v8/v8_image_bitmap_options.h"
+ #include "third_party/blink/renderer/bindings/core/v8/v8_image_encode_options.h"
+ #include "third_party/blink/renderer/bindings/core/v8/v8_union_element_elementimage.h"
++#include "third_party/blink/renderer/core/canvas_interventions/apostate_readback_noise.h"
+ #include "third_party/blink/renderer/core/css/css_font_selector.h"
+ #include "third_party/blink/renderer/core/css/style_change_reason.h"
+ #include "third_party/blink/renderer/core/css/style_engine.h"
+@@ -1287,6 +1288,12 @@
+ 
+   scoped_refptr<StaticBitmapImage> image_bitmap = Snapshot(source_buffer);
+   if (image_bitmap) {
++    // Apostate: the encoders are left alone -- perturbing a compressed byte
++    // stream would corrupt it. The opt-in policy moves the raster that is
++    // about to be encoded, on a copy, so the canvas keeps a clean backing
++    // store and this route agrees pixel for pixel with getImageData.
++    image_bitmap =
++        apostate_readback_noise::ApplyToSnapshot(std::move(image_bitmap));
+     std::unique_ptr<ImageDataBuffer> data_buffer =
+         ImageDataBuffer::Create(image_bitmap);
+     if (!data_buffer)
+@@ -1392,6 +1399,8 @@
+   CanvasAsyncBlobCreator* async_creator = nullptr;
+   scoped_refptr<StaticBitmapImage> image_bitmap = Snapshot(kBackBuffer);
+   if (image_bitmap) {
++    image_bitmap =
++        apostate_readback_noise::ApplyToSnapshot(std::move(image_bitmap));
+     auto* options = ImageEncodeOptions::Create();
+     options->setType(ImageEncoderUtils::MimeTypeName(encoding_mime_type));
+     async_creator = MakeGarbageCollected<CanvasAsyncBlobCreator>(
+--- a/third_party/blink/renderer/core/imagebitmap/image_bitmap.cc
++++ b/third_party/blink/renderer/core/imagebitmap/image_bitmap.cc
+@@ -22,6 +22,7 @@
+ #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
+ #include "third_party/blink/renderer/bindings/core/v8/to_v8_traits.h"
+ #include "third_party/blink/renderer/bindings/core/v8/v8_throw_dom_exception.h"
++#include "third_party/blink/renderer/core/canvas_interventions/apostate_readback_noise.h"
+ #include "third_party/blink/renderer/core/dom/dom_exception.h"
+ #include "third_party/blink/renderer/core/html/canvas/html_canvas_element.h"
+ #include "third_party/blink/renderer/core/html/canvas/image_data.h"
+@@ -53,6 +54,7 @@
+ #include "third_party/skia/include/core/SkCanvas.h"
+ #include "third_party/skia/include/core/SkImage.h"
+ #include "third_party/skia/include/core/SkImageInfo.h"
++#include "third_party/skia/include/core/SkPixmap.h"
+ #include "third_party/skia/include/core/SkSurface.h"
+ #include "third_party/skia/include/core/SkSwizzle.h"
+ 
+@@ -383,6 +385,10 @@
+     return;
+ 
+   image_->SetOriginClean(canvas->OriginClean());
++  // Apostate: a bitmap cropped out of a canvas is still canvas output, so the
++  // provenance travels with it. The crop/scale itself is an intermediate and
++  // is not perturbed, or the byte copy below would apply the policy twice.
++  image_->SetApostateCanvasReadback();
+   UpdateImageBitmapMemoryUsage();
+ }
+ 
+@@ -407,6 +413,7 @@
+   if (!image_)
+     return;
+   image_->SetOriginClean(offscreen_canvas->OriginClean());
++  image_->SetApostateCanvasReadback();
+   UpdateImageBitmapMemoryUsage();
+ }
+ 
+@@ -463,6 +470,9 @@
+     return;
+ 
+   image_->SetOriginClean(bitmap->OriginClean());
++  if (input->IsApostateCanvasReadback()) {
++    image_->SetApostateCanvasReadback();
++  }
+   UpdateImageBitmapMemoryUsage();
+ }
+ 
+@@ -685,7 +695,16 @@
+ 
+ Vector<uint8_t> ImageBitmap::CopyBitmapData(const SkImageInfo& info,
+                                             bool apply_orientation) {
+-  return image_->CopyImageData(info, apply_orientation);
++  Vector<uint8_t> pixels = image_->CopyImageData(info, apply_orientation);
++  // Apostate: this is the one route by which an ImageBitmap's bytes reach a
++  // page -- the structured clone of a canvas-derived bitmap. An ordinary
++  // image, video frame or ImageData bitmap carries no canvas provenance and is
++  // copied out untouched.
++  if (image_->IsApostateCanvasReadback() && !pixels.empty()) {
++    apostate_readback_noise::ApplyToPixmap(
++        SkPixmap(info, pixels.data(), info.minRowBytes()));
++  }
++  return pixels;
+ }
+ 
+ unsigned ImageBitmap::width() const {
+--- a/third_party/blink/renderer/core/offscreencanvas/offscreen_canvas.cc
++++ b/third_party/blink/renderer/core/offscreencanvas/offscreen_canvas.cc
+@@ -15,6 +15,7 @@
+ #include "third_party/blink/public/platform/platform.h"
+ #include "third_party/blink/public/platform/scheduler/web_agent_group_scheduler.h"
+ #include "third_party/blink/renderer/bindings/core/v8/v8_union_element_elementimage.h"
++#include "third_party/blink/renderer/core/canvas_interventions/apostate_readback_noise.h"
+ #include "third_party/blink/renderer/core/css/css_font_selector.h"
+ #include "third_party/blink/renderer/core/css/offscreen_font_selector.h"
+ #include "third_party/blink/renderer/core/css/style_engine.h"
+@@ -325,6 +326,13 @@
+     // Undocumented exception (not in spec).
+     exception_state.ThrowDOMException(DOMExceptionCode::kUnknownError,
+                                       "ImageBitmap construction failed");
++  } else if (scoped_refptr<StaticBitmapImage> bitmap = image->BitmapImage()) {
++    // Apostate: the transferred bitmap keeps the canvas's exact pixels -- it
++    // is drawn, composited and read back through routes that perturb at their
++    // own output, and perturbing here as well would apply the policy twice.
++    // What it carries instead is the fact that it came out of a canvas, so
++    // that a byte copy taken out of it later is treated as the readback it is.
++    bitmap->SetApostateCanvasReadback();
+   }
+ 
+   return image;
+@@ -474,6 +482,10 @@
+   base::TimeTicks start_time = base::TimeTicks::Now();
+   scoped_refptr<StaticBitmapImage> image_bitmap = context_->GetImage();
+   if (image_bitmap) {
++    // Apostate: same boundary as HTMLCanvasElement::toBlob -- a perturbed copy
++    // goes to the encoder and the canvas keeps its own pixels.
++    image_bitmap =
++        apostate_readback_noise::ApplyToSnapshot(std::move(image_bitmap));
+     auto* resolver = MakeGarbageCollected<ScriptPromiseResolver<Blob>>(
+         script_state, exception_state.GetContext());
+     CanvasAsyncBlobCreator::ToBlobFunctionType function_type =
+--- a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
++++ b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
+@@ -40,6 +40,7 @@
+ #include "third_party/blink/renderer/bindings/modules/v8/v8_canvas_font_stretch.h"
+ #include "third_party/blink/renderer/bindings/modules/v8/v8_canvas_font_variant_caps.h"
+ #include "third_party/blink/renderer/bindings/modules/v8/v8_canvas_text_rendering.h"
++#include "third_party/blink/renderer/core/canvas_interventions/apostate_readback_noise.h"
+ #include "third_party/blink/renderer/core/css/properties/computed_style_utils.h"
+ #include "third_party/blink/renderer/core/css/style_change_reason.h"
+ #include "third_party/blink/renderer/core/dom/events/event.h"
+@@ -514,6 +515,13 @@
+           snapshot->PaintImageForCurrentFrame().GetSkImageInfo().bounds();
+       DCHECK(!bounds.intersect(SkIRect::MakeXYWH(sx, sy, sw, sh)));
+     }
++
++    // Apostate: the clean read above is what the canvas holds; this is the
++    // copy the page is handed, so the opt-in readback policy is applied to it
++    // and to nothing upstream. Covers the HTML and the offscreen 2D context,
++    // every ImageData pixel format, and the accelerated and software backends
++    // alike, because all four arrive here.
++    apostate_readback_noise::ApplyToPixmap(image_data_pixmap);
+   }
+ 
+   return image_data;
+--- a/third_party/blink/renderer/modules/webgl/BUILD.gn
++++ b/third_party/blink/renderer/modules/webgl/BUILD.gn
+@@ -146,6 +146,8 @@
+     "webgl_provoking_vertex.h",
+     "webgl_query.cc",
+     "webgl_query.h",
++    "webgl_readback_noise.cc",
++    "webgl_readback_noise.h",
+     "webgl_render_shared_exponent.cc",
+     "webgl_render_shared_exponent.h",
+     "webgl_renderbuffer.cc",
+--- a/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.cc
++++ b/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.cc
+@@ -15,6 +15,7 @@
+ #include "third_party/blink/public/common/features.h"
+ #include "third_party/blink/public/platform/web_graphics_context_3d_provider.h"
+ #include "third_party/blink/renderer/bindings/modules/v8/webgl_any.h"
++#include "third_party/blink/renderer/core/canvas_interventions/apostate_readback_noise.h"
+ #include "third_party/blink/renderer/core/dom/document.h"
+ #include "third_party/blink/renderer/core/dom/element.h"
+ #include "third_party/blink/renderer/core/html/canvas/html_canvas_element.h"
+@@ -28,6 +29,7 @@
+ #include "third_party/blink/renderer/modules/webgl/webgl_framebuffer.h"
+ #include "third_party/blink/renderer/modules/webgl/webgl_program.h"
+ #include "third_party/blink/renderer/modules/webgl/webgl_query.h"
++#include "third_party/blink/renderer/modules/webgl/webgl_readback_noise.h"
+ #include "third_party/blink/renderer/modules/webgl/webgl_renderbuffer.h"
+ #include "third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.h"
+ #include "third_party/blink/renderer/modules/webgl/webgl_sampler.h"
+@@ -112,6 +114,71 @@
+ namespace {
+ 
+ const GLuint64 kMaxClientWaitTimeout = 0u;
++
++// Apostate: applies the opt-in readback policy to the bytes getBufferSubData
++// is handing back, for whichever recorded readback rectangles the request
++// covers. The buffer is read a second time so that the whole rectangle is
++// available: the key reads each pixel's 3x3 neighbourhood, and a request that
++// clipped the rectangle would otherwise get a different answer from the same
++// pixels. The buffer's own bytes are never written.
++void ApostateNoiseBufferEgress(gpu::gles2::GLES2Interface* gl,
++                               GLenum target,
++                               const WebGLBuffer* buffer,
++                               int64_t request_offset,
++                               void* destination,
++                               int64_t destination_length) {
++  if (!buffer || destination_length <= 0 ||
++      !apostate_readback_noise::Enabled()) {
++    return;
++  }
++  const int64_t request_end = request_offset + destination_length;
++  base::span<uint8_t> out = UNSAFE_BUFFERS(base::span(
++      base::unchecked, static_cast<uint8_t*>(destination),
++      static_cast<size_t>(destination_length)));
++  for (const WebGLBuffer::ReadbackTag& tag : buffer->ReadbackTags()) {
++    const int64_t tag_end = tag.End();
++    if (request_end <= tag.pixel_base || request_offset >= tag_end) {
++      continue;
++    }
++    const size_t extent = static_cast<size_t>(tag_end - tag.pixel_base);
++    Vector<uint8_t> scratch(base::checked_cast<wtf_size_t>(extent));
++    gl->GetBufferSubDataCHROMIUM(target,
++                                 static_cast<GLintptr>(tag.pixel_base),
++                                 static_cast<GLsizeiptr>(extent),
++                                 scratch.data());
++    ApostateNoiseReadbackRectangle(
++        base::span<uint8_t>(scratch), tag.width, tag.height,
++        static_cast<size_t>(tag.pixel_stride),
++        static_cast<size_t>(tag.row_stride), tag.format, tag.type);
++    // Only pixels the request holds whole are replaced. A pixel cut in half by
++    // the requested range has no perturbation of its own to report.
++    for (int32_t row = 0; row < tag.height; ++row) {
++      const int64_t row_begin = tag.pixel_base + row * tag.row_stride;
++      const int64_t first = std::max(request_offset, row_begin);
++      const int64_t last =
++          std::min(request_end, row_begin + tag.pixel_stride * tag.width);
++      if (last - first < tag.pixel_stride) {
++        continue;
++      }
++      // Round inward to a whole pixel at both ends.
++      const int64_t begin =
++          row_begin +
++          ((first - row_begin + tag.pixel_stride - 1) / tag.pixel_stride) *
++              tag.pixel_stride;
++      const int64_t end =
++          row_begin + ((last - row_begin) / tag.pixel_stride) *
++                          tag.pixel_stride;
++      if (end <= begin) {
++        continue;
++      }
++      out.subspan(static_cast<size_t>(begin - request_offset),
++                  static_cast<size_t>(end - begin))
++          .copy_from(base::span<const uint8_t>(scratch).subspan(
++              static_cast<size_t>(begin - tag.pixel_base),
++              static_cast<size_t>(end - begin)));
++    }
++  }
++}
+ 
+ // TODO(kainino): Change outByteLength to GLuint and change the associated
+ // range checking (and all uses) - overflow becomes possible in cases below
+@@ -419,6 +486,10 @@
+   ContextGL()->CopyBufferSubData(
+       read_target, write_target, static_cast<GLintptr>(read_offset),
+       static_cast<GLintptr>(write_offset), static_cast<GLsizeiptr>(size));
++
++  // Apostate: a copy moves the bytes, so it moves whatever readback they were.
++  write_buffer->AdoptReadbackTags(*read_buffer, read_offset, write_offset,
++                                  size);
+ }
+ 
+ void WebGL2RenderingContextBase::getBufferSubData(
+@@ -451,6 +522,14 @@
+   ContextGL()->GetBufferSubDataCHROMIUM(
+       target, static_cast<GLintptr>(src_byte_offset),
+       static_cast<GLsizeiptr>(destination_byte_length), destination_data_ptr);
++
++  // Apostate: the bytes in the buffer are never touched -- a GPU command may
++  // still read them -- so the policy is applied here, to the copy the page
++  // asked for, and only to the pixels of a recorded readback that this request
++  // covers whole.
++  ApostateNoiseBufferEgress(ContextGL(), target, source_buffer,
++                            src_byte_offset, destination_data_ptr,
++                            destination_byte_length);
+ }
+ 
+ void WebGL2RenderingContextBase::blitFramebuffer(GLint src_x0,
+@@ -922,6 +1001,25 @@
+     ContextGL()->ReadPixels(x, y, width, height, format, type,
+                             reinterpret_cast<void*>(offset));
+   }
++
++  // Apostate: the readback landed in GPU memory, where the policy cannot key
++  // on it. Record where it is so that getBufferSubData can.
++  WebGLBuffer::ReadbackTag tag;
++  ApostateReadbackGeometry geometry;
++  if (ApostateReadbackGeometryFor(format, type, width,
++                                  GetPackPixelStoreParams(), &geometry)) {
++    tag.pixel_base = offset + static_cast<int64_t>(geometry.skip_bytes);
++    tag.width = width;
++    tag.height = height;
++    tag.pixel_stride = static_cast<int64_t>(geometry.pixel_stride);
++    tag.row_stride = static_cast<int64_t>(geometry.row_stride);
++    tag.format = format;
++    tag.type = type;
++    buffer->AddReadbackTag(tag);
++  } else {
++    // A pair the policy does not describe leaves no claim behind either.
++    buffer->InvalidateReadbackRows(offset, buffer->GetSize() - offset);
++  }
+ }
+ 
+ void WebGL2RenderingContextBase::RenderbufferStorageHelper(
+--- a/third_party/blink/renderer/modules/webgl/webgl_buffer.cc
++++ b/third_party/blink/renderer/modules/webgl/webgl_buffer.cc
+@@ -25,11 +25,22 @@
+ 
+ #include "third_party/blink/renderer/modules/webgl/webgl_buffer.h"
+ 
++#include <algorithm>
++#include <utility>
++
+ #include "gpu/command_buffer/client/gles2_interface.h"
+ #include "third_party/blink/renderer/modules/webgl/webgl_context_object_support.h"
+ 
+ namespace blink {
+ 
++namespace {
++// A handful of live readbacks per buffer is all any real program keeps, and a
++// bound is what keeps a loop of readPixels calls from growing this list
++// without end. The oldest tag goes; the bytes it described are then copied out
++// exactly, which is the same answer the policy gives with the switch off.
++constexpr wtf_size_t kMaxReadbackTags = 8;
++}  // namespace
++
+ WebGLBuffer::WebGLBuffer(WebGLContextObjectSupport* ctx)
+     : WebGLObject(ctx), initial_target_(0), size_(0) {
+   if (!ctx->IsLost()) {
+@@ -52,4 +63,89 @@
+   initial_target_ = target;
+ }
+ 
++void WebGLBuffer::AddReadbackTag(const ReadbackTag& tag) {
++  if (tag.width <= 0 || tag.height <= 0 || tag.pixel_stride <= 0 ||
++      tag.row_stride < tag.pixel_stride * tag.width) {
++    return;
++  }
++  // A new readback overwrites whatever was there.
++  InvalidateReadbackRows(tag.pixel_base, tag.End() - tag.pixel_base);
++  if (readback_tags_.size() >= kMaxReadbackTags) {
++    readback_tags_.EraseAt(0);
++  }
++  readback_tags_.push_back(tag);
++}
++
++void WebGLBuffer::InvalidateReadbackRows(int64_t offset, int64_t size) {
++  if (readback_tags_.empty() || size <= 0) {
++    return;
++  }
++  const int64_t begin = offset;
++  const int64_t end = offset + size;
++  Vector<ReadbackTag> kept;
++  for (const ReadbackTag& tag : readback_tags_) {
++    if (end <= tag.pixel_base || begin >= tag.End()) {
++      kept.push_back(tag);
++      continue;
++    }
++    // The write is one contiguous range, so the rows it lands in are
++    // contiguous too. Whole rows above and below it keep their content and
++    // their key; a row the write touches at all is gone, because a rectangle
++    // half of whose bytes came from somewhere else is not a readback.
++    int32_t first = tag.height;
++    int32_t last = -1;
++    for (int32_t row = 0; row < tag.height; ++row) {
++      const int64_t row_begin = tag.pixel_base + row * tag.row_stride;
++      const int64_t row_end = row_begin + tag.pixel_stride * tag.width;
++      if (end > row_begin && begin < row_end) {
++        first = std::min(first, row);
++        last = row;
++      }
++    }
++    if (last < 0) {
++      // Only padding between rows was written.
++      kept.push_back(tag);
++      continue;
++    }
++    if (first > 0) {
++      ReadbackTag above = tag;
++      above.height = first;
++      kept.push_back(above);
++    }
++    if (last + 1 < tag.height) {
++      ReadbackTag below = tag;
++      below.pixel_base = tag.pixel_base + (last + 1) * tag.row_stride;
++      below.height = tag.height - (last + 1);
++      kept.push_back(below);
++    }
++  }
++  readback_tags_ = std::move(kept);
++}
++
++void WebGLBuffer::AdoptReadbackTags(const WebGLBuffer& source,
++                                    int64_t read_offset,
++                                    int64_t write_offset,
++                                    int64_t size) {
++  InvalidateReadbackRows(write_offset, size);
++  if (&source == this) {
++    // An overlapping self-copy leaves no rectangle whose bytes are known, and
++    // the invalidation above has already said so.
++    return;
++  }
++  const int64_t read_end = read_offset + size;
++  for (const ReadbackTag& tag : source.ReadbackTags()) {
++    // Only a rectangle that moved whole keeps its meaning: a partial copy
++    // splits a row, and the destination's row geometry would no longer match.
++    if (tag.pixel_base < read_offset || tag.End() > read_end) {
++      continue;
++    }
++    if (readback_tags_.size() >= kMaxReadbackTags) {
++      readback_tags_.EraseAt(0);
++    }
++    ReadbackTag moved = tag;
++    moved.pixel_base = write_offset + (tag.pixel_base - read_offset);
++    readback_tags_.push_back(moved);
++  }
++}
++
+ }  // namespace blink
+--- a/third_party/blink/renderer/modules/webgl/webgl_buffer.h
++++ b/third_party/blink/renderer/modules/webgl/webgl_buffer.h
+@@ -27,6 +27,7 @@
+ #define THIRD_PARTY_BLINK_RENDERER_MODULES_WEBGL_WEBGL_BUFFER_H_
+ 
+ #include "third_party/blink/renderer/modules/webgl/webgl_object.h"
++#include "third_party/blink/renderer/platform/wtf/vector.h"
+ 
+ namespace blink {
+ 
+@@ -45,12 +46,48 @@
+   void SetSize(int64_t size) { size_ = size; }
+   int64_t GetSize() const { return size_; }
+ 
++  // Apostate: a rectangle of pixels that readPixels(..., offset) packed into
++  // this buffer, recorded so that getBufferSubData can apply the opt-in
++  // readback policy to the bytes it hands the page without ever writing to the
++  // buffer itself -- GPU commands may still consume it. A buffer with no tag
++  // is copied out exactly.
++  //
++  // The tag describes the geometry only; the page-visible values stay in GPU
++  // memory, and a tag is worth nothing to anything but the policy.
++  struct ReadbackTag {
++    int64_t pixel_base = 0;    // byte offset of pixel (0, 0)
++    int32_t width = 0;
++    int32_t height = 0;
++    int64_t pixel_stride = 0;
++    int64_t row_stride = 0;
++    GLenum format = 0;
++    GLenum type = 0;
++
++    // One past the last byte the rectangle occupies.
++    int64_t End() const {
++      return pixel_base + row_stride * (height - 1) + pixel_stride * width;
++    }
++  };
++
++  const Vector<ReadbackTag>& ReadbackTags() const { return readback_tags_; }
++  void AddReadbackTag(const ReadbackTag&);
++  void ClearReadbackTags() { readback_tags_.clear(); }
++  // Drops the rows of every tag that a write to [offset, offset + size)
++  // touches, keeping whichever whole rows above and below it survive.
++  void InvalidateReadbackRows(int64_t offset, int64_t size);
++  // Carries across the tags a copyBufferSubData moves wholesale.
++  void AdoptReadbackTags(const WebGLBuffer& source,
++                         int64_t read_offset,
++                         int64_t write_offset,
++                         int64_t size);
++
+  protected:
+   void DeleteObjectImpl(gpu::gles2::GLES2Interface*) override;
+ 
+  private:
+   GLenum initial_target_;
+   int64_t size_;
++  Vector<ReadbackTag> readback_tags_;
+ };
+ 
+ }  // namespace blink
+diff --git a/third_party/blink/renderer/modules/webgl/webgl_readback_noise.h b/third_party/blink/renderer/modules/webgl/webgl_readback_noise.h
+new file mode 100644
+--- /dev/null
++++ b/third_party/blink/renderer/modules/webgl/webgl_readback_noise.h
+@@ -0,0 +1,70 @@
++// Copyright 2026 The Apostate Authors
++// Use of this source code is governed by a GPL-3.0 license that can be
++// found in the LICENSE file.
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_WEBGL_WEBGL_READBACK_NOISE_H_
++#define THIRD_PARTY_BLINK_RENDERER_MODULES_WEBGL_WEBGL_READBACK_NOISE_H_
++
++#include <cstdint>
++
++#include "base/containers/span.h"
++#include "third_party/blink/renderer/modules/modules_export.h"
++#include "third_party/blink/renderer/platform/graphics/gpu/webgl_image_conversion.h"
++#include "third_party/khronos/GLES2/gl2ext.h"
++
++namespace blink {
++
++// Apostate: the GL half of the --fingerprint-noise readback policy. GL is
++// where the channel layout of a readback lives -- the (format, type) pair, the
++// packed pixel types and the pack state -- so the translation belongs here and
++// the content-keyed kernel stays in
++// core/canvas_interventions/apostate_readback_noise.h.
++//
++// Every (format, type) pair readPixels accepts is covered, including the packed
++// ones, so no combination is a clean route out. GL never packs premultiplied
++// pixels, so no colour channel is clamped to alpha here; alpha itself, the
++// shared exponent of RGB9_E5 and a format that carries nothing but alpha are
++// never moved.
++
++// Where the pixels of a readback rectangle sit in the destination.
++struct ApostateReadbackGeometry {
++  size_t skip_bytes = 0;    // bytes before pixel (0, 0)
++  size_t pixel_stride = 0;  // bytes per pixel
++  size_t row_stride = 0;    // bytes between the starts of two rows
++};
++
++// Resolves the geometry GL's pack state gives a `width`-wide readback. False
++// when the pair is not one GL can pack, or when the policy does not describe
++// it, in which case the caller leaves every byte alone.
++MODULES_EXPORT bool ApostateReadbackGeometryFor(
++    GLenum format,
++    GLenum type,
++    GLsizei width,
++    const WebGLImageConversion::PixelStoreParams& pack,
++    ApostateReadbackGeometry* geometry);
++
++// Perturbs the `width` x `height` rectangle that GL just packed into
++// `destination` under `pack`. A no-op unless the policy is in force.
++MODULES_EXPORT void ApostateNoiseReadbackPixels(
++    base::span<uint8_t> destination,
++    GLsizei width,
++    GLsizei height,
++    GLenum format,
++    GLenum type,
++    const WebGLImageConversion::PixelStoreParams& pack);
++
++// Perturbs a rectangle whose geometry is already known: the pixel-pack buffer
++// route, which recorded it when readPixels wrote the buffer. `rectangle`
++// begins at pixel (0, 0).
++MODULES_EXPORT void ApostateNoiseReadbackRectangle(
++    base::span<uint8_t> rectangle,
++    GLsizei width,
++    GLsizei height,
++    size_t pixel_stride,
++    size_t row_stride,
++    GLenum format,
++    GLenum type);
++
++}  // namespace blink
++
++#endif  // THIRD_PARTY_BLINK_RENDERER_MODULES_WEBGL_WEBGL_READBACK_NOISE_H_
+diff --git a/third_party/blink/renderer/modules/webgl/webgl_readback_noise.cc b/third_party/blink/renderer/modules/webgl/webgl_readback_noise.cc
+new file mode 100644
+--- /dev/null
++++ b/third_party/blink/renderer/modules/webgl/webgl_readback_noise.cc
+@@ -0,0 +1,232 @@
++// Copyright 2026 The Apostate Authors
++// Use of this source code is governed by a GPL-3.0 license that can be
++// found in the LICENSE file.
++
++#include "third_party/blink/renderer/modules/webgl/webgl_readback_noise.h"
++
++#include <optional>
++
++#include "third_party/blink/renderer/core/canvas_interventions/apostate_readback_noise.h"
++
++namespace blink {
++
++namespace {
++
++using apostate_readback_noise::Channels;
++using apostate_readback_noise::Storage;
++using apostate_readback_noise::Surface;
++
++// The channel layout of one packed pixel, least significant field first. GL
++// numbers the components of a packed type from the most significant end unless
++// the name says _REV, so the field widths below are the spec's layout read
++// backwards, and the movable mask names the colour fields in that order.
++bool PackedChannels(GLenum type, Channels* channels) {
++  switch (type) {
++    case GL_UNSIGNED_SHORT_5_6_5:  // B, G, R
++      channels->count = 3;
++      channels->field_bits = {{5, 6, 5, 0}};
++      channels->movable = 0b0111;
++      channels->alpha = 3;
++      break;
++    case GL_UNSIGNED_SHORT_4_4_4_4:  // A, B, G, R
++      channels->count = 4;
++      channels->field_bits = {{4, 4, 4, 4}};
++      channels->movable = 0b1110;
++      channels->alpha = 0;
++      break;
++    case GL_UNSIGNED_SHORT_5_5_5_1:  // A, B, G, R
++      channels->count = 4;
++      channels->field_bits = {{1, 5, 5, 5}};
++      channels->movable = 0b1110;
++      channels->alpha = 0;
++      break;
++    case GL_UNSIGNED_INT_2_10_10_10_REV:  // R, G, B, A
++      channels->count = 4;
++      channels->field_bits = {{10, 10, 10, 2}};
++      channels->movable = 0b0111;
++      channels->alpha = 3;
++      break;
++    case GL_UNSIGNED_INT_10F_11F_11F_REV:  // R, G, B
++      // Three unsigned mini-floats. A step of one on the stored field is one
++      // unit in the last place, the same statement as for a real float.
++      channels->count = 3;
++      channels->field_bits = {{11, 11, 10, 0}};
++      channels->movable = 0b0111;
++      channels->alpha = 3;
++      break;
++    case GL_UNSIGNED_INT_5_9_9_9_REV:  // R, G, B mantissae, shared exponent
++      channels->count = 4;
++      channels->field_bits = {{9, 9, 9, 5}};
++      channels->movable = 0b0111;
++      // The shared exponent scales all three mantissae at once, so moving it
++      // would move the whole pixel. It is held in the alpha slot, which the
++      // policy never touches.
++      channels->alpha = 3;
++      break;
++    default:
++      return false;
++  }
++  channels->storage = Storage::kBitFields;
++  return true;
++}
++
++std::optional<Channels> ChannelsFor(GLenum format, GLenum type) {
++  Channels channels;
++  if (PackedChannels(type, &channels)) {
++    return channels;
++  }
++
++  switch (format) {
++    case GL_RGBA:
++    case GL_RGBA_INTEGER:
++      channels.count = 4;
++      channels.movable = 0b0111;
++      channels.alpha = 3;
++      break;
++    case GL_RGB:
++    case GL_RGB_INTEGER:
++      channels.count = 3;
++      channels.movable = 0b0111;
++      channels.alpha = 3;
++      break;
++    case GL_RG:
++    case GL_RG_INTEGER:
++      channels.count = 2;
++      channels.movable = 0b0011;
++      channels.alpha = 2;
++      break;
++    case GL_RED:
++    case GL_RED_INTEGER:
++    case GL_LUMINANCE:
++      channels.count = 1;
++      channels.movable = 0b0001;
++      channels.alpha = 1;
++      break;
++    case GL_LUMINANCE_ALPHA:
++      channels.count = 2;
++      channels.movable = 0b0001;
++      channels.alpha = 1;
++      break;
++    default:
++      // GL_ALPHA carries nothing but alpha, and depth and stencil are not
++      // colour. Both come back exactly as GL wrote them.
++      return std::nullopt;
++  }
++
++  switch (type) {
++    case GL_UNSIGNED_BYTE:
++      channels.storage = Storage::kUint8;
++      break;
++    case GL_BYTE:
++      channels.storage = Storage::kInt8;
++      break;
++    case GL_UNSIGNED_SHORT:
++      channels.storage = Storage::kUint16;
++      break;
++    case GL_SHORT:
++      channels.storage = Storage::kInt16;
++      break;
++    case GL_UNSIGNED_INT:
++      channels.storage = Storage::kUint32;
++      break;
++    case GL_INT:
++      channels.storage = Storage::kInt32;
++      break;
++    case GL_HALF_FLOAT:
++    case GL_HALF_FLOAT_OES:
++      channels.storage = Storage::kFloat16;
++      break;
++    case GL_FLOAT:
++      channels.storage = Storage::kFloat32;
++      break;
++    default:
++      return std::nullopt;
++  }
++  return channels;
++}
++
++}  // namespace
++
++bool ApostateReadbackGeometryFor(
++    GLenum format,
++    GLenum type,
++    GLsizei width,
++    const WebGLImageConversion::PixelStoreParams& pack,
++    ApostateReadbackGeometry* geometry) {
++  if (width <= 0 || !ChannelsFor(format, type)) {
++    return false;
++  }
++  unsigned components_per_pixel = 0;
++  unsigned bytes_per_component = 0;
++  if (!WebGLImageConversion::ComputeFormatAndTypeParameters(
++          format, type, &components_per_pixel, &bytes_per_component)) {
++    return false;
++  }
++  const size_t alignment = pack.alignment > 0
++                               ? static_cast<size_t>(pack.alignment)
++                               : size_t{1};
++  const size_t pixel_stride =
++      static_cast<size_t>(components_per_pixel) * bytes_per_component;
++  const size_t row_pixels = pack.row_length > 0
++                                ? static_cast<size_t>(pack.row_length)
++                                : static_cast<size_t>(width);
++  // GL pads every row but the last one out to PACK_ALIGNMENT. The rectangle is
++  // walked row by row, so the padded stride is what matters and the last row's
++  // missing padding is simply never read.
++  const size_t unpadded = row_pixels * pixel_stride;
++  const size_t row_stride =
++      ((unpadded + alignment - 1) / alignment) * alignment;
++  geometry->pixel_stride = pixel_stride;
++  geometry->row_stride = row_stride;
++  geometry->skip_bytes =
++      static_cast<size_t>(pack.skip_rows > 0 ? pack.skip_rows : 0) * row_stride +
++      static_cast<size_t>(pack.skip_pixels > 0 ? pack.skip_pixels : 0) *
++          pixel_stride;
++  return true;
++}
++
++void ApostateNoiseReadbackPixels(
++    base::span<uint8_t> destination,
++    GLsizei width,
++    GLsizei height,
++    GLenum format,
++    GLenum type,
++    const WebGLImageConversion::PixelStoreParams& pack) {
++  if (!apostate_readback_noise::Enabled() || width <= 0 || height <= 0) {
++    return;
++  }
++  ApostateReadbackGeometry geometry;
++  if (!ApostateReadbackGeometryFor(format, type, width, pack, &geometry) ||
++      destination.size() < geometry.skip_bytes) {
++    return;
++  }
++  ApostateNoiseReadbackRectangle(destination.subspan(geometry.skip_bytes),
++                                 width, height, geometry.pixel_stride,
++                                 geometry.row_stride, format, type);
++}
++
++void ApostateNoiseReadbackRectangle(base::span<uint8_t> rectangle,
++                                    GLsizei width,
++                                    GLsizei height,
++                                    size_t pixel_stride,
++                                    size_t row_stride,
++                                    GLenum format,
++                                    GLenum type) {
++  if (!apostate_readback_noise::Enabled() || width <= 0 || height <= 0) {
++    return;
++  }
++  std::optional<Channels> channels = ChannelsFor(format, type);
++  if (!channels) {
++    return;
++  }
++  Surface surface;
++  surface.bytes = rectangle;
++  surface.width = width;
++  surface.height = height;
++  surface.pixel_stride = pixel_stride;
++  surface.row_stride = row_stride;
++  surface.channels = *channels;
++  apostate_readback_noise::Apply(surface);
++}
++
++}  // namespace blink
+--- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
++++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+@@ -135,6 +135,7 @@
+ #include "third_party/blink/renderer/modules/webgl/webgl_framebuffer.h"
+ #include "third_party/blink/renderer/modules/webgl/webgl_lose_context.h"
+ #include "third_party/blink/renderer/modules/webgl/webgl_program.h"
++#include "third_party/blink/renderer/modules/webgl/webgl_readback_noise.h"
+ #include "third_party/blink/renderer/modules/webgl/webgl_renderbuffer.h"
+ #include "third_party/blink/renderer/modules/webgl/webgl_shader.h"
+ #include "third_party/blink/renderer/modules/webgl/webgl_shader_precision_format.h"
+@@ -2793,6 +2794,8 @@
+     return;
+ 
+   buffer->SetSize(size);
++  // Apostate: re-specifying a buffer discards whatever readback it held.
++  buffer->ClearReadbackTags();
+ 
+   ContextGL()->BufferData(target, static_cast<GLsizeiptr>(size), data, usage);
+ }
+@@ -2847,6 +2850,8 @@
+     SynthesizeGLError(GL_INVALID_VALUE, "bufferSubData", "buffer overflow");
+     return;
+   }
++  // Apostate: bytes written from script are not a readback any more.
++  buffer->InvalidateReadbackRows(offset, size);
+ 
+   ContextGL()->BufferSubData(target, static_cast<GLintptr>(offset),
+                              static_cast<GLintptr>(size), data);
+@@ -5443,6 +5448,17 @@
+       return;
+     }
+     ContextGL()->ReadPixels(x, y, width, height, format, type, data);
++  }
++
++  // Apostate: the destination view is what the page reads, so the opt-in
++  // policy is applied to it and the drawing buffer is left exactly as it was
++  // rendered. Format, type and the whole pack state are honoured -- the
++  // rectangle is walked where GL put it, not where an RGBA8 shortcut would
++  // assume it is.
++  if (width > 0 && height > 0 && data) {
++    ApostateNoiseReadbackPixels(
++        pixels->ByteSpanMaybeShared().subspan(offset_in_bytes.ValueOrDie()),
++        width, height, format, type, GetPackPixelStoreParams());
+   }
+ }
+ 
+--- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_webgpu_base.cc
++++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_webgpu_base.cc
+@@ -27,6 +27,7 @@
+ #include "third_party/blink/renderer/modules/webgl/webgl_object.h"
+ #include "third_party/blink/renderer/modules/webgl/webgl_program.h"
+ #include "third_party/blink/renderer/modules/webgl/webgl_query.h"
++#include "third_party/blink/renderer/modules/webgl/webgl_readback_noise.h"
+ #include "third_party/blink/renderer/modules/webgl/webgl_renderbuffer.h"
+ #include "third_party/blink/renderer/modules/webgl/webgl_sampler.h"
+ #include "third_party/blink/renderer/modules/webgl/webgl_shader.h"
+@@ -3814,6 +3815,19 @@
+   driver_gl_.fn.glReadPixelsRobustANGLEFn(x, y, width, height, format, type,
+                                           bufSize, nullptr, nullptr, nullptr,
+                                           data_at_offset.data());
++
++  // Apostate: same boundary as the GLES backend's ReadPixelsHelper -- the
++  // caller's view is perturbed, the framebuffer is not. pixelStorei is not
++  // implemented on this backend, so the pack state is GL's default and the
++  // rectangle is tightly packed to a four-byte row. The PBO route above writes
++  // GPU memory, and this backend implements neither getBufferSubData nor
++  // copyBufferSubData, so there is no buffer egress to tag; when one arrives
++  // it needs the WebGL2 treatment.
++  if (width > 0 && height > 0) {
++    ApostateNoiseReadbackPixels(data_at_offset.first(bufSizeSizeT), width,
++                                height, format, type,
++                                WebGLImageConversion::PixelStoreParams());
++  }
+ }
+ 
+ // **************************************************************************
+--- a/third_party/blink/renderer/platform/graphics/static_bitmap_image.h
++++ b/third_party/blink/renderer/platform/graphics/static_bitmap_image.h
+@@ -109,6 +109,14 @@
+   Vector<uint8_t> CopyImageData(const SkImageInfo& info,
+                                 bool apply_orientation);
+ 
++  // Apostate: set when this image is a canvas's page-visible output, so that a
++  // byte copy taken out of it is a canvas readback rather than an ordinary
++  // image decode. Only ImageBitmap::CopyBitmapData reads it, and only to
++  // decide whether the opt-in readback policy applies; a page cannot see it,
++  // and the image's pixels are not changed by setting it.
++  bool IsApostateCanvasReadback() const { return apostate_canvas_readback_; }
++  void SetApostateCanvasReadback() { apostate_canvas_readback_ = true; }
++
+   virtual gfx::Size GetSize() const = 0;
+   virtual SkAlphaType GetAlphaType() const = 0;
+   virtual gfx::ColorSpace GetColorSpace() const = 0;
+@@ -140,6 +148,9 @@
+   // AcceleratedStaticBitmapImage. To change this property, the call site would
+   // have to call SetOriginClean().
+   bool is_origin_clean_ = true;
++
++  // Apostate provenance; see IsApostateCanvasReadback().
++  bool apostate_canvas_readback_ = false;
+ };
+ 
+ template <>

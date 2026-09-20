@@ -409,3 +409,29 @@
 # and the residual honest. Independent of 0116 and 0118, which are a data-table
 # axis and the WebRTC egress families.
 0119-gl-serve-the-anchor-limits-to-webgl-on-every-backend.patch
+
+# 0120 adds --fingerprint-noise, off by default: a profile-seeded, content-keyed
+# step of at most one per colour channel applied at every page-visible canvas
+# and WebGL readback. It sits last because it is the only patch in the series
+# that trades coherence away, and last is where a reader looking for that trade
+# will find it -- not because anything orders it here.
+#
+# It is independent of 0116 through 0119. It declares its own switch in
+# base/base_switches.h, creates
+# third_party/blink/renderer/core/canvas_interventions/apostate_readback_noise.{h,cc}
+# and third_party/blink/renderer/modules/webgl/webgl_readback_noise.{h,cc},
+# and is the first patch in the series to touch core/canvas_interventions,
+# core/imagebitmap, core/offscreencanvas, modules/canvas/canvas2d,
+# platform/graphics/static_bitmap_image.h and modules/webgl/webgl_buffer.{h,cc},
+# so nothing orders it in any of them. Its render_process_host_impl.cc hunk adds
+# one line to the renderer switch list, which 0087 also edits but in a different
+# function; its two BUILD.gn/build.gni hunks append source names no other patch
+# names; and its html_canvas_element.cc, webgl_rendering_context_base.cc and
+# webgl2_rendering_context_base.cc hunks are in the readback functions, not in
+# the parameter-serving paths 0103, 0104, 0112 and 0119 rewrite.
+#
+# The one thing it reads from elsewhere is Profile::source_id(), which 0004
+# parses and 0113 makes persistent -- both long applied. It needs neither
+# 0116's extensions axis nor 0117's font render params, and 0119's context-kind
+# gate for GL limits is a different surface entirely.
+0120-opt-in-profile-seeded-readback-noise.patch
