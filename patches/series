@@ -311,6 +311,48 @@
 # orders it there. Independent of 0112 and 0113.
 0115-composed-locale-outranks-the-platform.patch
 
+# 0116 makes a page's chrome.runtime a persona instead of the host's. Measured:
+# stock Chrome 153 on a fresh profile exposes window.chrome as exactly
+# loadTimes/csi/app with chrome.runtime undefined, and this fork already
+# matched it field for field -- while a browser with a wallet extension
+# installed exposes chrome.runtime and window.browser on every http/https
+# page, which is the other ordinary real state. So it is an axis: absent
+# weighted 75, present 25, conditioned on nothing, because the same extension
+# is installed on all three platforms. This patch carries the profile half
+# only -- schema key, loader parse and accessor, dispersion table, catalogue
+# slot, explain line, resolver mirror -- and the renderer gate that makes it
+# page-visible is a separate patch, which is what the ledger row says.
+#
+# It comes after 0081, which created base/apostate/profile.{h,cc}, and after
+# 0113, which is the last patch before it to edit the member list those
+# accessors sit beside. Nothing else in the series reads or writes an
+# `extensions` profile section, and the axis draws from its own substream, so
+# no existing seed's other axes move. Independent of 0114 and 0115: they touch
+# the locale surface and this touches none of it.
+0116-profile-extensions-axis.patch
+
+# 0117 makes text rasterisation follow the persona. gfx::FontRenderParams --
+# antialiasing, subpixel order, hinting, autohinter, embedded bitmaps,
+# subpixel positioning, Skia text contrast and gamma -- reaches every renderer
+# as blink::RendererPreferences and decides glyph coverage bytes, text gamma
+# correction and whether advances are fractional. Chromium derives it per
+# platform, and on Linux from the host's fontconfig and desktop settings, so a
+# composed persona was rasterising text the way the host box happened to be
+# configured. The compositor projects the tuple from the persona instead: one
+# answer per platform, no draw, nothing for a seed to move, every value cited
+# to the Chromium source that produces it. Profile half only; writing
+# RendererPreferences from it is a separate patch.
+#
+# It comes after 0116, and only for the same reason 0116 comes after 0113: the
+# two add adjacent hunks to base/apostate/profile.{h,cc}, 0117's inside the
+# `fonts` parse block that 0090 and 0097 built and 0116's immediately after
+# it, so generating them in the other order would not apply. It also edits
+# base/apostate/compose.{h,cc} and base/apostate/compose_unittest.cc, which
+# 0115 last touched, and its compose_unittest.cc hunk appends after the test
+# 0116 added. Otherwise the two are independent: 0116 is an axis in a data
+# table and 0117 is a projection in the compositor, and neither reads the
+# other's key.
+0117-profile-font-render-params.patch
 
 # 0118 makes the address families WebRTC is offered follow the configured
 # proxy's relay instead of this host's interfaces, and makes candidate

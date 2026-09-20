@@ -1,0 +1,276 @@
+Subject: profile: an extensions axis, so a page's chrome.runtime is a persona and not the host's
+
+A detector we met asserts that a "full" Chrome always exposes
+`chrome.runtime` on an ordinary page, and that its absence is a headless or
+automation tell. That is false, and it has been false since about Chrome 98.
+Measured, both browsers, fresh `--user-data-dir`, `https://example.com/`:
+
+    stock Google Chrome 153.0.8010.48   Apostate 152.0.7977.83
+    getOwnPropertyNames(chrome)         getOwnPropertyNames(chrome)
+      ["loadTimes","csi","app"]           ["loadTimes","csi","app"]
+    typeof chrome.runtime "undefined"   typeof chrome.runtime "undefined"
+    typeof window.browser "undefined"   typeof window.browser "undefined"
+
+Identical on `file://`, and identical under `--fingerprint-platform=windows
+--fingerprint=424242`. So this fork already matches fresh Chrome field for
+field, and the rule fires on real Chrome users too. The folklore has a
+source: the CryptoToken component extension shipped
+`externally_connectable` `https://*/*` in every Chrome and Chromium build
+until it was removed around Chrome 98, so for years every Chrome did expose
+`chrome.runtime` on every https page.
+
+What decides it today is one question asked of the installed extension set.
+`CanWebpageContextConnectExternally`
+(extensions/renderer/native_extension_bindings_system.cc) walks the
+renderer's extensions and returns true on the first manifest whose
+`externally_connectable.matches` covers the context URL;
+`UpdateBindingsForContext` installs the `runtime` accessor and the `browser`
+object from that answer alone. Measured on stock Chrome 153 with a
+MetaMask-shaped manifest (`matches: ["http://*/*", "https://*/*"]`,
+`ids: ["*"]`) loaded unpacked into a fresh profile:
+
+    getOwnPropertyNames(chrome)  ["loadTimes","csi","app","runtime"]
+    window.browser               object, own keys ["runtime"]
+    window.browser.runtime === chrome.runtime   true
+    chrome.runtime own keys      dynamicId, id, connect, sendMessage,
+                                 ContextType, OnInstalledReason,
+                                 OnRestartRequiredReason, PlatformArch,
+                                 PlatformNaclArch, PlatformOs,
+                                 RequestUpdateCheckStatus
+    chrome.runtime.id            undefined  ('id' in runtime === true)
+    file:// and about:blank      no runtime, no browser
+
+field for field what `https://meet.google.com/` gives a fresh official Chrome
+through the Hangouts component extension. MetaMask has tens of millions of
+installs and the same shape appears in other wallet and automation
+extensions, so both states are ordinary real-browser states: absent for a
+browser with no matching extension, present for a wallet user.
+
+So this is a persona and not a fix. It is drawn, absence weighted 75 and
+presence 25, conditioned on nothing -- the same wallet extension is
+installed on Windows, macOS and Linux desktops alike, so keying it on the
+platform or the machine class would invent a correlation the population does
+not have. The weights are authored and say so; no public dataset gives the
+fraction.
+
+Two things this deliberately is not.
+
+It is not an extension list, and it never names an id. A fixed extension id
+is a cross-instance correlator that survives every other axis: two launches
+that share it are the same install whatever else was drawn. Shipping an
+inert component extension to produce the observable would hand a detector
+exactly that.
+
+It is not an omission when it draws absent. The table serves
+`externally_connectable: false` explicitly, because an absent section leaves
+the host's own extension set to answer a question the persona is supposed to
+own -- an operator running Apostate inside a profile directory that has a
+wallet extension would otherwise present a persona that says nothing and a
+page that says wallet.
+
+WHAT THIS PATCH CONTAINS, AND WHAT IT DOES NOT
+
+The profile half only: the schema key, the loader's parse and accessor, the
+dispersion table, its catalogue registration and resolution-order slot, the
+`--fingerprint-explain` line that falls out of being an axis, and the
+reference resolver's mirror of the draw.
+
+The renderer gate is NOT in this patch and NOT yet in the series, so no page
+observes anything different for it yet: a composed profile carries
+`extensions.externally_connectable`, `base::apostate::Profile` parses it,
+and `Profile::extensions_externally_connectable()` answers -- with no caller.
+The ledger row `extensions.webpage-runtime` records that state rather than
+implying the surface is served. When the gate lands it is one predicate,
+because everything downstream of it is already the real binding path:
+`extensions/common/api/_api_features.json` already grants `runtime.connect`,
+`runtime.sendMessage` and `runtime.lastError` to `web_page` over
+`<all_urls>`; `runtime_hooks_delegate.cc` already installs `id` and
+`dynamicId` as undefined-returning native data properties with an empty
+setter; and `extensions/browser/api/messaging/message_service.cc` answers a
+web-page channel to any id -- absent, present, or present but not
+connectable -- with the identical "Could not establish connection. Receiving
+end does not exist.", deliberately, so no enumeration oracle exists.
+
+The axis draws from its own substream, keyed by its own label, so no
+existing seed's other axes move: the compositor's `Draw(root, label, index)`
+is per-axis by construction and `AddingAnAxisDoesNotShiftAnotherAxisChoice`
+pins it. What does change for every seed is the composed profile's byte
+digest, because it now carries one more section -- the native golden
+digests in scripts/test_profile_resolver.py are stale until the next build
+regenerates them, and the test reports that as a skip naming `extensions`
+rather than passing quietly.
+
+Verified: `scripts/checkfile.sh` on base/apostate/profile.cc and
+base/apostate/compose_unittest.cc, `python3 scripts/check-schema-wiring.py`
+at zero findings, and the reference resolver's new test over 60 seeds per
+persona -- both states reachable, absence the majority, the same seed always
+the same state, and the value a JSON boolean the loader will accept.
+`base_unittests` was not run: this wave does not build, and the compositor
+half of the evidence is the reference implementation, which does.
+
+Ledger: extensions.webpage-runtime, automation.window-chrome-surface,
+emit.extensions.native-bindings-webpage-runtime.
+
+--- a/base/apostate/profile.h
++++ b/base/apostate/profile.h
+@@ -725,6 +725,31 @@
+   }
+   std::optional<uint32_t> css_highlight_text_argb() const {
+     return css_highlight_text_argb_;
++  }
++
++  // Whether some installed extension's `externally_connectable` manifest key
++  // matches an ordinary http/https page.
++  //
++  // That one boolean is the entire gate on `chrome.runtime` and
++  // `window.browser` existing on a web page:
++  // CanWebpageContextConnectExternally walks the renderer's extension set and
++  // returns true on the first manifest whose matches cover the context URL,
++  // and UpdateBindingsForContext installs the `runtime` accessor and the
++  // `browser` object from that answer alone.
++  //
++  // nullopt is not false. False is a claim -- fresh Chrome, measured: window
++  // .chrome is exactly loadTimes/csi/app and chrome.runtime is undefined --
++  // and it is what a composed profile carries when the axis drew absent.
++  // nullopt means no profile described the surface at all, so the host's own
++  // extension set decides it, which is the only correct answer for
++  // --fingerprint=host.
++  //
++  // What this must never become is an extension list. A fixed extension id is
++  // a cross-instance correlator that survives every other axis, so nothing
++  // here names or installs one; the true state reproduces the observable
++  // consequence through the real binding path and nothing else.
++  std::optional<bool> extensions_externally_connectable() const {
++    return extensions_externally_connectable_;
+   }
+ 
+   // Identifier of the capture this profile was derived from, for diagnostics.
+@@ -804,6 +829,7 @@
+   std::optional<bool> has_hover_;
+   std::optional<uint32_t> css_highlight_argb_;
+   std::optional<uint32_t> css_highlight_text_argb_;
++  std::optional<bool> extensions_externally_connectable_;
+   std::string source_id_;
+   std::optional<ProxyCredentials> proxy_credentials_;
+ };
+--- a/base/apostate/profile.cc
++++ b/base/apostate/profile.cc
+@@ -1050,6 +1050,23 @@
+         }
+         profile->font_enumeration_allowlist_.insert(ToLowerASCII(*family));
+       }
++    }
++  }
++
++  if (const DictValue* extensions = dict->FindDict("extensions")) {
++    // Presence-only, and deliberately not a list of extensions. The renderer
++    // gate this feeds -- CanWebpageContextConnectExternally -- asks one
++    // question of the whole installed set, so one boolean reproduces its
++    // answer exactly, while a list would have to name ids, and a fixed
++    // extension id is a cross-instance correlator no other axis can undo.
++    if (const Value* raw = extensions->Find("externally_connectable")) {
++      const std::optional<bool> connectable = raw->GetIfBool();
++      if (!connectable) {
++        LOG(ERROR) << "apostate: extensions.externally_connectable must be "
++                      "boolean";
++        return nullptr;
++      }
++      profile->extensions_externally_connectable_ = *connectable;
+     }
+   }
+ 
+--- a/base/apostate/compose_unittest.cc
++++ b/base/apostate/compose_unittest.cc
+@@ -145,6 +145,26 @@
+ constexpr DispersionAxis kExtraAxis = {
+     "extra", "extra", {}, Selection::kSingle, Servability::kNone,
+     span<const DispersionOptionSet>(kExtraSets),
++};
++
++// ---- extensions: single / none, unconditioned, boolean-valued ----
++//
++// The only axis whose whole value is one boolean, which is why it is written
++// out here rather than folded into one of the axes above: a table author can
++// write `0` where a page needs `false`, and the loader refuses a non-boolean,
++// so the serialised shape is part of this axis's contract.
++constexpr DispersionOption kExtensionsOptions[] = {
++    {"absent", 75, "physical-ground-truth", "", PackKind::kNotAPack, nullptr,
++     R"({"extensions":{"externally_connectable":false}})"},
++    {"externally-connectable", 25, "catalogue-value", "", PackKind::kNotAPack,
++     nullptr, R"({"extensions":{"externally_connectable":true}})"},
++};
++constexpr DispersionOptionSet kExtensionsSets[] = {
++    {{}, span<const DispersionOption>(kExtensionsOptions)},
++};
++constexpr DispersionAxis kExtensionsAxis = {
++    "extensions", "extensions", {}, Selection::kSingle, Servability::kNone,
++    span<const DispersionOptionSet>(kExtensionsSets),
+ };
+ 
+ // ---- voices: single / none, conditioned on languages ----
+@@ -535,6 +555,65 @@
+   // persona selects the anchor now, so a fixture with no anchor for the
+   // persona makes that line compare "(absent)" with itself and pass.
+   EXPECT_NE("(absent)", ChosenId(*after, "anchor"));
++
++// The chrome.runtime persona. Absence is the common state and it is a CLAIM,
++// not a silence: fresh Chrome has no chrome.runtime on a web page, so a
++// composed launch says false rather than leaving the host's extension set to
++// answer. What that costs is one property nothing else in this file covers --
++// the section has to serialise as a JSON boolean, because the loader refuses
++// anything else and a table author writing 0 would compose a profile the
++// binary then drops on the floor with one log line.
++TEST(ApostateComposeTest, TheExtensionsAxisComposesABooleanAndOnlyWhenOffered) {
++  constexpr DispersionAxis kWith[] = {kOsReleaseAxis, kExtensionsAxis};
++  constexpr DispersionAxis kWithout[] = {kOsReleaseAxis};
++  const HostCapability host = CapableHost();
++
++  // Not offered: no section at all, so the host's own extension set decides
++  // the surface. An empty `extensions` object here would be worse than
++  // absence -- it is a section that claims nothing while looking composed.
++  const std::optional<Composition> without =
++      Compose(RequestFor("ext-seed", kWithout, host));
++  ASSERT_TRUE(without.has_value());
++  EXPECT_EQ(nullptr, without->profile.FindDict("extensions"));
++  EXPECT_EQ("(absent)", ChosenId(*without, "extensions"));
++
++  // Offered: both states are reachable across seeds, each seed always lands
++  // on the same one, and the value is a boolean in the bytes a launch carries.
++  int present = 0;
++  int absent = 0;
++  for (int seed = 0; seed < 24; ++seed) {
++    const std::string label = "ext-" + NumberToString(seed);
++    const std::optional<Composition> first =
++        Compose(RequestFor(label, kWith, host));
++    const std::optional<Composition> again =
++        Compose(RequestFor(label, kWith, host));
++    ASSERT_TRUE(first.has_value());
++    ASSERT_TRUE(again.has_value());
++    EXPECT_EQ(ChosenId(*first, "extensions"), ChosenId(*again, "extensions"))
++        << "seed " << label << " drew two different extension states";
++
++    const DictValue* extensions = first->profile.FindDict("extensions");
++    ASSERT_NE(nullptr, extensions);
++    const std::optional<bool> connectable =
++        extensions->FindBool("externally_connectable");
++    ASSERT_TRUE(connectable.has_value())
++        << "externally_connectable did not survive as a boolean";
++    *connectable ? ++present : ++absent;
++    EXPECT_NE(std::string::npos,
++              ProfileJson(*first).find(
++                  *connectable ? R"("externally_connectable":true)"
++                               : R"("externally_connectable":false)"));
++
++    const SurfaceRecord* record = Record(*first, "extensions");
++    ASSERT_NE(nullptr, record);
++    EXPECT_EQ("dispersion", record->layer);
++    EXPECT_EQ(*connectable ? "catalogue-value" : "physical-ground-truth",
++              record->evidence);
++  }
++  EXPECT_GT(absent, 0);
++  EXPECT_GT(present, 0)
++      << "no seed in 24 drew the minority state, so the weights are not live";
++}
+ }
+ 
+ // ---------------------------------------------------------------------------

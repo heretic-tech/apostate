@@ -1,0 +1,576 @@
+Subject: profile: text rasterisation follows the persona, not the host's text engine
+
+`gfx::FontRenderParams` decides how glyphs are rasterised: antialiasing and
+its subpixel order, hinting level and autohinter, embedded bitmaps, whether
+glyph positions may be fractional, and Skia's text contrast and gamma. The
+browser pushes all eight to every renderer as `blink::RendererPreferences`
+(third_party/blink/public/common/renderer_preferences/renderer_preferences.h
+:36-44), and they land on the glyph coverage bytes a canvas readback
+returns, on the gamma correction applied to those bytes, and -- through
+subpixel positioning -- on whether text advances are fractional, which
+`measureText` and client rects expose without any canvas at all.
+
+Chromium derives them per platform and only per platform. There are three
+implementations of `GetFontRenderParams`: Windows asks the shell
+(ui/gfx/font_render_params_win.cc), macOS states a constant tuple
+(font_render_params_mac.cc), Linux asks the toolkit and then fontconfig
+(font_render_params_linux.cc, ui/gtk/gtk_ui.cc,
+ui/gfx/linux/fontconfig_util.cc). The last one is the leak: under any
+composed persona those values are the HOST's fontconfig and desktop
+settings, so a claimed Windows machine on a Linux host rasterises text the
+way that particular Linux box was configured to.
+
+So the profile gains the tuple, and the compositor fills it from the
+persona. It is a projection rather than an axis, and the distinction is
+load-bearing: there is nothing to draw from, because Chromium has exactly
+one answer per platform, and a tuple assembled from two platforms' answers
+is a machine that does not exist. The `platform-projection` layer in
+`--fingerprint-explain` says exactly that -- no draw, no option table, no
+host input, nothing a seed can move.
+
+THE TABLE, AND WHERE EVERY VALUE COMES FROM
+
+                        windows   macos     linux
+    antialiasing        true      true      true
+    subpixel_positioning true     true      false
+    autohinter          false     false     true
+    use_bitmaps         false     true      true
+    hinting             medium    medium    slight
+    subpixel_rendering  rgb       rgb       rgb
+    text_contrast       1.0       0.0       0.2
+    text_gamma          0.0       0.0       1.2
+
+windows -- ui/gfx/font_render_params_win.cc:77-104. The block starts with
+antialiasing and subpixel positioning OFF and turns both on when
+`SPI_GETFONTSMOOTHING` reports font smoothing enabled, which is the Windows
+default; the subpixel order comes from `GetSubpixelRenderingGeometry`
+(:31-61, ClearType `PixelStructure` 1 or `FE_FONTSMOOTHINGORIENTATIONRGB` ->
+rgb) and is reached only when `SPI_GETFONTSMOOTHINGTYPE` is
+`FE_FONTSMOOTHINGCLEARTYPE`, also the default. `autohinter` and
+`use_bitmaps` false and `HINTING_MEDIUM` are set outright at :80-82.
+
+macos -- ui/gfx/font_render_params_mac.cc:16-26 states the whole tuple as
+"params that match SkiaTextRenderer's default render settings". Note
+`use_bitmaps` true, which is macOS alone among the three.
+
+linux -- `autohinter`, `use_bitmaps` and `HINTING_SLIGHT` are the tuple
+Chromium's FreeType path calls "the system's default settings"
+(ui/gfx/font_render_params_skia.cc:13-26); slight hinting is also what GTK
+reports for the near-universal `hintslight` setting (ui/gtk/gtk_ui.cc:
+130-131) and what fontconfig's `FC_HINT_SLIGHT` maps to
+(ui/gfx/linux/fontconfig_util.cc:150-151); rgb is fontconfig's `rgba` on an
+ordinary LCD desktop (:314-317); and `subpixel_positioning` is false because
+font_render_params_linux.cc:267 sets it to `device_scale_factor > 1.0f`,
+which an unscaled desktop is not.
+
+The two floats are Skia BUILD constants rather than OS queries, so the right
+value is what a real Chrome on the claimed OS was compiled with.
+skia/BUILD.gn gives `is_win` `SK_GAMMA_SRGB` with `SK_GAMMA_CONTRAST=1.0`
+(:137-142), `is_mac` `SK_GAMMA_SRGB` with `0.0` (:126-131), and Linux
+`SK_GAMMA_EXPONENT=1.2` with `SK_GAMMA_CONTRAST=0.2` (:113-117);
+`SK_GAMMA_SRGB` leaves `SK_GAMMA_EXPONENT` undefined, which
+third_party/skia/include/core/SkTypes.h:84-85 defines to be `0.0f`, sRGB.
+That config reaches ui/gfx and Blink because `skia_config` is an
+`all_dependent_configs` of `//skia` (skia/BUILD.gn:488).
+
+One correction worth stating, because the plan for this patch carried the
+other number: Windows is contrast 1.0, not 0.5. The 0.5 in
+SkTypes.h:88-93 is the fallback for a build that defines neither macro, and
+no Chromium desktop build is such a build. Serving 0.5 while citing "the
+Skia macros" would have been this repository's own failure mode -- an
+artifact describing something the build does not do.
+
+BOUNDS, AND WHY THE PARSER IS STRICT
+
+`SkSurfaceProps` declares the domain: `kMinContrastInclusive` 0 and
+`kMaxContrastInclusive` 1, `kMinGammaInclusive` 0 and `kMaxGammaExclusive` 4
+(third_party/skia/include/core/SkSurfaceProps.h:81-84), which is what
+ui/gfx/font_util_win.cc:73-85 clamps a registry value into. The schema and
+the loader carry the same half-open gamma bound, so 4.0 is refused rather
+than clamped -- a value the platform cannot hold is a malformed profile, and
+clamping it would serve a number nobody asked for. `config/profile.schema
+.json` needed `exclusiveMaximum` for that, which is the first key in the
+schema with a half-open bound and the one assertion keyword the reference
+resolver's validator did not yet implement.
+
+The loader takes all eight fields or refuses the profile. A partial tuple
+leaves the rest to the host, and on Linux "the rest" is the host's
+fontconfig -- so a half-written `render_params` would reintroduce exactly
+the leak the section exists to close, while looking composed.
+
+Strings rather than the gfx enums for `hinting` and `subpixel_rendering`,
+because ui/gfx depends on base and base cannot name
+`gfx::FontRenderParams::Hinting`. The vocabulary is the enum member names
+lowercased and the parser refuses anything outside it, so the consumer's
+mapping is total and never has to invent a value for an unknown string.
+
+WHAT THIS PATCH CONTAINS, AND WHAT IT DOES NOT
+
+The profile half: the schema section, the loader's parse and accessor, the
+compositor's per-persona table and projection, the explain line and its new
+layer, and the reference resolver's mirror.
+
+Nothing consumes `Profile::font_render_params()` yet. Serving it means
+writing `blink::RendererPreferences` from the profile in
+chrome/browser/renderer_preferences_util.cc, which is a separate patch, and
+what that will and will not reach is worth stating now:
+`WebViewImpl::UpdateFontRenderingFromRendererPrefs` is `!IS_MAC` in its
+entirety (third_party/blink/renderer/core/exported/web_view_impl.cc:3645),
+so on a Mac host the tuple cannot reach Skia through that path at all and
+font_platform_data_mac.mm's own flags decide; and DirectWrite glyph masks
+are not reachable from a Linux or macOS host under any setting. The ledger
+row `fonts.text-render-params` holds that residual, and the composition
+limitation for a cross-OS persona already tells an operator that the
+surfaces a fork cannot reach stay the host's.
+
+Two implementations, one table: `_FONT_RENDER_PARAMS` in
+scripts/profile_resolver.py mirrors `kFontRenderParams` here. The integral
+floats are written with a decimal point in C++ and as integers in Python on
+purpose -- `base::JSONWriter` with `OPTIONS_OMIT_DOUBLE_TYPE_PRESERVATION`
+collapses an integral double to an integer (base/json/json_writer.cc:86-90),
+so `1.0` on the Python side would diverge from the compositor's `1`
+byte-wise while meaning the same number, and the cross-writer digest in
+scripts/test_profile_resolver.py compares bytes.
+
+Verified: `scripts/checkfile.sh` on base/apostate/profile.cc, compose.cc,
+compose_unittest.cc and explain.cc; `python3
+scripts/check-schema-wiring.py` at zero findings; and the reference
+resolver's new test, which pins all three tuples against the citations
+above, proves each is seed-invariant across six seeds, and proves the three
+are actually different from each other. `base_unittests` was not run --
+this wave does not build.
+
+Ledger: fonts.text-render-params, canvas.2d, fonts.text-advances,
+emit.browser.renderer-preferences-font-render-params,
+emit.blink.web-view-update-font-rendering-from-renderer-prefs,
+emit.blink.font-platform-data-create-skfont-mac.
+
+--- a/base/apostate/profile.h
++++ b/base/apostate/profile.h
+@@ -597,6 +597,44 @@
+   // how Blink already compares family names (EqualIgnoringASCIICase in
+   // FontFaceCache).
+   bool FontFamilyEnumerable(std::string_view family) const;
++
++  // How the claimed machine rasterises text: gfx::FontRenderParams, which the
++  // browser pushes to every renderer as blink::RendererPreferences and which
++  // decides glyph coverage bytes, text gamma correction, and whether glyph
++  // advances are fractional.
++  //
++  // Strings rather than the gfx enums, and that is layering rather than
++  // taste: ui/gfx depends on base, so base cannot name
++  // gfx::FontRenderParams::Hinting. The vocabulary is the enum's own member
++  // names lowercased, which is what config/profile.schema.json declares, and
++  // the consumer maps the four and the five back. Every string that arrives
++  // here is one of them: the parser refuses anything else rather than
++  // defaulting, because a default here is a rasterisation setting nobody
++  // chose.
++  struct FontRenderParams {
++    bool antialiasing = false;
++    bool subpixel_positioning = false;
++    bool autohinter = false;
++    bool use_bitmaps = false;
++    // "none", "slight", "medium" or "full".
++    std::string hinting;
++    // "none", "rgb", "bgr", "vrgb" or "vbgr".
++    std::string subpixel_rendering;
++    // Skia's text contrast in [0, 1] and device gamma in [0, 4), the bounds
++    // SkSurfaceProps declares. Zero gamma means sRGB rather than no gamma.
++    double text_contrast = 0;
++    double text_gamma = 0;
++  };
++
++  // All eight fields or none. A tuple mixing two platforms' answers is a
++  // machine that does not exist, and a partial one would leave the rest to
++  // the host -- on Linux that means the host's fontconfig and desktop
++  // settings, which is the leak this surface exists to close. So the parser
++  // takes the whole tuple or refuses the profile, and this returns nullopt
++  // only when no profile described the surface at all.
++  const std::optional<FontRenderParams>& font_render_params() const {
++    return font_render_params_;
++  }
+ 
+   struct SpeechVoice {
+     std::string name;
+@@ -811,6 +849,7 @@
+   std::set<std::string> hw_decode_codecs_;
+   std::map<std::string, std::string> generic_font_family_map_;
+   std::set<std::string> font_enumeration_allowlist_;
++  std::optional<FontRenderParams> font_render_params_;
+   bool has_speech_voice_filter_ = false;
+   std::vector<SpeechVoice> speech_voices_;
+   std::optional<std::string> timezone_;
+--- a/base/apostate/profile.cc
++++ b/base/apostate/profile.cc
+@@ -1050,6 +1050,83 @@
+         }
+         profile->font_enumeration_allowlist_.insert(ToLowerASCII(*family));
+       }
++    }
++
++    if (const Value* raw_params = fonts->Find("render_params")) {
++      const DictValue* params = raw_params->GetIfDict();
++      if (!params) {
++        LOG(ERROR) << "apostate: fonts.render_params must be an object";
++        return nullptr;
++      }
++      Profile::FontRenderParams parsed;
++      // All eight or none, and a missing field refuses the profile rather
++      // than defaulting. A default would be a rasterisation setting nobody
++      // chose, and on Linux the value it displaces is the host's own
++      // fontconfig answer -- so a partial tuple serves the host's text
++      // rendering under a composed persona, which is the leak this section
++      // exists to close.
++      const auto flag = [&](const char* key, bool* sink) {
++        const std::optional<bool> value = params->FindBool(key);
++        if (!value) {
++          LOG(ERROR) << "apostate: fonts.render_params." << key
++                     << " must be present and boolean";
++          return false;
++        }
++        *sink = *value;
++        return true;
++      };
++      if (!flag("antialiasing", &parsed.antialiasing) ||
++          !flag("subpixel_positioning", &parsed.subpixel_positioning) ||
++          !flag("autohinter", &parsed.autohinter) ||
++          !flag("use_bitmaps", &parsed.use_bitmaps)) {
++        return nullptr;
++      }
++
++      // The two vocabularies are gfx::FontRenderParams::Hinting and
++      // ::SubpixelRendering, lowercased. Checked here rather than left to the
++      // consumer's switch, because a consumer that has to tolerate an
++      // unknown string has to pick a value for it.
++      const std::string* hinting = params->FindString("hinting");
++      if (!hinting || (*hinting != "none" && *hinting != "slight" &&
++                       *hinting != "medium" && *hinting != "full")) {
++        LOG(ERROR) << "apostate: fonts.render_params.hinting must be none, "
++                      "slight, medium or full";
++        return nullptr;
++      }
++      const std::string* subpixel = params->FindString("subpixel_rendering");
++      if (!subpixel ||
++          (*subpixel != "none" && *subpixel != "rgb" && *subpixel != "bgr" &&
++           *subpixel != "vrgb" && *subpixel != "vbgr")) {
++        LOG(ERROR) << "apostate: fonts.render_params.subpixel_rendering must "
++                      "be none, rgb, bgr, vrgb or vbgr";
++        return nullptr;
++      }
++      parsed.hinting = *hinting;
++      parsed.subpixel_rendering = *subpixel;
++
++      // SkSurfaceProps::kMinContrastInclusive..kMaxContrastInclusive and
++      // kMinGammaInclusive..kMaxGammaExclusive, which is what
++      // ui/gfx/font_util_win.cc clamps a registry value into. The gamma bound
++      // is genuinely half-open, so 4.0 is refused rather than clamped: a
++      // value the platform cannot hold is a malformed profile, and clamping
++      // it would serve a number nothing asked for.
++      const std::optional<double> contrast = params->FindDouble("text_contrast");
++      const std::optional<double> gamma = params->FindDouble("text_gamma");
++      if (!contrast || !std::isfinite(*contrast) || *contrast < 0.0 ||
++          *contrast > 1.0) {
++        LOG(ERROR) << "apostate: fonts.render_params.text_contrast must be a "
++                      "finite number in [0, 1]";
++        return nullptr;
++      }
++      if (!gamma || !std::isfinite(*gamma) || *gamma < 0.0 || *gamma >= 4.0) {
++        LOG(ERROR) << "apostate: fonts.render_params.text_gamma must be a "
++                      "finite number in [0, 4)";
++        return nullptr;
++      }
++      parsed.text_contrast = *contrast;
++      parsed.text_gamma = *gamma;
++
++      profile->font_render_params_ = std::move(parsed);
+     }
+   }
+ 
+--- a/base/apostate/compose.h
++++ b/base/apostate/compose.h
+@@ -179,10 +179,16 @@
+ struct BASE_EXPORT SurfaceRecord {
+   std::string surface;
+   std::string value;
+-  // "invariant", "anchor", "dispersion", "command-line", "host-inherited" or
+-  // "composed-default" -- the last meaning neither the operator's choice nor
+-  // the host's value, which is what an unpinned application locale resolves
+-  // to.
++  // "invariant", "anchor", "dispersion", "command-line", "host-inherited",
++  // "composed-default" or "platform-projection".
++  //
++  // The last two are the ones that are not self-explanatory.
++  // "composed-default" is neither the operator's choice nor the host's value,
++  // which is what an unpinned application locale resolves to.
++  // "platform-projection" is a value the persona determines on its own, with
++  // no draw, no option table and no host input behind it: text rasterisation
++  // is the one surface of that kind, because Chromium has one implementation
++  // of it per platform and nothing about an individual machine moves it.
+   std::string layer;
+   std::string evidence;
+   // Empty when the resolved value is exactly what was asked for.
+--- a/base/apostate/compose.cc
++++ b/base/apostate/compose.cc
+@@ -80,6 +80,12 @@
+ // serving the operator's shell under a composed persona is the defect this
+ // layer exists to name.
+ constexpr std::string_view kLayerComposedDefault = "composed-default";
++// A value the persona determines on its own: no draw, no option table, no
++// host input, and nothing for a seed to move. Distinct from `invariant`,
++// which the build owns and no profile varies, and from `dispersion`, where a
++// report reader can reasonably ask what else could have been drawn -- here
++// nothing could have been.
++constexpr std::string_view kLayerPlatformProjection = "platform-projection";
+ 
+ void Absorb(SHA256_CTX* context, std::string_view data) {
+   SHA256_Update(context, data.data(), data.size());
+@@ -126,6 +132,100 @@
+     return "windows";
+   }
+   return host_platform;
++}
++
++// gfx::FontRenderParams per persona: how the claimed machine rasterises text.
++//
++// Projected from the persona, never drawn, and that is what the surface is
++// rather than a simplification. Chromium has one implementation of these per
++// platform and each derives the tuple from that platform's text engine, so
++// the answer is a function of the claimed OS and of nothing else a profile
++// carries. A dispersion table would have to invent per-owner variation that
++// the platform defaults do not have, and a tuple mixing two platforms'
++// answers is a machine that does not exist.
++//
++// Why it has to be served at all: on Linux the values come from the host's
++// fontconfig and desktop settings and are pushed to every renderer as
++// blink::RendererPreferences, so a composed persona that leaves them alone
++// serves the host's text rasterisation -- glyph coverage bytes, text gamma,
++// and whether advances are fractional -- under a claimed machine that would
++// have produced different ones.
++//
++// Every value below is Chromium's own, with the file that produces it:
++//
++//   windows  ui/gfx/font_render_params_win.cc:77-104. The block starts with
++//            antialiasing and subpixel positioning off, then turns both on
++//            when SPI_GETFONTSMOOTHING says font smoothing is enabled, which
++//            is the Windows default, and takes the subpixel order from
++//            GetSubpixelRenderingGeometry (:31-61, PixelStructure 1 or
++//            FE_FONTSMOOTHINGORIENTATIONRGB -> rgb) when
++//            SPI_GETFONTSMOOTHINGTYPE is FE_FONTSMOOTHINGCLEARTYPE, also the
++//            default. autohinter and use_bitmaps are false and hinting is
++//            HINTING_MEDIUM outright (:80-82).
++//   macos    ui/gfx/font_render_params_mac.cc:16-26, which states the whole
++//            tuple as "params that match SkiaTextRenderer's default render
++//            settings": antialiasing, subpixel positioning, embedded bitmaps
++//            and rgb on, autohinter off, HINTING_MEDIUM.
++//   linux    the FreeType path Chromium calls the system's default
++//            (ui/gfx/font_render_params_skia.cc:13-26) for autohinter,
++//            use_bitmaps and HINTING_SLIGHT -- which is also what GTK reports
++//            for the near-universal hintslight setting (ui/gtk/gtk_ui.cc:
++//            130-131) and what fontconfig's FC_HINT_SLIGHT maps to
++//            (ui/gfx/linux/fontconfig_util.cc:150-151); rgb is fontconfig's
++//            rgba on an ordinary LCD desktop (:314-317); subpixel positioning
++//            is false because ui/gfx/font_render_params_linux.cc:267 sets it
++//            to device_scale_factor > 1.0f and an unscaled desktop is 1.0.
++//
++// The two floats are Skia build constants rather than OS queries, so they are
++// what a real Chrome on the claimed OS was COMPILED with: skia/BUILD.gn
++// gives is_win SK_GAMMA_SRGB with SK_GAMMA_CONTRAST=1.0 (:137-142), is_mac
++// SK_GAMMA_SRGB with 0.0 (:126-131) and linux 1.2 / 0.2 (:113-117), and
++// SK_GAMMA_SRGB means gamma 0.0 by
++// third_party/skia/include/core/SkTypes.h:84-85. The 0.5 in that same header
++// (:88-93) is the fallback for a build that defines neither and is not any
++// desktop Chrome's value, which is why 1.0 and not 0.5 stands for Windows
++// here.
++//
++// Mirrored by _FONT_RENDER_PARAMS in scripts/profile_resolver.py. An integral
++// value is written with its decimal point here and as an integer there on
++// purpose: base::JSONWriter with OPTIONS_OMIT_DOUBLE_TYPE_PRESERVATION
++// collapses an integral double to an integer, so the two implementations
++// agree on the bytes.
++struct FontRenderParamsForPersona {
++  std::string_view platform;
++  std::string_view value_json;
++};
++constexpr FontRenderParamsForPersona kFontRenderParams[] = {
++    {"windows",
++     R"({"fonts":{"render_params":{"antialiasing":true,"autohinter":false,)"
++     R"("hinting":"medium","subpixel_positioning":true,)"
++     R"("subpixel_rendering":"rgb","text_contrast":1.0,"text_gamma":0.0,)"
++     R"("use_bitmaps":false}}})"},
++    {"macos",
++     R"({"fonts":{"render_params":{"antialiasing":true,"autohinter":false,)"
++     R"("hinting":"medium","subpixel_positioning":true,)"
++     R"("subpixel_rendering":"rgb","text_contrast":0.0,"text_gamma":0.0,)"
++     R"("use_bitmaps":true}}})"},
++    {"linux",
++     R"({"fonts":{"render_params":{"antialiasing":true,"autohinter":true,)"
++     R"("hinting":"slight","subpixel_positioning":false,)"
++     R"("subpixel_rendering":"rgb","text_contrast":0.2,"text_gamma":1.2,)"
++     R"("use_bitmaps":true}}})"},
++};
++
++// The fragment for `platform`, or empty when the persona has none.
++//
++// Empty is unreachable for a composed launch -- IsKnownPlatform admits
++// exactly the three personas above -- and is handled rather than asserted so
++// that adding a fourth persona leaves its text rendering the host's with a
++// recorded limitation instead of aborting the browser.
++std::string_view FontRenderParamsJson(std::string_view platform) {
++  for (const FontRenderParamsForPersona& entry : kFontRenderParams) {
++    if (entry.platform == platform) {
++      return entry.value_json;
++    }
++  }
++  return {};
+ }
+ 
+ // Parses one option's profile fragment.
+@@ -1621,6 +1721,44 @@
+   }
+   resolve_theme(request.theme_policies);
+ 
++  // ---- text rasterisation: projected from the persona ----
++  //
++  // After the axes because `font_packs` writes the same section, and a
++  // projection is not something a seed may shift. It cannot collide: the
++  // packs contribute `fonts.enumeration_allowlist` and nothing else.
++  if (const std::string_view render_params =
++          FontRenderParamsJson(composition.platform);
++      !render_params.empty()) {
++    MergeFragment(composition.profile,
++                  ParseFragment("fonts.render_params", render_params),
++                  request.union_array_paths);
++    composition.surfaces.push_back({
++        .surface = "fonts.render_params",
++        .value = composition.platform + " text rendering",
++        .layer = std::string(kLayerPlatformProjection),
++        // Chromium's own per-platform defaults, read out of the three
++        // implementations of GetFontRenderParams and the Skia build
++        // constants. Not a capture, and not authored either.
++        .evidence = "native-derived",
++        .limitation = std::string(),
++    });
++  } else {
++    const std::string limitation =
++        "no text-rasterisation tuple is defined for the " +
++        composition.platform +
++        " persona, so glyph rendering is this host's own: on Linux that is "
++        "the host's fontconfig and desktop settings, which a page can read "
++        "through text metrics and canvas pixels";
++    composition.surfaces.push_back({
++        .surface = "fonts.render_params",
++        .value = "(inherited)",
++        .layer = std::string(kLayerHostInherited),
++        .evidence = "host-inherited",
++        .limitation = limitation,
++    });
++    composition.limitations.push_back("fonts.render_params: " + limitation);
++  }
++
+   if (!ApplyScalarOverrides(composition, request, panel_resolved, rejection)) {
+     return std::nullopt;
+   }
+--- a/base/apostate/compose_unittest.cc
++++ b/base/apostate/compose_unittest.cc
+@@ -555,6 +555,7 @@
+   // persona selects the anchor now, so a fixture with no anchor for the
+   // persona makes that line compare "(absent)" with itself and pass.
+   EXPECT_NE("(absent)", ChosenId(*after, "anchor"));
++}
+ 
+ // The chrome.runtime persona. Absence is the common state and it is a CLAIM,
+ // not a silence: fresh Chrome has no chrome.runtime on a web page, so a
+@@ -614,6 +615,93 @@
+   EXPECT_GT(present, 0)
+       << "no seed in 24 drew the minority state, so the weights are not live";
+ }
++
++// Text rasterisation follows the PERSONA and no seed moves it, which is the
++// whole difference between a projection and an axis. The values are
++// Chromium's own per-platform defaults; what this pins is that each persona
++// gets its own tuple, that the tuple is complete, and that the seed cannot
++// shift it -- a projection that varied per seed would be inventing per-owner
++// variation the platform defaults do not have.
++TEST(ApostateComposeTest, TextRenderParamsFollowThePersonaAndNotTheSeed) {
++  // An unconditioned axis, so the three personas all resolve: the os_release
++  // fixture above has a windows option set only, and a missing option set is
++  // a catalogue defect that aborts rather than a persona this test may use.
++  constexpr DispersionAxis kAxes[] = {kNumberAxis};
++  // One field per persona is enough to tell the three tuples apart, and each
++  // is the field that platform is alone in: macOS is the only one using
++  // embedded bitmaps with medium hinting, Linux the only one hinting slight
++  // without subpixel positioning, Windows the only one at contrast 1.
++  struct Expectation {
++    const char* persona;
++    const char* hinting;
++    bool subpixel_positioning;
++    bool use_bitmaps;
++    double text_contrast;
++    double text_gamma;
++  };
++  constexpr Expectation kExpected[] = {
++      {"windows", "medium", true, false, 1.0, 0.0},
++      {"macos", "medium", true, true, 0.0, 0.0},
++      {"linux", "slight", false, true, 0.2, 1.2},
++  };
++
++  for (const Expectation& expected : kExpected) {
++    std::string first_json;
++    for (int seed = 0; seed < 8; ++seed) {
++      ComposeRequest request =
++          RequestFor("render-" + NumberToString(seed), kAxes, CapableHost());
++      request.platform = expected.persona;
++      const std::optional<Composition> composed = Compose(request);
++      ASSERT_TRUE(composed.has_value()) << expected.persona;
++
++      const DictValue* params =
++          composed->profile.FindDictByDottedPath("fonts.render_params");
++      ASSERT_NE(nullptr, params) << expected.persona;
++      EXPECT_EQ(expected.hinting, *params->FindString("hinting"));
++      EXPECT_EQ(expected.subpixel_positioning,
++                params->FindBool("subpixel_positioning"));
++      EXPECT_EQ(expected.use_bitmaps, params->FindBool("use_bitmaps"));
++      EXPECT_EQ(expected.text_contrast, params->FindDouble("text_contrast"));
++      EXPECT_EQ(expected.text_gamma, params->FindDouble("text_gamma"));
++      // Complete, because a partial tuple leaves the rest to the host and the
++      // loader refuses it outright.
++      EXPECT_EQ(8u, params->size()) << expected.persona;
++
++      // And identical across seeds: the projection has nothing to draw from.
++      const std::string json =
++          WriteJsonWithOptions(*params,
++                               JSONWriter::OPTIONS_OMIT_DOUBLE_TYPE_PRESERVATION)
++              .value_or("<unserialisable>");
++      if (seed == 0) {
++        first_json = json;
++      }
++      EXPECT_EQ(first_json, json) << expected.persona << " moved with the seed";
++
++      const SurfaceRecord* record = Record(*composed, "fonts.render_params");
++      ASSERT_NE(nullptr, record);
++      EXPECT_EQ("platform-projection", record->layer);
++      EXPECT_EQ("native-derived", record->evidence);
++      EXPECT_TRUE(record->limitation.empty());
++    }
++  }
++
++  // The three tuples are actually different, so the loop above is not three
++  // copies of one answer.
++  std::vector<std::string> tuples;
++  for (const Expectation& expected : kExpected) {
++    ComposeRequest request = RequestFor("render-seed", kAxes, CapableHost());
++    request.platform = expected.persona;
++    const std::optional<Composition> composed = Compose(request);
++    ASSERT_TRUE(composed.has_value());
++    tuples.push_back(
++        WriteJsonWithOptions(
++            *composed->profile.FindDictByDottedPath("fonts.render_params"),
++            JSONWriter::OPTIONS_OMIT_DOUBLE_TYPE_PRESERVATION)
++            .value_or("<unserialisable>"));
++  }
++  EXPECT_NE(tuples[0], tuples[1]);
++  EXPECT_NE(tuples[1], tuples[2]);
++  EXPECT_NE(tuples[0], tuples[2]);
+ }
+ 
+ // ---------------------------------------------------------------------------
