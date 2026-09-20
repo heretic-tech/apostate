@@ -848,17 +848,17 @@ class CompositionTests(unittest.TestCase):
     # Recorded so a digest mismatch can be told apart from a composition that
     # has since grown or lost a section, which is not the same finding.
     GOLDEN_SECTIONS = frozenset({
-        "audio", "battery", "browser", "cpu", "fonts", "gl_extensions", "gl_limits",
-        "gl_precisions", "gpu", "id", "media", "memory", "network", "platform",
-        "screen", "theme", "webgpu", "window",
+        "audio", "battery", "browser", "cpu", "extensions", "fonts", "gl_extensions",
+        "gl_limits", "gl_precisions", "gpu", "id", "media", "memory", "network",
+        "platform", "screen", "theme", "webgpu", "window",
     })
     GOLDEN_PROFILES = {
         "windows": ("fp-b0b97b3a3531b65ee50f45fc", GOLDEN_SECTIONS,
-                    "6dfc7632ebcb29156a475804e50a520c019705615d0d88e355d681db264ead4b"),
+                    "ac103c892db3b788603b01d00d25abd2437952d5442cce4fd208a18b3cfde5d8"),
         "macos": ("fp-60eab51485a4a8465ce3c24a", GOLDEN_SECTIONS,
-                  "3bb7f888a10fe39bcb28577dbd7afe230a25fe600332fab60a2cfd59664b24ed"),
+                  "b6bf66c998b5149302cc0f460ce80227583b7c035e66c561914f16b31cbac316"),
         "linux": ("fp-8c5f63da9ef88ea749549a91", GOLDEN_SECTIONS,
-                  "5d6345e40e227b3e493ed879f774c0d531bdd25e1b300ac77dbd2b591b430662"),
+                  "46f883956d6a41b27b7ffc2c39097a65ea88fbedefa5af94ab961e8e38ffa6e6"),
     }
 
     def _check_golden(self, persona: str, profile: dict, digest: str,
