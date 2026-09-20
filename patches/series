@@ -455,3 +455,30 @@
 # so the gate is the whole change and the browser-side externally_connectable
 # re-check still decides what a real installed extension receives.
 0121-extensions-serve-runtime-to-pages-from-the-profile.patch
+
+# 0122 is the consumer for 0117, and the only patch in the series that has to
+# be after it: it reads Profile::font_render_params(), which 0117 adds.
+#
+# Also after 0013, which is what puts base/apostate/profile.h into
+# chrome/browser/renderer_preferences_util.cc. 0013's hunk is the
+# accept-language block near the end of UpdateFromSystemSettings and this
+# one's is the font-preference refresh at the top, so they do not overlap, but
+# the include has to exist.
+#
+# Nothing else orders it. It is the first patch in the series to touch
+# ui/gfx/font_render_params{,_mac,_linux,_win}.cc, skia/ext/
+# legacy_display_globals.cc, content/public/browser/renderer_preferences_util
+# .cc, third_party/blink/public/mojom/renderer_preferences.mojom, third_party/
+# blink/common/renderer_preferences/renderer_preferences_mojom_traits.cc,
+# third_party/blink/renderer/core/exported/web_view_impl.cc and
+# third_party/blink/renderer/platform/fonts/mac/font_platform_data_mac.mm --
+# every one of them sole-owned here.
+#
+# 0040's Apple font metric policy and 0049's FreeType design-space paths are
+# the neighbours a reader will expect an ordering against, and there is none:
+# those decide glyph BOUNDS and outline source, this one decides the scaler's
+# settings, and they share no file. Independent of 0116 and 0121 (the
+# extensions axis and its consumer), of 0118 and 0119, and of 0120, whose
+# readback policy touches none of these files and whose opt-in switch is a
+# different surface.
+0122-fonts-render-params-follow-the-persona.patch

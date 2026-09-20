@@ -1,0 +1,743 @@
+Subject: fonts: text rasterisation follows the persona in every process
+
+Patch 0117 put `gfx::FontRenderParams` in the profile and nothing read it. This
+serves it: one override, in the one function every process already calls, plus
+the four gates that stood between that function and Skia.
+
+MEASURED FIRST, on the shipped macos-arm64 build, `--fingerprint=0122` with
+`--fingerprint-platform=windows` and `=macos`, two launches each. The probe
+draws the same three families (Helvetica, Georgia, Arial) with `fillText` at
+baselines it names -- three families whose advances both personas resolve
+identically on this host, so the glyph origins are identical and the only
+thing left that can move a pixel is the rasterisation settings:
+
+    metric-stable canvas, opaque   windows df91c47fa322e806
+                                   macos   df91c47fa322e806
+    metric-stable canvas, alpha    windows df91c47fa322e806
+                                   macos   df91c47fa322e806
+
+One digest. A composed Windows machine and a composed Mac rasterise text
+byte-for-byte the same way on this host, which is to say they both rasterise
+it the way THIS Mac does. That is the leak in one line, and it is the same
+leak on a Linux host with the host's fontconfig in place of the Mac's
+CoreText defaults.
+
+Beside it, the second reading, and this one is an oracle rather than a
+similarity:
+
+    -webkit-font-smoothing: none   windows  on 8f0a134cb22ebc47
+                                            off b8a9d3c00769b14a
+                                   macos    on 8f0a134cb22ebc47
+                                            off b8a9d3c00769b14a
+
+`-webkit-font-smoothing` reaches the `SkFont` on macOS and on no other
+platform: `font_platform_data_mac.mm` reads `FontDescription::FontSmoothing`,
+`font_platform_data_win.cc` and the generic `font_platform_data.cc` both
+declare the parameter unnamed and never look at it. So a page sets the
+property, draws the same string twice and compares two canvas readbacks, and a
+differing pair says "this is a Mac" whatever the user agent claims. Under a
+Windows persona today the pair differs.
+
+ONE SOURCE, AND WHY IT IS THE RIGHT ONE
+
+`gfx::ComposedFontRenderParams()` maps the profile's tuple into
+`gfx::FontRenderParams` in ui/gfx/font_render_params.cc, and the three
+platform implementations of `GetFontRenderParams` defer to it:
+
+  macos    font_render_params_mac.cc's `LoadDefaults` returns it instead of
+           the constant tuple. There is nothing to blend with -- the whole of
+           macOS's answer is that constant.
+  linux    font_render_params_linux.cc takes it AFTER `QueryFontconfig` and
+           after the postprocessing block, so `family_out` and the query cache
+           keep working and only the eight rendering values change. It
+           replaces the antialiasing fixup and the `device_scale_factor > 1.0f`
+           rule at :267 as well, which is deliberate: subpixel positioning is
+           one of the eight, and a persona whose tuple says false cannot have
+           it turned back on by this host's display scale.
+  windows  font_render_params_win.cc takes it inside
+           `CachedFontRenderParams::GetParams`, before the
+           `LegacyDisplayGlobals::SetCachedParams` call that function already
+           makes, so that side effect, the cache and the `WM_SETTINGCHANGE`
+           invalidation all keep working.
+
+Overriding there rather than at each consumer is what makes the processes
+agree without a second delivery path for the same eight numbers. The browser
+reads it in `BrowserMainLoop::PreMainMessageLoopRun`, which feeds
+`skia::LegacyDisplayGlobals` and `viz::GpuHostImpl::InitFontRenderParams`; the
+GPU process receives that through `VizMainImpl`; every renderer receives it as
+`blink::RendererPreferences`. **browser_main_loop.cc is therefore unchanged by
+this patch, and that is the point rather than an omission** -- it already calls
+`gfx::GetFontRenderParams`, so it already gets the persona's tuple, and both
+of its consumers get it with it.
+
+Two of those seats cache in a function-local static -- macOS's `LoadDefaults`
+and content's `UpdateFontRendererPreferencesFromSystemSettings` -- so whether
+this works at all depends on the profile existing by the first call. It does,
+twice over: `InstallComposedProfile` runs from chrome_main_delegate before
+content builds any child command line, and `base::apostate::Profile::Get()`
+composes and installs the switch itself if it is somehow reached first. A
+process that has no profile caches nullopt, which is the host's answer, which
+is what an absent profile has always meant.
+
+FOUR GATES, ALL UPSTREAM, ALL SAYING THE SAME THING
+
+Every one of them exists because upstream is right that only Windows can
+produce a contrast or gamma other than the build's own constant. Under a
+composed identity that stops being true on every platform.
+
+  1  content/public/browser/renderer_preferences_util.cc copied
+     `text_contrast` and `text_gamma` under `#if BUILDFLAG(IS_WIN)`.
+  2  renderer_preferences.mojom declared both fields `[EnableIf=is_win]`, so
+     on a Mac or Linux build the generated accessor did not exist and
+     renderer_preferences_mojom_traits.cc's `Read` was `#if`'d to match. The
+     two are one change: the mojom decides whether the accessor is generated.
+  3  skia/ext/legacy_display_globals.cc's `SetCachedParams` took both floats
+     and then stored them under `#if BUILDFLAG(IS_WIN)`. This is the one that
+     would have made the other three look like they worked: the browser, the
+     GPU process and the renderer would all have passed the persona's numbers
+     to a function that dropped them on the floor, and every glyph mask in the
+     process would still have been gamma-corrected with this build's
+     `SK_GAMMA_CONTRAST`.
+  4  `WebViewImpl::UpdateFontRenderingFromRendererPrefs` is `!IS_MAC` in its
+     entirety. The `WebFontRenderStyle` half of it genuinely does not apply on
+     a Mac -- font_platform_data_mac.mm reads none of it -- but the
+     `LegacyDisplayGlobals` half is platform-independent state that every text
+     draw in the renderer reads through `SkSurfaceProps`, so under a persona
+     it has to run there too.
+
+Absent a profile none of the four moves a byte. `gfx::FontRenderParams` leaves
+`text_contrast` and `text_gamma` at `SK_GAMMA_CONTRAST` and `SK_GAMMA_EXPONENT`
+on every non-Windows platform, which is exactly what
+`blink::RendererPreferences` and `skia::LegacyDisplayGlobals` already
+initialise them to, so the newly unconditional copies are self-assignments and
+the newly unconditional wire field carries the value the receiver already had.
+
+A fifth gate is chrome/browser/renderer_preferences_util.cc, whose
+`UpdateFromSystemSettings` refreshes the font preferences on Linux, ChromeOS,
+Android and Windows and not on macOS. That one is gated on the profile rather
+than made unconditional: calling it on a stock Mac launch would populate
+`use_bitmaps`, `subpixel_rendering` and `use_subpixel_positioning` with macOS's
+constants where they hold `RendererPreferences`' own defaults today. Nothing
+reads them on a Mac without this patch, so it would be invisible -- and
+invisible is not a reason to move bytes a stock browser does not move.
+
+THE MACOS CORETEXT PATH
+
+`FontPlatformData::CreateSkFont` in font_platform_data_mac.mm hard-codes
+macOS's rasterisation policy, because no renderer preference reaches a Mac.
+Under a persona the tuple supplies it instead, onto the settings that function
+actually sets:
+
+    antialiasing + subpixel_rendering  ->  Edging: kSubpixelAntiAlias when
+                                           both, kAntiAlias when antialiasing
+                                           alone, kAlias otherwise -- the same
+                                           three-way choice
+                                           font_platform_data_win.cc makes
+                                           from use_subpixel_rendering and
+                                           use_anti_alias
+    subpixel_positioning               ->  setSubpixel and setLinearMetrics
+    use_bitmaps                        ->  setEmbeddedBitmaps, which upstream
+                                           hard-codes false
+    hinting                            ->  setHinting, mapped the way
+                                           RendererPreferencesToSkiaHinting
+                                           maps it everywhere else (medium ->
+                                           kNormal)
+
+And the `-webkit-font-smoothing` switch is honoured only when the persona is
+macOS. That is the oracle above, closed: on Windows and Linux the property
+changes no glyph byte, so under a persona that is not macOS it must change
+none here either. A tuple that arrives without a `ua_platform` beside it keeps
+this host's behaviour rather than guessing at a foreign one.
+
+`text-rendering: geometricPrecision` keeps its existing branch under every
+persona. It only calls `setHinting(kNone)`, and hinting is inert on a
+CoreText-backed typeface, so on this host it is not a second oracle. The
+`setHinting` call this patch adds is inert for the same reason: it is there so
+the tuple is delivered whole, and it bites only the FreeType-backed typefaces
+patch 0049 gives a macOS persona off a Mac.
+
+WHAT MOVES AND WHAT DOES NOT
+
+Moves: the glyph coverage bytes a canvas readback returns, the same bytes
+under the compositor's raster of DOM text, the gamma and contrast curve
+applied to them, LCD versus grayscale coverage, and whether a glyph may be
+placed at a fractional x.
+
+Does not move: anything shaped. `measureText().width` is
+`ShapeResult::Width()`, a sum of advances read off the font binary
+(coh.font-set-vs-text-geometry), and the client rect of the same run comes
+from the same `ShapeResult` (coh.measuretext-vs-clientrects). This patch
+touches neither -- it sets `SkFont` flags and `SkSurfaceProps`, both of which
+are consumed downstream of shaping, in the scaler. The measured advances
+under both personas, before and after, are
+
+    16px Helvetica   177.9296875
+    28px Georgia     252.08203125
+    13.5px Arial     134.347412109375
+
+Two things in this area already differ per persona and are NOT this patch.
+Integer ascent and descent and glyph ink boxes follow patch 0040's Apple font
+metric policy, which is coh.font-metrics-platform-rounding being served rather
+than a coherence break; and a family the persona's installation does not have
+resolves to a fallback with its own advances, which is the font axis. The
+probe measures around both: it asserts advances across personas, and asserts
+everything else against a recorded pre-patch run of the same binary.
+
+EXPECTED OUTCOME OF THE PROBE AFTER THE NEXT BUILD
+
+/tmp/w2/FontRender/probe.js with /tmp/w2/FontRender/page.html, run against the
+rebuilt macos-arm64 binary with the recorded baseline.json beside it. Five
+checks fail today and must pass; four pass today and must keep passing.
+
+    a  RASTER-PERSONA opaque canvas     FAIL -> pass. windows != macos.
+                                        Windows carries contrast 1.0 and no
+                                        embedded bitmaps, macOS 0.0 and
+                                        bitmaps on.
+    a  RASTER-PERSONA alpha canvas      FAIL -> pass. Weaker but independent:
+                                        ComputeSurfaceProps keeps contrast and
+                                        gamma on the branch that disables LCD.
+    a  RASTER-MOVED windows canvas      FAIL -> pass. df91c47fa322e806 must
+                                        become something else. This is the
+                                        load-bearing one: a cross-persona
+                                        difference could come from anything
+                                        this fork already does, a Windows
+                                        persona whose pixels moved between two
+                                        builds on one host moved because of
+                                        this patch.
+    d  RASTER-MOVED windows dom         FAIL -> pass. The SVG crop
+                                        6a4525c3e0bfc265 and the HTML crop
+                                        dd7fcfb06a7b3f53, taken with
+                                        Page.captureScreenshot
+                                        captureBeyondViewport, must both move
+                                        -- the compositor's raster, not
+                                        canvas's resource provider.
+    e  SMOOTHING-ORACLE windows inert   FAIL -> pass. smoothOn == smoothOff
+                                        under a Windows persona.
+    b  RASTER-STABLE (four rows)        pass -> pass. Two launches at one seed
+                                        and two reads in one launch agree.
+    c  METRICS-COHERENT advances        pass -> pass, at the three numbers
+                                        above.
+    c  METRICS-UNCHANGED vs baseline    pass -> pass. Every advance, ink box,
+                                        font bounding box, client rect and
+                                        layout rect identical to the pre-patch
+                                        recording, for both personas and for
+                                        the divergent family too.
+
+The macOS persona's own digests may or may not move, and the probe does not
+assert either way: on this host the macOS tuple's contrast and gamma are the
+build's own, and the only field that differs from the hard-coded path is
+`use_bitmaps`, which changes nothing for a font with no embedded strike.
+
+RESIDUALS
+
+The glyph masks stay CoreText's. These are the flags a Windows Chrome sets on
+its `SkFont`; the coverage bytes underneath are produced by the platform's
+scaler, and DirectWrite's are not reachable from a Mac or a Linux host by any
+setting. Same for the reverse: a macOS persona on Windows gets DirectWrite
+masks. Hinting is inert on CoreText-backed typefaces, so of the four macOS
+`SkFont` settings only three are observable on a Mac host.
+docs/LIMITATIONS.md now carries this as its own section rather than as a
+sentence on a ledger row.
+
+Verified: `scripts/checkfile.sh` clean on ui/gfx/font_render_params.cc,
+ui/gfx/font_render_params_mac.cc, skia/ext/legacy_display_globals.cc,
+content/public/browser/renderer_preferences_util.cc,
+chrome/browser/renderer_preferences_util.cc,
+third_party/blink/common/renderer_preferences/renderer_preferences_mojom_traits.cc,
+third_party/blink/renderer/core/exported/web_view_impl.cc and
+third_party/blink/renderer/platform/fonts/mac/font_platform_data_mac.mm. The
+traits file is the mojom's proof as well: `data.text_contrast()` does not
+exist on a Mac build while the field is `[EnableIf=is_win]`, so a macOS
+compile of an unconditional `Read` is the EnableIf removal taking effect.
+ui/gfx/font_render_params_linux.cc and ui/gfx/font_render_params_win.cc cannot
+be compiled on this host and were not; both are a single guarded assignment
+placed where the surrounding code's own comments say the value is finished.
+The probe above ran against the shipped binary and produced the baseline in
+this patch; the post-build run is what turns the five expectations into
+results, and this wave does not build.
+
+Ledger: fonts.text-render-params, canvas.2d, fonts.text-advances,
+emit.gfx.composed-font-render-params,
+emit.browser.renderer-preferences-font-render-params,
+emit.skia.legacy-display-globals-cached-params,
+emit.blink.web-view-update-font-rendering-from-renderer-prefs,
+emit.blink.font-platform-data-create-skfont-mac,
+coh.font-set-vs-text-geometry, coh.measuretext-vs-clientrects,
+coh.font-metrics-platform-rounding.
+
+--- a/ui/gfx/font_render_params.h
++++ b/ui/gfx/font_render_params.h
+@@ -5,6 +5,7 @@
+ #ifndef UI_GFX_FONT_RENDER_PARAMS_H_
+ #define UI_GFX_FONT_RENDER_PARAMS_H_
+ 
++#include <optional>
+ #include <string>
+ #include <vector>
+ 
+@@ -115,6 +116,29 @@
+ FontRenderParams GetFontRenderParams(const FontRenderParamsQuery& query,
+                                      std::string* family_out);
+ 
++// The text-rasterisation tuple the composed persona carries, or nullopt when
++// no profile described the surface -- which is every stock launch and
++// `--fingerprint=host`.
++//
++// This exists so that the three platform implementations of
++// GetFontRenderParams above have ONE place to defer to. Each of them derives
++// the tuple from the host's own text engine -- the Windows shell's ClearType
++// settings, a constant that matches Skia's macOS defaults, the toolkit and
++// then fontconfig on Linux -- and a composed persona has to override all
++// three identically, because the value is read independently in the browser
++// (skia::LegacyDisplayGlobals and viz::GpuHostImpl::InitFontRenderParams from
++// BrowserMainLoop::PreMainMessageLoopRun), in the GPU process (viz), and in
++// every renderer (through blink::RendererPreferences). Overriding the one
++// function every one of them already calls is what makes those agree without
++// inventing a second delivery path for the same eight numbers.
++//
++// The profile keeps hinting and subpixel order as strings because base cannot
++// name a gfx enum; the mapping back is here, and it is total: the loader
++// refuses any other spelling, so there is no unknown string for this to
++// invent a value for.
++COMPONENT_EXPORT(GFX)
++std::optional<FontRenderParams> ComposedFontRenderParams();
++
+ #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_WIN)
+ // Clears GetFontRenderParams()'s cache.
+ COMPONENT_EXPORT(GFX) void ClearFontRenderParamsCache();
+--- a/ui/gfx/font_render_params.cc
++++ b/ui/gfx/font_render_params.cc
+@@ -4,6 +4,9 @@
+ 
+ #include "ui/gfx/font_render_params.h"
+ 
++#include <string_view>
++
++#include "base/apostate/profile.h"
+ #include "base/notreached.h"
+ 
+ namespace gfx {
+@@ -27,6 +30,73 @@
+   NOTREACHED();
+ }
+ 
++namespace {
++
++// The profile's vocabulary is gfx::FontRenderParams::Hinting lowercased, and
++// base/apostate/profile.cc refuses any other spelling before the value is
++// stored, so these two are total over what can actually arrive.
++FontRenderParams::Hinting HintingFromProfile(std::string_view name) {
++  if (name == "none") {
++    return FontRenderParams::HINTING_NONE;
++  }
++  if (name == "slight") {
++    return FontRenderParams::HINTING_SLIGHT;
++  }
++  if (name == "medium") {
++    return FontRenderParams::HINTING_MEDIUM;
++  }
++  if (name == "full") {
++    return FontRenderParams::HINTING_FULL;
++  }
++  NOTREACHED();
++}
++
++FontRenderParams::SubpixelRendering SubpixelRenderingFromProfile(
++    std::string_view name) {
++  if (name == "none") {
++    return FontRenderParams::SUBPIXEL_RENDERING_NONE;
++  }
++  if (name == "rgb") {
++    return FontRenderParams::SUBPIXEL_RENDERING_RGB;
++  }
++  if (name == "bgr") {
++    return FontRenderParams::SUBPIXEL_RENDERING_BGR;
++  }
++  if (name == "vrgb") {
++    return FontRenderParams::SUBPIXEL_RENDERING_VRGB;
++  }
++  if (name == "vbgr") {
++    return FontRenderParams::SUBPIXEL_RENDERING_VBGR;
++  }
++  NOTREACHED();
++}
++
++}  // namespace
++
++std::optional<FontRenderParams> ComposedFontRenderParams() {
++  const base::apostate::Profile* profile = base::apostate::Profile::Get();
++  if (!profile || !profile->font_render_params()) {
++    return std::nullopt;
++  }
++
++  // Whole tuple or nothing, which is the loader's rule and not a convenience
++  // here: a field left to the platform below would be the host's answer
++  // wearing the persona's, and on Linux that is the host's fontconfig.
++  const base::apostate::Profile::FontRenderParams& composed =
++      *profile->font_render_params();
++  FontRenderParams params;
++  params.antialiasing = composed.antialiasing;
++  params.subpixel_positioning = composed.subpixel_positioning;
++  params.autohinter = composed.autohinter;
++  params.use_bitmaps = composed.use_bitmaps;
++  params.hinting = HintingFromProfile(composed.hinting);
++  params.subpixel_rendering =
++      SubpixelRenderingFromProfile(composed.subpixel_rendering);
++  params.text_contrast = static_cast<float>(composed.text_contrast);
++  params.text_gamma = static_cast<float>(composed.text_gamma);
++  return params;
++}
++
+ FontRenderParamsQuery::FontRenderParamsQuery()
+     : pixel_size(0),
+       point_size(0),
+--- a/ui/gfx/font_render_params_mac.cc
++++ b/ui/gfx/font_render_params_mac.cc
+@@ -14,6 +14,15 @@
+ 
+ // Returns params that match SkiaTextRenderer's default render settings.
+ FontRenderParams LoadDefaults() {
++  // The persona's tuple outranks the constant below, and returning it verbatim
++  // is the point: this function is the whole of macOS's answer -- there is no
++  // OS query to blend with -- so a composed launch that got anything else here
++  // would rasterise text the way THIS Mac does under a machine that would not
++  // have.
++  if (std::optional<FontRenderParams> composed = ComposedFontRenderParams()) {
++    return *composed;
++  }
++
+   FontRenderParams params;
+   params.antialiasing = true;
+   params.autohinter = false;
+--- a/ui/gfx/font_render_params_linux.cc
++++ b/ui/gfx/font_render_params_linux.cc
+@@ -272,6 +272,22 @@
+       params.hinting = FontRenderParams::HINTING_NONE;
+   }
+ 
++  // The persona's tuple replaces everything computed above -- the toolkit's
++  // defaults, fontconfig's answer for this query, the antialiasing fixup and
++  // the device-scale rule that decides subpixel positioning on line 267. This
++  // is the platform whose answer is the HOST's configuration rather than a
++  // constant, so it is the one that leaks a machine's identity, and a
++  // composed launch has to take the whole tuple or none of it.
++  //
++  // After the postprocessing and not before it because `family_out` is
++  // resolved by QueryFontconfig above and callers depend on it; the query and
++  // the cache keep working exactly as they did and only the eight rendering
++  // values change. The cache then holds the composed tuple, which is correct:
++  // it is the same answer for every key.
++  if (std::optional<FontRenderParams> composed = ComposedFontRenderParams()) {
++    params = *composed;
++  }
++
+   // Use the first family from the list if Fontconfig didn't suggest a family.
+   if (family_out && family_out->empty() && !actual_query.families.empty())
+     *family_out = actual_query.families[0];
+--- a/ui/gfx/font_render_params_win.cc
++++ b/ui/gfx/font_render_params_win.cc
+@@ -103,6 +103,14 @@
+       params_->text_gamma = SK_GAMMA_EXPONENT;
+     }
+ 
++    // The persona's tuple replaces the shell's answer, and it is applied here
++    // rather than in GetFontRenderParams below so that the Skia globals set
++    // on the next line, the cached copy every later caller gets, and the
++    // WM_SETTINGCHANGE invalidation in OnWndProc all keep working unchanged.
++    if (std::optional<FontRenderParams> composed = ComposedFontRenderParams()) {
++      *params_ = *composed;
++    }
++
+     skia::LegacyDisplayGlobals::SetCachedParams(
+         FontRenderParams::SubpixelRenderingToSkiaPixelGeometry(
+             params_->subpixel_rendering),
+--- a/skia/ext/legacy_display_globals.cc
++++ b/skia/ext/legacy_display_globals.cc
+@@ -51,10 +51,18 @@
+                                            float text_gamma) {
+   base::AutoLock lock(GetLock());
+   g_pixel_geometry = pixel_geometry;
+-#if BUILDFLAG(IS_WIN)
++  // Stored on every platform. The #if that used to stand here was upstream
++  // saying "only Windows can produce anything but the build constants", and
++  // it was true: every other platform's gfx::FontRenderParams leaves these
++  // two at SK_GAMMA_CONTRAST and SK_GAMMA_EXPONENT, so the assignment was a
++  // self-assignment and dropping it cost nothing. A composed identity makes
++  // them the persona's, so the assignment now carries a value, and a browser
++  // process, a GPU process and a renderer that all called this with the
++  // persona's numbers would otherwise keep gamma-correcting glyph masks with
++  // this build's. Absent a profile every caller still passes exactly the two
++  // initialisers above, so a stock launch is unchanged.
+   g_text_contrast = text_contrast;
+   g_text_gamma = text_gamma;
+-#endif  // BUILDFLAG(IS_WIN)
+ }
+ 
+ // static
+--- a/content/public/browser/renderer_preferences_util.cc
++++ b/content/public/browser/renderer_preferences_util.cc
+@@ -23,10 +23,17 @@
+   prefs->use_autohinter = params.autohinter;
+   prefs->use_bitmaps = params.use_bitmaps;
+   prefs->subpixel_rendering = params.subpixel_rendering;
+-#if BUILDFLAG(IS_WIN)
++  // Unconditional rather than IS_WIN. Windows was the only platform whose
++  // FontRenderParams could hold anything but the build's own SK_GAMMA_*
++  // constants, so copying them elsewhere moved nothing and the #if cost
++  // nothing either. A composed persona makes the two floats vary per identity
++  // on every platform -- Windows contrast 1.0, macOS 0.0, Linux 0.2 with
++  // gamma 1.2 -- so a Linux or macOS renderer that never receives them would
++  // gamma-correct glyph coverage with the wrong curve while every other field
++  // of the same tuple arrived. Absent a profile this copies the same values
++  // the receiving side already defaults to, so the stock wire is unchanged.
+   prefs->text_contrast = params.text_contrast;
+   prefs->text_gamma = params.text_gamma;
+-#endif  // BUILDFLAG(IS_WIN)
+ }
+ 
+ }  // namespace content
+--- a/chrome/browser/renderer_preferences_util.cc
++++ b/chrome/browser/renderer_preferences_util.cc
+@@ -113,6 +113,25 @@
+ #if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID) || \
+     BUILDFLAG(IS_WIN)
+   content::UpdateFontRendererPreferencesFromSystemSettings(prefs);
++#elif BUILDFLAG(IS_MAC)
++  // macOS is excluded above because stock Chrome has nothing to send: the
++  // renderer ignores every one of these fields on a Mac
++  // (WebViewImpl::UpdateFontRenderingFromRendererPrefs is !IS_MAC in its
++  // entirety) and font_platform_data_mac.mm decides rasterisation on its own.
++  // Under a composed persona both halves of that change, so the tuple has to
++  // be on the wire for the renderer to have anything to apply.
++  //
++  // Gated on the profile carrying it rather than made unconditional, because
++  // calling this on a stock Mac launch would populate use_bitmaps,
++  // subpixel_rendering and use_subpixel_positioning with macOS's constants
++  // where today they hold blink::RendererPreferences' own defaults. Nothing
++  // reads them, so it would be invisible -- but "invisible" is not a reason
++  // to move bytes a stock browser does not move.
++  if (const base::apostate::Profile* apostate_profile =
++          base::apostate::Profile::Get();
++      apostate_profile && apostate_profile->font_render_params()) {
++    content::UpdateFontRendererPreferencesFromSystemSettings(prefs);
++  }
+ #endif
+   prefs->focus_ring_color = BUILDFLAG(IS_MAC) ? SkColorSetRGB(0x00, 0x5F, 0xCC)
+                                               : SkColorSetRGB(0x10, 0x10, 0x10);
+--- a/third_party/blink/public/mojom/renderer_preferences.mojom
++++ b/third_party/blink/public/mojom/renderer_preferences.mojom
+@@ -44,12 +44,15 @@
+   // positions for glyphs.  Currently only used by Linux.
+   bool use_subpixel_positioning = false;
+ 
+-  // Gamma correction and contrast values for glyph rendering. Currently
+-  // only used by Windows.
+-  [EnableIf=is_win]
++  // Gamma correction and contrast values for glyph rendering. Sent on every
++  // platform: they are build constants upstream, so only Windows had a reason
++  // to transport them, but a composed identity varies them per persona and a
++  // renderer that never receives them gamma-corrects with the host build's
++  // curve under a machine that would have used another. The defaults below
++  // are the mojom struct's own and are unreachable through the typemap, which
++  // always serialises blink::RendererPreferences' SK_GAMMA_* initialisers.
+   float text_contrast = 0.5;
+ 
+-  [EnableIf=is_win]
+   float text_gamma = 0.0;
+ 
+   // The color of the focus ring.
+--- a/third_party/blink/common/renderer_preferences/renderer_preferences_mojom_traits.cc
++++ b/third_party/blink/common/renderer_preferences/renderer_preferences_mojom_traits.cc
+@@ -28,10 +28,11 @@
+     return false;
+   out->use_subpixel_positioning = data.use_subpixel_positioning();
+ 
+-#if BUILDFLAG(IS_WIN)
++  // Read on every platform now that the mojom carries the fields everywhere.
++  // The generated accessors only exist when the field does, so this #if and
++  // the [EnableIf=is_win] in renderer_preferences.mojom are one change.
+   out->text_contrast = data.text_contrast();
+   out->text_gamma = data.text_gamma();
+-#endif  // BUILDFLAG(IS_WIN)
+ 
+   out->focus_ring_color = data.focus_ring_color();
+   out->active_selection_bg_color = data.active_selection_bg_color();
+--- a/third_party/blink/renderer/core/exported/web_view_impl.cc
++++ b/third_party/blink/renderer/core/exported/web_view_impl.cc
+@@ -34,6 +34,7 @@
+ #include <utility>
+ #include <vector>
+ 
++#include "base/apostate/profile.h"
+ #include "base/command_line.h"
+ #include "base/debug/crash_logging.h"
+ #include "base/memory/scoped_refptr.h"
+@@ -200,10 +201,15 @@
+ #include "ui/native_theme/native_theme.h"
+ #endif
+ 
+-#if !BUILDFLAG(IS_MAC)
++// Unconditional since the composed persona's glyph-mask contrast and gamma
++// are installed through LegacyDisplayGlobals on macOS too. Only the
++// WebFontRenderStyle half of the update stays off a Mac, because
++// font_platform_data_mac.mm reads none of it.
+ #include "skia/ext/legacy_display_globals.h"
++#include "ui/gfx/font_render_params.h"
++
++#if !BUILDFLAG(IS_MAC)
+ #include "third_party/blink/public/platform/web_font_render_style.h"
+-#include "ui/gfx/font_render_params.h"
+ #endif
+ 
+ #if BUILDFLAG(IS_WIN)
+@@ -3642,7 +3648,28 @@
+ }
+ 
+ void WebViewImpl::UpdateFontRenderingFromRendererPrefs() {
+-#if !BUILDFLAG(IS_MAC)
++#if BUILDFLAG(IS_MAC)
++  // Upstream skips this function entirely on macOS, and for the WebFontRender*
++  // halves below that is right: font_platform_data_mac.mm builds the SkFont
++  // from CoreText-facing settings and consults none of them. The Skia glyph
++  // mask globals are a different thing. They are platform-independent state
++  // read by SkSurfaceProps for every text draw in this renderer, so when the
++  // persona carries a tuple its contrast and gamma have to be installed here
++  // or the browser process and the GPU process would gamma-correct a composed
++  // machine's glyphs while the renderer used this Mac's build constants.
++  //
++  // Nothing happens without a profile, which keeps a stock Mac launch on the
++  // untouched upstream path: the browser does not even put the fields on the
++  // wire in that case.
++  if (const base::apostate::Profile* profile = base::apostate::Profile::Get();
++      profile && profile->font_render_params()) {
++    skia::LegacyDisplayGlobals::SetCachedParams(
++        gfx::FontRenderParams::SubpixelRenderingToSkiaPixelGeometry(
++            renderer_preferences_.subpixel_rendering),
++        renderer_preferences_.text_contrast,
++        renderer_preferences_.text_gamma);
++  }
++#else
+   skia::LegacyDisplayGlobals::SetCachedParams(
+       gfx::FontRenderParams::SubpixelRenderingToSkiaPixelGeometry(
+           renderer_preferences_.subpixel_rendering),
+@@ -3682,7 +3709,7 @@
+   }
+ #endif  // BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
+ #endif  // BUILDFLAG(IS_WIN)
+-#endif  // !BUILDFLAG(IS_MAC)
++#endif  // BUILDFLAG(IS_MAC)
+ }
+ 
+ void WebViewImpl::ActivatePrerenderedPage(
+--- a/third_party/blink/renderer/platform/fonts/mac/font_platform_data_mac.mm
++++ b/third_party/blink/renderer/platform/fonts/mac/font_platform_data_mac.mm
+@@ -29,8 +29,12 @@
+ #endif  // BUILDFLAG(IS_MAC)
+ #import <AvailabilityMacros.h>
+ 
++#include <string_view>
++
++#include "base/apostate/profile.h"
+ #include "base/apple/bridging.h"
+ #import "base/apple/foundation_util.h"
++#include "base/notreached.h"
+ #include "third_party/blink/renderer/platform/fonts/font.h"
+ #include "third_party/blink/renderer/platform/fonts/font_platform_data.h"
+ #include "third_party/blink/renderer/platform/fonts/opentype/font_settings.h"
+@@ -208,13 +212,66 @@
+ }
+ #endif  // BUILDFLAG(IS_MAC)
+ 
++namespace {
++
++// gfx's four hinting names as SkFont spells them -- the same mapping
++// RendererPreferencesToSkiaHinting applies on every platform that has a
++// renderer preference to map (web_view_impl.cc). Total over what can arrive,
++// because base/apostate/profile.cc refuses any other spelling.
++SkFontHinting HintingFromComposed(std::string_view name) {
++  if (name == "none") {
++    return SkFontHinting::kNone;
++  }
++  if (name == "slight") {
++    return SkFontHinting::kSlight;
++  }
++  if (name == "medium") {
++    return SkFontHinting::kNormal;
++  }
++  if (name == "full") {
++    return SkFontHinting::kFull;
++  }
++  NOTREACHED();
++}
++
++}  // namespace
++
+ SkFont FontPlatformData::CreateSkFont(
+     const FontDescription* font_description) const {
+-  bool should_smooth_fonts = true;
+-  bool should_antialias = true;
+-  bool should_subpixel_position = true;
++  // The three defaults below, the embedded-bitmap decision and the absent
++  // hinting call are macOS's own rasterisation policy, written into this
++  // function because no renderer preference reaches a Mac renderer. A
++  // composed persona replaces them with the claimed machine's, which is the
++  // only route those values have to Skia on this host.
++  //
++  // What this cannot move is which rasteriser produces the glyph mask. These
++  // are the flags a Windows Chrome sets on its SkFont; the coverage bytes
++  // underneath still come from CoreText, and DirectWrite's are not reachable
++  // from a Mac. docs/LIMITATIONS.md carries that residual.
++  const base::apostate::Profile* profile = base::apostate::Profile::Get();
++  const base::apostate::Profile::FontRenderParams* composed =
++      profile && profile->font_render_params()
++          ? &profile->font_render_params().value()
++          : nullptr;
++
++  bool should_smooth_fonts =
++      composed ? composed->subpixel_rendering != "none" : true;
++  bool should_antialias = composed ? composed->antialiasing : true;
++  bool should_subpixel_position =
++      composed ? composed->subpixel_positioning : true;
++
++  // -webkit-font-smoothing reaches the SkFont on macOS and nowhere else:
++  // neither font_platform_data_win.cc nor the generic font_platform_data.cc
++  // reads FontDescription::FontSmoothing when it builds one. So a page that
++  // sets the property and compares two canvas readbacks is asking which
++  // platform's Blink drew the text, and under a persona that is not macOS the
++  // answer has to be that nothing changed. A tuple arriving without a
++  // ua_platform beside it keeps this host's behaviour rather than guessing at
++  // a foreign one.
++  const bool honour_css_smoothing = !composed || !profile->ua_platform() ||
++                                    *profile->ua_platform() == "macOS";
+ 
+-  if (font_description) {
++  if (font_description && honour_css_smoothing) {
+     switch (font_description->FontSmoothing()) {
+       case kAntialiased:
+         should_smooth_fonts = false;
+@@ -249,7 +306,7 @@
+   } else {
+     skfont.setEdging(SkFont::Edging::kAlias);
+   }
+-  skfont.setEmbeddedBitmaps(false);
++  skfont.setEmbeddedBitmaps(composed ? composed->use_bitmaps : false);
+   const float ts = text_size_ >= 0 ? text_size_ : 12;
+   skfont.setSize(SkFloatToScalar(ts));
+   skfont.setEmbolden(synthetic_bold_);
+@@ -261,6 +318,16 @@
+   // does affect FreeType backed typefaces, so set the flag for consistency.
+   skfont.setLinearMetrics(should_subpixel_position);
+ 
++  // The persona's hinting level, before the CoreGraphics override below so
++  // that the override still wins. Set for the same reason the linear-metrics
++  // flag above is: a CoreText-backed typeface ignores it, a FreeType-backed
++  // one does not, and patch 0049 gives a macOS persona FreeType design-space
++  // paths off a Mac. So on this host it is consistency rather than an
++  // observable, and the tuple is delivered whole either way.
++  if (composed) {
++    skfont.setHinting(HintingFromComposed(composed->hinting));
++  }
++
+   // When rendering using CoreGraphics, disable hinting when
+   // webkit-font-smoothing:antialiased or text-rendering:geometricPrecision is
+   // used.  See crbug.com/152304
