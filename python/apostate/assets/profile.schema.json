@@ -770,6 +770,62 @@
           },
           "uniqueItems": true,
           "maxItems": 4096
+        },
+        "render_params": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "How the claimed machine rasterises text: gfx::FontRenderParams, which the browser pushes to every renderer as blink::RendererPreferences (third_party/blink/public/common/renderer_preferences/renderer_preferences.h:36-44) and which decides glyph coverage bytes, text gamma correction and whether advances are fractional. It is a property of the claimed OS and of nothing else in the profile, so the compositor projects it from the platform persona rather than drawing it: Chromium itself derives these from the OS text engine per platform, and on Linux from the host's fontconfig and desktop settings, which is a host leak into canvas text under any composed persona. All eight fields or none: a tuple mixing two platforms' answers is a machine that does not exist. Ledger: fonts.text-render-params.",
+          "properties": {
+            "antialiasing": {
+              "type": "boolean",
+              "description": "Whether glyphs are antialiased at all: grayscale when subpixel_rendering is none, RGBA otherwise. True on all three personas \u2014 Windows reaches it through SPI_GETFONTSMOOTHING, which is on by default (ui/gfx/font_render_params_win.cc:85-88), macOS states it outright (ui/gfx/font_render_params_mac.cc:18) and a Linux desktop answers it from fontconfig's antialias property (ui/gfx/linux/fontconfig_util.cc:287-291)."
+            },
+            "subpixel_positioning": {
+              "type": "boolean",
+              "description": "Whether glyphs may sit at fractional X positions. This is the field that decides whether text advances are fractional, so it is measurable from measureText and from client rects rather than only from pixels. True on Windows when font smoothing is on (ui/gfx/font_render_params_win.cc:88) and on macOS (ui/gfx/font_render_params_mac.cc:21); false on a Linux desktop at a device scale factor of 1, because ui/gfx/font_render_params_linux.cc:267 sets it to device_scale_factor > 1.0f."
+            },
+            "autohinter": {
+              "type": "boolean",
+              "description": "Whether FreeType's autohinter is used instead of a font's own bytecode instructions. Meaningful only where FreeType rasterises: false on Windows (ui/gfx/font_render_params_win.cc:80) and macOS (ui/gfx/font_render_params_mac.cc:19), true on the FreeType path Chromium calls its system default (ui/gfx/font_render_params_skia.cc:16)."
+            },
+            "use_bitmaps": {
+              "type": "boolean",
+              "description": "Whether embedded bitmap strikes inside a font are used. False on Windows (ui/gfx/font_render_params_win.cc:81), true on macOS (ui/gfx/font_render_params_mac.cc:20) and on the FreeType default (ui/gfx/font_render_params_skia.cc:17); a Linux desktop answers it from fontconfig's embeddedbitmap property (ui/gfx/linux/fontconfig_util.cc:299-303)."
+            },
+            "hinting": {
+              "type": "string",
+              "enum": [
+                "none",
+                "slight",
+                "medium",
+                "full"
+              ],
+              "description": "Hinting level, spelled as the four members of gfx::FontRenderParams::Hinting (ui/gfx/font_render_params.h:32-39) lowercased. medium on Windows (ui/gfx/font_render_params_win.cc:82) and macOS (ui/gfx/font_render_params_mac.cc:23); slight on a Linux desktop, which is what GTK reports for the near-universal hintslight setting (ui/gtk/gtk_ui.cc:130-131) and what fontconfig's FC_HINT_SLIGHT maps to (ui/gfx/linux/fontconfig_util.cc:150-151)."
+            },
+            "subpixel_rendering": {
+              "type": "string",
+              "enum": [
+                "none",
+                "rgb",
+                "bgr",
+                "vrgb",
+                "vbgr"
+              ],
+              "description": "Subpixel order used for LCD text, spelled as the five members of gfx::FontRenderParams::SubpixelRendering (ui/gfx/font_render_params.h:42-50) lowercased. rgb is the ordinary desktop answer on all three: Windows reads it from the ClearType PixelStructure registry value or SPI_GETFONTSMOOTHINGORIENTATION (ui/gfx/font_render_params_win.cc:31-61, reached only when SPI_GETFONTSMOOTHINGTYPE is FE_FONTSMOOTHINGCLEARTYPE at :91-94), macOS states it (ui/gfx/font_render_params_mac.cc:22) and a Linux desktop takes fontconfig's rgba (ui/gfx/linux/fontconfig_util.cc:314-317)."
+            },
+            "text_contrast": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Skia's text contrast, the domain being SkSurfaceProps::kMinContrastInclusive..kMaxContrastInclusive (third_party/skia/include/core/SkSurfaceProps.h:81-82), which is what ui/gfx/font_util_win.cc:73-77 clamps a registry value into. Chromium's value is a per-build Skia define rather than an OS query, so it is what a real Chrome on the claimed OS was compiled with: 1.0 for Windows and 0.0 for macOS (skia/BUILD.gn:126-142), 0.2 for Linux (skia/BUILD.gn:113-117). The 0.5 in third_party/skia/include/core/SkTypes.h:88-93 is the fallback for a build that defines nothing and is not any desktop Chrome's value."
+            },
+            "text_gamma": {
+              "type": "number",
+              "minimum": 0,
+              "exclusiveMaximum": 4,
+              "description": "Skia's device gamma for text, in the range SkSurfaceProps::kMinGammaInclusive..kMaxGammaExclusive (third_party/skia/include/core/SkSurfaceProps.h:83-84). Zero means sRGB rather than no gamma, which is what third_party/skia/include/core/SkTypes.h:84-85 defines an undefined SK_GAMMA_EXPONENT to be: so Windows and macOS are 0.0, both being SK_GAMMA_SRGB builds (skia/BUILD.gn:126-142), and Linux is 1.2 (skia/BUILD.gn:113-117)."
+            }
+          }
         }
       }
     },
@@ -868,6 +924,17 @@
           "maximum": 604800,
           "multipleOf": 60,
           "description": "Seconds until empty. Omit for Infinity, which is what the API requires whenever the battery is charging. Whole minutes for the same reason as charging_time_seconds. Should be consistent with level: a 0.98 charge reporting forty minutes of runtime describes a battery nothing would ship."
+        }
+      }
+    },
+    "extensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "What the claimed machine's installed extensions expose to an ordinary web page. Not an extension list: a fixed extension id is a cross-instance correlator, so nothing here names or installs one. Only the page-visible consequence is described, and only the one consequence a real population is split on.",
+      "properties": {
+        "externally_connectable": {
+          "type": "boolean",
+          "description": "Whether some installed extension's externally_connectable manifest key matches an ordinary http/https page, which is the entire gate on chrome.runtime and window.browser being present there (extensions/renderer/native_extension_bindings_system.cc CanWebpageContextConnectExternally, read at UpdateBindingsForContext). false is fresh Chrome and the common case: measured on stock Chrome 153 with a fresh profile, window.chrome is exactly [loadTimes, csi, app] and chrome.runtime is undefined on https://example.com and on file://. true is the MetaMask shape \u2014 externally_connectable.matches [\"http://*/*\", \"https://*/*\"], tens of millions of installs \u2014 where every http/https page gets chrome.runtime and window.browser.runtime through the real binding path, with id and dynamicId reading undefined, and file:// and about:blank stay bare. The historical folklore that a full Chrome always exposes chrome.runtime comes from the CryptoToken component extension, which shipped externally_connectable https://*/* in every build until roughly Chrome 98 and has not existed since 2022."
         }
       }
     }

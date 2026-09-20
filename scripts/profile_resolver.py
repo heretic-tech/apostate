@@ -67,6 +67,10 @@ AXES = (
     "network",
     "battery",
     "voices",
+    # Unconditioned, and nothing is conditioned on it: it describes what the
+    # machine's owner installed rather than what the machine is, so it draws
+    # last. Mirrors the order in scripts/generate-dispersion-tables.py.
+    "extensions",
 )
 SELECTIONS = {"single", "core-plus-subset"}
 SERVABILITY = {"none", "clamp-down", "window-bounds", "anchor-member", "files-present"}
@@ -105,6 +109,9 @@ _PROFILE_TOP_LEVEL = {
     # 0089. config/profile.schema.json defines both.
     "network",
     "battery",
+    # chrome.runtime and window.browser on an ordinary page, served by the
+    # extensions renderer gate. config/profile.schema.json defines it.
+    "extensions",
 }
 _UNION_PATHS = frozenset({("fonts", "enumeration_allowlist")})
 _BUILD_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)\.(\d+)$")
@@ -126,6 +133,67 @@ _UA_OS_TOKENS = {
     "windows": "Windows NT 10.0",
     "macos": "Macintosh; Intel Mac OS X 10_15_7",
     "linux": "X11; Linux x86_64",
+}
+# gfx::FontRenderParams per platform persona, projected rather than drawn.
+#
+# Chromium derives these from the OS text engine, one implementation per
+# platform, so the tuple is a function of the claimed OS and of nothing else a
+# profile carries. There is no dispersion table for that reason: a real
+# machine's owner can move some of these through a control panel, but a tuple
+# mixing two platforms' answers is a machine that does not exist, and the
+# per-OS default is what the overwhelming majority of real machines report.
+#
+# Mirrors kFontRenderParams in base/apostate/compose.cc, which is the
+# implementation the browser actually uses; each value's citation is in the
+# comment there and in config/profile.schema.json.
+#
+# The two float fields are written as INTEGERS where they are integral, and
+# that is a byte-agreement rule rather than a style: base::JSONWriter with
+# OPTIONS_OMIT_DOUBLE_TYPE_PRESERVATION collapses an integral double to an
+# integer (base/json/json_writer.cc:86-90), so a `1.0` here would diverge from
+# the compositor's `1` while meaning the same number, and the cross-writer
+# digest in scripts/test_profile_resolver.py compares bytes.
+_FONT_RENDER_PARAMS = {
+    # ui/gfx/font_render_params_win.cc:77-104, with SPI_GETFONTSMOOTHING and
+    # ClearType on, which is the Windows default; contrast 1.0 and sRGB gamma
+    # from skia/BUILD.gn:137-142.
+    "windows": {
+        "antialiasing": True,
+        "autohinter": False,
+        "hinting": "medium",
+        "subpixel_positioning": True,
+        "subpixel_rendering": "rgb",
+        "text_contrast": 1,
+        "text_gamma": 0,
+        "use_bitmaps": False,
+    },
+    # ui/gfx/font_render_params_mac.cc:16-26; contrast 0.0 and sRGB gamma from
+    # skia/BUILD.gn:126-131.
+    "macos": {
+        "antialiasing": True,
+        "autohinter": False,
+        "hinting": "medium",
+        "subpixel_positioning": True,
+        "subpixel_rendering": "rgb",
+        "text_contrast": 0,
+        "text_gamma": 0,
+        "use_bitmaps": True,
+    },
+    # ui/gfx/font_render_params_skia.cc:13-26 for the autohint/bitmap/slight
+    # triple Chromium calls the FreeType system default, fontconfig's rgba for
+    # the subpixel order, ui/gfx/font_render_params_linux.cc:267 for
+    # subpixel_positioning at a device scale factor of 1, and
+    # skia/BUILD.gn:113-117 for 0.2 / 1.2.
+    "linux": {
+        "antialiasing": True,
+        "autohinter": True,
+        "hinting": "slight",
+        "subpixel_positioning": False,
+        "subpixel_rendering": "rgb",
+        "text_contrast": 0.2,
+        "text_gamma": 1.2,
+        "use_bitmaps": True,
+    },
 }
 _LOCALE_RE = re.compile(r"^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$")
 _TIMEZONE_RE = re.compile(r"^(?:UTC|[A-Za-z0-9._+-]+(?:/[A-Za-z0-9._+-]+)*)$")
@@ -255,6 +323,12 @@ def _schema_errors(value: Any, schema: Mapping[str, Any], path: str = "$") -> li
             errors.append(f"{path}: above maximum {schema['maximum']}")
         if "exclusiveMinimum" in schema and value <= schema["exclusiveMinimum"]:
             errors.append(f"{path}: must be greater than {schema['exclusiveMinimum']}")
+        # fonts.render_params.text_gamma is the first key with a half-open
+        # bound, and it is half-open because Skia's is: SkSurfaceProps names
+        # kMaxGammaExclusive, and ui/gfx/font_util_win.cc clamps a registry
+        # value to just under it rather than to it.
+        if "exclusiveMaximum" in schema and value >= schema["exclusiveMaximum"]:
+            errors.append(f"{path}: must be less than {schema['exclusiveMaximum']}")
 
     if isinstance(value, list):
         if "minItems" in schema and len(value) < schema["minItems"]:
@@ -1801,6 +1875,20 @@ def _resolve_internal(config: Mapping[str, Any] | None = None, **overrides: Any)
     chosen["theme"] = {"options": [theme_entry["id"]],
                        "evidence": [theme_entry["evidence_class"]],
                        "offered": len(catalogue["policies"]["theme"])}
+
+    # Text rasterisation, projected from the persona and never drawn. It lands
+    # after the axes because `font_packs` writes the same section and a
+    # projection is not a draw the seed may shift; it lands before `id` for no
+    # reason but reading order.
+    profile = _merge(profile, {"fonts": {"render_params": _FONT_RENDER_PARAMS[platform]}})
+    chosen["fonts.render_params"] = {
+        "options": [platform],
+        "evidence": ["native-derived"],
+        # One tuple per persona, so there is nothing to draw from and the
+        # width is one. Reported as such rather than omitted, because a
+        # surface missing from this map reads as a surface nothing decided.
+        "offered": 1,
+    }
 
     # The loader reads `id` into source_id_ for diagnostics (patch 0004), so it
     # is part of the runtime payload and the reference implementation must emit

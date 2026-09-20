@@ -400,6 +400,82 @@ class CompositionTests(unittest.TestCase):
                 resolver.resolve_profile(dict(BASE_CONFIG, catalogue_path=catalogue_path))
             self.assertIn("audio.hardware_buffer_frames", str(caught.exception))
 
+    def test_every_persona_serves_its_own_text_render_params(self) -> None:
+        """Text rasterisation is a projection of the persona, not a draw.
+
+        Chromium has one implementation of gfx::FontRenderParams per platform,
+        so the tuple is a function of the claimed OS alone -- and on Linux the
+        values it displaces are the host's own fontconfig and desktop
+        settings, pushed to every renderer as RendererPreferences. What this
+        pins is that each persona gets its own complete tuple, that no seed
+        moves it, and that the integral floats are written as integers:
+        base::JSONWriter with OPTIONS_OMIT_DOUBLE_TYPE_PRESERVATION collapses
+        an integral double to an integer, so a 1.0 here would diverge from the
+        compositor's 1 byte-wise while meaning the same number, and the
+        cross-writer digest compares bytes.
+        """
+        expected = {
+            # ui/gfx/font_render_params_win.cc:77-104 plus skia/BUILD.gn:137-142
+            "windows": {"antialiasing": True, "autohinter": False, "hinting": "medium",
+                        "subpixel_positioning": True, "subpixel_rendering": "rgb",
+                        "text_contrast": 1, "text_gamma": 0, "use_bitmaps": False},
+            # ui/gfx/font_render_params_mac.cc:16-26 plus skia/BUILD.gn:126-131
+            "macos": {"antialiasing": True, "autohinter": False, "hinting": "medium",
+                      "subpixel_positioning": True, "subpixel_rendering": "rgb",
+                      "text_contrast": 0, "text_gamma": 0, "use_bitmaps": True},
+            # ui/gfx/font_render_params_skia.cc:13-26, fontconfig's rgba,
+            # font_render_params_linux.cc:267 at dsf 1, skia/BUILD.gn:113-117
+            "linux": {"antialiasing": True, "autohinter": True, "hinting": "slight",
+                      "subpixel_positioning": False, "subpixel_rendering": "rgb",
+                      "text_contrast": 0.2, "text_gamma": 1.2, "use_bitmaps": True},
+        }
+        for persona in sorted(resolver.PLATFORMS):
+            for seed in range(6):
+                params = resolver.resolve_profile(dict(
+                    BASE_CONFIG, fingerprint=seed,
+                    fingerprint_platform=persona))["fonts"]["render_params"]
+                self.assertEqual(expected[persona], params, persona)
+                for key in ("text_contrast", "text_gamma"):
+                    value = params[key]
+                    self.assertNotIsInstance(value, bool)
+                    if float(value).is_integer():
+                        self.assertIsInstance(value, int, f"{persona}.{key}")
+        # Three different tuples, so the loop above is not one answer thrice.
+        self.assertEqual(3, len({json.dumps(t, sort_keys=True)
+                                 for t in expected.values()}))
+
+    def test_the_extensions_axis_draws_one_boolean_state_per_seed(self) -> None:
+        """chrome.runtime on a web page is a persona, and absence is a claim.
+
+        Fresh Chrome has no chrome.runtime on an ordinary page -- measured,
+        both browsers -- so false is the common state and it is served
+        explicitly rather than by omission, because omission leaves the host's
+        own extension set to answer. The minority state is the MetaMask shape.
+        Two properties matter: the state is a boolean the loader will accept
+        (it refuses anything else), and it is fixed by the seed rather than by
+        the platform, because the same wallet extension is installed on all
+        three.
+        """
+        drawn: dict[str, Counter] = {p: Counter() for p in sorted(resolver.PLATFORMS)}
+        for persona in sorted(resolver.PLATFORMS):
+            for seed in range(60):
+                first = resolver.resolve_profile(dict(
+                    BASE_CONFIG, fingerprint=seed, fingerprint_platform=persona))
+                again = resolver.resolve_profile(dict(
+                    BASE_CONFIG, fingerprint=seed, fingerprint_platform=persona))
+                state = first["extensions"]["externally_connectable"]
+                self.assertIsInstance(state, bool)
+                self.assertEqual(state, again["extensions"]["externally_connectable"])
+                drawn[persona][state] += 1
+        for persona, counts in drawn.items():
+            self.assertEqual(60, sum(counts.values()))
+            # Both states reachable, and the majority is absence. The weights
+            # are 75/25, so anything outside a wide band around that means the
+            # table's weights stopped reaching the draw.
+            self.assertGreater(counts[False], counts[True], persona)
+            self.assertGreater(counts[True], 0, persona)
+            self.assertLess(counts[True], 30, persona)
+
     def test_work_area_is_derived_from_the_panel_and_the_furniture_insets(self) -> None:
         for seed in range(25):
             screen = resolver.resolve_profile(dict(BASE_CONFIG, fingerprint=seed))["screen"]

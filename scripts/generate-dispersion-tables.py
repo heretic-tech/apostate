@@ -1509,8 +1509,11 @@ def main(argv: list[str] | None = None) -> int:
         # `media_topology` because it describes the same claimed machine's audio
         # output, but it is conditioned on the platform rather than the machine
         # class: the buffer size comes from the AudioManager the claimed OS runs,
-        # and the corpus shows no variation within a platform. `network` is
-        # unconditioned and only has to land before the profile is serialised.
+        # and the corpus shows no variation within a platform. `network` and
+        # `extensions` are unconditioned and only have to land before the
+        # profile is serialised; `extensions` is last of the axes because
+        # nothing is conditioned on it either, and it describes what the
+        # machine's owner installed rather than what the machine is.
         order = {
             name: index
             for index, name in enumerate(
@@ -1529,6 +1532,7 @@ def main(argv: list[str] | None = None) -> int:
                     "network",
                     "battery",
                     "voices",
+                    "extensions",
                     "locale",
                 ]
             )
