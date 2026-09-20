@@ -56,7 +56,7 @@ _RETIRED_CATALOGUE_KEYS = ("families", "family_count", "distributions", "compati
 _DISPERSION_AXES = (
     "os_release", "gpu_identity", "machine_class", "cpu", "memory", "panel",
     "furniture", "font_packs", "media_topology", "audio", "network", "battery",
-    "voices",
+    "voices", "extensions",
 )
 _POLICY_KINDS = ("locale", "theme")
 _ROTATION_STATUSES = frozenset({"measured-safe", "single-member"})
