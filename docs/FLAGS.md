@@ -421,6 +421,14 @@ What it does not change: the canvas's backing store, a WebGL drawing buffer,
 `measureText`, WebGL parameters, or any image, video frame or `ImageData` that
 did not come out of a canvas.
 
+`captureStream` being outside that list is not something a page can see
+directly, which is worth stating because the obvious test does not work. The
+captured frame carries clean pixels, but reading them back needs a canvas, and
+that read perturbs them exactly as it perturbs the canvas — so the two agree,
+measured. The gap is only reachable by an egress that never touches a canvas:
+`MediaRecorder`, or a WebRTC track, whose bytes leave the page and can be
+compared against a `toDataURL` of the same canvas somewhere else.
+
 The perturbation is a function of the profile identity and the clean pixels,
 and of nothing else — not a clock, not a call count, not a per-page token. So
 the same seed gives the same bytes on the next launch and on another machine,
@@ -429,6 +437,18 @@ every route above agrees with every other for the same pixels. A pixel whose
 3x3 neighbourhood is one colour is left exactly as it was, which makes a solid
 fill byte-exact and keeps the change to the edges a rasteriser signs its name
 on. Alpha is never moved.
+
+"One step" means one unit of what the canvas holds, and the step is decided
+from the colour rather than from the bytes — a canvas is read out through more
+than one memory layout, and keying on the layout would make two routes
+disagree about one image. A canvas stores colour multiplied by alpha and
+`getImageData` divides that back out, so on an opaque pixel — every pixel of
+any canvas a fingerprinter draws — one step is one unit of the value you read.
+On a translucent pixel the straight-alpha value has coarser resolution than
+the store does, so that same one-unit step reads out as the next value the
+store can actually hold: two units at half alpha, more as alpha approaches
+zero, while the composited result still moves by one. Every route reports the
+same number, which is the property that matters.
 
 The tamper checks a detector actually runs, and how this answers them:
 

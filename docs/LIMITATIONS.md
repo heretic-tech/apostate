@@ -1153,13 +1153,32 @@ That residual is inherent to a per-pixel intervention rather than a defect in
 this one, and it is why the switch is off: a profile is meant to be a machine,
 and this makes it a machine with a policy.
 
-Three narrower gaps, for completeness. `captureStream` and the canvas-to-video
-frame path are out of scope and stay exact, so a page can compare a captured
-frame against `getImageData` of the same canvas. A readback whose format the
-policy does not describe — a canvas colour type no canvas output uses, or an
-alpha-only `readPixels` — stays exact rather than being guessed at. And a
-pixel-pack buffer that script has partly overwritten loses the rows the write
-touched, so `getBufferSubData` returns those exactly.
+Four narrower gaps, for completeness.
+
+`captureStream` and the canvas-to-video frame path are out of scope and stay
+exact. An earlier version of this page said that let a page compare a captured
+frame against `getImageData` of the same canvas; measured, it does not. The
+frame carries clean pixels, but a page can only read them back through a
+canvas, and that read perturbs them exactly as it perturbs the canvas, so the
+two land on the same bytes. The gap is only reachable by an egress that never
+touches a canvas — `MediaRecorder` or a WebRTC track, whose bytes leave the
+page and can be compared elsewhere against a `toDataURL` of the same canvas.
+
+A translucent pixel moves by one unit of what the canvas holds, not one unit
+of what `getImageData` returns. A canvas stores colour multiplied by alpha, so
+straight alpha has coarser resolution than the store: at half alpha the step
+reads out as two, and it grows as alpha approaches zero, while the composited
+pixel still moves by one. Every route agrees on the number, which is what
+stops it being a tell; the alternative — a true one-unit step in straight
+alpha — is not representable, and taking it anyway made `getImageData` and a
+decoded `toDataURL` of one canvas disagree, which is a much louder signal.
+Opaque pixels, which is every pixel of any canvas a fingerprinter draws, are
+unaffected.
+
+A readback whose format the policy does not describe — a canvas colour type no
+canvas output uses, or an alpha-only `readPixels` — stays exact rather than
+being guessed at. And a pixel-pack buffer that script has partly overwritten
+loses the rows the write touched, so `getBufferSubData` returns those exactly.
 
 ## Platform support
 

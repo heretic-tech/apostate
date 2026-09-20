@@ -40,11 +40,32 @@ THE POLICY, AND WHY RULE 5 STILL HOLDS
 
 Per pixel, the key is the seed, the clean pixel, its clean 3x3 clamped
 neighbourhood, and its position in the returned rectangle. From that hash, each
-colour channel takes one of {-1, 0, +1} of its stored value; for a
-floating-point channel that step is one unit in the last place, which is the
-same statement about the stored value and is invisible to an eye. Alpha never
-moves. Nothing consults a clock, a counter, an object identity, a readback
-count, thread-local state, `PaintImage::ContentId` or `base::Rand*`.
+colour channel takes one of {-1, 0, +1}; for a floating-point channel that step
+is one unit in the last place, which is invisible to an eye. Alpha never moves.
+Nothing consults a clock, a counter, an object identity, a readback count,
+thread-local state, `PaintImage::ContentId` or `base::Rand*`.
+
+The key is the colour, not the bytes, and that distinction is the whole
+correctness of the thing. One canvas is read out through several memory
+layouts: `getImageData` hands back straight-alpha RGBA8 while the snapshot an
+encoder sees is premultiplied N32, which on this host is BGRA. A key computed
+over raw memory therefore gives two different answers for one image, and the
+page reads both. So every channel is read into a canonical form first --
+straight alpha, logical R, G, B, A order, in that channel's own range -- the
+step is taken there, and the result is written back through the store's own
+convention. This is not a precaution; the first version of this patch keyed on
+memory, and what that cost is measured below.
+
+A premultiplied store has a second consequence. A straight-alpha view of one
+can only serve the values that survive the round trip, so the step is snapped
+onto that lattice. On an opaque pixel -- every pixel of any canvas a
+fingerprinter draws -- the lattice is every integer and the step is one. On a
+translucent pixel it is coarser: the read-out step is two at half alpha and
+grows as alpha falls, while what the page sees composited still moves by one
+and every route still reports the same number. The alternative, a true
+one-unit step in straight alpha, is not representable in the canvas, and taking
+it anyway is exactly what made `getImageData` and a decoded `toDataURL` of one
+canvas disagree.
 
 Two consequences follow from the key rather than from care:
 
@@ -168,8 +189,13 @@ WHAT IT DOES NOT COVER
 
 `captureStream` and the canvas-to-video frame path are out of scope, stated
 here rather than implied: `HTMLCanvasElement::CopyRenderingResultsToVideoFrame`
-is a separate media egress with a frame-format policy of its own, and a page
-can compare a captured frame against `getImageData` of the same canvas. The
+is a separate media egress with a frame-format policy of its own. That gap is
+narrower than it sounds, and the obvious test does not find it: a page can only
+read a captured frame back through a canvas, and that read perturbs it exactly
+as it perturbs the source, so the two agree -- measured against the built
+binary, where an earlier draft of this header predicted they would differ.
+Reaching the clean pixels needs an egress that never touches a canvas,
+`MediaRecorder` or a WebRTC track, whose bytes leave the page. The
 WebGL-on-WebGPU backend's CPU read is covered; its PBO write goes to the driver
 but that backend leaves `getBufferSubData` and `copyBufferSubData`
 `NOTIMPLEMENTED`, so it has no script-visible buffer egress to tag yet, and
@@ -203,19 +229,18 @@ Every translation unit this patch touches compiles on macos-arm64:
 The last of those is also the check on `base/base_switches.h`, and
 `static_bitmap_image.cc` the check on its header.
 
-No V2, because this patch has not been built yet. What has been done is the
-other half of the pair METHODOLOGY section 10 names: the harness was run
-against the binary *without* the change, seven launches on one macos-arm64
-host, headless with the software GL fallback, and it reports 25 checks passing
-and exactly four failing -- the four that assert the switch did something. A
-harness that passed on that binary would be testing nothing. Measured there, in
-stock behaviour and therefore as the baseline this patch must not move:
+The harness was first run against the binary *without* the change -- the other
+half of the pair METHODOLOGY section 10 names -- seven launches on one
+macos-arm64 host, headless with the software GL fallback, reporting 25 checks
+passing and exactly four failing: the four that assert the switch did
+something. A harness that passed on that binary would be testing nothing.
+Measured there, in stock behaviour and therefore as the baseline this patch
+must not move:
 
   - a 64x32 single-colour fill encodes to 183 PNG bytes, and read back through
     `getImageData` is exactly rgb(37, 99, 235) in every pixel;
   - `captureStream` plus `grabFrame` returns the same digest as `getImageData`
-    of the same canvas, which is the equality the out-of-scope note above
-    predicts will break under the switch and stay broken;
+    of the same canvas;
   - the scale comparison already disagrees with itself without any policy in
     force: 5491 of 57600 bytes differ, maximum delta 162 per channel, a scene
     drawn at 1x against the same scene drawn at 8x and downsampled. So the
@@ -243,6 +268,39 @@ agreeing with the reference for its own read depth, the PBO route agreeing with
 the CPU route and surviving `bufferSubData` and `copyBufferSubData`, and a
 non-canvas ImageBitmap untouched.
 
+V2, MEASURED AGAINST THE BUILT BINARY, AND WHAT IT FOUND
+
+Built, and the harness run against it: 30 checks pass and 5 fail, and the five
+have one cause between them. Determinism across launches, seed separation,
+equality with the switch off, `--fingerprint=host`, the solid fill still at 183
+bytes, the 1:1 copy, the ten-read majority and both PBO routes were already
+right. What was wrong was cross-route agreement, and the measurement says why.
+Two routes serving one image returned clean bytes that were byte-identical and
+perturbed bytes that were not: 687 pixels moved on one route against 704 on the
+other, and of the 749 pixels that disagreed only 49 were a red/blue swap. So it
+was not a channel-order bug, and not a GPU-against-CPU difference -- it
+reproduces with `willReadFrequently: true`. It was the key being computed over
+memory that two stores lay out differently. A translucent canvas showed the
+other half of it, and showed it loudly: `getImageData` and a decoded
+`toDataURL` of one such canvas differ on 0 of 57600 bytes in stock Chromium of
+this version, and on 36207 of 57600 with the switch on before this fix, largest
+delta 11. That is a one-unit premultiplied step magnified by the unpremultiply
+on the way out, and it is now a check in the driver rather than a paragraph.
+
+Hence the canonical form and the lattice above. Both are checked outside the
+browser as well as in it, because a claim about arithmetic is cheaper to settle
+in arithmetic: `/tmp/w1/NoiseReadback/sim.js` reimplements the kernel over the
+pixels measured out of the binary and reports that the premultiply round trip
+is exact over every valid (alpha, premultiplied) pair; that this patch's
+premultiply agrees with Skia's `SkMulDiv255Round` on all 65536 inputs; and that
+for the opaque scene an RGBA straight store and a BGRA premultiplied store of
+one image now agree on 12288 of 12288 bytes, largest step one, alpha never
+moved. The translucent scene leaves 15 bytes apart, and all 15 fall in the 3x3
+blocks around the 4 pixels whose straight values cannot be held in a
+premultiplied store at all -- an artefact of the simulation building two stores
+from one measurement, which the browser does not have, holding one store and
+deriving the other from it. Every translation unit compiles after the rewrite.
+
 Ledger: canvas.2d, canvas.todataurl-encoding, canvas.offscreen-2d,
 webgl.readpixels, webgl.readpixels-pixel-pack-buffer,
 emit.blink.apostate-readback-noise-policy,
@@ -253,6 +311,7 @@ emit.blink.apostate-webgl-pbo-readback-tag,
 emit.blink.webgl2-read-pixels-pixel-pack-buffer, coh.render-determinism,
 coh.canvas-compressibility, coh.canvas-offscreen-parity.
 
+diff --git a/base/base_switches.h b/base/base_switches.h
 --- a/base/base_switches.h
 +++ b/base/base_switches.h
 @@ -19,6 +19,15 @@
@@ -271,6 +330,7 @@ coh.canvas-compressibility, coh.canvas-offscreen-parity.
  // Delays execution of TaskPriority::BEST_EFFORT tasks until shutdown.
  inline constexpr char kDisableBestEffortTasks[] = "disable-best-effort-tasks";
  
+diff --git a/content/browser/renderer_host/render_process_host_impl.cc b/content/browser/renderer_host/render_process_host_impl.cc
 --- a/content/browser/renderer_host/render_process_host_impl.cc
 +++ b/content/browser/renderer_host/render_process_host_impl.cc
 @@ -3900,6 +3900,9 @@
@@ -287,7 +347,7 @@ diff --git a/third_party/blink/renderer/core/canvas_interventions/apostate_readb
 new file mode 100644
 --- /dev/null
 +++ b/third_party/blink/renderer/core/canvas_interventions/apostate_readback_noise.h
-@@ -0,0 +1,108 @@
+@@ -0,0 +1,131 @@
 +// Copyright 2026 The Apostate Authors
 +// Use of this source code is governed by a GPL-3.0 license that can be
 +// found in the LICENSE file.
@@ -313,16 +373,27 @@ new file mode 100644
 +// every page-visible canvas and WebGL readback comes back one step away from
 +// the bytes the renderer produced.
 +//
-+// The policy is content-keyed, not call-keyed: the perturbation of a pixel is a
-+// function of the profile seed, the clean pixel, its clean 3x3 neighbourhood
-+// and its position in the returned rectangle, and of nothing else. Two reads of
-+// one surface therefore agree, a 1:1 canvas-to-canvas copy reads back
++// The policy is content-keyed, not call-keyed: the perturbation of a pixel is
++// a function of the profile seed, the clean pixel, its clean 3x3 neighbourhood
++// and its position in the returned rectangle, and of nothing else. Two reads
++// of one surface therefore agree, a 1:1 canvas-to-canvas copy reads back
 +// identically, and every output route returns the same answer for the same
 +// pixels. A pixel whose 3x3 neighbourhood is one value is left alone, so a
 +// solid fill is byte-exact at every route.
 +//
-+// Alpha is never moved, and neither is a backing store: each route perturbs the
-+// copy the caller is about to see and nothing upstream of it.
++// "The same pixels" means the same COLOURS, not the same bytes, and that
++// distinction is load-bearing. One canvas is read back through several stores:
++// `getImageData` hands out straight-alpha RGBA8, while a snapshot bound for an
++// encoder is the resource provider's own form, which on macOS is
++// premultiplied BGRA8. Keying on raw memory would give those two different
++// answers for one image -- measured, 749 of 3072 pixels disagreeing -- and
++// stepping a premultiplied channel by one is not a step of one in what the
++// page sees: at alpha 2 it is a step of 127. So the key and the step are both
++// taken in a canonical form, straight alpha in logical R,G,B,A order, and the
++// result is written back through the store's own premultiplication.
++//
++// Alpha is never moved, and neither is a backing store: each route perturbs
++// the copy the caller is about to see and nothing upstream of it.
 +namespace apostate_readback_noise {
 +
 +// How the channels of one pixel are stored.
@@ -335,24 +406,37 @@ new file mode 100644
 +  kInt32,
 +  kFloat16,
 +  kFloat32,
-+  // One unsigned integer of `pixel_stride` bytes split into `field_bits`
-+  // bitfields, least significant first. GL's packed pixel types.
++  // One unsigned integer of `packed_bytes` bytes split into `field_bits`
++  // bitfields, least significant first. GL's packed pixel types and Skia's
++  // 1010102 family.
 +  kBitFields,
 +};
 +
 +struct Channels {
++  // A logical channel the surface does not carry.
++  static constexpr uint8_t kAbsent = 0xFF;
++
 +  Storage storage = Storage::kUint8;
 +  // Components per pixel, or the number of bitfields for kBitFields.
 +  uint8_t count = 4;
-+  // Bit 1<<i set: the policy may move channel i. Alpha is never set, and
-+  // neither is a padding byte or a shared exponent.
-+  uint8_t movable = 0b0111;
-+  // kBitFields only: the width in bits of each field, least significant first.
++  // Where the logical red, green, blue and alpha channels live in storage.
++  // This is what makes the policy independent of the memory layout: a BGRA
++  // store and an RGBA store of one image are perturbed identically.
++  std::array<uint8_t, 4> logical = {{0, 1, 2, 3}};
++  // kBitFields only: the width in bits of each field, least significant
++  // first, and the size of the packed integer.
 +  std::array<uint8_t, 4> field_bits = {{0, 0, 0, 0}};
-+  // With premultiplied pixels a colour channel above alpha is not
-+  // representable, so the step is clamped to it rather than to the type.
++  uint8_t packed_bytes = 0;
++  // The store holds colour already multiplied by alpha. The step is taken on
++  // the straight value and written back multiplied, so it is a step of one in
++  // the value a page reads rather than in the value the store holds.
 +  bool premultiplied = false;
-+  uint8_t alpha = 3;
++  // The store holds straight alpha but is a view of a premultiplied canvas,
++  // which is what an ImageData is. Such a view can only serve values that
++  // survive the round trip through that canvas, so the step is snapped onto
++  // the same lattice; without it, getImageData and an encoded snapshot of one
++  // canvas disagree on a translucent pixel by up to a lattice step.
++  bool straight_of_premultiplied = false;
 +};
 +
 +// A rectangle of interleaved pixels a page is about to see. `bytes` begins at
@@ -372,8 +456,7 @@ new file mode 100644
 +// the switch and the profile are both fixed before the first page loads.
 +CORE_EXPORT bool Enabled();
 +
-+// The profile-derived seed. Exposed for --fingerprint-explain; zero when the
-+// policy is off.
++// The profile-derived seed. Zero when the policy is off.
 +CORE_EXPORT uint64_t Seed();
 +
 +// Perturbs `surface` in place. A no-op unless Enabled().
@@ -400,7 +483,7 @@ diff --git a/third_party/blink/renderer/core/canvas_interventions/apostate_readb
 new file mode 100644
 --- /dev/null
 +++ b/third_party/blink/renderer/core/canvas_interventions/apostate_readback_noise.cc
-@@ -0,0 +1,500 @@
+@@ -0,0 +1,685 @@
 +// Copyright 2026 The Apostate Authors
 +// Use of this source code is governed by a GPL-3.0 license that can be
 +// found in the LICENSE file.
@@ -434,6 +517,9 @@ new file mode 100644
 +
 +namespace {
 +
++constexpr uint64_t kFnvOffset = 0xcbf29ce484222325ull;
++constexpr uint64_t kFnvPrime = 0x00000100000001b3ull;
++
 +// The switch, the profile and the seed, resolved once. Nothing here can change
 +// during a launch: the command line is fixed before the renderer starts and
 +// Profile::Get() is installed before the first page loads.
@@ -462,8 +548,7 @@ new file mode 100644
 +  // perturb the same way on the next launch; the two halves are the
 +  // SyntheticDeviceSeed construction in base/apostate/media_devices.cc.
 +  static constexpr std::string_view kDomain("apostate/canvas-noise/v1\0", 25);
-+  const std::string material =
-+      base::StrCat({kDomain, profile->source_id()});
++  const std::string material = base::StrCat({kDomain, profile->source_id()});
 +  policy.seed =
 +      (static_cast<uint64_t>(base::PersistentHash(material)) << 32) |
 +      base::PersistentHash(base::StrCat({material, "/2"}));
@@ -474,17 +559,6 @@ new file mode 100644
 +const Policy& GetPolicy() {
 +  static const Policy policy = ResolvePolicy();
 +  return policy;
-+}
-+
-+// FNV-1a over the raw bytes of one clean pixel. This is the pixel's identity
-+// in the key: every channel including alpha, and nothing outside the pixel.
-+uint64_t PixelDigest(base::span<const uint8_t> pixel) {
-+  uint64_t hash = 0xcbf29ce484222325ull;
-+  for (uint8_t byte : pixel) {
-+    hash ^= byte;
-+    hash *= 0x00000100000001b3ull;
-+  }
-+  return hash;
 +}
 +
 +template <typename T>
@@ -501,125 +575,278 @@ new file mode 100644
 +      .copy_from(base::byte_span_from_ref(value));
 +}
 +
-+// The upper bound a colour channel may take. Premultiplied pixels cannot carry
-+// a colour above their alpha, so a step that would break that is clamped to it
-+// rather than allowed to produce an unrepresentable pixel.
-+int64_t ColourCeiling(base::span<const uint8_t> pixel,
-+                      const Channels& channels,
-+                      uint8_t index,
-+                      int64_t type_max) {
-+  if (!channels.premultiplied || index == channels.alpha ||
-+      channels.alpha >= channels.count) {
-+    return type_max;
-+  }
-+  switch (channels.storage) {
-+    case Storage::kUint8:
-+      return std::min<int64_t>(type_max, Load<uint8_t>(pixel, channels.alpha));
-+    case Storage::kUint16:
-+      return std::min<int64_t>(type_max, Load<uint16_t>(pixel, channels.alpha));
-+    default:
-+      // Signed, floating-point and packed channels: the comparison is either
-+      // meaningless or handled by the caller.
-+      return type_max;
++// The packed integer a kBitFields pixel is.
++uint32_t LoadPacked(base::span<const uint8_t> pixel, const Channels& channels) {
++  return channels.packed_bytes == 2 ? Load<uint16_t>(pixel, 0)
++                                    : Load<uint32_t>(pixel, 0);
++}
++
++void StorePacked(base::span<uint8_t> pixel,
++                 const Channels& channels,
++                 uint32_t packed) {
++  if (channels.packed_bytes == 2) {
++    Store<uint16_t>(pixel, 0, static_cast<uint16_t>(packed));
++  } else {
++    Store<uint32_t>(pixel, 0, packed);
 +  }
 +}
 +
-+// Moves one bitfield of a packed pixel. `packed` is the whole pixel read as an
-+// unsigned integer; the fields are least significant first.
-+uint32_t StepField(uint32_t packed,
-+                   const Channels& channels,
-+                   uint8_t index,
-+                   int step) {
++uint32_t FieldShift(const Channels& channels, uint8_t index) {
 +  uint32_t shift = 0;
 +  for (uint8_t i = 0; i < index; ++i) {
 +    shift += channels.field_bits[i];
 +  }
-+  const uint32_t bits = channels.field_bits[index];
-+  if (bits == 0 || bits >= 32) {
-+    return packed;
-+  }
-+  const uint32_t mask = (1u << bits) - 1u;
-+  int64_t value = (packed >> shift) & mask;
-+  int64_t ceiling = mask;
-+  if (channels.premultiplied && index != channels.alpha &&
-+      channels.alpha < channels.count) {
-+    uint32_t alpha_shift = 0;
-+    for (uint8_t i = 0; i < channels.alpha; ++i) {
-+      alpha_shift += channels.field_bits[i];
-+    }
-+    const uint32_t alpha_bits = channels.field_bits[channels.alpha];
-+    if (alpha_bits > 0 && alpha_bits < 32) {
-+      const uint32_t alpha_mask = (1u << alpha_bits) - 1u;
-+      const int64_t alpha = (packed >> alpha_shift) & alpha_mask;
-+      // The two fields are normalised over different ranges, so alpha is
-+      // scaled into this field's range before it becomes the ceiling.
-+      ceiling = std::min<int64_t>(ceiling, (alpha * mask) / alpha_mask);
-+    }
-+  }
-+  value = std::clamp<int64_t>(value + step, 0, ceiling);
-+  return (packed & ~(mask << shift)) |
-+         (static_cast<uint32_t>(value) << shift);
++  return shift;
 +}
 +
-+// One {-1, 0, +1} step on the stored value of channel `index`. For a
-+// floating-point channel the step is one unit in the last place, which is the
-+// same statement about the stored value and is invisible to an eye.
++// Largest value a channel can hold, for the storages where that is meaningful.
++// Zero for the signed and floating-point ones, which have no normalised range
++// and are never premultiplied here.
++int64_t ChannelMax(const Channels& channels, uint8_t storage_index) {
++  switch (channels.storage) {
++    case Storage::kUint8:
++      return 0xFF;
++    case Storage::kUint16:
++      return 0xFFFF;
++    case Storage::kUint32:
++      return 0xFFFFFFFF;
++    case Storage::kBitFields: {
++      const uint32_t bits = channels.field_bits[storage_index];
++      return bits == 0 || bits >= 32 ? 0 : (int64_t{1} << bits) - 1;
++    }
++    default:
++      return 0;
++  }
++}
++
++// The value held in storage, without interpretation. For a floating-point
++// channel this is the bit pattern, which is what a step of one moves.
++int64_t LoadStored(base::span<const uint8_t> pixel,
++                   const Channels& channels,
++                   uint8_t storage_index) {
++  switch (channels.storage) {
++    case Storage::kUint8:
++      return Load<uint8_t>(pixel, storage_index);
++    case Storage::kInt8:
++      return Load<int8_t>(pixel, storage_index);
++    case Storage::kUint16:
++    case Storage::kFloat16:
++      return Load<uint16_t>(pixel, storage_index);
++    case Storage::kInt16:
++      return Load<int16_t>(pixel, storage_index);
++    case Storage::kUint32:
++    case Storage::kFloat32:
++      return Load<uint32_t>(pixel, storage_index);
++    case Storage::kInt32:
++      return Load<int32_t>(pixel, storage_index);
++    case Storage::kBitFields: {
++      const int64_t mask = ChannelMax(channels, storage_index);
++      if (mask == 0) {
++        return 0;
++      }
++      return (LoadPacked(pixel, channels) >>
++              FieldShift(channels, storage_index)) &
++             static_cast<uint32_t>(mask);
++    }
++  }
++}
++
++void StoreStored(base::span<uint8_t> pixel,
++                 const Channels& channels,
++                 uint8_t storage_index,
++                 int64_t value) {
++  switch (channels.storage) {
++    case Storage::kUint8:
++      Store<uint8_t>(pixel, storage_index, static_cast<uint8_t>(value));
++      return;
++    case Storage::kInt8:
++      Store<int8_t>(pixel, storage_index, static_cast<int8_t>(value));
++      return;
++    case Storage::kUint16:
++    case Storage::kFloat16:
++      Store<uint16_t>(pixel, storage_index, static_cast<uint16_t>(value));
++      return;
++    case Storage::kInt16:
++      Store<int16_t>(pixel, storage_index, static_cast<int16_t>(value));
++      return;
++    case Storage::kUint32:
++    case Storage::kFloat32:
++      Store<uint32_t>(pixel, storage_index, static_cast<uint32_t>(value));
++      return;
++    case Storage::kInt32:
++      Store<int32_t>(pixel, storage_index, static_cast<int32_t>(value));
++      return;
++    case Storage::kBitFields: {
++      const int64_t mask = ChannelMax(channels, storage_index);
++      if (mask == 0) {
++        return;
++      }
++      const uint32_t shift = FieldShift(channels, storage_index);
++      const uint32_t packed = LoadPacked(pixel, channels);
++      StorePacked(pixel, channels,
++                  (packed & ~(static_cast<uint32_t>(mask) << shift)) |
++                      (static_cast<uint32_t>(value) << shift));
++      return;
++    }
++  }
++}
++
++bool IsUnsignedNormalised(Storage storage) {
++  return storage == Storage::kUint8 || storage == Storage::kUint16 ||
++         storage == Storage::kBitFields;
++}
++
++// True when the colour channels of this pixel have to be divided by alpha to
++// get the value a page reads.
++bool HasStraightConversion(const Channels& channels) {
++  return channels.premultiplied && IsUnsignedNormalised(channels.storage) &&
++         channels.logical[3] != Channels::kAbsent;
++}
++
++// The value of a logical channel as a page sees it: straight alpha, in the
++// storage's own units. Two surfaces holding one image in different layouts
++// agree here, which is the whole point of the canonical form.
++int64_t CanonicalValue(base::span<const uint8_t> pixel,
++                       const Channels& channels,
++                       uint8_t logical_index) {
++  const uint8_t storage_index = channels.logical[logical_index];
++  if (storage_index == Channels::kAbsent) {
++    // A surface with no alpha reads as opaque, and a missing colour as zero,
++    // so an opaque RGBA pixel and the same colour in an RGBx store key alike.
++    return logical_index == 3 ? ChannelMax(channels, channels.logical[0]) : 0;
++  }
++  const int64_t raw = LoadStored(pixel, channels, storage_index);
++  if (logical_index == 3 || !HasStraightConversion(channels)) {
++    return raw;
++  }
++  const uint8_t alpha_index = channels.logical[3];
++  const int64_t alpha = LoadStored(pixel, channels, alpha_index);
++  if (alpha <= 0) {
++    return 0;
++  }
++  const int64_t alpha_max = ChannelMax(channels, alpha_index);
++  const int64_t colour_max = ChannelMax(channels, storage_index);
++  // raw = round(straight * alpha / alpha_max), so this inverts it. Exact in
++  // the round trip: premultiplying the result back reproduces `raw`.
++  return std::min(colour_max, (raw * alpha_max + alpha / 2) / alpha);
++}
++
++// Writes a canonical (straight-alpha) value back through the store's own
++// premultiplication.
++void StoreCanonical(base::span<uint8_t> pixel,
++                    const Channels& channels,
++                    uint8_t logical_index,
++                    int64_t straight) {
++  const uint8_t storage_index = channels.logical[logical_index];
++  if (storage_index == Channels::kAbsent) {
++    return;
++  }
++  if (!HasStraightConversion(channels)) {
++    StoreStored(pixel, channels, storage_index, straight);
++    return;
++  }
++  const uint8_t alpha_index = channels.logical[3];
++  const int64_t alpha = LoadStored(pixel, channels, alpha_index);
++  const int64_t alpha_max = ChannelMax(channels, alpha_index);
++  const int64_t colour_max = ChannelMax(channels, storage_index);
++  if (alpha_max <= 0) {
++    return;
++  }
++  // A premultiplied colour can never exceed the pixel's own alpha, scaled
++  // into this channel's range.
++  const int64_t ceiling = std::min(colour_max, (alpha * colour_max) / alpha_max);
++  const int64_t premultiplied = (straight * alpha + alpha_max / 2) / alpha_max;
++  StoreStored(pixel, channels, storage_index,
++              std::clamp<int64_t>(premultiplied, 0, ceiling));
++}
++
++// A straight-alpha view of a premultiplied canvas can only serve the values
++// that survive the round trip through that canvas. Snapping the step onto the
++// same lattice is what makes `getImageData` and an encoded snapshot of one
++// canvas agree on a translucent pixel: without it the encoded route lands on
++// the lattice and the ImageData route does not, and the two disagree by up to
++// a lattice step. The cost is that on a nearly transparent pixel the step,
++// read out in straight alpha, is that lattice step rather than one -- which
++// is one unit of what the canvas actually holds, and one unit of what the
++// page sees composited.
++int64_t SnapToPremultipliedLattice(base::span<const uint8_t> pixel,
++                                   const Channels& channels,
++                                   uint8_t storage_index,
++                                   int64_t straight) {
++  const uint8_t alpha_index = channels.logical[3];
++  if (alpha_index == Channels::kAbsent) {
++    return straight;
++  }
++  const int64_t alpha = LoadStored(pixel, channels, alpha_index);
++  const int64_t alpha_max = ChannelMax(channels, alpha_index);
++  const int64_t colour_max = ChannelMax(channels, storage_index);
++  if (alpha_max <= 0) {
++    return straight;
++  }
++  if (alpha <= 0) {
++    // A fully transparent pixel carries no colour in a premultiplied store.
++    return 0;
++  }
++  const int64_t ceiling = std::min(colour_max, (alpha * colour_max) / alpha_max);
++  const int64_t premultiplied = std::clamp<int64_t>(
++      (straight * alpha + alpha_max / 2) / alpha_max, 0, ceiling);
++  return std::min(colour_max, (premultiplied * alpha_max + alpha / 2) / alpha);
++}
++
++// One {-1, 0, +1} step on logical channel `logical_index`, taken on the value
++// a page reads. For a floating-point channel the step is one unit in the last
++// place, which is the same statement about the stored value and is invisible
++// to an eye.
 +void StepChannel(base::span<uint8_t> pixel,
 +                 const Channels& channels,
-+                 uint8_t index,
-+                 int step,
-+                 size_t pixel_stride) {
++                 uint8_t logical_index,
++                 int step) {
 +  if (step == 0) {
 +    return;
 +  }
++  const uint8_t storage_index = channels.logical[logical_index];
++  if (storage_index == Channels::kAbsent) {
++    return;
++  }
 +  switch (channels.storage) {
-+    case Storage::kUint8: {
-+      const int64_t value = Load<uint8_t>(pixel, index);
-+      Store<uint8_t>(pixel, index,
-+                     static_cast<uint8_t>(std::clamp<int64_t>(
-+                         value + step, 0,
-+                         ColourCeiling(pixel, channels, index, 0xFF))));
++    case Storage::kUint8:
++    case Storage::kUint16:
++    case Storage::kUint32:
++    case Storage::kBitFields: {
++      const int64_t max = ChannelMax(channels, storage_index);
++      if (max == 0) {
++        return;
++      }
++      int64_t straight = std::clamp<int64_t>(
++          CanonicalValue(pixel, channels, logical_index) + step, 0, max);
++      if (channels.straight_of_premultiplied) {
++        straight = SnapToPremultipliedLattice(pixel, channels, storage_index,
++                                              straight);
++      }
++      StoreCanonical(pixel, channels, logical_index, straight);
 +      return;
 +    }
 +    case Storage::kInt8: {
-+      const int64_t value = Load<int8_t>(pixel, index);
-+      Store<int8_t>(pixel, index,
-+                    static_cast<int8_t>(
-+                        std::clamp<int64_t>(value + step, -0x80, 0x7F)));
-+      return;
-+    }
-+    case Storage::kUint16: {
-+      const int64_t value = Load<uint16_t>(pixel, index);
-+      Store<uint16_t>(pixel, index,
-+                      static_cast<uint16_t>(std::clamp<int64_t>(
-+                          value + step, 0,
-+                          ColourCeiling(pixel, channels, index, 0xFFFF))));
++      const int64_t value = LoadStored(pixel, channels, storage_index);
++      StoreStored(pixel, channels, storage_index,
++                  std::clamp<int64_t>(value + step, -0x80, 0x7F));
 +      return;
 +    }
 +    case Storage::kInt16: {
-+      const int64_t value = Load<int16_t>(pixel, index);
-+      Store<int16_t>(pixel, index,
-+                     static_cast<int16_t>(
-+                         std::clamp<int64_t>(value + step, -0x8000, 0x7FFF)));
-+      return;
-+    }
-+    case Storage::kUint32: {
-+      const int64_t value = Load<uint32_t>(pixel, index);
-+      Store<uint32_t>(pixel, index,
-+                      static_cast<uint32_t>(std::clamp<int64_t>(
-+                          value + step, 0, 0xFFFFFFFF)));
++      const int64_t value = LoadStored(pixel, channels, storage_index);
++      StoreStored(pixel, channels, storage_index,
++                  std::clamp<int64_t>(value + step, -0x8000, 0x7FFF));
 +      return;
 +    }
 +    case Storage::kInt32: {
-+      const int64_t value = Load<int32_t>(pixel, index);
-+      Store<int32_t>(
-+          pixel, index,
-+          static_cast<int32_t>(std::clamp<int64_t>(value + step, INT32_MIN,
-+                                                   INT32_MAX)));
++      const int64_t value = LoadStored(pixel, channels, storage_index);
++      StoreStored(pixel, channels, storage_index,
++                  std::clamp<int64_t>(value + step, INT32_MIN, INT32_MAX));
 +      return;
 +    }
 +    case Storage::kFloat16: {
-+      const uint16_t bits = Load<uint16_t>(pixel, index);
++      const uint16_t bits =
++          static_cast<uint16_t>(LoadStored(pixel, channels, storage_index));
 +      const uint16_t magnitude = bits & 0x7FFFu;
 +      // An infinity or a NaN has no next value, and a zero has no previous one
 +      // that is not a sign flip. Both stay exactly as the renderer wrote them.
@@ -627,32 +854,40 @@ new file mode 100644
 +          (step > 0 && magnitude == 0x7BFFu)) {
 +        return;
 +      }
-+      Store<uint16_t>(pixel, index, static_cast<uint16_t>(bits + step));
++      StoreStored(pixel, channels, storage_index,
++                  static_cast<uint16_t>(bits + step));
 +      return;
 +    }
 +    case Storage::kFloat32: {
-+      const uint32_t bits = Load<uint32_t>(pixel, index);
++      const uint32_t bits =
++          static_cast<uint32_t>(LoadStored(pixel, channels, storage_index));
 +      const uint32_t magnitude = bits & 0x7FFFFFFFu;
 +      if (magnitude >= 0x7F800000u || (step < 0 && magnitude == 0u) ||
 +          (step > 0 && magnitude == 0x7F7FFFFFu)) {
 +        return;
 +      }
-+      Store<uint32_t>(pixel, index, static_cast<uint32_t>(bits + step));
-+      return;
-+    }
-+    case Storage::kBitFields: {
-+      if (pixel_stride == 2u) {
-+        const uint16_t packed = Load<uint16_t>(pixel, 0);
-+        Store<uint16_t>(pixel, 0,
-+                        static_cast<uint16_t>(
-+                            StepField(packed, channels, index, step)));
-+      } else if (pixel_stride == 4u) {
-+        const uint32_t packed = Load<uint32_t>(pixel, 0);
-+        Store<uint32_t>(pixel, 0, StepField(packed, channels, index, step));
-+      }
++      StoreStored(pixel, channels, storage_index,
++                  static_cast<uint32_t>(bits + step));
 +      return;
 +    }
 +  }
++}
++
++// FNV-1a over one pixel's canonical channel values, each folded as eight
++// bytes so that a store's width and order cannot reach the key. This is the
++// pixel's identity: the colour a page reads, and nothing about how it is held.
++uint64_t CanonicalPixelKey(base::span<const uint8_t> pixel,
++                           const Channels& channels) {
++  uint64_t hash = kFnvOffset;
++  for (uint8_t logical_index = 0; logical_index < 4; ++logical_index) {
++    const uint64_t value = static_cast<uint64_t>(
++        CanonicalValue(pixel, channels, logical_index));
++    for (int byte = 0; byte < 8; ++byte) {
++      hash ^= (value >> (byte * 8)) & 0xFFu;
++      hash *= kFnvPrime;
++    }
++  }
++  return hash;
 +}
 +
 +// True when every pixel of the rectangle carries the same bytes. A solid fill
@@ -689,23 +924,34 @@ new file mode 100644
 +
 +void DigestRow(const Surface& surface, int32_t y, base::span<uint64_t> out) {
 +  for (int32_t x = 0; x < surface.width; ++x) {
-+    out[static_cast<size_t>(x)] = PixelDigest(PixelAt(surface, x, y));
++    out[static_cast<size_t>(x)] =
++        CanonicalPixelKey(PixelAt(surface, x, y), surface.channels);
 +  }
 +}
 +
 +std::optional<Channels> ChannelsForColorType(SkColorType color_type,
 +                                             SkAlphaType alpha_type) {
++  constexpr uint8_t kNone = Channels::kAbsent;
 +  const bool premultiplied = alpha_type == kPremul_SkAlphaType;
 +  Channels channels;
++  // Every surface this reaches is a canvas's output, and a canvas stores
++  // premultiplied. An unpremultiplied pixmap is therefore a view of one, and
++  // is held to the same lattice so the two agree.
++  channels.straight_of_premultiplied = alpha_type == kUnpremul_SkAlphaType;
 +  switch (color_type) {
 +    case kRGBA_8888_SkColorType:
++      channels.storage = Storage::kUint8;
++      channels.premultiplied = premultiplied;
++      return channels;
 +    case kBGRA_8888_SkColorType:
 +      channels.storage = Storage::kUint8;
++      channels.logical = {{2, 1, 0, 3}};
 +      channels.premultiplied = premultiplied;
 +      return channels;
 +    case kRGB_888x_SkColorType:
 +      // The fourth byte is padding, not alpha, and stays as it is.
 +      channels.storage = Storage::kUint8;
++      channels.logical = {{0, 1, 2, kNone}};
 +      return channels;
 +    case kRGBA_F16_SkColorType:
 +    case kRGBA_F16Norm_SkColorType:
@@ -717,28 +963,40 @@ new file mode 100644
 +      channels.premultiplied = premultiplied;
 +      return channels;
 +    case kRGBA_1010102_SkColorType:
++      channels.storage = Storage::kBitFields;
++      channels.field_bits = {{10, 10, 10, 2}};
++      channels.packed_bytes = 4;
++      channels.premultiplied = premultiplied;
++      return channels;
 +    case kBGRA_1010102_SkColorType:
 +      channels.storage = Storage::kBitFields;
 +      channels.field_bits = {{10, 10, 10, 2}};
++      channels.packed_bytes = 4;
++      channels.logical = {{2, 1, 0, 3}};
 +      channels.premultiplied = premultiplied;
 +      return channels;
 +    case kRGB_101010x_SkColorType:
++      channels.storage = Storage::kBitFields;
++      channels.field_bits = {{10, 10, 10, 2}};
++      channels.packed_bytes = 4;
++      channels.logical = {{0, 1, 2, kNone}};
++      return channels;
 +    case kBGR_101010x_SkColorType:
 +      channels.storage = Storage::kBitFields;
 +      channels.field_bits = {{10, 10, 10, 2}};
++      channels.packed_bytes = 4;
++      channels.logical = {{2, 1, 0, kNone}};
 +      return channels;
 +    case kGray_8_SkColorType:
 +    case kR8_unorm_SkColorType:
 +      channels.storage = Storage::kUint8;
 +      channels.count = 1;
-+      channels.movable = 0b0001;
-+      channels.alpha = 1;
++      channels.logical = {{0, kNone, kNone, kNone}};
 +      return channels;
 +    case kR8G8_unorm_SkColorType:
 +      channels.storage = Storage::kUint8;
 +      channels.count = 2;
-+      channels.movable = 0b0011;
-+      channels.alpha = 2;
++      channels.logical = {{0, 1, kNone, kNone}};
 +      return channels;
 +    case kR16G16B16A16_unorm_SkColorType:
 +      channels.storage = Storage::kUint16;
@@ -774,12 +1032,19 @@ new file mode 100644
 +  if (surface.bytes.size() < extent) {
 +    return;
 +  }
++  const Channels& channels = surface.channels;
++  if (channels.logical[0] == Channels::kAbsent &&
++      channels.logical[1] == Channels::kAbsent &&
++      channels.logical[2] == Channels::kAbsent) {
++    // Nothing but alpha, which is never moved.
++    return;
++  }
 +  if (WholeSurfaceIsOneValue(surface)) {
 +    return;
 +  }
 +
-+  // Row digests for the three rows the key reads, rolled forward. Each row is
-+  // digested before it is written, so the key is always the clean image even
++  // Row keys for the three rows the policy reads, rolled forward. Each row is
++  // keyed before it is written, so the key is always the clean image even
 +  // though the perturbation happens in place.
 +  const wtf_size_t width = base::checked_cast<wtf_size_t>(surface.width);
 +  std::array<Vector<uint64_t>, 3> rows;
@@ -835,12 +1100,15 @@ new file mode 100644
 +                  static_cast<uint32_t>(x));
 +
 +      base::span<uint8_t> pixel = PixelAt(surface, x, y);
-+      for (uint8_t channel = 0; channel < surface.channels.count; ++channel) {
-+        if ((surface.channels.movable & (1u << channel)) == 0) {
++      // Red, then green, then blue, by logical channel rather than by
++      // position in memory, so the same colour takes the same step whichever
++      // store it is read out of.
++      for (uint8_t logical_index = 0; logical_index < 3; ++logical_index) {
++        if (channels.logical[logical_index] == Channels::kAbsent) {
 +          continue;
 +        }
-+        StepChannel(pixel, surface.channels, channel,
-+                    hash.GetValueBelow(3) - 1, surface.pixel_stride);
++        StepChannel(pixel, channels, logical_index,
++                    hash.GetValueBelow(3) - 1);
 +      }
 +    }
 +  }
@@ -900,7 +1168,8 @@ new file mode 100644
 +  return result;
 +}
 +
-+}  // namespace blink::apostate_readback_noise
++}  // namespace apostate_readback_noise
+diff --git a/third_party/blink/renderer/core/canvas_interventions/build.gni b/third_party/blink/renderer/core/canvas_interventions/build.gni
 --- a/third_party/blink/renderer/core/canvas_interventions/build.gni
 +++ b/third_party/blink/renderer/core/canvas_interventions/build.gni
 @@ -3,6 +3,8 @@
@@ -912,6 +1181,7 @@ new file mode 100644
    "noise_hash.cc",
    "noise_hash.h",
    "noise_helper.cc",
+diff --git a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
 --- a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
 +++ b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
 @@ -57,6 +57,7 @@
@@ -944,6 +1214,7 @@ new file mode 100644
      auto* options = ImageEncodeOptions::Create();
      options->setType(ImageEncoderUtils::MimeTypeName(encoding_mime_type));
      async_creator = MakeGarbageCollected<CanvasAsyncBlobCreator>(
+diff --git a/third_party/blink/renderer/core/imagebitmap/image_bitmap.cc b/third_party/blink/renderer/core/imagebitmap/image_bitmap.cc
 --- a/third_party/blink/renderer/core/imagebitmap/image_bitmap.cc
 +++ b/third_party/blink/renderer/core/imagebitmap/image_bitmap.cc
 @@ -22,6 +22,7 @@
@@ -1009,6 +1280,7 @@ new file mode 100644
  }
  
  unsigned ImageBitmap::width() const {
+diff --git a/third_party/blink/renderer/core/offscreencanvas/offscreen_canvas.cc b/third_party/blink/renderer/core/offscreencanvas/offscreen_canvas.cc
 --- a/third_party/blink/renderer/core/offscreencanvas/offscreen_canvas.cc
 +++ b/third_party/blink/renderer/core/offscreencanvas/offscreen_canvas.cc
 @@ -15,6 +15,7 @@
@@ -1044,6 +1316,7 @@ new file mode 100644
      auto* resolver = MakeGarbageCollected<ScriptPromiseResolver<Blob>>(
          script_state, exception_state.GetContext());
      CanvasAsyncBlobCreator::ToBlobFunctionType function_type =
+diff --git a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
 --- a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
 +++ b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
 @@ -40,6 +40,7 @@
@@ -1068,6 +1341,7 @@ new file mode 100644
    }
  
    return image_data;
+diff --git a/third_party/blink/renderer/modules/webgl/BUILD.gn b/third_party/blink/renderer/modules/webgl/BUILD.gn
 --- a/third_party/blink/renderer/modules/webgl/BUILD.gn
 +++ b/third_party/blink/renderer/modules/webgl/BUILD.gn
 @@ -146,6 +146,8 @@
@@ -1079,6 +1353,7 @@ new file mode 100644
      "webgl_render_shared_exponent.cc",
      "webgl_render_shared_exponent.h",
      "webgl_renderbuffer.cc",
+diff --git a/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.cc
 --- a/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.cc
 +++ b/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.cc
 @@ -15,6 +15,7 @@
@@ -1221,6 +1496,7 @@ new file mode 100644
  }
  
  void WebGL2RenderingContextBase::RenderbufferStorageHelper(
+diff --git a/third_party/blink/renderer/modules/webgl/webgl_buffer.cc b/third_party/blink/renderer/modules/webgl/webgl_buffer.cc
 --- a/third_party/blink/renderer/modules/webgl/webgl_buffer.cc
 +++ b/third_party/blink/renderer/modules/webgl/webgl_buffer.cc
 @@ -25,11 +25,22 @@
@@ -1336,6 +1612,7 @@ new file mode 100644
 +}
 +
  }  // namespace blink
+diff --git a/third_party/blink/renderer/modules/webgl/webgl_buffer.h b/third_party/blink/renderer/modules/webgl/webgl_buffer.h
 --- a/third_party/blink/renderer/modules/webgl/webgl_buffer.h
 +++ b/third_party/blink/renderer/modules/webgl/webgl_buffer.h
 @@ -27,6 +27,7 @@
@@ -1474,7 +1751,7 @@ diff --git a/third_party/blink/renderer/modules/webgl/webgl_readback_noise.cc b/
 new file mode 100644
 --- /dev/null
 +++ b/third_party/blink/renderer/modules/webgl/webgl_readback_noise.cc
-@@ -0,0 +1,232 @@
+@@ -0,0 +1,230 @@
 +// Copyright 2026 The Apostate Authors
 +// Use of this source code is governed by a GPL-3.0 license that can be
 +// found in the LICENSE file.
@@ -1493,63 +1770,66 @@ new file mode 100644
 +using apostate_readback_noise::Storage;
 +using apostate_readback_noise::Surface;
 +
-+// The channel layout of one packed pixel, least significant field first. GL
-+// numbers the components of a packed type from the most significant end unless
-+// the name says _REV, so the field widths below are the spec's layout read
-+// backwards, and the movable mask names the colour fields in that order.
++constexpr uint8_t kNone = Channels::kAbsent;
++
++// The channel layout of one packed pixel. GL numbers the components of a
++// packed type from the most significant end unless the name says _REV, so
++// `field_bits` is the spec's layout read least significant first and
++// `logical` says where red, green, blue and alpha ended up in that order.
 +bool PackedChannels(GLenum type, Channels* channels) {
 +  switch (type) {
-+    case GL_UNSIGNED_SHORT_5_6_5:  // B, G, R
++    case GL_UNSIGNED_SHORT_5_6_5:  // stored B, G, R
 +      channels->count = 3;
 +      channels->field_bits = {{5, 6, 5, 0}};
-+      channels->movable = 0b0111;
-+      channels->alpha = 3;
++      channels->logical = {{2, 1, 0, kNone}};
 +      break;
-+    case GL_UNSIGNED_SHORT_4_4_4_4:  // A, B, G, R
++    case GL_UNSIGNED_SHORT_4_4_4_4:  // stored A, B, G, R
 +      channels->count = 4;
 +      channels->field_bits = {{4, 4, 4, 4}};
-+      channels->movable = 0b1110;
-+      channels->alpha = 0;
++      channels->logical = {{3, 2, 1, 0}};
 +      break;
-+    case GL_UNSIGNED_SHORT_5_5_5_1:  // A, B, G, R
++    case GL_UNSIGNED_SHORT_5_5_5_1:  // stored A, B, G, R
 +      channels->count = 4;
 +      channels->field_bits = {{1, 5, 5, 5}};
-+      channels->movable = 0b1110;
-+      channels->alpha = 0;
++      channels->logical = {{3, 2, 1, 0}};
 +      break;
-+    case GL_UNSIGNED_INT_2_10_10_10_REV:  // R, G, B, A
++    case GL_UNSIGNED_INT_2_10_10_10_REV:  // stored R, G, B, A
 +      channels->count = 4;
 +      channels->field_bits = {{10, 10, 10, 2}};
-+      channels->movable = 0b0111;
-+      channels->alpha = 3;
++      channels->logical = {{0, 1, 2, 3}};
 +      break;
-+    case GL_UNSIGNED_INT_10F_11F_11F_REV:  // R, G, B
++    case GL_UNSIGNED_INT_10F_11F_11F_REV:  // stored R, G, B
 +      // Three unsigned mini-floats. A step of one on the stored field is one
 +      // unit in the last place, the same statement as for a real float.
 +      channels->count = 3;
 +      channels->field_bits = {{11, 11, 10, 0}};
-+      channels->movable = 0b0111;
-+      channels->alpha = 3;
++      channels->logical = {{0, 1, 2, kNone}};
 +      break;
-+    case GL_UNSIGNED_INT_5_9_9_9_REV:  // R, G, B mantissae, shared exponent
++    case GL_UNSIGNED_INT_5_9_9_9_REV:  // stored R, G, B mantissae, exponent
 +      channels->count = 4;
 +      channels->field_bits = {{9, 9, 9, 5}};
-+      channels->movable = 0b0111;
 +      // The shared exponent scales all three mantissae at once, so moving it
-+      // would move the whole pixel. It is held in the alpha slot, which the
-+      // policy never touches.
-+      channels->alpha = 3;
++      // would move the whole pixel. It is not a logical channel at all, so
++      // the policy never reaches it.
++      channels->logical = {{0, 1, 2, kNone}};
 +      break;
 +    default:
 +      return false;
 +  }
 +  channels->storage = Storage::kBitFields;
++  channels->packed_bytes =
++      (type == GL_UNSIGNED_SHORT_5_6_5 || type == GL_UNSIGNED_SHORT_4_4_4_4 ||
++       type == GL_UNSIGNED_SHORT_5_5_5_1)
++          ? 2
++          : 4;
 +  return true;
 +}
 +
 +std::optional<Channels> ChannelsFor(GLenum format, GLenum type) {
 +  Channels channels;
 +  if (PackedChannels(type, &channels)) {
++    // GL never packs premultiplied pixels, so no colour channel is clamped to
++    // alpha on this side.
 +    return channels;
 +  }
 +
@@ -1557,32 +1837,27 @@ new file mode 100644
 +    case GL_RGBA:
 +    case GL_RGBA_INTEGER:
 +      channels.count = 4;
-+      channels.movable = 0b0111;
-+      channels.alpha = 3;
++      channels.logical = {{0, 1, 2, 3}};
 +      break;
 +    case GL_RGB:
 +    case GL_RGB_INTEGER:
 +      channels.count = 3;
-+      channels.movable = 0b0111;
-+      channels.alpha = 3;
++      channels.logical = {{0, 1, 2, kNone}};
 +      break;
 +    case GL_RG:
 +    case GL_RG_INTEGER:
 +      channels.count = 2;
-+      channels.movable = 0b0011;
-+      channels.alpha = 2;
++      channels.logical = {{0, 1, kNone, kNone}};
 +      break;
 +    case GL_RED:
 +    case GL_RED_INTEGER:
 +    case GL_LUMINANCE:
 +      channels.count = 1;
-+      channels.movable = 0b0001;
-+      channels.alpha = 1;
++      channels.logical = {{0, kNone, kNone, kNone}};
 +      break;
 +    case GL_LUMINANCE_ALPHA:
 +      channels.count = 2;
-+      channels.movable = 0b0001;
-+      channels.alpha = 1;
++      channels.logical = {{0, kNone, kNone, 1}};
 +      break;
 +    default:
 +      // GL_ALPHA carries nothing but alpha, and depth and stencil are not
@@ -1707,6 +1982,7 @@ new file mode 100644
 +}
 +
 +}  // namespace blink
+diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
 --- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
 +++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
 @@ -135,6 +135,7 @@
@@ -1753,6 +2029,7 @@ new file mode 100644
    }
  }
  
+diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_webgpu_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_webgpu_base.cc
 --- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_webgpu_base.cc
 +++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_webgpu_base.cc
 @@ -27,6 +27,7 @@
@@ -1783,6 +2060,7 @@ new file mode 100644
  }
  
  // **************************************************************************
+diff --git a/third_party/blink/renderer/platform/graphics/static_bitmap_image.h b/third_party/blink/renderer/platform/graphics/static_bitmap_image.h
 --- a/third_party/blink/renderer/platform/graphics/static_bitmap_image.h
 +++ b/third_party/blink/renderer/platform/graphics/static_bitmap_image.h
 @@ -109,6 +109,14 @@

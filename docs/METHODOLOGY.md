@@ -83,17 +83,18 @@ session, it breaks returning-visitor consistency between sessions, and no
 physical device produces it.
 
 **One deliberate exception, off by default.** `--fingerprint-noise` moves
-canvas and WebGL readback by at most one step per colour channel. It is not a
-relaxation of this rule, because it is not per-call randomness: the
-perturbation is a pure function of the profile identity and the clean pixels,
-so two reads of one surface still agree, a returning visitor with the same
-profile still gets the same bytes, and nothing consults a clock, a counter or
-`base::Rand*`. Determinism holds exactly as stated above, and variation still
-lives only at the profile boundary. What the switch trades is §1's bar and §4's
-preference: the perturbation does not correspond to any machine's rasteriser,
-and a page that draws a scene twice at two scales and compares can see that. So
-it is an operator's choice between a coherent device that a canvas hash can
-follow across sessions and an unlinkable one that a scale test can catch, it is
+canvas and WebGL readback by one step of the value the surface holds, on the
+colour channels and never on alpha. It is not a relaxation of this rule,
+because it is not per-call randomness: the perturbation is a pure function of
+the profile identity and the clean pixels, so two reads of one surface still
+agree, a returning visitor with the same profile still gets the same bytes,
+and nothing consults a clock, a counter or `base::Rand*`. Determinism holds
+exactly as stated above, and variation still lives only at the profile
+boundary. What the switch trades is §1's bar and §4's preference: the
+perturbation does not correspond to any machine's rasteriser, and a page that
+draws a scene twice at two scales and compares can see that. So it is an
+operator's choice between a coherent device that a canvas hash can follow
+across sessions and an unlinkable one that a scale test can catch, it is
 off unless asked for, and [docs/FLAGS.md](FLAGS.md) states the cost where an
 operator will read it. It is the only place in this fork where coherence is
 knowingly given up, and it is a switch rather than a behaviour for that reason.
