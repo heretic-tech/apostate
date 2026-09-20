@@ -9,10 +9,14 @@ import io
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
+import threading
 import tempfile
 import unittest
+import urllib.error
+import urllib.request
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -32,9 +36,11 @@ from apostate import (  # noqa: E402
     DEFAULT_PERSONA_BY_HOST,
     PROFILE_SCHEMA_VERSION,
     BinaryManager,
+    BinaryNotFoundError,
     ConfigurationError,
     GeoIPError,
     LaunchError,
+    ManifestError,
     ProfileError,
     UnpublishedArtifactError,
     UnsupportedArchiveError,
@@ -93,6 +99,111 @@ class _FakeSyncPlaywright:
 
     def stop(self) -> None:
         return None
+
+
+class _FakeResponse:
+    """What ``urllib.request.urlopen`` hands back, and no more of it."""
+
+    def __init__(self, payload: bytes) -> None:
+        self._payload = payload
+
+    def read(self, amount: int | None = None) -> bytes:
+        return self._payload if amount is None else self._payload[:amount]
+
+    def __enter__(self) -> "_FakeResponse":
+        return self
+
+    def __exit__(self, *exc: Any) -> bool:
+        return False
+
+
+@contextlib.contextmanager
+def _release(assets: dict[str, bytes] | None = None) -> Any:
+    """Serve exactly these URLs, 404 the rest, and reach no network at all.
+
+    Yields the list of URLs asked for, in order, which is how a test asserts
+    that the tag was tried before ``latest`` -- and that a pinned manifest
+    asked for nothing.
+    """
+    served = dict(assets or {})
+    requested: list[str] = []
+
+    def fake_urlopen(url: Any, timeout: Any = None) -> _FakeResponse:
+        target = url if isinstance(url, str) else url.full_url
+        requested.append(target)
+        if target not in served:
+            # Closed before it is raised: urllib's response objects are
+            # tempfile wrappers, so an unclosed one warns from the garbage
+            # collector and buries the test output in ResourceWarnings.
+            missing = urllib.error.HTTPError(target, 404, "Not Found", None, io.BytesIO(b""))
+            missing.close()
+            raise missing
+        return _FakeResponse(served[target])
+
+    with mock.patch("urllib.request.urlopen", fake_urlopen):
+        yield requested
+
+
+class _FakeSocks5Server:
+    """One connection, one RFC 1928 handshake, one HTTP response.
+
+    Small enough to read in full, which is the point: it is the thing that
+    says whether the transport's handshake is right, so it must not be a
+    second implementation of the same misunderstanding.
+    """
+
+    def __init__(self, payload: dict[str, Any]) -> None:
+        self.payload = payload
+        self.credentials: tuple[bytes, bytes] | None = None
+        self.address_type: int | None = None
+        self.host: bytes | None = None
+        self.port_requested: int | None = None
+        self.request = b""
+        self._socket = socket.socket()
+        self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._socket.bind(("127.0.0.1", 0))
+        self._socket.listen(1)
+        self.port = self._socket.getsockname()[1]
+        self._thread = threading.Thread(target=self._serve, daemon=True)
+
+    def __enter__(self) -> "_FakeSocks5Server":
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc: Any) -> bool:
+        self._thread.join(timeout=5)
+        self._socket.close()
+        return False
+
+    def _serve(self) -> None:
+        connection, _address = self._socket.accept()
+        with connection:
+            connection.settimeout(5)
+            count = connection.recv(2)[1]
+            connection.recv(count)
+            connection.sendall(b"\x05\x02")
+            connection.recv(1)
+            user = connection.recv(connection.recv(1)[0])
+            password = connection.recv(connection.recv(1)[0])
+            self.credentials = (user, password)
+            connection.sendall(b"\x01\x00")
+            header = connection.recv(4)
+            self.address_type = header[3]
+            if self.address_type == 3:
+                self.host = connection.recv(connection.recv(1)[0])
+            else:
+                self.host = connection.recv(4 if self.address_type == 1 else 16)
+            self.port_requested = int.from_bytes(connection.recv(2), "big")
+            connection.sendall(b"\x05\x00\x00\x01\x7f\x00\x00\x01\x00\x50")
+            while b"\r\n\r\n" not in self.request:
+                chunk = connection.recv(4096)
+                if not chunk:
+                    break
+                self.request += chunk
+            body = json.dumps(self.payload).encode("utf-8")
+            connection.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                               b"Content-Length: " + str(len(body)).encode("ascii")
+                               + b"\r\nConnection: close\r\n\r\n" + body)
 
 
 class PackageContractTests(unittest.TestCase):
@@ -503,20 +614,32 @@ print(catalogue['browser_build'])
             # package discarded the field it did get by raising.
             ("a result with no timezone", lambda proxy, timeout: {"locale": "de-DE,de"},
              ["--fingerprint-locale=de-DE,de"], "resolved no timezone"),
-            ("a result with no locale", lambda proxy, timeout: {"timezone": "Europe/Berlin"},
-             ["--fingerprint-timezone=Europe/Berlin"], "resolved no locale"),
+            # A lookup never returns a locale: the launcher infers one from
+            # the country. So "no locale" is only ever "no country", and that
+            # is what the line says.
+            ("a result with no country", lambda proxy, timeout: {"timezone": "Europe/Berlin"},
+             ["--fingerprint-timezone=Europe/Berlin"], "returned no country"),
             # freeipapi answers with a UTC offset, which cannot drive the
             # switch: unresolved, not adjusted into something that looks like an
             # identifier.
             ("an offset instead of an identifier",
              lambda proxy, timeout: {"locale": "de-DE", "timezone": "+02:00"},
              ["--fingerprint-locale=de-DE"], "resolved no timezone"),
-            # A country code derives its locale from the Apostate-owned table
-            # that scripts/geoip.py and the npm package share, so a German exit
-            # is de-DE rather than an invented en-DE or en-US.
+            # A country code derives its locale from config/country-locales.json,
+            # which both packages ship, so a German exit is de-DE rather than
+            # an invented en-DE or en-US.
             ("a country code and a timezone",
              lambda proxy, timeout: {"country_code": "DE", "timezone": "Europe/Berlin"},
              ["--fingerprint-locale=de-DE", "--fingerprint-timezone=Europe/Berlin"], None),
+            # And a Malaysian one is ms. The 45-country hand table this
+            # replaced named neither MY nor GT, so both exits used to be
+            # announced as unresolved.
+            ("a country the old hand table did not name",
+             lambda proxy, timeout: {"country_code": "MY", "timezone": "Asia/Kuala_Lumpur"},
+             ["--fingerprint-locale=ms", "--fingerprint-timezone=Asia/Kuala_Lumpur"], None),
+            ("a country whose language is regional",
+             lambda proxy, timeout: {"country_code": "GT", "timezone": "America/Guatemala"},
+             ["--fingerprint-locale=es-419", "--fingerprint-timezone=America/Guatemala"], None),
         )
         for label, provider, expected, warning in cases:
             with self.subTest(case=label):
@@ -592,7 +715,10 @@ print(catalogue['browser_build'])
         self.assertEqual(plan.profile["source_capture"], "capture.json")
         self.assertEqual(plan.diagnostics["profile_id"], "explicit")
 
-    def test_unpublished_package_manifest_fails_before_download(self) -> None:
+    def test_a_pinned_manifest_is_never_replaced_by_a_fetched_one(self) -> None:
+        # Passing a manifest is how a caller says "this exact build". Going to
+        # the network for a different digest when that one publishes nothing
+        # would unpin it, so the refusal stands and no URL is touched.
         calls: list[str] = []
         manifest = {
             "package_version": "0.1.0",
@@ -601,7 +727,7 @@ print(catalogue['browser_build'])
             "artifacts": {},
             "status": "unpublished",
         }
-        with tempfile.TemporaryDirectory() as temporary:
+        with tempfile.TemporaryDirectory() as temporary, _release() as requested:
             # search_roots=() because discovery is deliberately not hermetic:
             # a browser in /Applications or /opt/apostate answers the
             # publication question the other way, and on a machine that has
@@ -612,16 +738,145 @@ print(catalogue['browser_build'])
             with self.assertRaisesRegex(UnpublishedArtifactError, "unpublished"):
                 manager.ensure(target="macos-arm64")
         self.assertEqual(calls, [])
+        self.assertEqual(requested, [])
+
+    def test_an_unpublished_baked_manifest_installs_from_the_release_manifest(self) -> None:
+        """The dead end 0.1.0 shipped, and the way out of it.
+
+        The manifest baked into a package is written when the release is cut,
+        which is after the package is built, so 0.1.0 shipped
+        ``{"status": "unpublished"}`` and every install said so. A launcher
+        version is not a binary version: 0.1.1 installs the binaries
+        published as v0.1.0. So when the baked manifest publishes nothing,
+        the manifest the release published beside the archive answers -- the
+        tag for this package's own version first, then ``latest``.
+        """
+        binary_module = importlib.import_module("apostate.binary")
+        archive_bytes = self._zip_archive({
+            "apostate-152.0.7977.83-macos-arm64/Chromium.app/Contents/MacOS/Chromium": b"native binary",
+        })
+        urls = dict(binary_module.release_manifest_urls("macos-arm64"))
+        latest = urls["release-latest"]
+        served = {
+            latest: self._artifact_manifest(archive_bytes),
+            latest.removesuffix(".manifest.json"): archive_bytes,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            manager = BinaryManager(cache_dir=temporary, search_roots=())
+            stream = io.StringIO()
+            with _release(served) as requested, contextlib.redirect_stderr(stream):
+                executable = manager.ensure(target="macos-arm64")
+            self.assertEqual(executable.read_bytes(), b"native binary")
+            # The tag for this package's version is asked for first and 404s,
+            # because there is no v0.1.1 binary release; `latest` answers.
+            self.assertEqual(requested[:2], [urls["release-tag"], latest])
+            # And the archive came from the release the manifest came from,
+            # not from `latest` resolved a second time.
+            self.assertEqual(requested[2], latest.removesuffix(".manifest.json"))
+            # An install that did not use a pinned digest says so, once,
+            # before it downloads 150 MB on the strength of a weaker one.
+            self.assertEqual(
+                stream.getvalue(),
+                f"apostate: release manifest fetched from {latest} (no published "
+                "manifest is baked into this package). A fetched manifest verifies "
+                "transport integrity only; for provenance run: gh attestation verify "
+                "apostate-152.0.7977.83-macos-arm64.zip --repo heretic-tech/apostate\n")
+
+            with _release(served):
+                report = manager.info(target="macos-arm64")
+            self.assertTrue(report["available"])
+            self.assertTrue(report["cached"])
+            self.assertEqual(report["manifest_source"], "release-latest")
+            self.assertEqual(report["manifest_url"], latest)
+            self.assertEqual(report["manifest_urls_tried"],
+                             [urls["release-tag"], latest])
+            self.assertEqual(report["manifest_trust"], "transport-integrity")
+            self.assertEqual(
+                report["provenance"],
+                "gh attestation verify apostate-152.0.7977.83-macos-arm64.zip "
+                "--repo heretic-tech/apostate")
+            # The manifest is the binary release's, so it keeps that release's
+            # version while this package is 0.1.1. They are different lines.
+            self.assertEqual(report["package_version"], "0.1.0")
+            self.assertNotEqual(report["package_version"], config_module.PACKAGE_VERSION)
+            # A cached install stays visible with no network at all: the
+            # marker vouches for it on its own.
+            with _release() as offline:
+                self.assertEqual(manager.ensure(target="macos-arm64"), executable)
+            self.assertEqual(offline, [])
+
+            # A mirror still wins for the bytes, and only for the bytes: the
+            # manifest keeps coming from the release, so the digest and the
+            # archive stay two different places even behind one.
+            with mock.patch.dict(os.environ,
+                                 {"APOSTATE_DOWNLOAD_BASE_URL": "https://mirror.test/a/"}):
+                with _release(served) as mirrored:
+                    report = manager.info(target="macos-arm64")
+            self.assertEqual(report["artifact_url"],
+                             "https://mirror.test/a/apostate-152.0.7977.83-macos-arm64.zip")
+            self.assertEqual(mirrored, [urls["release-tag"], latest])
+
+    def test_an_unreachable_release_manifest_names_both_urls_it_tried(self) -> None:
+        binary_module = importlib.import_module("apostate.binary")
+        calls: list[str] = []
+        urls = [url for _source, url in binary_module.release_manifest_urls("macos-arm64")]
+        with tempfile.TemporaryDirectory() as temporary:
+            manager = BinaryManager(cache_dir=temporary, search_roots=(),
+                                    downloader=lambda source: calls.append(source))
+            with _release() as requested:
+                with self.assertRaises(UnpublishedArtifactError) as raised:
+                    manager.ensure(target="macos-arm64")
+        self.assertEqual(
+            str(raised.exception),
+            "Release manifest is unpublished; Apostate binary artifacts are not "
+            "available for acquisition. No release manifest for "
+            "apostate-152.0.7977.83-macos-arm64.zip could be fetched. Tried: "
+            + ", ".join(urls))
+        self.assertEqual(requested, urls)
+        self.assertEqual(calls, [])
+
+    def test_a_fetched_manifest_for_another_build_is_refused_by_name(self) -> None:
+        # An integrity check that accepts any manifest it is handed is not
+        # one. Every field that says which bytes these are is checked --
+        # except package_version, which is the whole point of fetching.
+        binary_module = importlib.import_module("apostate.binary")
+        urls = dict(binary_module.release_manifest_urls("macos-arm64"))
+        latest = urls["release-latest"]
+        archive_bytes = b"not really an archive"
+        for label, overrides, detail in (
+            ("another Chromium", {"chromium_version": "152.0.7977.84"},
+             "chromium_version is 152.0.7977.84, not 152.0.7977.83"),
+            ("another catalogue", {"catalogue_version": 3},
+             "catalogue_version is 3, not 2"),
+            ("another platform", {"platform": "linux-x64"},
+             "platform is linux-x64, not macos-arm64"),
+            ("another archive", {"artifact": "apostate-152.0.7977.83-linux-x64.tar.zst"},
+             "artifact is apostate-152.0.7977.83-linux-x64.tar.zst, not "
+             "apostate-152.0.7977.83-macos-arm64.zip"),
+            ("an uppercase digest", {"sha256": "A" * 64},
+             "sha256 is not a 64-character lowercase digest"),
+            ("no platform at all", {"platform": None},
+             "platform is absent, not macos-arm64"),
+        ):
+            with self.subTest(case=label), tempfile.TemporaryDirectory() as temporary:
+                manager = BinaryManager(cache_dir=temporary, search_roots=())
+                served = {latest: self._artifact_manifest(archive_bytes, **overrides)}
+                with _release(served):
+                    with self.assertRaises(ManifestError) as raised:
+                        manager.ensure(target="macos-arm64")
+                self.assertEqual(
+                    str(raised.exception),
+                    f"release manifest at {latest} does not describe this package: {detail}")
 
     def test_launch_reports_the_unpublished_package_before_the_missing_driver(self) -> None:
         """The true blocker first, not whichever check happened to run first.
 
-        Nothing is published yet, so every launch hits this. Loading the
-        driver first sent a new user to install Patchright when the real
-        answer was that there is no binary to drive, and no developer machine
-        could reproduce it because a driver is always already importable.
-        This is asserted through launch(), not through BinaryManager: the
-        ordering is what broke, and only a caller can see it.
+        Loading the driver first sent a new user to install Patchright when
+        the real answer was that there is no binary to drive, and no
+        developer machine could reproduce it because a driver is always
+        already importable. This is asserted through launch(), not through
+        BinaryManager: the ordering is what broke, and only a caller can see
+        it.
         """
         launch_module = importlib.import_module("apostate.launch")
         binary_module = importlib.import_module("apostate.binary")
@@ -629,9 +884,11 @@ print(catalogue['browser_build'])
             # launch() has no search_roots parameter, so the documented
             # locations are emptied for the duration: see the note above.
             with mock.patch.object(binary_module, "_well_known_roots", lambda target: ()):
-                with self.assertRaises(UnpublishedArtifactError):
-                    launch_module.launch(cache_dir=temporary, geoip=False, fingerprint="host",
-                                         driver="a-driver-that-is-not-installed")
+                with _release():
+                    with self.assertRaises(UnpublishedArtifactError):
+                        launch_module.launch(cache_dir=temporary, geoip=False,
+                                             fingerprint="host",
+                                             driver="a-driver-that-is-not-installed")
 
     def test_unpublished_platform_refuses_other_platform_artifacts(self) -> None:
         records = [{
@@ -660,23 +917,27 @@ print(catalogue['browser_build'])
                         manager.ensure(target="windows-x64")
         self.assertEqual(calls, [])
 
-    def test_packaged_release_manifest_agrees_with_the_package_catalogue_version(self) -> None:
-        # A stale catalogue_version here turns "no artifact is published yet"
-        # into "this manifest is for another package", which is a lie.
-        with tempfile.TemporaryDirectory() as temporary:
-            manager = BinaryManager(cache_dir=temporary, search_roots=())
-            with self.assertRaisesRegex(UnpublishedArtifactError, "unpublished"):
-                manager.ensure(target="macos-arm64")
+    def test_the_packaged_release_manifest_still_describes_this_package(self) -> None:
+        """The baked asset must not drift away from the package around it.
+
+        A stale ``catalogue_version`` or ``chromium_version`` here turns "no
+        artifact is published yet" into "this manifest is for another
+        package", which is a lie. ``package_version`` is deliberately not in
+        this list: the manifest names the binary release it installs from,
+        and this package's version moves without it.
+        """
+        binary_module = importlib.import_module("apostate.binary")
+        packaged = json.loads(
+            (Path(binary_module.__file__).parent / "assets"
+             / "release-manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(packaged["chromium_version"], CHROMIUM_VERSION)
+        self.assertEqual(packaged["catalogue_version"], CATALOGUE_VERSION)
 
     def test_cache_paths_and_clear_cache_are_deterministic(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             cache = Path(temporary) / "cache"
             manager = BinaryManager(cache_dir=cache)
-            root, install, marker = manager._paths(
-                "linux-x64",
-                {"chromium_version": CHROMIUM_VERSION},
-                {"artifact": "apostate-linux-x64.tar.zst"},
-            )
+            root, install, marker = manager._paths("linux-x64", CHROMIUM_VERSION)
             self.assertEqual(root, cache / CHROMIUM_VERSION / "linux-x64")
             self.assertEqual(install, root / "install")
             self.assertEqual(marker, root / "install.json")
@@ -780,6 +1041,30 @@ print(catalogue['browser_build'])
             "sha256": hashlib.sha256(archive_bytes).hexdigest(),
         }
 
+    def _artifact_manifest(self, archive_bytes: bytes, target: str = "macos-arm64",
+                           **overrides: Any) -> bytes:
+        """What a release publishes beside each archive, as bytes.
+
+        ``package_version`` is the binary release's -- 0.1.0 -- and stays
+        there while the launcher is 0.1.1, because that difference is the
+        thing the fallback exists to serve.
+        """
+        binary_module = importlib.import_module("apostate.binary")
+        payload: dict[str, Any] = {
+            "artifact": binary_module.policy_artifact_name(target),
+            "build_manifest_sha256": "b" * 64,
+            "catalogue_version": CATALOGUE_VERSION,
+            "chromium_version": CHROMIUM_VERSION,
+            "package_version": "0.1.0",
+            "patch_series_sha256": "c" * 64,
+            "platform": target,
+            "sha256": hashlib.sha256(archive_bytes).hexdigest(),
+            "source_revision": "d" * 40,
+        }
+        payload.update(overrides)
+        return json.dumps({key: value for key, value in payload.items()
+                           if value is not None}).encode("utf-8")
+
     def _plant_payload(self, root: Path, *, version: str = CHROMIUM_VERSION,
                        build_record: bool = True, resources: bool = True,
                        executable: bool = True) -> Path:
@@ -846,20 +1131,27 @@ print(catalogue['browser_build'])
 
             # And a launch takes it: an unpublished manifest no longer answers
             # "nothing is published" over a browser the user already has, and
-            # nothing is downloaded to find that out.
+            # nothing is downloaded -- or fetched -- to find that out.
             def refuse(source: str) -> bytes:
                 raise AssertionError(f"downloaded {source} despite an install on disk")
 
             manager = BinaryManager(cache_dir=cache, search_roots=[roots], downloader=refuse)
-            self.assertEqual(manager.ensure(target="linux-x64"), ours)
-            manager.assert_published(target="linux-x64")
+            with _release() as requested:
+                self.assertEqual(manager.ensure(target="linux-x64"), ours)
+                manager.assert_published(target="linux-x64")
+            self.assertEqual(requested, [])
 
             # `info` still answers the question a user is asking -- where is
-            # the browser -- on a release whose manifest publishes nothing.
-            info = manager.info(target="linux-x64")
+            # the browser -- on a release that publishes nothing anywhere,
+            # and says which URLs it asked.
+            with _release():
+                info = manager.info(target="linux-x64")
             self.assertFalse(info["available"])
             self.assertEqual(info["executable"], str(ours))
             self.assertEqual(info["executable_source"], "well-known")
+            self.assertEqual(
+                info["manifest_urls_tried"],
+                [url for _source, url in binary_module.release_manifest_urls("linux-x64")])
 
     def test_discovery_finds_a_macos_bundle_by_its_info_plist(self) -> None:
         # The macOS payload carries no build record inside the bundle, so the
@@ -893,6 +1185,186 @@ print(catalogue['browser_build'])
             self.assertEqual([item["reason"] for item in report["rejected"]],
                              ["no Apostate payload beside it "
                               "(build/MANIFEST.lock or resources/profiles/catalogue.json)"])
+
+    def test_a_named_bundle_or_payload_root_resolves_to_the_browser_inside(self) -> None:
+        """Three spellings of "this browser", because users have all three.
+
+        ``Chromium.app`` is a directory, so naming the one thing in the
+        archive that looks like the browser was refused for not being a file
+        -- true of every macOS application, and useless as an answer. The
+        directory the archive unpacks to was refused the same way, which left
+        someone who had extracted it by hand with a tree on disk and no way
+        to say "that one".
+        """
+        binary_module = importlib.import_module("apostate.binary")
+        launch_module = importlib.import_module("apostate.launch")
+        with tempfile.TemporaryDirectory() as temporary:
+            payload_root = Path(temporary) / "apostate-152.0.7977.83-macos-arm64"
+            bundle = payload_root / "Chromium.app"
+            executable = bundle / "Contents" / "MacOS" / "Chromium"
+            executable.parent.mkdir(parents=True)
+            executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            executable.chmod(0o755)
+            empty = Path(temporary) / "empty"
+            empty.mkdir()
+            missing = Path(temporary) / "missing"
+
+            for named in (executable, bundle, payload_root):
+                with self.subTest(named=named.name):
+                    self.assertEqual(
+                        binary_module.resolve_named_binary(named, "binary_path", "macos-arm64"),
+                        (executable, None))
+                    self.assertEqual(
+                        launch_module._resolve_executable(named, target="macos-arm64"),
+                        executable)
+                    with mock.patch.dict(os.environ, {"APOSTATE_BINARY": str(named)}):
+                        manager = BinaryManager(cache_dir=temporary, search_roots=())
+                        self.assertEqual(manager.ensure(target="macos-arm64"), executable)
+                        self.assertEqual(manager.discovery(target="macos-arm64")["found"],
+                                         {"executable": str(executable),
+                                          "source": "environment",
+                                          "chromium_version": None, "payload_root": None})
+
+            self.assertEqual(
+                binary_module.resolve_named_binary(empty, "the configured path", "macos-arm64"),
+                (None, "the configured path names a directory with no browser inside it "
+                       "(expected Chromium.app, chrome or chrome.exe)"))
+            self.assertEqual(
+                binary_module.resolve_named_binary(missing, "APOSTATE_BINARY", "macos-arm64"),
+                (None, "APOSTATE_BINARY does not name a file"))
+            with mock.patch.dict(os.environ, {"APOSTATE_BINARY": str(empty)}):
+                with self.assertRaises(BinaryNotFoundError) as refused:
+                    BinaryManager(cache_dir=temporary,
+                                  search_roots=()).ensure(target="macos-arm64")
+            self.assertEqual(
+                str(refused.exception),
+                "APOSTATE_BINARY names a directory with no browser inside it "
+                f"(expected Chromium.app, chrome or chrome.exe): {empty}")
+            with self.assertRaises(LaunchError) as failed:
+                launch_module._resolve_executable(empty, target="macos-arm64")
+            self.assertTrue(str(failed.exception).startswith(
+                "binary_path names a directory with no browser inside it "
+                f"(expected Chromium.app, chrome or chrome.exe): {empty}."),
+                str(failed.exception))
+
+    def test_the_stdlib_transport_speaks_socks5_with_username_password_auth(self) -> None:
+        """A residential SOCKS5 exit is the commonest proxy this package sees.
+
+        The standard library has no SOCKS client, so ``geoip=True`` behind
+        one used to fail as an unsupported configuration, and requiring
+        PySocks would make the headline feature an optional extra. The
+        transport performs RFC 1928 CONNECT with RFC 1929 authentication
+        itself; this drives it against a socket that speaks the protocol, so
+        the handshake bytes are asserted rather than assumed.
+        """
+        geoip_module = importlib.import_module("apostate._prelaunch_geoip")
+        for scheme, endpoint, address_type, expected_host in (
+            ("socks5h", "http://exit.example.test/json", 3, b"exit.example.test"),
+            ("socks5", "http://127.0.0.1:9/json", 1, b"\x7f\x00\x00\x01"),
+        ):
+            with self.subTest(scheme=scheme):
+                server = _FakeSocks5Server({"ip": "203.0.113.7", "country_code": "MY"})
+                with server:
+                    result = geoip_module.resolve_prelaunch_geoip(
+                        proxy=f"{scheme}://geo%20user:p%40ss%2Fword@127.0.0.1:{server.port}",
+                        endpoint=endpoint, timeout=5.0)
+                self.assertEqual(result.country_code, "MY")
+                self.assertEqual(result.lookup_mode, "proxy")
+                # RFC 1929 is sent decoded, not as the percent-encoded URL text.
+                self.assertEqual(server.credentials, (b"geo user", b"p@ss/word"))
+                self.assertEqual(server.address_type, address_type)
+                self.assertEqual(server.host, expected_host)
+                self.assertEqual(server.port_requested, 80 if address_type == 3 else 9)
+                self.assertIn(b"Host: ", server.request)
+                # And the credential never reaches a diagnostic.
+                self.assertEqual(result.diagnostics.proxy,
+                                 f"{scheme}://127.0.0.1:{server.port}")
+
+    def test_a_socks_credential_travels_in_the_envelope_and_not_to_the_driver(self) -> None:
+        """Playwright refuses a socks server that carries a username.
+
+        "Browser does not support socks5 proxy authentication" is raised
+        before the browser is started, because upstream Chromium has no way
+        to supply one -- so every authenticated residential SOCKS5 proxy, the
+        commonest thing this package is pointed at, failed at the driver.
+        The browser this package ships does support it, through the
+        ``--apostate-profile`` envelope, which is also where the credential
+        stays out of NetLog and socket-pool keys.
+        """
+        launch_module = importlib.import_module("apostate.launch")
+        proxy = "socks5://geo%20user:p%40ss@proxy.example.test:12000"
+        plan = launch_module._resolve_plan(
+            translate_options(fingerprint=4242, geoip=False, proxy=proxy))
+        args = launch_module._native_args(plan)
+        self.assertIn("--proxy-server=socks5://proxy.example.test:12000", args)
+        envelope = next(item for item in args if item.startswith("--apostate-profile="))
+        self.assertEqual(
+            json.loads(base64.b64decode(envelope.split("=", 1)[1])),
+            {"device_profile": {},
+             "proxy_credentials": {"password": "p@ss", "username": "geo user"}})
+        # Credentials are not a device claim, so the seed still composes.
+        self.assertIn("--fingerprint=4242", args)
+        # Nothing on the command line carries the credential.
+        self.assertFalse(any("p@ss" in item or "geo user" in item
+                             for item in args if not item.startswith("--apostate-profile=")))
+        self.assertEqual(launch_module._playwright_proxy(proxy),
+                         {"server": "socks5://proxy.example.test:12000"})
+        self.assertEqual(
+            launch_module._playwright_proxy({"server": "socks5://proxy.example.test:12000",
+                                             "username": "geo user", "password": "p@ss"}),
+            {"server": "socks5://proxy.example.test:12000"})
+        # http keeps its credential: there the driver is what answers the 407.
+        self.assertEqual(
+            launch_module._playwright_proxy("http://user:secret@proxy.example.test:8080"),
+            {"server": "http://proxy.example.test:8080",
+             "username": "user", "password": "secret"})
+
+    def test_every_territory_resolves_a_locale_and_a_countryless_lookup_says_so(self) -> None:
+        """The inference is total, and when it cannot run it says why.
+
+        A provider never returns a locale; the launcher derives one from the
+        country. The hand table that used to do it named 45 countries, so a
+        Malaysian exit was reported as "resolved no locale" -- the launcher
+        announcing its own gap as the network's. config/country-locales.json
+        names every ISO-3166 territory, so the only way to have no locale is
+        to have no country.
+        """
+        geoip_module = importlib.import_module("apostate._prelaunch_geoip")
+        launch_module = importlib.import_module("apostate.launch")
+        packaged = json.loads(
+            (Path(config_module.__file__).parent / "assets"
+             / "country-locales.json").read_text(encoding="utf-8"))
+        self.assertEqual(len(packaged["locales"]), 257)
+        for country, locale, languages in (("MY", "ms", "ms"),
+                                           ("GT", "es-419", "es-419,es"),
+                                           ("IN", "en-IN", "en-IN,en"),
+                                           ("DE", "de-DE", "de-DE,de")):
+            with self.subTest(country=country):
+                result = geoip_module.GeoIPResolver(
+                    transport=lambda request, payload={"ip": "203.0.113.7",
+                                                       "country_code": country}: (200, json.dumps(payload)),
+                    endpoint="http://exit.example.test/json", timeout=0.25).resolve()
+                self.assertEqual(result.country_code, country)
+                self.assertEqual(result.locale, locale)
+                self.assertEqual(result.accept_languages, languages)
+                self.assertEqual(result.locale_source, "geoip")
+
+        stream = io.StringIO()
+        with contextlib.redirect_stderr(stream):
+            plan = launch_module._resolve_plan(
+                translate_options(fingerprint=4242),
+                geoip_provider=lambda proxy, timeout: {"ip": "203.0.113.7",
+                                                       "timezone": "Europe/Berlin"})
+        self.assertEqual(
+            plan.diagnostics["warnings"],
+            ["the GeoIP lookup returned no country, so no locale is derived; the "
+             "host's own is served for that field. Pass locale explicitly to "
+             "guarantee a match."])
+        self.assertEqual(
+            stream.getvalue(),
+            "apostate: the GeoIP lookup returned no country, so no locale is derived; "
+            "the host's own is served for that field. Pass locale explicitly to "
+            "guarantee a match.\n")
 
     def test_provisioned_widevine_survives_a_forced_reinstall(self) -> None:
         # The CDM is stored outside the install tree precisely so that
