@@ -334,12 +334,22 @@ file, which happens before a glyph is inked, and the advances a Windows
 persona and a macOS persona report for the same family on one host are
 identical to the digit, before this change and after it.
 
-Subpixel positioning is the one setting on both sides of that line, and it
-belongs there. Turning it off is what makes glyph advances whole numbers, so a
-Linux identity reports integral advances exactly as an unscaled Linux desktop
-does. `measureText` and a client rect around the same text are produced by one
-shaping run, so they go integral together and continue to agree, which is the
-invariant that matters.
+Subpixel positioning is the one setting on both sides of that line, and it is
+not read off the tuple directly. Turning it off is what makes glyph advances
+whole numbers, and v0.2.0 did that for a Linux identity on a Mac, on the
+reasoning that an unscaled Linux desktop reports the field false. The field is
+false there; the advances are fractional anyway, because Linux Blink
+force-enables subpixel positioning unless hinting is full, and an ordinary
+desktop hints slight. A stock Chrome on a Linux desktop measures 316.6015625
+for a 16px Helvetica pangram, the same fraction a Mac does; v0.2.0's Linux
+identity on a Mac measured 315, which no Linux Chrome reports. Patch 0123,
+which v0.2.0 does not carry, derives the flag the way each claimed platform
+derives it -- Linux from the hinting level, Windows from antialiasing, macOS
+always on -- and a Linux identity on a Mac reports the Linux desktop's
+fractions. `measureText` and a client rect around the same text are produced
+by one shaping run, so they agree either way, which is the invariant that
+matters; the client rect's last bits follow the device pixel ratio's layout
+snapping, on every persona and on stock Chrome alike.
 
 ## Software rendering is measurable
 

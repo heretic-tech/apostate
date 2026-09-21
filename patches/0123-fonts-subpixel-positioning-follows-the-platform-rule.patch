@@ -1,0 +1,139 @@
+Subject: fonts: subpixel positioning follows the claimed platform's rule, not the field
+
+Patch 0122 said that `subpixel_positioning` false makes a Linux persona's
+advances integral, "which is exactly what a Linux desktop at scale factor 1
+reports", and measured 315 for a 16px Helvetica pangram under the Linux
+persona on a Mac. A Linux desktop does not report that. Stock Google Chrome
+151.0.7922.137 on a real Linux desktop at device scale factor 1 (fontconfig
+hintslight, the near-universal setting patch 0117 cites) reports 316.6015625
+for the same pangram -- the identical font-unit fraction a Mac reports, and
+the same on this fork's own linux-x64 build on that desktop. So v0.2.0 gave a
+Linux persona on a macOS host an advance no Linux Chrome produces, on the one
+text surface every metrics fingerprint reads first.
+
+The tuple was right; the consumer was wrong. `gfx::FontRenderParams::
+subpixel_positioning` is false on an unscaled Linux desktop
+(font_render_params_linux.cc:267), but what reaches `SkFont::setSubpixel`
+there is not that field. Blink's Linux path force-enables subpixel
+positioning unless hinting is full:
+
+    bool force_subpixel_positioning = !WebTestSupport::IsRunningWebTest() &&
+                                      sk_hint_style != SkFontHinting::kFull;
+    font->setSubpixel(force_subpixel_positioning || use_subpixel_positioning);
+    font->setLinearMetrics(use_subpixel_positioning == 1);
+
+(web_font_render_style.cc:106-113). With slight hinting that is true, so
+`SkFontGetGlyphWidthForHarfBuzz` never rounds and every advance stays a
+fraction. Windows never reads the field at all: font_platform_data_win.cc:
+67-69 sets `setSubpixel(true)` whenever the text is antialiased. macOS
+hard-codes true. Only 0122's macOS `CreateSkFont` fed the field straight into
+`setSubpixel`, and that is the one line that rounds.
+
+So the flag is derived here the way the claimed platform derives it:
+
+    Linux     setSubpixel(hinting != full || subpixel_positioning)
+              setLinearMetrics(subpixel_positioning)
+    Windows   setSubpixel(antialiasing)
+              setLinearMetrics(false)         -- never set on Windows
+    macOS     setSubpixel(true), setLinearMetrics(true)  -- unchanged
+
+The web-test override keeps clearing both together, as before. Linear
+metrics are inert on a CoreText-backed typeface either way; they are mirrored
+so that the FreeType-backed typefaces patch 0049 hands a persona off its own
+OS see the same pair that OS sets.
+
+The `check` on coh.text-advance-subpixel-quantisation encoded the same wrong
+belief -- `is_fractional == (claimed_os == 'macOS' or
+profile.font_subpixel_positioning)` -- and is corrected beside this patch
+with the measurement as T0.
+
+MEASURED on the macos-arm64 build carrying this patch, 16px Helvetica pangram,
+`measureText` / `getBoundingClientRect`:
+
+    persona   measureText   client rect   DPR
+    linux     316.6015625   316.609375    1
+    windows   316.6015625   316.609375    1
+    macos     316.6015625   316.6015625   2
+    host      316.6015625   316.609375    1
+
+Stock Chrome on the Linux desktop: 316.6015625 / 316.609375 at DPR 1. Stock
+Chrome on this Mac, real window at DPR 2: 316.6015625 / 316.6015625. The rect
+follows the DPR's layout snapping on every row, and the Linux persona now
+matches the Linux desktop on both numbers; before this patch it measured 315
+and 315. /tmp/w2/FontRender/probe.js with its Linux assertion corrected to
+the measured rule: 23 checks pass on this build, and the same corrected probe
+fails exactly that assertion on the released v0.2.0 binary. The windows and
+macos personas are byte-identical to their pre-patch baselines (canvas
+df91c47fa322e806, the recorded advances), the Linux persona's raster still
+moves (19d0b36eae09f0c4) and is stable across launches, and the
+-webkit-font-smoothing oracle is unchanged. Georgia under the Linux persona
+resolves to the same fallback advance the Linux desktop reports
+(511.65625), which is the font axis agreeing with this one.
+
+Not measured: a Windows host. Its own `CreateSkFont` never consulted the
+field, so it was not affected and is not changed.
+
+Ledger: fonts.text-advances, coh.text-advance-subpixel-quantisation,
+coh.measuretext-vs-clientrects, emit.blink.font-platform-data-create-skfont-mac.
+
+--- a/third_party/blink/renderer/platform/fonts/mac/font_platform_data_mac.mm
++++ b/third_party/blink/renderer/platform/fonts/mac/font_platform_data_mac.mm
+@@ -257,9 +257,34 @@
+   bool should_smooth_fonts =
+       composed ? composed->subpixel_rendering != "none" : true;
+   bool should_antialias = composed ? composed->antialiasing : true;
+-  bool should_subpixel_position =
+-      composed ? composed->subpixel_positioning : true;
+ 
++  // Whether the SkFont positions glyphs at fractional x is not the tuple's
++  // subpixel_positioning field on any platform; it is that platform's own
++  // rule over the tuple, and the rule is what decides whether every advance
++  // in the browser is a font-unit fraction or a whole pixel
++  // (skia_text_metrics.cc rounds when !isSubpixel()). Linux force-enables it
++  // unless the hinting is full (web_font_render_style.cc:106-111), so a
++  // desktop at scale factor 1 with hintslight -- subpixel_positioning false --
++  // still measures 316.6015625 for 16px Helvetica, which a stock Chrome
++  // 151.0.7922.137 on such a desktop was measured to report. Windows enables
++  // it whenever the text is antialiased and never reads the field
++  // (font_platform_data_win.cc:67-69). macOS hard-codes true. Reading the
++  // field directly instead made a Linux persona on this host round to 315,
++  // an advance no Linux Chrome produces.
++  bool should_subpixel_position = true;
++  bool linear_metrics = true;
++  if (composed && profile->ua_platform()) {
++    const std::string& platform = *profile->ua_platform();
++    if (platform == "Linux") {
++      should_subpixel_position =
++          composed->hinting != "full" || composed->subpixel_positioning;
++      linear_metrics = composed->subpixel_positioning;
++    } else if (platform == "Windows") {
++      should_subpixel_position = composed->antialiasing;
++      linear_metrics = false;
++    }
++  }
++
+   // -webkit-font-smoothing reaches the SkFont on macOS and nowhere else:
+   // neither font_platform_data_win.cc nor the generic font_platform_data.cc
+   // reads FontDescription::FontSmoothing when it builds one. So a page that
+@@ -296,6 +321,7 @@
+         should_antialias && WebTestSupport::IsFontAntialiasingEnabledForTest();
+     should_subpixel_position =
+         WebTestSupport::IsTextSubpixelPositioningAllowedForTest();
++    linear_metrics = should_subpixel_position;
+   }
+ 
+   SkFont skfont(typeface_);
+@@ -315,8 +341,11 @@
+ 
+   // CoreText always provides linear metrics if it can, so the linear metrics
+   // flag setting doesn't affect typefaces backed by CoreText. However, it
+-  // does affect FreeType backed typefaces, so set the flag for consistency.
+-  skfont.setLinearMetrics(should_subpixel_position);
++  // does affect FreeType backed typefaces, so set the flag for consistency:
++  // Linux sets it from the tuple's subpixel_positioning
++  // (web_font_render_style.cc:113), Windows never sets it, macOS sets it
++  // with subpixel positioning.
++  skfont.setLinearMetrics(linear_metrics);
+ 
+   // The persona's hinting level, before the CoreGraphics override below so
+   // that the override still wins. Set for the same reason the linear-metrics

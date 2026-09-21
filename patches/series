@@ -482,3 +482,4 @@
 # readback policy touches none of these files and whose opt-in switch is a
 # different surface.
 0122-fonts-render-params-follow-the-persona.patch
+0123-fonts-subpixel-positioning-follows-the-platform-rule.patch
