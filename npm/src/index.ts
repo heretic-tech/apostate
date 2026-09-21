@@ -31,7 +31,7 @@ import { fileURLToPath } from "node:url";
 import { SocksProxyAgent } from "socks-proxy-agent";
 import { HttpProxyAgent } from "http-proxy-agent";
 import { HttpsProxyAgent } from "https-proxy-agent";
-export const PACKAGE_VERSION = "0.2.0";
+export const PACKAGE_VERSION = "0.2.1";
 export const CHROMIUM_VERSION = "152.0.7977.83";
 export const CATALOGUE_VERSION = 2;
 const PROFILE_SCHEMA_VERSION = 3;
