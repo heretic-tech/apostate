@@ -112,8 +112,10 @@ resources beside it are what identify the tree as Apostate's. Put it in
 search finds it with no configuration at all: it looks in each of those
 directories and one level below.
 
-On macOS, an archive downloaded with a browser carries a quarantine flag and
-Gatekeeper will refuse the unsigned build. Clear it on the extracted tree:
+Releases from v0.2.0 are Developer ID signed, notarized and stapled, so a
+bundle downloaded with a browser opens without ceremony. v0.1.0 was not: its
+archive carries the quarantine flag a browser sets, and Gatekeeper reports an
+unsigned bundle with that flag as damaged. Clear it on the extracted tree:
 
 ```sh
 xattr -dr com.apple.quarantine ~/Applications/apostate-152.0.7977.83-macos-arm64

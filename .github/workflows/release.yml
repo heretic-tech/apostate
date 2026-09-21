@@ -163,11 +163,17 @@ jobs:
       attestations: write
     # All targets concurrently. Each leg is its own ephemeral VM and WarpBuild
     # imposes no concurrency limit, so serializing only lengthens the release
-    # without saving anything. fail-fast is the cost control: a release is dead
-    # the moment any target fails, and cancelling the siblings immediately
-    # stops their spend.
+    # without saving anything. fail-fast is off, and that is the cost control:
+    # a leg's artifact is retained on the run and a re-run of the failed jobs
+    # rebuilds only the legs that failed. v0.2.0 lost two finished Windows
+    # builds to fail-fast, each cancelled at three hours because the macOS
+    # leg had failed for a reason of its own -- a misconfigured signing
+    # secret, then a runner that lost contact -- and each rebuilt from
+    # nothing on the re-run. A leg that fails on a real defect fails every
+    # sibling's release too, but the siblings' spend is then spent once
+    # rather than twice.
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
     uses: ./.github/workflows/build-target.yml
     with:

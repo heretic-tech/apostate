@@ -391,22 +391,20 @@ The two callers are `.github/workflows/build-nightly.yml` and
 | `attest` | `false` | `true` |
 | Revision | Triggering ref | Semver tag |
 | Actions artifact retention | 14 days | 7 days |
-| Matrix `max-parallel` | `1` | `1` |
-| Matrix `fail-fast` | `false` | `true` |
+| Matrix `fail-fast` | `false` | `false` |
 | macOS signing secrets | Passed | Passed |
 | Additional jobs | Resolve targets | Version-tag and baseline gate, target resolution, publication |
 
-Each build job has a 600-minute timeout. Blacksmith runners register as
+Each build job has a 600-minute timeout. WarpBuild runners register as
 self-hosted, so GitHub's 6-hour cap does not apply and the ceiling is ours;
 600 minutes is chosen so the 12-vCPU macOS build has room to finish a full
 fetch plus official build rather than being killed at 95% after paying for all
 of it. Both callers use the workflow-level
 `apostate-build` concurrency group with `cancel-in-progress: false`, so a
-nightly and a release cannot overlap. Each matrix leg has its own VM and
-could run concurrently. Serialization contains costs while the fresh-build
-pipeline is unproven; it is not a shared-workspace requirement. Release
-fail-fast cancels remaining legs after a failure. Nightly continues through
-the selected targets one at a time.
+nightly and a release cannot overlap. Within a run every matrix leg has its
+own VM and runs concurrently, and neither caller cancels the siblings of a
+failed leg: a finished leg's artifact stays on the run, and re-running the
+failed jobs rebuilds only what failed.
 
 Release builds create provenance with the pinned
 `actions/attest-build-provenance` action, using the archive as its subject.

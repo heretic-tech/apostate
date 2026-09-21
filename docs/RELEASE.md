@@ -9,7 +9,7 @@ Actions artifacts and do not create build-provenance attestations.
 
 `.github/release/artifact-policy.json` defines the package version, Chromium
 version, recognized platforms, artifact filenames and release-manifest fields.
-The release version is `0.2.0`; `build/CHROMIUM_VERSION` pins Chromium to
+The release version is `0.2.1`; `build/CHROMIUM_VERSION` pins Chromium to
 `152.0.7977.83` and must agree with the policy.
 
 The profile catalogue has its own version sequence. Each manifest takes
@@ -211,11 +211,15 @@ builds, checks the resolver and generated baseline, performs a binary smoke
 check, packages, attests and uploads the result. The Linux arm64 smoke check
 checks the ELF machine type because the x64 build host cannot execute it.
 
-The release matrix runs one target at a time with `fail-fast: true`. The
-targets have separate VMs and could run concurrently; serialization contains
-costs while the pipeline is unproven. Both release and nightly workflows
-share the `apostate-build` concurrency group with
-`cancel-in-progress: false`, preventing overlapping full-build runs.
+The release matrix runs every target concurrently with `fail-fast: false`.
+Each leg is its own VM, so serialization saves nothing; and a leg that
+finishes keeps its artifact on the run, so when another leg fails for a
+reason of its own, re-running the failed jobs rebuilds only those. v0.2.0
+paid twice for that: two finished Windows builds were cancelled by
+`fail-fast: true` when the macOS leg failed on a signing secret and then on
+a lost runner. Both release and nightly workflows share the
+`apostate-build` concurrency group with `cancel-in-progress: false`,
+preventing overlapping full-build runs.
 
 The publish job checks the expected platform set, manifest schema and exact
 field set, package and Chromium versions, catalogue version at the tag,
