@@ -18,8 +18,9 @@
   ],
   "properties": {
     "package_version": {
-      "const": "0.1.0",
-      "description": "Apostate package release version. The release-candidate contract is immutable at 0.1.0."
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "Apostate package release version, the identity shared by the binary release and both launcher packages. The contract pins the shape, not the number: the number lives once, in .github/release/artifact-policy.json manifest_contract.package_version, and scripts/verify-release-inputs.sh requires every manifest to state it. A constant here was a second copy of that pin, and it failed the v0.2.0 publish job after every other version site had been bumped."
     },
     "chromium_version": {
       "const": "152.0.7977.83",

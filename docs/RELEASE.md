@@ -255,6 +255,17 @@ Packaging writes UTF-8 JSON with sorted keys, compact separators and exactly
 one trailing newline. Each release identity binds the source and build inputs
 to its archive; do not replace published artifacts with different bytes.
 
+The package version is pinned once, in
+`.github/release/artifact-policy.json`; the schema requires the shape and the
+publish job requires the manifest to state the policy's number. The schema
+pinned the number too until v0.2.0, whose publish job failed on it after
+every other version site had been bumped. The v0.2.0 artifacts were built
+from `6d30e25`, the commit their manifests name; the tag was moved one
+commit forward, to the schema fix, so that the tagged tree accepts its own
+manifests. That commit changes no build input: the manifests'
+`patch_series_sha256` and `build_manifest_sha256` are those of the tagged
+tree.
+
 ## After the binaries publish
 
 The packages are published separately from the binaries and are not blocked
