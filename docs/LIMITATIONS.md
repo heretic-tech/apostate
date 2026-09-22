@@ -1115,6 +1115,38 @@ is the no-sound-card path, and the only Linux capture in the tree holding a
 real output device is a non-admissible v1 file reporting ALSA's compiled
 default of 2048.
 
+### Canvas text sits at the identity's own sub-pixel phase
+
+Two profiles launched from one machine would otherwise draw one canvas. The
+bytes come out of this host's Skia and this host's driver, the catalogue has
+no second rasteriser to offer, and a site that stores that hash joins the two
+sessions without caring what `navigator.platform` said.
+
+So a composed identity draws canvas text at its own sub-pixel offset: a value
+in [-0.25, 0.25] device-independent pixels on x, in 1/64 steps, derived from
+the profile id and applied to the text origin once, before the draw. It is on
+wherever a profile is on, and zero under `--fingerprint=host` and for a launch
+with no profile, where there is no identity to key on and a host-derived
+offset would be a host fact in the pixels.
+
+A quarter pixel is the bound because every persona this fork claims renders
+text with sub-pixel positioning enabled, so each glyph lands in one of Skia's
+quarter-pixel bins and where a run starts decides which. Shifting the start
+inside one bin moves some glyphs of a run and leaves the others, which is the
+coverage difference two machines produce when their hinting disagrees, and
+every frame it draws is a frame the claimed platform draws for some origin.
+
+Because the offset is applied before rasterisation, the perturbed pixels are
+the canvas. `getImageData`, `toDataURL`, a `drawImage` copy, a WebGL
+`texImage2D` upload, an `OffscreenCanvas` in a worker and any route Chromium
+adds later all read one surface, there is nothing applied at egress to compose
+with itself, and `measureText` is untouched because metrics come from the font
+rather than from where the ink landed.
+
+What it does not reach is a canvas that draws no text, and a WebGL readback.
+Those are identical across profiles on one host, which is the honest ceiling
+of perturbing at raster time and the reason the switch below still exists.
+
 ### Readback noise is available, off, and detectable
 
 `--fingerprint-noise` is the one switch that puts something between the
@@ -1124,22 +1156,43 @@ canvas or WebGL readback comes back with each colour channel of an edge
 pixel moved by at most one step. Without it, the bytes are what this build
 rendered.
 
-What it gets right is everything about a machine: the same profile perturbs
-the same pixels the same way on every launch and every host, two reads
-agree, a 1:1 canvas-to-canvas copy reads back identically, `getImageData`,
-`toDataURL`, `toBlob`, `convertToBlob`, a transferred `ImageBitmap` and WebGL
-`readPixels` all agree with each other, and a solid fill is byte-exact
-because a pixel with a flat 3x3 neighbourhood is never moved. A detector that
-renders twice, reads twice, fills a known colour, votes across many reads, or
-compares two routes finds a consistent device.
+What it gets right is everything about a machine being one machine: the same
+profile perturbs the same pixels the same way on every launch and every
+host, two reads agree, a 1:1 canvas-to-canvas copy reads back identically,
+and a solid fill is byte-exact because a pixel with a flat 3x3 neighbourhood
+is never moved. Measured on the shipped `macos-arm64` binary, seed 42
+windows: `toDataURL` twice identical, `getImageData` twice identical, a
+`drawImage` copy read back with zero differing bytes, and the interior of a
+flat rectangle at variance zero on all four channels with alpha untouched
+everywhere. A detector that renders twice, reads twice, fills a known colour
+or votes across many reads finds a consistent device.
 
-What gets it is scale. Draw a scene, draw the same scene eight times larger,
-downsample it and compare: a perturbation keyed on a pixel and its immediate
-neighbours does not survive being averaged with 63 of them, so the two images
-disagree in a way no single machine's rasteriser does. Stock Chromium does
-not match itself exactly across that test either, but it mismatches
-differently. That residual is inherent to a per-pixel intervention, and it is
-why the switch is off.
+What a page can see is that the perturbation is applied where bytes leave
+the canvas rather than where they are made, and two consequences of that
+need no reference sample to check. Both measured in the same session:
+
+| Check | Switch off | Switch on |
+| --- | --- | --- |
+| Export to a data URL, import, export, import: four generations | all four byte-identical | every generation differs from the last, each differing byte by one, two generations apart by two |
+| A 256px `#000000` to `#ffffff` gradient, read back against the ramp the caller asked for | monotone, deviation in [-1, 0] | 32 of 255 steps go backwards, deviation in [-2, +1] |
+| `toDataURL` decoded through an image and read again, against `getImageData` | identical | 28428 of 108000 bytes differ |
+
+The first is the route table composing with itself: a page's own canvas,
+exported and re-imported, is a new canvas holding already-perturbed pixels,
+and reading it perturbs them again. The drift accumulates, and a real
+browser hands back the bytes it was given. The second is arithmetic against
+an analytic value: a step of one on a pixel near a rounding boundary is a
+step against the ramp, and no hardware produces a gradient that goes
+backwards. Neither is fixed by making the step idempotent, and neither
+exists for a perturbation applied before the pixels are drawn, which is what
+[the section above](#canvas-text-sits-at-the-identitys-own-sub-pixel-phase)
+does by default.
+
+A third gap is scale. Draw a scene, draw it eight times larger, downsample
+and compare: a perturbation keyed on a pixel and its immediate neighbours
+does not survive being averaged with 63 of them, so the two images disagree
+in a way no single machine's rasteriser does. Stock Chromium does not match
+itself exactly across that test either, but it mismatches differently.
 
 Four narrower gaps.
 

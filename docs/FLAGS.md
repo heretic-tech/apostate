@@ -366,11 +366,25 @@ a dual-stack exit it is the usual pair per family.
 ./chrome --fingerprint=12345 --fingerprint-noise
 ```
 
-`--fingerprint-noise` is off by default. It is the one switch in this file
-that trades coherence away. With it, every page-visible canvas and WebGL pixel
-readback comes back one step from the bytes this build rendered. Without it,
-under `--fingerprint=host`, and under a profile with no identity to key on,
-the readback is byte-for-byte what stock Chromium of this version produces.
+`--fingerprint-noise` is off by default, and a composed identity does not need
+it to draw its own canvas: canvas text is rendered at a profile-derived
+sub-pixel phase, always, which is described in
+[docs/LIMITATIONS.md](LIMITATIONS.md). What the switch adds is coverage of
+what that does not reach, a canvas with no text and a WebGL readback, and it
+buys that coverage at a price a page can read.
+
+Measured on the shipped binary: with the switch on, a canvas exported to a
+data URL, imported and exported again drifts by one step every trip, because
+each egress route applies the policy once more; and a linear gradient the page
+specified analytically comes back with 32 of its 255 steps going backwards,
+which is not something hardware does. Both checks are a few lines of
+JavaScript and need no reference sample. Use the switch when unlinkability on
+a text-free canvas matters more than those two answers.
+
+With it, every page-visible canvas and WebGL pixel readback comes back one
+step from the bytes this build rendered. Without it, under
+`--fingerprint=host`, and under a profile with no identity to key on, the
+readback is byte-for-byte what stock Chromium of this version produces.
 
 The switch is presence-gated: it takes no value, and any value it is given is
 ignored. `--fingerprint-noise=false` therefore turns noise **on**, which is
