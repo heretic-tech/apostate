@@ -145,8 +145,19 @@ cookies and logged-in sessions. The first launch writes
 copies the machine. `cat DIR/apostate/identity` gives you a value to pass as
 `--fingerprint=` anywhere else.
 
-Playwright's `launch_persistent_context` reuses a directory and so gets a
-stable identity with no extra flag. If you were reusing a directory out of
+From the packages, a persistent profile is a context, not a browser option:
+
+```python
+context = launch_persistent_context("./work-profile", proxy="http://user:pass@host:8080")
+```
+
+```javascript
+const context = await launchPersistentContext("./work-profile", { proxy: "http://user:pass@host:8080" });
+```
+
+`launch()` refuses `user_data_dir` and `--user-data-dir`, because it returns a
+browser and the directory belongs to a context. Reusing a directory is what
+keeps the identity stable, with no extra flag. If you were reusing one out of
 habit and want a fresh machine each run, drop the directory, give each run its
 own, or delete `DIR/apostate/identity` between runs.
 

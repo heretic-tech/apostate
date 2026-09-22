@@ -462,6 +462,25 @@ def _has_switch(args: Any, name: str) -> bool:
     return any(item == name or item.startswith(name + "=") for item in args)
 
 
+def _refuse_user_data_dir(config: Any, *, entry: str) -> None:
+    """A persistent profile is a context, so ``launch()`` cannot carry one.
+
+    Playwright's ``BrowserType.launch`` rejects ``--user-data-dir`` and points
+    at ``launch_persistent_context``, but only after the browser has been
+    resolved and the driver started. Refusing here costs nothing and names the
+    entry point in this package's vocabulary.
+    """
+    named = bool(config.user_data_dir)
+    in_args = _has_switch(config.args, "--user-data-dir")
+    if not (named or in_args):
+        return
+    where = "user_data_dir" if named else "--user-data-dir in args"
+    raise ConfigurationError(
+        f"{entry}() returns a Browser and cannot take a persistent profile ({where}); "
+        "use launch_persistent_context(user_data_dir, ...), which returns the "
+        "context bound to that directory. The identity is stable there with no flag."
+    )
+
 #: Driver preference order, Patchright first. The reasoning, stated at the
 #: strength it has been measured to: the browser owns what a page can observe
 #: about the browser, and a driver's remaining job is to avoid CREATING
@@ -796,6 +815,7 @@ def launch(*, fingerprint: int | str | None = None, fingerprint_platform: str | 
     config = translate_options(fingerprint=fingerprint, fingerprint_platform=fingerprint_platform,
                                profile=profile, locale=locale, timezone=timezone, geoip=geoip,
                                proxy=proxy, headless=headless, user_data_dir=user_data_dir, args=args)
+    _refuse_user_data_dir(config, entry="launch")
     plan = _resolve_plan(config, resolver=resolver, catalogue=catalogue,
                          geoip_provider=geoip_provider, geoip_timeout=geoip_timeout)
     # Publication before the driver, driver before acquisition. See
@@ -934,6 +954,7 @@ async def launch_async(**options: Any) -> Any:
                                timezone=options.pop("timezone", None), geoip=options.pop("geoip", True),
                                proxy=options.pop("proxy", None), headless=options.pop("headless", True),
                                user_data_dir=options.pop("user_data_dir", None), args=options.pop("args", None))
+    _refuse_user_data_dir(config, entry="launch_async")
     plan = _resolve_plan(config, resolver=options.pop("resolver", None), catalogue=options.pop("catalogue", None),
                          geoip_provider=options.pop("geoip_provider", None), geoip_timeout=options.pop("geoip_timeout", 10.0))
     binary_path = options.pop("binary_path", None)

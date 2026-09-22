@@ -834,6 +834,18 @@ function checkFingerprintSwitches(args) {
         "APOSTATE_PROXY_SWITCH_IN_ARGS",
       );
     }
+    // Same shape of failure: --user-data-dir in args was filtered out below and
+    // the launch went ahead with an ephemeral profile, so a caller who expected
+    // a persistent identity got a new machine every run and nothing said so.
+    // A persistent profile is a context in Playwright, which is why it is an
+    // option here and not a switch.
+    if (item === "--user-data-dir" || item.startsWith("--user-data-dir=")) {
+      throw new ProfileResolutionError(
+        "--user-data-dir cannot be passed in args; a persistent profile is a context. Pass userDataDir: \"/path\", or call launchPersistentContext(userDataDir, options). The identity is stable there with no flag.",
+        { switch: "--user-data-dir" },
+        "APOSTATE_USER_DATA_DIR_SWITCH_IN_ARGS",
+      );
+    }
     if (!item.startsWith("--fingerprint")) continue;
     const name = item.split("=", 1)[0];
     if (FINGERPRINT_SWITCHES[name] !== true) {
@@ -1410,14 +1422,12 @@ const NATIVE_SELECTION = { "host-inherited": true, "native-composed": true };
 // Puppeteer take the profile directory as an option and emit the switch
 // themselves; passing it in argv too hands the browser the same switch twice.
 // launchProcess() spawns the binary directly, so there it must be emitted.
-// The Python package has always done this via `_native_args(persistent=True)`;
-// this branch was the inconsistency between the two implementations.
 function buildLaunchArguments(config, resolution, { driverOwnsProfile = false } = {}) {
   checkFingerprintSwitches(config.args);
-  // --proxy-server is not filtered here any more: checkFingerprintSwitches
-  // above refuses one rather than dropping it, so nothing reaches this point
-  // carrying it.
-  const args = config.args.filter((arg) => !arg.startsWith("--apostate-profile=") && !arg.startsWith("--user-data-dir="));
+  // Neither --proxy-server nor --user-data-dir is filtered here:
+  // checkFingerprintSwitches refuses both rather than dropping them, so
+  // nothing reaches this point carrying either.
+  const args = config.args.filter((arg) => !arg.startsWith("--apostate-profile="));
   // Captured before anything is pushed: from here on `args` also holds the
   // package's own selectors, so re-asking would see those instead of the user's.
   const userSuppliedSeed = hasSwitch(args, "--fingerprint");

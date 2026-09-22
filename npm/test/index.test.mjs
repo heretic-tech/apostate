@@ -155,6 +155,27 @@ test("rejects humanize until native behavior exists", () => {
     /humanize is not implemented/,
   );
 });
+test("refuses --user-data-dir in args instead of dropping it", async () => {
+  // The switch used to be filtered out of argv and the launch went ahead
+  // ephemeral, so a caller expecting a persistent identity got a new machine
+  // every run with nothing said. The executable is a file that is never run:
+  // the refusal has to fire while building arguments, before any process.
+  const root = await mkdtemp(join(tmpdir(), "apostate-node-user-data-dir-"));
+  const executable = join(root, "never-run");
+  try {
+    await writeFile(executable, "#!/bin/sh\nexit 97\n");
+    await chmod(executable, 0o755);
+    for (const args of [["--user-data-dir=/tmp/profile"], ["--user-data-dir"]]) {
+      await assert.rejects(
+        launchProcess({ executablePath: executable, geoip: false, args }),
+        (error) => error.code === "APOSTATE_USER_DATA_DIR_SWITCH_IN_ARGS"
+          && /launchPersistentContext/.test(error.message),
+      );
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 test("loads the version 2 catalogue and reports its anchors, axes and policy ids", () => {
   const catalogue = loadCatalogue();
   assert.deepEqual(Object.keys(catalogue).sort(), [

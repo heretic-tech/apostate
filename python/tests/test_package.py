@@ -231,6 +231,25 @@ class PackageContractTests(unittest.TestCase):
         with self.assertRaises(ConfigurationError):
             translate_options(fingerprint=True)
 
+    def test_launch_refuses_a_persistent_profile_before_touching_the_driver(self) -> None:
+        """A persistent profile is a context, so launch() cannot carry one.
+
+        Playwright refuses --user-data-dir too, but only after the binary is
+        resolved and the driver started, and the error it raises names its
+        own API. Both spellings are refused here first, and the refusal is
+        observed with no binary and no driver available, which is what proves
+        it fires before either is consulted.
+        """
+        launch_module = importlib.import_module("apostate.launch")
+        for label, kwargs in (("keyword", {"user_data_dir": "/tmp/profile"}),
+                              ("switch", {"args": ["--user-data-dir=/tmp/profile"]}),
+                              ("bare switch", {"args": ["--user-data-dir"]})):
+            with self.subTest(case=label):
+                with self.assertRaises(ConfigurationError) as raised:
+                    launch_module.launch(binary_path="/nonexistent/chrome", geoip=False,
+                                         driver="a-driver-that-is-not-installed", **kwargs)
+                self.assertIn("launch_persistent_context", str(raised.exception))
+
     def test_packaged_profile_schema_matches_authoritative_schema(self) -> None:
         packaged = PACKAGE_ROOT / "apostate" / "assets" / "profile.schema.json"
         authoritative = PACKAGE_ROOT.parent / "config" / "profile.schema.json"
