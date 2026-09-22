@@ -193,15 +193,22 @@ signals. Four runs, same host, same protocol:
 | Windows | Intel Direct3D 11 | 1 | true | true | 36 |
 | Windows | Apple Metal | 1 | true | true | 36 |
 
-The anomaly score reads the GPU cluster: it goes to 1 as soon as the
-claimed GPU is one this host cannot back, even under the host's own
-operating system with every other surface native. The anti-detect and
-virtual-machine verdicts read the operating system claim instead, and stay
-true under either GPU. Nothing served from a profile moved them, which
+The anomaly score fires on any departure from the host's native pairing, by
+either axis. Only the fully native row is quiet: claiming a GPU the host
+cannot back scores 1 under the host's own operating system, and so does
+claiming the host's own GPU under another operating system, which is its own
+contradiction because no Windows machine runs an Apple Metal renderer. No
+profile edit reaches a quiet anomaly score on this host.
+
+The anti-detect and virtual-machine verdicts are the separable pair. They
+track the operating system claim and stay true under either GPU, including
+the one the host really has. Nothing served from a profile moved them, which
 places them on the surfaces a profile does not reach: the canvas and emoji
 rasterisation and the audio render, which are
 [rendered, not replayed](#canvas-and-audio-are-rendered-not-replayed) and
-are the host's under any user agent.
+are the host's under any user agent. Whether that is structural to a
+cross-OS persona or particular to this host is not settled here; the same
+profile on an x86_64 Linux host would separate those.
 
 ### What the host still decides
 
@@ -734,37 +741,39 @@ has the software case and
 [A limit served to WebGL is readable everywhere and usable only where the host can](#a-limit-served-to-webgl-is-readable-everywhere-and-usable-only-where-the-host-can)
 has the per-limit table. Nothing outside a WebGL context is affected.
 
-### Two parameters a Direct3D 11 claim cannot carry on a Metal host
+### One parameter a Direct3D 11 claim cannot carry on a Metal host
 
 The limits are one part of what a page hashes; the rest of the parameter
 set is the other. Measured through the shipped binary on an Apple M4 Max
-serving the `windows-d3d11-intel` cluster, against 26 real machines
-reporting `Intel(R) UHD Graphics 770` in a public corpus of 10,000 Windows
-captures, 47 of the 54 comparable parameters agree exactly, including every
-`MAX_*` limit, both range pairs and all the colour and depth bit counts.
-Two disagree, each with all 26 machines on the other side:
+serving the `windows-d3d11-intel` cluster, 54 parameters were compared
+against two references: this project's own T0 capture of that GPU family,
+taken on Windows hardware with `capture/` at the same browser version the
+binary is built from, and a third-party corpus of 10,000 Windows captures
+containing 26 machines reporting `Intel(R) UHD Graphics 770`. That corpus
+is not ours and is not in this tree; its records carry Chrome 115 version
+strings, which dates them to around mid-2023.
 
-| Parameter | Served here | Every real machine |
+Against the T0 capture, 53 of the 54 agree exactly. One does not:
+
+| Parameter | T0 capture | Served on a Metal host |
 | --- | --- | --- |
-| `STENCIL_BITS` | 0 | 8 |
-| `MAX_UNIFORM_BLOCK_SIZE` | 16384 | 65536 |
+| `MAX_UNIFORM_BLOCK_SIZE` | 65536 | 16384 |
 
-The uniform block size is the clamp in
+That is the clamp in
 [Capacity is presented downward only](#capacity-is-presented-downward-only)
-doing its job: the profile carries 65536, ANGLE/Metal offers 16384, and
-serving the larger number would hand a page a 64 KB allocation that fails.
+doing its job: the profile carries the captured 65536, ANGLE/Metal offers
+16384, and serving the larger number would hand a page a 64 KB allocation
+that fails on use. It is a readable difference from a real Windows machine
+and it is the price of never over-claiming.
 
-`STENCIL_BITS` is not a capability. A Direct3D 11 default framebuffer is
-`D24S8`, so it reports 8 stencil bits whether or not the context asked for
-stencil; 9,978 of the 10,000 captures report 8, and each of those contexts
-was created with `stencil: false`. ANGLE/Metal attaches stencil only when it
-is requested, so the same context here reports 0, and requesting
-`{stencil: true}` returns 8. That makes it fixable in the emitter rather
-than at the accessor: attaching stencil to the default drawing buffer when
-the claimed cluster's backend would have it makes the reported 8 true. Four
-further stencil mask parameters differ from the corpus, but those are an
-artifact of the capture era reading `GLuint` masks through a signed path,
-not a difference this build shows.
+Six further parameters differ from the third-party corpus and not from the
+capture: `STENCIL_BITS` on both context versions, which the corpus reports
+as 8 and both the capture and this build report as 0, and four stencil mask
+values, which the corpus reports as `2147483647` where both report
+`4294967295`. A capture of the claimed hardware at the shipped browser
+version outranks a three-year-old corpus, so those six are dated corpus
+behaviour rather than a leak here, and the apparent `STENCIL_BITS` defect
+was withdrawn on that evidence rather than patched.
 
 ## The extension list, and the five names that are served
 
