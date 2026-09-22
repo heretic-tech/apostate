@@ -483,3 +483,25 @@
 # different surface.
 0122-fonts-render-params-follow-the-persona.patch
 0123-fonts-subpixel-positioning-follows-the-platform-rule.patch
+
+# 0124 puts the canvas text origin at the identity's own sub-pixel phase.
+#
+# After 0123, and on it: 0123 is what makes the claim true that all three
+# personas render text with SkFont::setSubpixel(true), which is the whole
+# reason a quarter-pixel shift lands in a neighbouring Skia bin rather than
+# doing nothing. Without it a persona whose text was positioned integrally
+# would absorb the offset and draw the same pixels.
+#
+# Related to 0120 by subject and by nothing else. 0120 transforms bytes on
+# the way out of a canvas behind --fingerprint-noise; this one moves ink
+# before it is drawn and is on wherever a profile is. They share no file:
+# 0120 owns canvas_interventions/, the 2D and WebGL readback sites and the
+# ImageBitmap egress, and this one owns base/apostate/text_phase.{h,cc} and
+# a single hunk in the canvas text draw. Applying either without the other
+# compiles and behaves.
+#
+# Sole owner of base/apostate/text_phase.{h,cc} and of the DrawTextInternal
+# location hunk. Its two base/BUILD.gn hunks append to the apostate source
+# list and the base_unittests list, both of which 0081 created and several
+# patches have extended, so it goes after all of them.
+0124-canvas-text-raster-phase-from-profile.patch

@@ -1,0 +1,334 @@
+Subject: canvas: the persona's text sits at its own sub-pixel phase, at raster time
+
+Two profiles launched from one machine draw one canvas, because the bytes come
+out of this host's Skia and this host's driver and the catalogue has no second
+rasteriser to offer. Patch 0120 answered that at the readback boundary, behind
+`--fingerprint-noise`, and measurement says that boundary is the wrong place to
+stand. This patch moves the perturbation to where the pixels are made.
+
+WHAT THE READBACK PLACEMENT COSTS, MEASURED
+
+Through the shipped `macos-arm64` binary, seed 42 windows, one page served over
+the loopback so a worker has an origin, `--fingerprint-noise` on and off:
+
+  export to a data URL, decode, draw, read, four generations
+    off  all four byte-identical
+    on   every generation differs from the last, every differing byte by
+         exactly one, two generations apart by two
+
+  a 256px linear gradient from #000000 to #ffffff, read back and compared
+  against the ramp the caller asked for
+    off  deviation in [-1, 0], monotone, 0 of 255 steps go backwards
+    on   deviation in [-2, +1], 32 of 255 steps go backwards
+
+  toDataURL against getImageData on one canvas
+    off  identical
+    on   28428 bytes differ
+
+The first two need no reference sample and no statistics. A page exports its
+own canvas, imports it and exports it again, and a real browser hands back the
+bytes it was given; this one drifts, because each egress route applies the
+policy once more and the routes compose. A page draws a ramp it specified
+analytically and checks that it never goes backwards, and hardware cannot
+produce a gradient that does; this one does, 32 times, because a step of one on
+a value near a rounding boundary is a step against the ramp.
+
+Both are properties of the placement rather than of the arithmetic. Any policy
+applied at the moment bytes leave the surface is applied again when those bytes
+come back and leave a second time, and any policy that moves a pixel the caller
+computed analytically is visible against the analytic value. Making the step
+idempotent would close the first and not the second, and would still leave the
+route table -- getImageData, toDataURL, toBlob, readPixels, the PIXEL_PACK
+path, ImageBitmap -- as a list that has to stay complete as Chromium adds
+routes.
+
+WHAT THIS DOES INSTEAD
+
+The canvas text origin gets a sub-pixel offset drawn from the profile identity,
+applied once, before the draw. Nothing downstream is hooked. The perturbed
+pixels are the canvas, so every consumption route -- the two 2D readbacks, a
+`drawImage` copy, a WebGL `texImage2D` upload, an OffscreenCanvas in a worker,
+and whatever route Chromium adds next -- reads the same surface, and there is
+no second application to compose with the first.
+
+The offset is `[-0.25, 0.25]` device-independent pixels on x, in 1/64 steps, 33
+values. It is not applied to y: Skia takes sub-pixel positions on x and rounds
+y, so a fractional y is either inert or a whole-pixel baseline jump, and a
+baseline a pixel off its metrics is a difference no machine has.
+
+A quarter pixel is the bound because that is the span the claimed platforms
+already disagree over. After patch 0123 all three personas render text with
+`SkFont::setSubpixel(true)` -- Windows through `font_platform_data_win.cc:67`
+whenever the text is antialiased, macOS hard-coded, Linux through
+`web_font_render_style.cc:106` for any hinting short of full -- so each glyph
+lands in one of Skia's quarter-pixel bins, and which bin depends on where the
+run started. Shifting the run start inside a quarter pixel moves a subset of
+the glyphs into the neighbouring bin and leaves the rest, which is the same
+coverage difference two machines produce when their hinting disagrees. Every
+frame this draws is a frame the claimed platform draws for some origin.
+
+WHY THIS IS NOT A SWITCH
+
+It is on wherever a profile is on. `--fingerprint=host` and a launch with no
+profile keep the host's own phase, because there is no identity to key on and a
+host-derived offset would be a host fact in the pixels. An authored profile
+with no `source_id` likewise keeps it.
+
+It costs nothing a page can price. `measureText` is computed from font metrics
+and is not touched; the damage rectangle and the rendered-text capture both
+read `location` after the offset, so bounds follow the ink. What it does not do
+is what 0120 did: a canvas that draws no text is identical across profiles on
+one host, and so is a WebGL readback. That is the honest ceiling of doing this
+at raster time, and the reason `--fingerprint-noise` stays in the tree, off by
+default, with what it costs now measured in docs/LIMITATIONS.md.
+
+DETERMINISM
+
+`PersistentHash` over a NUL-separated domain and the profile id, the
+`SyntheticDeviceSeed` construction from `base/apostate/media_devices.cc`, and
+the same one 0120 uses under its own domain string. Stable across builds,
+processes and launches, so a persistent profile keeps its phase and a seed
+reproduces it on another host. Resolved once per process and read from a
+function-local static; no clock, no counter, no `base::Rand*`.
+
+Verification: V0 and V1 here, with `CanvasTextPhaseTest` covering the empty-id
+and no-profile cases, the range bound, the step quantum and stability across
+two resolutions of one id. V3 is the four generations and the ramp above, which
+this patch turns into the noise-off column.
+
+diff --git a/base/BUILD.gn b/base/BUILD.gn
+--- a/base/BUILD.gn
++++ b/base/BUILD.gn
+@@ -1643,6 +1643,8 @@
+     "apostate/host_capability.h",
+     "apostate/seed.cc",
+     "apostate/seed.h",
++    "apostate/text_phase.cc",
++    "apostate/text_phase.h",
+   ]
+ 
+   # The option tables and anchors are compiled in rather than read from disk:
+@@ -3679,6 +3681,7 @@
+     "apostate/compose_unittest.cc",
+     "apostate/host_capability_unittest.cc",
+     "apostate/profile_unittest.cc",
++    "apostate/text_phase_unittest.cc",
+     "at_exit_unittest.cc",
+     "atomicops_unittest.cc",
+     "auto_reset_unittest.cc",
+diff --git a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
+--- a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
++++ b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
+@@ -12,6 +12,7 @@
+ #include <optional>
+ #include <utility>
+ 
++#include "base/apostate/text_phase.h"
+ #include "base/check.h"
+ #include "base/check_op.h"
+ #include "base/location.h"
+@@ -1107,6 +1108,18 @@
+ 
+   location.Offset(0, TextMetrics::GetFontBaseline(baseline, *font_data));
+ 
++  // The identity's own sub-pixel phase, applied once, here. Everything below
++  // reads `location` after this line -- the rendered-text capture, the damage
++  // rectangle and the draw itself -- so the ink, its bounds and its record all
++  // agree, and the pixels that reach the backing store are already this
++  // profile's. No readback is hooked, so every route out of the canvas reads
++  // one surface, and none of them composes with another.
++  //
++  // Zero under --fingerprint=host and with no profile. x only: Skia takes
++  // sub-pixel positions on x and rounds y, so a fractional y is either inert
++  // or a whole-pixel baseline jump, which is a metric no machine reports.
++  location.Offset(base::apostate::CanvasTextPhase(), 0);
++
+   if (host && host->ShouldCaptureRenderedText()) {
+     gfx::RectF exact_bounds = bounds;
+     // If the text is scaled horizontally to fit maxWidth, scale the bounding
+diff --git a/base/apostate/text_phase.h b/base/apostate/text_phase.h
+new file mode 100644
+--- /dev/null
++++ b/base/apostate/text_phase.h
+@@ -0,0 +1,36 @@
++// Copyright 2026 The Apostate Authors
++// Use of this source code is governed by a GPL-3.0 license that can be
++// found in the LICENSE file.
++
++#ifndef BASE_APOSTATE_TEXT_PHASE_H_
++#define BASE_APOSTATE_TEXT_PHASE_H_
++
++#include <string_view>
++
++#include "base/base_export.h"
++
++namespace base::apostate {
++
++// The sub-pixel offset, in device-independent pixels on x, that this launch's
++// identity draws canvas text at. Zero when no profile is active, when the
++// profile carries no source id, and under --fingerprint=host: there is nothing
++// profile-bound to key on, and an offset derived from the host would put a
++// host fact in the pixels.
++//
++// The value is in [-0.25, 0.25] in steps of 1/64. The bound is a quarter pixel
++// because that is Skia's sub-pixel bin on every platform this fork claims, so
++// a shift inside it moves some glyphs of a run to the neighbouring bin and
++// leaves the others -- the coverage difference two machines produce when their
++// hinting disagrees, rather than a value that platform cannot draw.
++//
++// Resolved once per process. Two calls in one launch agree, two launches of
++// one profile agree, and two profiles differ.
++BASE_EXPORT float CanvasTextPhase();
++
++// The same computation against an explicit identity, for tests and for callers
++// that have an id in hand rather than a resolved profile. An empty id is zero.
++BASE_EXPORT float CanvasTextPhaseForIdentityForTesting(std::string_view id);
++
++}  // namespace base::apostate
++
++#endif  // BASE_APOSTATE_TEXT_PHASE_H_
+diff --git a/base/apostate/text_phase.cc b/base/apostate/text_phase.cc
+new file mode 100644
+--- /dev/null
++++ b/base/apostate/text_phase.cc
+@@ -0,0 +1,66 @@
++// Copyright 2026 The Apostate Authors
++// Use of this source code is governed by a GPL-3.0 license that can be
++// found in the LICENSE file.
++
++#include "base/apostate/text_phase.h"
++
++#include <cstdint>
++#include <string>
++#include <string_view>
++
++#include "base/apostate/profile.h"
++#include "base/hash/hash.h"
++#include "base/strings/strcat.h"
++
++namespace base::apostate {
++
++namespace {
++
++// 33 positions across the half-pixel span, so the quantum is 1/64 px and zero
++// is one of the values a profile can draw: an identity whose phase is the
++// host's own is a real outcome, not a bug, and pretending otherwise would mean
++// no profile ever renders the way an unmodified build does.
++constexpr int32_t kSteps = 32;
++constexpr float kQuantum = 1.0f / 64.0f;
++
++float PhaseFor(std::string_view id) {
++  if (id.empty()) {
++    return 0.0f;
++  }
++  // The NUL keeps the domain from running into the identity. PersistentHash is
++  // stable across builds and processes, which is what makes one profile draw
++  // at one phase on every launch and on every host; the two halves are the
++  // SyntheticDeviceSeed construction in base/apostate/media_devices.cc.
++  static constexpr std::string_view kDomain("apostate/canvas-text-phase/v1\0",
++                                            30);
++  const std::string material = base::StrCat({kDomain, id});
++  const uint64_t seed =
++      (static_cast<uint64_t>(base::PersistentHash(material)) << 32) |
++      base::PersistentHash(base::StrCat({material, "/2"}));
++  // Centred on zero: [-kSteps/2, +kSteps/2] steps of kQuantum, which is
++  // [-0.25, 0.25] px.
++  const int32_t step =
++      static_cast<int32_t>(seed % (kSteps + 1)) - (kSteps / 2);
++  return static_cast<float>(step) * kQuantum;
++}
++
++float ResolvePhase() {
++  const Profile* profile = Profile::Get();
++  if (!profile) {
++    return 0.0f;
++  }
++  return PhaseFor(profile->source_id());
++}
++
++}  // namespace
++
++float CanvasTextPhase() {
++  static const float phase = ResolvePhase();
++  return phase;
++}
++
++float CanvasTextPhaseForIdentityForTesting(std::string_view id) {
++  return PhaseFor(id);
++}
++
++}  // namespace base::apostate
+diff --git a/base/apostate/text_phase_unittest.cc b/base/apostate/text_phase_unittest.cc
+new file mode 100644
+--- /dev/null
++++ b/base/apostate/text_phase_unittest.cc
+@@ -0,0 +1,69 @@
++// Copyright 2026 The Apostate Authors
++// Use of this source code is governed by a GPL-3.0 license that can be
++// found in the LICENSE file.
++
++#include "base/apostate/text_phase.h"
++
++#include <cmath>
++#include <set>
++#include <string>
++
++#include "base/strings/string_number_conversions.h"
++
++#include "testing/gtest/include/gtest/gtest.h"
++
++namespace base::apostate {
++namespace {
++
++using Phase = float;
++
++// An identity with nothing to key on keeps the host's phase. This is the
++// --fingerprint=host and authored-profile-without-an-id case, and it is the
++// one result that must not be a fabricated offset.
++TEST(CanvasTextPhaseTest, EmptyIdentityIsHostPhase) {
++  EXPECT_EQ(0.0f, CanvasTextPhaseForIdentityForTesting(""));
++}
++
++// Two reads of one identity in one launch agree, which is the determinism rule
++// the whole fork rests on.
++TEST(CanvasTextPhaseTest, OneIdentityResolvesToOneValue) {
++  const Phase first = CanvasTextPhaseForIdentityForTesting("apostate-abc123");
++  const Phase second = CanvasTextPhaseForIdentityForTesting("apostate-abc123");
++  EXPECT_EQ(first, second);
++}
++
++// A quarter pixel is the bound the header claims, and a value outside it is a
++// glyph position the claimed platform's bins do not produce.
++TEST(CanvasTextPhaseTest, StaysInsideAQuarterPixel) {
++  for (int i = 0; i < 512; ++i) {
++    const Phase phase =
++        CanvasTextPhaseForIdentityForTesting("apostate-" + base::NumberToString(i));
++    EXPECT_GE(phase, -0.25f);
++    EXPECT_LE(phase, 0.25f);
++  }
++}
++
++// Every value is a whole number of 1/64 px steps. A phase off the lattice
++// would be a position Skia rounds differently on different runs.
++TEST(CanvasTextPhaseTest, EveryValueIsOnTheQuantum) {
++  for (int i = 0; i < 512; ++i) {
++    const Phase phase =
++        CanvasTextPhaseForIdentityForTesting("apostate-" + base::NumberToString(i));
++    const float steps = phase * 64.0f;
++    EXPECT_FLOAT_EQ(steps, std::round(steps));
++  }
++}
++
++// Different identities draw at different phases often enough for the offset to
++// be worth applying: with 33 positions, 512 identities must cover most of them.
++TEST(CanvasTextPhaseTest, IdentitiesSpreadAcrossThePositions) {
++  std::set<Phase> seen;
++  for (int i = 0; i < 512; ++i) {
++    seen.insert(
++        CanvasTextPhaseForIdentityForTesting("apostate-" + base::NumberToString(i)));
++  }
++  EXPECT_GE(seen.size(), 30u);
++}
++
++}  // namespace
++}  // namespace base::apostate
