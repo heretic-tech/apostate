@@ -691,6 +691,17 @@ travels as `--fingerprint-locale` and `--fingerprint-timezone` rather than as
 a profile envelope, so asking for a locale does not cost you the composed
 fingerprint.
 
+It walks four independent sites in a fixed order over plain HTTP --
+`ip-api.com/json/`, `ipinfo.io/json`, `ipwho.is/`, `ifconfig.co/json` --
+stopping at the first that answers with both a country and a timezone. Each is
+attempted twice, 0.5s apart, with a 5s ceiling per attempt, inside a total
+budget of 20s (`geoip_timeout` in Python, `geoipTimeoutMs` in Node). Nothing
+is jittered, so two launches configured alike take the same path. Behind a
+SOCKS proxy the endpoint's name is handed to the proxy under both the
+`socks5://` and `socks5h://` spellings, so the lookup's DNS leaves the exit's
+network rather than this one -- resolving it here used to pin the tunnel to
+an address this host chose, which a residential exit could refuse outright.
+
 A failed or partial lookup invents nothing. It leaves off the switch for each
 field it could not answer, so the host's own value applies there. Behind a
 proxy that is the wrong country, so `geoip` is best-effort and passing

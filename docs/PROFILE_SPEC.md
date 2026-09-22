@@ -15,7 +15,7 @@ host is physically the device being presented.
 
 The release baseline uses these version boundaries:
 
-- package version: `0.2.1`
+- package version: `0.3.0`
 - Chromium version: `152.0.7977.83`
 - profile catalogue version: `2`
 - profile schema version: `3`
@@ -175,6 +175,25 @@ uses the envelope, because host mode composes nothing either way.
 With `geoip: true`, the lookup is performed through the configured proxy, or
 through the direct network when no proxy is configured. The result is fixed
 for the process before Chromium starts.
+
+The lookup walks four independent sites in a fixed order over plain HTTP --
+`ip-api.com/json/`, `ipinfo.io/json`, `ipwho.is/`, `ifconfig.co/json` -- and
+stops at the first that answers with both a country and a timezone. Each is
+attempted twice, with a fixed 0.5s pause between the two tries and a 5s
+ceiling on each, and the whole walk is bounded by `geoip_timeout` /
+`geoipTimeoutMs`, which defaults to 20s: no attempt begins that the budget
+cannot hold, so a dead network costs a launch the budget rather than the sum
+of every attempt it could have made. There is no jitter anywhere; two launches
+configured alike take the same path. A site that answers with only half the
+pair is kept and the walk continues, because there is no country-to-timezone
+table in this project and a derived zone would be an invention. Both packages
+carry the same list, order, counts and ceilings.
+
+Behind a SOCKS proxy the endpoint's *name* is handed to the proxy for both the
+`socks5://` and `socks5h://` spellings, so the lookup's own DNS query leaves
+the exit's network and never this one. Resolving it locally used to pin the
+tunnel to an address this host picked -- on a dual-stacked endpoint, the AAAA
+record, which a residential exit with no IPv6 route refuses.
 
 A failure is reported and nothing is invented. No timeout, unreachable
 provider or malformed response produces a `UTC` or `en-US` the caller did not
