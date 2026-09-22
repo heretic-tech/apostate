@@ -81,10 +81,9 @@ runs.
 
 It does not set the locale or the timezone. Those follow the launch, then
 GeoIP of the effective egress, then the host; a machine's country is a
-property of its network. Nor does it settle the voice list on its own. The
-voices table is keyed on the resolved language list as well as the OS
-release, so a launch that names no locale keeps the host's real speech
-providers whatever persona it claims.
+property of its network. The voice list is keyed on the resolved language
+list as well as the OS release, and a launch that names no locale is served
+that platform's own default set rather than the host's providers.
 
 A capability cluster belongs to a backend, and the catalogue holds one
 backend per platform, so choosing the persona determines the backend:
@@ -176,12 +175,15 @@ reports and measured again, one run each:
 | `--fingerprint-noise` on, perturbing the canvas readback | Canvas hashes change, stable per profile; verdicts unchanged |
 | User agent set to the previous major version | Score moves by 2; every verdict unchanged |
 
-Two further fields could not be forced, and that is the design working.
+One further field could not be forced, and that is the design working.
 `cpu.logical_cores` above the host's count is served as the host's, because
 [capacity is presented downward only](#capacity-is-presented-downward-only).
-A claimed voice table is a constraint on real providers rather than a
-source of them, so naming Windows voices on a Mac yields an empty list,
-which is worse than the host's.
+
+The voice list was the second, and it was not the design working: naming
+Windows voices on a Mac yielded an empty list, and naming none yielded the
+host's own 180 Apple voices under a Win32 persona. Both were measured, and
+[the voice list is the persona's](#the-voice-list-is-the-personas-spoken-by-a-provider-that-exists)
+describes what replaced them. The runs in this section predate that change.
 
 Varying the persona and the claimed GPU independently separates the two
 signals. Four runs, same host, same protocol, each through an explicit
@@ -671,10 +673,12 @@ What a profile does control is `MediaCapabilities.decodingInfo()`'s
 decoder set. Whether a codec is `supported` answers from the decoders
 present on this machine, so the profile does not touch it.
 
-Network speech voices. The `localService: false` voices are served by
-Chromium's network speech component against a Google endpoint that needs API
-keys at build time. Without keys those voices cannot speak, so they are not
-listed.
+Network speech voices. The nineteen `localService: false` voices are served
+by Chromium's network speech component against a Google endpoint that needs
+API keys at build time. A build without keys cannot reach it, so those voices
+are spoken by a local provider instead, and what a page can tell from that is
+in
+[the voice list is the persona's](#the-voice-list-is-the-personas-spoken-by-a-provider-that-exists).
 
 Capture devices. A profile describes how many microphones and cameras the
 machine has and what they are called. Those devices appear in
@@ -1114,6 +1118,40 @@ in the corpus enumerates zero audio devices, so their 44100 Hz / 441 frames
 is the no-sound-card path, and the only Linux capture in the tree holding a
 real output device is a non-admissible v1 file reporting ALSA's compiled
 default of 2048.
+
+### The voice list is the persona's, spoken by a provider that exists
+
+`speechSynthesis.getVoices()` is a list a page can read in one call, and a
+composed identity used to have two answers to it, both of which described the
+host. Measured on this Mac under a Windows persona: 180 voices, every one
+`localService: true`, beginning Albert, Alice, Alva, Amelie, byte-identical to
+what the same binary returns with no profile at all. Give that profile a
+Windows voice list instead and the answer became 0 voices, because the list
+was a filter over real providers and no provider here is called "Microsoft
+David - English (United States)". Real Windows Chrome returns 22, and no
+desktop Chrome returns none.
+
+So the profile's list is served, and a real provider is found to speak it.
+Where this host has the voice the profile names, its own record is used
+unchanged, native identifiers and event set included. Where it does not, the
+page sees the persona's voice and synthesis runs on the closest provider by
+language: the same language tag first, then the same primary subtag, then the
+first voice the platform offered. A voice with no provider at all is not
+listed, so a machine with no speech stack still enumerates nothing.
+
+What a page reads is the persona's throughout. `SpeechSynthesisVoice` exposes
+name, `voiceURI`, `lang`, `localService` and `default`, all of which come from
+the profile; the engine id and native identifier that route the request are
+not surfaced by Blink. Speaking works, and the start, word, sentence and end
+events are a real engine's rather than a timer's. A page cannot hear the
+difference, because speech synthesis output does not reach Web Audio or any
+capture path.
+
+The residual is timing. A voice the profile marks remote is spoken by a local
+engine, so `onstart` arrives without the network round trip a real remote
+voice needs. That is measurable by a page that times it, it applies only to
+the nineteen network voices, and it is the price of listing what a real Chrome
+lists on a build with no speech API key.
 
 ### Canvas text sits at the identity's own sub-pixel phase
 
