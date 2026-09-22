@@ -443,8 +443,10 @@ a claim possible and what leaves the claim unbacked at its own maximum.
 
 Patch `0027` raises the software rasteriser's own `MAX_TEXTURE_SIZE` from
 8192 to 16384 by editing `OUTLINE_RESOLUTION`, and that is what puts the
-reported figure above the usable one. Stock Chrome reports 8192 and fails
-only above it, so it is coherent here because it reports what it can do.
+reported figure above the usable one. It is not unique to this fork: the
+product this one is measured against reports 16384 on a software backend and
+fails at 16384 in the same way. Stock Chrome reports 8192 and fails only
+above it, so it is coherent here because it reports what it can do.
 
 `MAX_RENDERBUFFER_SIZE` is not measured. The renderbuffer arm of the probe
 reported `FRAMEBUFFER_UNSUPPORTED` at 8192 as well as above it, so it does
@@ -493,23 +495,27 @@ canvas2D and raster multisampling for every page.
 
 The viewport row in full. `MAX_VIEWPORT_DIMS` shows no residual on a software
 backend: SwiftShader reports 32767 by 32767, which is what the Windows anchors
-measured, and a viewport at 32767 raises no error. On ANGLE/Metal, measured
-through the shipped macOS artifact on an Apple M4 Max on both the WebGL1 and
-WebGL2 paths:
+measured, and a viewport at 32767 raises no error. On ANGLE/Metal it is the
+cheapest residual above. The table was taken through the 152.0.7977.83 macOS
+artifact on an Apple M4 Max, on both the WebGL1 and WebGL2 paths, on a build
+that still served the host's 16384 for the first row; patch `0119` now serves
+the anchor's 32767 there, and the clamp in the third row is the driver's and
+is unchanged by it:
 
 | Call | Result |
 | --- | --- |
-| `getParameter(MAX_VIEWPORT_DIMS)` | `[32767, 32767]` |
+| `getParameter(MAX_VIEWPORT_DIMS)` | `[16384, 16384]` on that build; the anchor's `[32767, 32767]` since `0119` |
 | `viewport(0, 0, 32767, 32767)` | no GL error |
 | `getParameter(VIEWPORT)` | `[0, 0, 16384, 16384]` |
 | `scissor(0, 0, 32767, 32767)` | no GL error |
 | `getParameter(SCISSOR_BOX)` | `[0, 0, 32767, 32767]` |
 
 The viewport state is silently clamped to the driver's real maximum and the
-clamped value is readable, so a page that reads the claim, sets a viewport to
-exactly that and reads it back gets a contradiction in two calls. The
-`SCISSOR_BOX` row is the control: it is not clamped, so the clamp tracks
-`MAX_VIEWPORT_DIMS` specifically.
+clamped value is readable, so a page that reads the 32767 claim, sets a
+viewport to exactly that and reads it back gets 16384 and a contradiction in
+two calls, with no allocation and no rendering. The `SCISSOR_BOX` row is the
+control: it is not clamped, so the clamp tracks `MAX_VIEWPORT_DIMS`
+specifically.
 
 The pairing carries the cost. On a Windows or Linux host with the
 corresponding silicon the anchor's 32767 is both claimed and real, and none
@@ -543,7 +549,8 @@ reports supported, smooth and power-efficient, WebCodecs
 Main10 files both decode with zero dropped and zero corrupted frames. Every
 value is identical to stock Chrome 152 on the same machine.
 `enable_hevc_parser_and_hw_decoder` defaults to true from `proprietary_codecs`
-in `media/media_options.gni`. Measured on macos-arm64; it holds on macOS and
+in `media/media_options.gni`, which makes `enable_platform_hevc` true on
+macOS, Windows and Linux. Measured on macos-arm64; it holds on macOS and
 Windows through the platform decoder and on linux-x64 through patch `0061`'s
 software decoder. On linux-arm64 there is no HEVC decoder unless the host
 exposes one, and Chromium reports that either way.
@@ -658,7 +665,12 @@ has the per-limit table. Nothing outside a WebGL context is affected.
 A profile whose GPU cluster matches the host's backend is served exactly.
 Measured through the shipped binary on an Apple M4 Max running ANGLE/Metal,
 the `macos-metal-apple` anchor claimed 39 WebGL1 and 36 WebGL2 extensions and
-delivered all of them, with nothing missing and nothing extra.
+delivered all of them, with nothing missing and nothing extra. The serving
+path for a mismatched backend, patch `0104`, is exercised by the GPU-less
+Linux measurement in
+[A GPU-less host serves a hardware GPU identity](#a-gpu-less-host-serves-a-hardware-gpu-identity):
+a Direct3D 11 anchor's extension list arriving complete on a SwiftShader host
+can only happen if the five names below are served.
 
 Everywhere else there is a gap between what a cluster claims and what the
 host's GL stack implements. A SwiftShader host, the deployment target, offers
@@ -725,7 +737,10 @@ Vendor, architecture and the whole 36-entry limit table come from the same
 measured anchor member the WebGL capability cluster comes from. One member,
 both surfaces, so there is no second source for either to disagree with.
 Anyone who later adds an independently authored WebGPU table breaks a
-guarantee that holds by construction.
+guarantee that holds by construction. The failure it prevents is real: the
+product this one is measured against serves `{nvidia, lovelace}` beside a
+GeForce RTX 3070, and Lovelace is Ada where the 3070 is Ampere, so its own
+pair contradicts itself.
 
 ### The one residual, off the default path
 
@@ -733,8 +748,14 @@ Two of the eleven Linux Vulkan identities, the RTX 3090 and the RTX PRO 4000
 Blackwell, are measured members whose machines returned no WebGPU adapter at
 all. The anchor records that: its WebGPU cluster is non-uniform, with one
 variant carrying the Lovelace adapter pair and one carrying nulls for both
-`high-performance` and `low-power`. Patch `0105` serves no adapter for those
-two members, which reproduces what was measured on those machines. It takes
+`high-performance` and `low-power`. Patch `0105` serves what was measured, so
+on those two identities `navigator.gpu.requestAdapter()` resolves `null`.
+That is what a GPU-less machine reports, and it is what those two machines
+reported; on a host that does have a GPU it is unusual beside a WebGL
+GeForce claim, which is the residual. Without `0105` the surface would fall
+through to the host, which on a GPU-less server is
+`{vendor: "google", architecture: "swiftshader"}` beside a GeForce, the
+contradiction this section otherwise rules out. It takes
 `--fingerprint-platform=linux` to reach, since the default persona on a Linux
 host is Windows and the Windows anchors' WebGPU is uniform.
 
@@ -895,12 +916,15 @@ the true window origin and catches the browser disagreeing with itself. That
 is why `window.outer-dimensions` and `window.screen-position` are `inherit`
 rather than `spoof` in the ledger. Filtering the furniture axis against the
 host window, offering only insets whose work area can contain the real
-window, trades one violation for another: on Windows 11 the catalogue offers
-two options, and dropping `taskbar-bottom` leaves `taskbar-autohide` as the
-only survivor, so every Windows persona on that host would claim an
-auto-hidden taskbar, a configuration no capture in this tree measures. It
-also cannot work on a bare launch, because the compositor learns the window
-bounds only from `--window-size`.
+window the way `cpu` and `memory` are filtered against host capacity, trades
+one violation for another: on Windows 11 the catalogue offers two options,
+and dropping `taskbar-bottom` leaves `taskbar-autohide` as the only survivor,
+so every Windows persona on that host would claim an auto-hidden taskbar, a
+configuration no capture in this tree measures. Its zero insets also make
+the work area the whole panel, the one case
+`coh.screen-avail-inset-vs-claimed-os` has to carve out rather than assert.
+It also cannot work on a bare launch, because the compositor learns the
+window bounds only from `--window-size`.
 
 The repair that works is to place and size the real OS window inside the
 work area the profile claims, so `screenY` and `outerHeight` stay the
