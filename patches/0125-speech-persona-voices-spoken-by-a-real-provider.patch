@@ -1,0 +1,441 @@
+Subject: speech: a persona's voices are its own, spoken by a provider that exists
+
+A composed identity had two reachable answers to `speechSynthesis.getVoices()`
+and both said something true about the host.
+
+Measured through the shipped `macos-arm64` binary, seed 42 windows: 180
+voices, `localService` true on all of them, beginning Albert, Alice, Alva,
+Amelie -- byte-identical to the list this Mac returns with no profile at all,
+under a persona whose `navigator.platform` says Win32. Give that profile the
+catalogue's Windows voices instead and the answer becomes 0 voices, because
+patch 0043 filters real registered voices by the profile's names and no
+provider on a Mac is called "Microsoft David - English (United States)".
+
+Neither is a machine. Real Windows Chrome returns 22 voices; this project's
+own Windows capture records them, three local Microsoft en-GB and the
+nineteen "Google <language>" network voices, and the macOS capture records
+the same nineteen. An empty list is not a machine either: no desktop Chrome
+reports one.
+
+WHAT CHANGES
+
+`GetVoices` now serves the profile's list. Where a real provider is that
+voice -- same name, same language, same locality -- the provider's own record
+is used verbatim, so a Windows persona on a Windows host keeps its native
+identifiers, engine ids and event sets exactly as 0043 left them. Where it is
+not, the page is shown the persona's voice and a real provider is chosen to
+speak it: same language first, then the same primary subtag, then the first
+provider the platform offered. A requested voice is dropped when there is no
+provider at all, so a host with no speech at all still enumerates nothing.
+
+`SpeakNow` then speaks through that provider. The page picked a name this
+host has never heard of, and what reaches `TtsPlatform::Speak` is the
+substitute's record, with its own name and native identifier, so synthesis
+runs on a real engine and the start, word, sentence and end events are that
+engine's. 0043's failure path is unchanged for a request that matches
+nothing.
+
+WHAT A PAGE CAN TELL
+
+Not the substitution, by reading. `SpeechSynthesisVoice` exposes name,
+`voiceURI`, `lang`, `localService` and `default`, all of which come from the
+profile; `engine_id` and the native identifier are routing fields Blink never
+surfaces. Not by listening either: a page cannot capture speech synthesis
+output, which does not reach Web Audio or any capture path.
+
+By timing, in principle. A voice the profile marks remote is answered by a
+local engine, so `onstart` arrives without a network round trip. That is the
+one residual, it is bounded to profiles that claim remote voices, and it is
+a better answer than either of the two this replaces.
+
+WHY NOT FABRICATE THE EVENTS INSTEAD
+
+Because that is what patch 0037 did and 0043 removed: start and end invented
+on a character-count timer, with no audio and no provider. The difference
+here is that synthesis is real and only the name is the persona's, so there
+is no timer, no synthetic completion, and nothing to keep in step with an
+engine that is not running.
+
+The catalogue moves with this: every platform's voice options now carry the
+nineteen network voices that both captures record, the Windows en-GB option
+is the capture verbatim, and the option served for an accept-languages list
+the table does not key on is that platform's own set rather than the host's.
+
+Verification: V1 here, with four tests over the composed list and the
+substitution -- a voice with no provider of its own is still listed, the
+host's own names never appear under a profile, speaking reaches the platform
+as the substitute, and the substitute follows the language. 0043's three
+tests are unchanged and still pass, which is what says the verbatim path is
+intact.
+
+diff --git a/content/browser/speech/tts_controller_impl.h b/content/browser/speech/tts_controller_impl.h
+--- a/content/browser/speech/tts_controller_impl.h
++++ b/content/browser/speech/tts_controller_impl.h
+@@ -124,6 +124,14 @@
+   // Get the platform TTS implementation (or injected mock).
+   TtsPlatform* GetTtsPlatform();
+ 
++  // The voices this build's real providers offer, before a profile's
++  // enumeration is composed over them. GetVoices() is this plus that
++  // composition; SpeakNow() needs both halves, because what the page is shown
++  // and what actually synthesises are not the same record.
++  void GetProviderVoices(BrowserContext* browser_context,
++                         const GURL& source_url,
++                         std::vector<VoiceData>* out_voices);
++
+   // Whether the platform implementation is supported and completed its
+   // initialization.
+   bool TtsPlatformReady();
+diff --git a/content/browser/speech/tts_controller_impl.cc b/content/browser/speech/tts_controller_impl.cc
+--- a/content/browser/speech/tts_controller_impl.cc
++++ b/content/browser/speech/tts_controller_impl.cc
+@@ -39,6 +39,105 @@
+ 
+ namespace content {
+ namespace {
++
++// The provider that speaks for a composed voice.
++//
++// A profile names the machine's voices; this build's providers are whatever
++// the host actually has. Where the two agree the real record is used verbatim,
++// so a Windows persona on a Windows host keeps its native identifiers. Where
++// they do not, the page is shown the persona's voice and a real provider is
++// chosen to synthesise it, because the alternative answers are both wrong: the
++// host's own list under a foreign persona says which machine this is, and an
++// empty list says nothing real does.
++//
++// Selection is by language, closest first, and deterministic: the provider
++// list arrives in the platform's own order and the first match in it wins, so
++// one profile on one host resolves the same way on every launch.
++const VoiceData* SubstituteProvider(const base::apostate::Profile::SpeechVoice&
++                                        requested,
++                                    const std::vector<VoiceData>& providers) {
++  if (providers.empty()) {
++    return nullptr;
++  }
++  for (const VoiceData& provider : providers) {
++    if (provider.lang == requested.lang) {
++      return &provider;
++    }
++  }
++  const std::string_view requested_primary =
++      std::string_view(requested.lang).substr(0, requested.lang.find('-'));
++  for (const VoiceData& provider : providers) {
++    if (std::string_view(provider.lang).substr(0, provider.lang.find('-')) ==
++        requested_primary) {
++      return &provider;
++    }
++  }
++  return &providers.front();
++}
++
++// True when a real provider is this exact voice rather than a stand-in.
++bool ProviderIsRequestedVoice(
++    const VoiceData& provider,
++    const base::apostate::Profile::SpeechVoice& requested) {
++  return provider.name == requested.name && provider.lang == requested.lang &&
++         (!requested.local_service ||
++          *requested.local_service == !provider.remote);
++}
++
++// The voice list a page sees under a profile, in the profile's own order.
++//
++// `out_providers`, when given, is filled with the record that will actually
++// synthesise each entry, parallel to the returned list. A requested voice with
++// no provider at all is dropped rather than listed, because a voice that
++// cannot speak is a wrong answer to a question a page can ask cheaply.
++std::vector<VoiceData> ComposeProfileVoices(
++    const std::vector<base::apostate::Profile::SpeechVoice>& requested_voices,
++    const std::vector<VoiceData>& providers,
++    std::vector<VoiceData>* out_providers) {
++  // A record that is neither native nor an engine's routes nowhere, so it can
++  // neither be a voice nor stand in for one.
++  std::vector<VoiceData> routable;
++  routable.reserve(providers.size());
++  for (const VoiceData& provider : providers) {
++    if (provider.native || !provider.engine_id.empty()) {
++      routable.push_back(provider);
++    }
++  }
++  std::vector<VoiceData> composed;
++  composed.reserve(requested_voices.size());
++  for (const auto& requested : requested_voices) {
++    const VoiceData* provider = nullptr;
++    for (const VoiceData& candidate : routable) {
++      if (ProviderIsRequestedVoice(candidate, requested)) {
++        provider = &candidate;
++        break;
++      }
++    }
++    const bool is_real = provider != nullptr;
++    if (!is_real) {
++      provider = SubstituteProvider(requested, routable);
++    }
++    if (!provider) {
++      continue;
++    }
++    VoiceData voice = *provider;
++    if (!is_real) {
++      // Everything a page reads comes from the profile; everything that routes
++      // and reports capability comes from the provider that will speak.
++      voice.name = requested.name;
++      voice.lang = requested.lang;
++      if (requested.local_service) {
++        voice.remote = !*requested.local_service;
++      }
++    }
++    composed.push_back(std::move(voice));
++    if (out_providers) {
++      out_providers->push_back(*provider);
++    }
++  }
++  return composed;
++}
++
+ // A value to be used to indicate that there is no char index available.
+ const int kInvalidCharIndex = -1;
+ 
+@@ -390,9 +489,10 @@
+ #endif
+ }
+ 
+-void TtsControllerImpl::GetVoices(BrowserContext* browser_context,
+-                                  const GURL& source_url,
+-                                  std::vector<VoiceData>* out_voices) {
++void TtsControllerImpl::GetProviderVoices(
++    BrowserContext* browser_context,
++    const GURL& source_url,
++    std::vector<VoiceData>* out_voices) {
+   // Initialize GetTtsPlatform first, so that engine_delegate_ can be set
+   // if necessary.
+   TtsPlatform* tts_platform = GetTtsPlatform();
+@@ -418,22 +518,19 @@
+     out_voices->resize(it - out_voices->begin());
+   }
+ 
+-  if (const auto* profile = base::apostate::Profile::Get();
+-      profile && profile->has_speech_voice_filter()) {
+-    // Keep provider identity, remote/local status, native identifier, event
+-    // support and ordering. A captured name cannot create a working voice.
+-    std::erase_if(*out_voices, [&](const VoiceData& voice) {
+-      if (!voice.native && voice.engine_id.empty())
+-        return true;
+-      return std::none_of(profile->speech_voices().begin(),
+-                          profile->speech_voices().end(),
+-                          [&](const auto& requested) {
+-        return voice.name == requested.name && voice.lang == requested.lang &&
+-               (!requested.local_service ||
+-                *requested.local_service == !voice.remote);
+-      });
+-    });
++}
++
++void TtsControllerImpl::GetVoices(BrowserContext* browser_context,
++                                  const GURL& source_url,
++                                  std::vector<VoiceData>* out_voices) {
++  GetProviderVoices(browser_context, source_url, out_voices);
++
++  const auto* profile = base::apostate::Profile::Get();
++  if (!profile || !profile->has_speech_voice_filter()) {
++    return;
+   }
++  *out_voices = ComposeProfileVoices(profile->speech_voices(), *out_voices,
++                                     /*out_providers=*/nullptr);
+ }
+ 
+ bool TtsControllerImpl::IsSpeaking() {
+@@ -597,15 +694,27 @@
+ void TtsControllerImpl::SpeakNow(std::unique_ptr<TtsUtterance> utterance) {
+   // Get all available voices and try to find a matching voice.
+   std::vector<VoiceData> voices;
+-  GetVoices(utterance->GetBrowserContext(), utterance->GetSrcUrl(), &voices);
++  // Under a profile the page's list and the synthesising records are composed
++  // together, so both halves are kept: `voices` is what the page chose from
++  // and `providers` is what each of those will actually speak with.
++  std::vector<VoiceData> providers;
++  const auto* profile = base::apostate::Profile::Get();
++  if (profile && profile->has_speech_voice_filter()) {
++    std::vector<VoiceData> available;
++    GetProviderVoices(utterance->GetBrowserContext(), utterance->GetSrcUrl(),
++                      &available);
++    voices = ComposeProfileVoices(profile->speech_voices(), available,
++                                  &providers);
++  } else {
++    GetVoices(utterance->GetBrowserContext(), utterance->GetSrcUrl(), &voices);
++  }
+ 
+   // Get the best matching voice. If nothing matches, just set "native"
+   // to true because that might trigger deferred loading of native voices.
+   // TODO(katie): Move most of the GetMatchingVoice logic into content/ and
+   // use the TTS controller delegate to get chrome-specific info as needed.
+   int index = GetMatchingVoice(utterance.get(), voices);
+-  if (const auto* profile = base::apostate::Profile::Get();
+-      profile && profile->has_speech_voice_filter() && index < 0) {
++  if (profile && profile->has_speech_voice_filter() && index < 0) {
+     // Upstream may retry an unmatched request with the native default voice.
+     // That would speak a different identity after a profile filter removed
+     // unavailable providers. Use the normal synthesis failure callback instead.
+@@ -618,7 +727,9 @@
+   }
+   VoiceData voice;
+   if (index >= 0) {
+-    voice = voices[index];
++    // The provider record, not the page's: a composed voice carries the
++    // persona's name, and the platform finds nothing under that name.
++    voice = providers.empty() ? voices[index] : providers[index];
+   } else {
+     voice.native = true;
+     voice.engine_id = utterance->GetEngineId();
+diff --git a/content/browser/speech/tts_controller_unittest.cc b/content/browser/speech/tts_controller_unittest.cc
+--- a/content/browser/speech/tts_controller_unittest.cc
++++ b/content/browser/speech/tts_controller_unittest.cc
+@@ -1182,7 +1182,102 @@
+   EXPECT_FALSE(controller()->IsSpeaking());
+ }
+ #endif  // !BUILDFLAG(IS_ANDROID)
++
++// A persona's voice is listed whether or not this host has a provider of that
++// name. The alternatives are both readable: the host's own voices under a
++// foreign persona say which machine this is, and an empty list says nothing
++// real does.
++TEST_F(TtsControllerTest, ProfileVoiceWithoutItsOwnProviderIsStillListed) {
++  ScopedSpeechProfile profile(R"json({"speech":{"voices":[
++      {"name":"Microsoft David - English (United States)","lang":"en-US",
++       "local_service":true}]}})json");
++  VoiceData host_voice;
++  host_voice.name = "Samantha";
++  host_voice.lang = "en-US";
++  host_voice.native = true;
++  host_voice.native_voice_identifier = "com.apple.voice.samantha";
++  host_voice.events = {TTS_EVENT_START, TTS_EVENT_END};
++  platform_impl()->set_voices({host_voice});
++
++  std::vector<VoiceData> voices;
++  controller()->GetVoices(browser_context(), GURL(), &voices);
++  ASSERT_EQ(1u, voices.size());
++  EXPECT_EQ("Microsoft David - English (United States)", voices[0].name);
++  EXPECT_EQ("en-US", voices[0].lang);
++  EXPECT_FALSE(voices[0].remote);
++}
+ 
++// The host's own voices are never page-visible under a profile, whatever the
++// profile asked for and however many the host has.
++TEST_F(TtsControllerTest, ProfileVoicesReplaceTheHostList) {
++  ScopedSpeechProfile profile(R"json({"speech":{"voices":[
++      {"name":"Microsoft Zira - English (United States)","lang":"en-US",
++       "local_service":true}]}})json");
++  VoiceData first;
++  first.name = "Albert";
++  first.lang = "en-US";
++  first.native = true;
++  VoiceData second(first);
++  second.name = "Alva";
++  second.lang = "sv-SE";
++  platform_impl()->set_voices({first, second});
++
++  std::vector<VoiceData> voices;
++  controller()->GetVoices(browser_context(), GURL(), &voices);
++  ASSERT_EQ(1u, voices.size());
++  EXPECT_EQ("Microsoft Zira - English (United States)", voices[0].name);
++}
++
++// Speaking a composed voice reaches the platform as the provider that can
++// actually synthesise it. The page chose a name this host has never heard of,
++// and something real still speaks.
++TEST_F(TtsControllerTest, ComposedVoiceSpeaksThroughItsProvider) {
++  ScopedSpeechProfile profile(R"json({"speech":{"voices":[
++      {"name":"Microsoft David - English (United States)","lang":"en-US",
++       "local_service":true}]}})json");
++  VoiceData host_voice;
++  host_voice.name = "Samantha";
++  host_voice.lang = "en-US";
++  host_voice.native = true;
++  host_voice.native_voice_identifier = "com.apple.voice.samantha";
++  host_voice.events = {TTS_EVENT_START, TTS_EVENT_END};
++  platform_impl()->set_voices({host_voice});
++
++  auto utterance = CreateUtteranceImpl();
++  utterance->SetText("spoken by a substitute");
++  utterance->SetVoiceName("Microsoft David - English (United States)");
++  controller()->SpeakOrEnqueue(std::move(utterance));
++
++  EXPECT_EQ(1, platform_impl()->speak_called());
++  EXPECT_EQ("Samantha", platform_impl()->get_utterance_voice().name);
++  EXPECT_EQ("com.apple.voice.samantha",
++            platform_impl()->get_utterance_voice().native_voice_identifier);
++}
++
++// The substitute is chosen by language, so a persona's French voice is spoken
++// by the host's French one rather than by whichever came first.
++TEST_F(TtsControllerTest, SubstituteProviderFollowsTheLanguage) {
++  ScopedSpeechProfile profile(R"json({"speech":{"voices":[
++      {"name":"Microsoft Hortense - French (France)","lang":"fr-FR",
++       "local_service":true}]}})json");
++  VoiceData english;
++  english.name = "Samantha";
++  english.lang = "en-US";
++  english.native = true;
++  VoiceData french(english);
++  french.name = "Thomas";
++  french.lang = "fr-FR";
++  platform_impl()->set_voices({english, french});
++
++  auto utterance = CreateUtteranceImpl();
++  utterance->SetText("parlé par un remplaçant");
++  utterance->SetVoiceName("Microsoft Hortense - French (France)");
++  controller()->SpeakOrEnqueue(std::move(utterance));
++
++  EXPECT_EQ(1, platform_impl()->speak_called());
++  EXPECT_EQ("Thomas", platform_impl()->get_utterance_voice().name);
++}
++
+ TEST_F(TtsControllerTest, ProfileVoicesRequireActualProviderAndLocality) {
+   ScopedSpeechProfile profile(R"({"speech":{"voices":[
+       {"name":"Allowed","lang":"en-US","local_service":true}]}})");
+@@ -1250,10 +1345,15 @@
+   EXPECT_EQ(std::vector<TtsEventType>{TTS_EVENT_ERROR}, events);
+ }
+ 
+-TEST_F(TtsControllerTest, ProfileExplicitMissingVoiceDoesNotSpeakOtherAllowedVoice) {
+-  ScopedSpeechProfile profile(R"({"speech":{"voices":[
++// A voice the profile lists always has a provider behind it, even when this
++// host has nothing by that name: the page asked for something the persona
++// offers, so something real answers. The old contract here was the opposite,
++// that such a request must fail, and it described a browser whose enumerated
++// list contained voices that could not speak.
++TEST_F(TtsControllerTest, ProfileListedVoiceSpeaksThroughAStandIn) {
++  ScopedSpeechProfile profile(R"json({"speech":{"voices":[
+       {"name":"Allowed","lang":"en-US","local_service":true},
+-      {"name":"Unavailable","lang":"en-US","local_service":true}]}})");
++      {"name":"Unavailable","lang":"en-US","local_service":true}]}})json");
+   VoiceData available;
+   available.name = "Allowed";
+   available.lang = "en-US";
+@@ -1264,6 +1364,27 @@
+   utterance->SetVoiceName("Unavailable");
+   utterance->SetEventDelegate(std::make_unique<RecordingSpeechEvents>(events));
+   controller()->SpeakOrEnqueue(std::move(utterance));
++  EXPECT_EQ(1, platform_impl()->speak_called());
++  EXPECT_EQ("Allowed", platform_impl()->get_utterance_voice().name);
++  EXPECT_TRUE(events.empty() || events.front() != TTS_EVENT_ERROR);
++}
++
++// A name the profile does not list still fails. The persona's list is the
++// whole list, so a request outside it has no identity to speak as, and
++// upstream's retry with the platform default would be a different machine.
++TEST_F(TtsControllerTest, VoiceOutsideTheProfileListStillFails) {
++  ScopedSpeechProfile profile(R"json({"speech":{"voices":[
++      {"name":"Allowed","lang":"en-US","local_service":true}]}})json");
++  VoiceData available;
++  available.name = "Allowed";
++  available.lang = "en-US";
++  available.native = true;
++  platform_impl()->set_voices({available});
++  std::vector<TtsEventType> events;
++  auto utterance = CreateUtteranceImpl();
++  utterance->SetVoiceName("Never listed anywhere");
++  utterance->SetEventDelegate(std::make_unique<RecordingSpeechEvents>(events));
++  controller()->SpeakOrEnqueue(std::move(utterance));
+   EXPECT_EQ(0, platform_impl()->speak_called());
+   EXPECT_EQ(std::vector<TtsEventType>{TTS_EVENT_ERROR}, events);
+ }

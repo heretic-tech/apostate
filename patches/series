@@ -505,3 +505,22 @@
 # list and the base_unittests list, both of which 0081 created and several
 # patches have extended, so it goes after all of them.
 0124-canvas-text-raster-phase-from-profile.patch
+
+# 0125 serves a persona's own voice list and speaks it through a provider
+# that exists.
+#
+# After 0043, and squarely on it: 0043 is what added the profile filter in
+# TtsControllerImpl::GetVoices and the no-provider failure path in SpeakNow,
+# and this rewrites the first into a composition and threads the second
+# through the substitute. Its unit tests are 0043's file, extended.
+#
+# After 0075 for reading rather than for context: 0075 decided that a keyless
+# build lists no network voices because a voice that cannot speak is worse
+# than a missing one. This changes that calculus rather than that code -- a
+# listed voice now has a provider behind it either way -- and the catalogue
+# change that follows is in resources/, not here.
+#
+# Sole owner of the composition helpers in tts_controller_impl.cc and of the
+# GetProviderVoices declaration in its header. Independent of 0124, which
+# shares no file and no subject.
+0125-speech-persona-voices-spoken-by-a-real-provider.patch
