@@ -506,6 +506,42 @@ test("rejects an unpublished platform without downloading another platform's art
   }
 });
 
+test("an extraction failure names the tool that is missing, not the archive", async () => {
+  // A verified download this system has no tool to open. tar's own words are
+  // "unrecognized archive format" whether zstd is absent, tar is too old for
+  // --zstd, or tar is GNU and the archive is a zip -- three different fixes
+  // behind one message, which is what sent an operator looking at the download.
+  const cacheDir = await mkdtemp(join(tmpdir(), "apostate-node-cache-"));
+  const stubs = await mkdtemp(join(tmpdir(), "apostate-node-path-"));
+  await writeFile(join(stubs, "tar"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+  const bytes = Buffer.from("stands in for a verified download");
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  const previousPath = process.env.PATH;
+  // No zstd reachable, which is the condition the message is about.
+  process.env.PATH = `${stubs}:${dirname(process.execPath)}:/usr/bin:/bin`;
+  try {
+    await assert.rejects(
+      ensureBinary({
+        target: "linux-x64",
+        searchRoots: [],
+        cacheDir,
+        manifest: {
+          package_version: PACKAGE_VERSION, chromium_version: CHROMIUM_VERSION,
+          catalogue_version: CATALOGUE_VERSION, platform: "linux-x64",
+          artifact: `apostate-${CHROMIUM_VERSION}-linux-x64.tar.zst`, sha256,
+        },
+        download: async () => bytes,
+      }),
+      (error) => error instanceof BinaryExtractionError
+        && /install the `zstd` command line tool/.test(error.message),
+    );
+  } finally {
+    process.env.PATH = previousPath;
+    await rm(cacheDir, { recursive: true, force: true });
+    await rm(stubs, { recursive: true, force: true });
+  }
+});
+
 test("accepts scalar release manifest and rejects tampered cache state", async () => {
   const cacheDir = await mkdtemp(join(tmpdir(), "apostate-node-cache-"));
   try {

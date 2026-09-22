@@ -31,7 +31,7 @@ import { fileURLToPath } from "node:url";
 import { SocksProxyAgent } from "socks-proxy-agent";
 import { HttpProxyAgent } from "http-proxy-agent";
 import { HttpsProxyAgent } from "https-proxy-agent";
-export const PACKAGE_VERSION = "0.2.1";
+export const PACKAGE_VERSION = "0.3.0";
 export const CHROMIUM_VERSION = "152.0.7977.83";
 export const CATALOGUE_VERSION = 2;
 const PROFILE_SCHEMA_VERSION = 3;
@@ -2170,7 +2170,7 @@ function scanZipArchive(bytes) {
 // be told. Plain first, because `--use-compress-program=zstd` fails on bsdtar.
 const TAR_COMPRESSION_ATTEMPTS = [[], ["--zstd"], ["--use-compress-program=zstd"]];
 
-async function runTar(operands, cwd, capture = false) {
+async function runTar(operands, cwd, capture = false, kind = undefined) {
   let firstError;
   for (const prefix of TAR_COMPRESSION_ATTEMPTS) {
     try {
@@ -2179,15 +2179,46 @@ async function runTar(operands, cwd, capture = false) {
       firstError ??= error;
     }
   }
-  throw new BinaryExtractionError(`Unable to read tar archive: ${firstError?.message ?? "tar failed"}.`);
+  // Every attempt failed, and the reason is almost never the archive. Name the
+  // tool that is missing rather than reporting tar's own message, which says
+  // "unrecognized archive format" whether zstd is absent, tar is GNU and too
+  // old for --zstd, or tar is GNU and the archive is a zip it cannot read at
+  // all. The Python package already answers this way; this is its parity.
+  const detail = firstError?.message ?? "tar failed";
+  let zstdPresent = false;
+  if (kind === "zst") {
+    // `command -v` is a shell builtin with no executable on macOS, so ask a
+    // shell for it. A probe that always throws would name zstd on a machine
+    // that has it, which is a wrong answer rather than a missing one.
+    try {
+      await runCommand(process.platform === "win32" ? "where" : "/bin/sh",
+                       process.platform === "win32" ? ["zstd"] : ["-c", "command -v zstd"],
+                       undefined, true);
+      zstdPresent = true;
+    } catch {
+      zstdPresent = false;
+    }
+  }
+  if (kind === "zst" && !zstdPresent) {
+    throw new BinaryExtractionError(
+      "this system cannot read a .tar.zst archive: install the `zstd` command " +
+      `line tool, or a tar new enough to accept --zstd (tar reported: ${detail}).`);
+  }
+  if (kind === "zip") {
+    throw new BinaryExtractionError(
+      "this system's `tar` cannot read a zip archive, which usually means GNU " +
+      "tar is ahead of bsdtar on PATH: run `tar --version`, and use bsdtar or " +
+      `libarchive's tar for this archive (tar reported: ${detail}).`);
+  }
+  throw new BinaryExtractionError(`Unable to read tar archive: ${detail}.`);
 }
 
-async function scanTarArchive(archivePath, destination) {
+async function scanTarArchive(archivePath, destination, kind = "zst") {
   // `-tf` gives exact names, one per line. `-tvf` gives the mode column and,
   // for a symlink, `<name> -> <target>`. The target is read by anchoring on the
   // exact name from `-tf` rather than by parsing the verbose columns.
-  const names = (await runTar(["-tf", archivePath], destination, true)).split(/\r?\n/).filter((line) => line.length > 0);
-  const details = (await runTar(["-tvf", archivePath], destination, true)).split(/\r?\n/).filter((line) => line.length > 0);
+  const names = (await runTar(["-tf", archivePath], destination, true, kind)).split(/\r?\n/).filter((line) => line.length > 0);
+  const details = (await runTar(["-tvf", archivePath], destination, true, kind)).split(/\r?\n/).filter((line) => line.length > 0);
   if (names.length !== details.length) throw new BinaryExtractionError("Tar archive listing is ambiguous; refusing extraction.");
   names.forEach((raw, index) => {
     const name = safeArchiveMemberName(raw);
@@ -2225,10 +2256,10 @@ async function defaultExtract(bytes, destination, context) {
     if (context.artifact.endsWith(".zip")) {
       scanZipArchive(bytes);
       // tar.exe reads zip on Windows 10+; unzip is not installed by default.
-      await runTar(["-xf", archivePath, "-C", tree], destination);
+      await runTar(["-xf", archivePath, "-C", tree], destination, false, "zip");
     } else if (context.artifact.endsWith(".tar.zst")) {
-      await scanTarArchive(archivePath, destination);
-      await runTar(["-xf", archivePath, "-C", tree], destination);
+      await scanTarArchive(archivePath, destination, "zst");
+      await runTar(["-xf", archivePath, "-C", tree], destination, false, "zst");
     } else {
       throw new BinaryExtractionError(`unsupported archive format ${context.artifact}`);
     }
