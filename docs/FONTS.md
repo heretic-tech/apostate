@@ -97,8 +97,19 @@ The other optional packs, by family count: `microsoft-office` 19,
 `adobe-creative-cloud` 7, `libreoffice` 8, `developer-cascadia` 4,
 `google-fonts-desktop` 10.
 
-Copy the Microsoft families from `C:\Windows\Fonts` on a Windows machine you
-own.
+Copy the whole of `C:\Windows\Fonts` from a Windows machine you own, not
+only the families above. The 35 are what the pack serves today and the pack
+is short: Windows 11 ships 63 base families, and 28 of them, Segoe UI Emoji,
+Symbol, Webdings, Sylfaen and Marlett among them, are in no pack yet. When
+the pack is completed the browser will serve every family the directory
+holds, and a persona that has them all installed needs no second visit. See
+[docs/LIMITATIONS.md](LIMITATIONS.md#fonts-are-yours-to-install).
+
+Without the fonts, FingerprintJS Pro reads a Windows persona on a Mac as a
+machine with no fonts at all: `fonts: []`, an anomaly score of 1 and a
+tampering verdict, against 6 and no verdict for the host's own persona on
+the same exit. The measurement is in
+[docs/LIMITATIONS.md](LIMITATIONS.md#cross-os-is-a-risk).
 
 ### macOS persona
 

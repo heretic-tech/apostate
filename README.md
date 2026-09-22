@@ -214,12 +214,19 @@ presents the renderer string and capability tables of the OS it claims rather
 than its own software rasteriser.
 
 On a Linux host the default persona is Windows. That persona needs the
-Windows fonts installed on the host: 35 families, listed with sources in
+Windows fonts installed on the host, listed with sources in
 [docs/FONTS.md](docs/FONTS.md). A Windows machine without Arial does not exist,
 and text metrics measure it. This is the one setup step on a Linux server, and
 missing fonts are the most common reason a session is blocked. The
 alternative, `--fingerprint-platform=linux`, composes the host's own OS and
 needs nothing installed.
+
+The same applies to any persona that is not the host's OS, on any host.
+Measured on a Mac with no Windows fonts, FingerprintJS Pro gives the macOS
+persona a suspect score of 6 with tampering false and the Windows persona
+36 with tampering true, because the Windows persona reports a machine with
+no fonts at all. The numbers and what drives them are in
+[docs/LIMITATIONS.md](docs/LIMITATIONS.md#cross-os-is-a-risk).
 
 Both packages default to headless, so the `launch()` examples above run
 unchanged on such a host.
