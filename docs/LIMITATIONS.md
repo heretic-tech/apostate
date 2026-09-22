@@ -163,24 +163,45 @@ contribution. One run per row.
 
 The macOS row is the quiet one, and its 6 is the exit's residential-proxy
 verdict. The Windows row is a cross-OS persona on a host that is not that
-OS, and four candidate causes have been tested and eliminated:
+OS. Seven candidate causes were forced to the value a real Windows machine
+reports and measured again, one run each:
 
-| Change | Result |
+| Forced to match | Result |
 | --- | --- |
-| Install the full Windows 11 English font set on the host | Served list goes from `[]` to `Calibri, Segoe UI Light`; anomaly 1, VM true, tampering true, unchanged |
-| Place and size the window inside the claimed work area | Score 36 to 34; every verdict unchanged |
-| Claim a screen that equals the window plus a taskbar gap, through an explicit profile | Score 36 to 44 and `rare_device` becomes true, because the resulting panel is not one that exists; verdicts unchanged |
-| `--fingerprint-noise` on, so the canvas readback is perturbed | Canvas hashes change and stay stable per profile; verdicts unchanged |
+| Full Windows 11 English font set installed on the host | Served list `[]` to `Calibri, Segoe UI Light`; every verdict unchanged |
+| Font allowlist widened to all 78 installed Windows families | `Marlett` and `MS UI Gothic` now answer yes, `font_hash` changes; every verdict unchanged |
+| Window placed and sized inside the claimed work area | Every verdict unchanged |
+| Panel equal to the window plus a taskbar gap | Score rises and `rare_device` becomes true: the panel exists in no population; verdicts unchanged |
+| Panel and 40 px inset set to the commonest real combination | Every verdict unchanged |
+| `--fingerprint-noise` on, perturbing the canvas readback | Canvas hashes change, stable per profile; verdicts unchanged |
+| User agent set to the previous major version | Score moves by 2; every verdict unchanged |
 
-What is not eliminated is that the served font list is still two families
-where a real Windows 11 shows about a dozen, because the pack, not the
-host, is now the binding constraint; see
-[Fonts are yours to install](#fonts-are-yours-to-install). Independently,
-the canvas text and geometry hashes and the audio value are byte-identical
-to the macOS row's with noise off, because
-[canvas and audio are rendered, not replayed](#canvas-and-audio-are-rendered-not-replayed):
-the emoji glyphs, the CoreText rasterisation and the arm64 float path are
-the host's under a Windows user agent. Both remain open.
+Two further fields could not be forced, and that is the design working.
+`cpu.logical_cores` above the host's count is served as the host's, because
+[capacity is presented downward only](#capacity-is-presented-downward-only).
+A claimed voice table is a constraint on real providers rather than a
+source of them, so naming Windows voices on a Mac yields an empty list,
+which is worse than the host's.
+
+Varying the persona and the claimed GPU independently separates the two
+signals. Four runs, same host, same protocol:
+
+| Persona | Claimed GPU | Anomaly | Anti-detect | Virtual machine | Suspect |
+| --- | --- | --- | --- | --- | --- |
+| macOS, the host's own | Apple Metal, the host's own | 0.0021 | false | false | 6 |
+| macOS | Intel Direct3D 11 | 1 | false | false | 12 |
+| Windows | Intel Direct3D 11 | 1 | true | true | 36 |
+| Windows | Apple Metal | 1 | true | true | 36 |
+
+The anomaly score reads the GPU cluster: it goes to 1 as soon as the
+claimed GPU is one this host cannot back, even under the host's own
+operating system with every other surface native. The anti-detect and
+virtual-machine verdicts read the operating system claim instead, and stay
+true under either GPU. Nothing served from a profile moved them, which
+places them on the surfaces a profile does not reach: the canvas and emoji
+rasterisation and the audio render, which are
+[rendered, not replayed](#canvas-and-audio-are-rendered-not-replayed) and
+are the host's under any user agent.
 
 ### What the host still decides
 
@@ -712,6 +733,38 @@ allocation. [Allocating at the reported maximum fails on a software backend](#al
 has the software case and
 [A limit served to WebGL is readable everywhere and usable only where the host can](#a-limit-served-to-webgl-is-readable-everywhere-and-usable-only-where-the-host-can)
 has the per-limit table. Nothing outside a WebGL context is affected.
+
+### Two parameters a Direct3D 11 claim cannot carry on a Metal host
+
+The limits are one part of what a page hashes; the rest of the parameter
+set is the other. Measured through the shipped binary on an Apple M4 Max
+serving the `windows-d3d11-intel` cluster, against 26 real machines
+reporting `Intel(R) UHD Graphics 770` in a public corpus of 10,000 Windows
+captures, 47 of the 54 comparable parameters agree exactly, including every
+`MAX_*` limit, both range pairs and all the colour and depth bit counts.
+Two disagree, each with all 26 machines on the other side:
+
+| Parameter | Served here | Every real machine |
+| --- | --- | --- |
+| `STENCIL_BITS` | 0 | 8 |
+| `MAX_UNIFORM_BLOCK_SIZE` | 16384 | 65536 |
+
+The uniform block size is the clamp in
+[Capacity is presented downward only](#capacity-is-presented-downward-only)
+doing its job: the profile carries 65536, ANGLE/Metal offers 16384, and
+serving the larger number would hand a page a 64 KB allocation that fails.
+
+`STENCIL_BITS` is not a capability. A Direct3D 11 default framebuffer is
+`D24S8`, so it reports 8 stencil bits whether or not the context asked for
+stencil; 9,978 of the 10,000 captures report 8, and each of those contexts
+was created with `stencil: false`. ANGLE/Metal attaches stencil only when it
+is requested, so the same context here reports 0, and requesting
+`{stencil: true}` returns 8. That makes it fixable in the emitter rather
+than at the accessor: attaching stencil to the default drawing buffer when
+the claimed cluster's backend would have it makes the reported 8 true. Four
+further stencil mask parameters differ from the corpus, but those are an
+artifact of the capture era reading `GLuint` masks through a signed path,
+not a difference this build shows.
 
 ## The extension list, and the five names that are served
 
