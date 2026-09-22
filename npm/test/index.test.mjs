@@ -176,6 +176,19 @@ test("refuses a persistent profile on launch(), before touching a binary", async
     );
   }
 });
+test("refuses an unknown or misspelled fingerprint switch at config time", () => {
+  // Chromium ignores an unknown switch silently, which leaves the surface
+  // host-inherited while the caller believed it was set. A one-letter typo
+  // of a known switch is the same failure and is named; a switch that is
+  // neither is Chromium's business, and every real switch passes.
+  assert.throws(() => toCanonicalLaunchConfig({ args: ["--fingerprint-gpu-vendr=Apple"] }),
+    (error) => error.code === "APOSTATE_UNKNOWN_FINGERPRINT_SWITCH");
+  assert.throws(() => toCanonicalLaunchConfig({ args: ["--fingeprint-platform=windows"] }),
+    (error) => error.code === "APOSTATE_MISSPELLED_FINGERPRINT_SWITCH" && /typo of --fingerprint-platform/.test(error.message));
+  for (const accepted of ["--fingerprint-noise", "--fingerprint-platform=windows", "--disable-http2", "--lang=en-US"]) {
+    assert.deepEqual(toCanonicalLaunchConfig({ args: [accepted] }).args, [accepted]);
+  }
+});
 test("loads the version 2 catalogue and reports its anchors, axes and policy ids", () => {
   const catalogue = loadCatalogue();
   assert.deepEqual(Object.keys(catalogue).sort(), [

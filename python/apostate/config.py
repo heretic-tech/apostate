@@ -98,10 +98,11 @@ def country_locale(code: Any) -> str | None:
     return country_locales().get(normalized)
 
 
-#: Every ``--fingerprint*`` switch the binary reads. A misspelled switch is
-#: silently ignored by Chromium, which would present the operator's real
-#: machine while they believed a persona was applied, so an unknown one is
-#: refused here instead of at the far end of a launch.
+#: Every ``--fingerprint*`` switch the binary reads, as defined in
+#: ``patches/``. A misspelled switch is silently ignored by Chromium, which
+#: would present the operator's real machine while they believed a persona
+#: was applied, so an unknown one is refused here instead of at the far end
+#: of a launch.
 FINGERPRINT_SWITCHES = frozenset({
     "--apostate-profile",
     "--fingerprint",
@@ -112,6 +113,7 @@ FINGERPRINT_SWITCHES = frozenset({
     "--fingerprint-gpu-vendor",
     "--fingerprint-hardware-concurrency",
     "--fingerprint-locale",
+    "--fingerprint-noise",
     "--fingerprint-platform",
     "--fingerprint-screen-height",
     "--fingerprint-screen-width",
@@ -119,6 +121,12 @@ FINGERPRINT_SWITCHES = frozenset({
     "--fingerprint-webrtc-ip",
     "--fingerprint-webrtc-udp",
 })
+
+#: A switch this far from a known one, and not itself known, is a typo of it.
+#: ``--fingeprint-platform=windows`` is one edit from ``--fingerprint-platform``
+#: and Chromium drops it without a word, which turns a cross-OS launch into
+#: the host's own persona while the script says otherwise.
+_NEAR_MISS_DISTANCE = 2
 
 #: Longest ``--fingerprint`` value the binary accepts before exiting non-zero.
 MAX_SEED_LENGTH = 512
@@ -245,18 +253,45 @@ def _normalize_seed(value: int | str | None) -> int | str | None:
     return seed
 
 
+def _edit_distance(a: str, b: str, limit: int) -> int:
+    """Levenshtein distance, capped at ``limit + 1`` so a far pair exits early."""
+    if abs(len(a) - len(b)) > limit:
+        return limit + 1
+    previous = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        current = [i]
+        for j, cb in enumerate(b, 1):
+            current.append(min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (ca != cb)))
+        if min(current) > limit:
+            return limit + 1
+        previous = current
+    return previous[-1]
+
+
 def check_fingerprint_switches(args: Any) -> None:
-    """Refuse an unknown ``--fingerprint*`` switch before a process is started."""
+    """Refuse an unknown ``--fingerprint*`` switch, or a typo of a known one.
+
+    Called at config time and again when arguments are built, so a caller
+    who bypasses ``translate_options`` is still covered; the check is pure.
+    """
     for item in args:
-        if not isinstance(item, str) or not item.startswith("--fingerprint"):
+        if not isinstance(item, str) or not item.startswith("--"):
             continue
         name = item.split("=", 1)[0]
-        if name not in FINGERPRINT_SWITCHES:
+        if name in FINGERPRINT_SWITCHES:
+            continue
+        if name.startswith("--fingerprint"):
             raise ConfigurationError(
                 f"{name} is not a switch this browser reads; Chromium would ignore it and "
                 "leave that surface host-inherited. Supported: "
                 + ", ".join(sorted(FINGERPRINT_SWITCHES))
             )
+        for known in FINGERPRINT_SWITCHES:
+            if _edit_distance(name, known, _NEAR_MISS_DISTANCE) <= _NEAR_MISS_DISTANCE:
+                raise ConfigurationError(
+                    f"{name} is not a switch this browser reads and looks like a typo of {known}; "
+                    "Chromium would ignore it and leave that surface host-inherited"
+                )
 
 
 def _normalize_args(value: Any) -> list[str]:
@@ -269,6 +304,7 @@ def _normalize_args(value: Any) -> list[str]:
         if not isinstance(item, str):
             raise ConfigurationError("args must be a sequence of strings")
         args.append(item)
+    check_fingerprint_switches(args)
     return args
 
 

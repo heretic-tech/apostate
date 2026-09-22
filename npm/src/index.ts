@@ -75,8 +75,9 @@ const HOST_INHERITANCE_SEEDS = {
 const HOST_PERSONA_MESSAGE = "host inheritance disables every layer below it, so a platform persona cannot be applied at the same time";
 const EXPLICIT_PROFILE_WARNING = "explicit profile bypasses composition; its coherence and servability are the author's responsibility, not the catalogue's";
 const ROTATING_SEED_WARNING = "no fingerprint seed given: the browser draws a fresh seed on every launch, so this identity does not persist. Pass fingerprint: <seed> for a stable identity";
-// Every --fingerprint* switch the binary reads. Chromium silently ignores an
-// unknown switch, which would leave a surface host-inherited while the operator
+// Every --fingerprint* switch the binary reads, as defined in patches/.
+// Chromium silently ignores an unknown switch, which would leave a surface
+// host-inherited while the operator believed a persona was applied.
 const FINGERPRINT_SWITCHES = {
   "--apostate-profile": true,
   "--fingerprint": true,
@@ -87,6 +88,7 @@ const FINGERPRINT_SWITCHES = {
   "--fingerprint-gpu-vendor": true,
   "--fingerprint-hardware-concurrency": true,
   "--fingerprint-locale": true,
+  "--fingerprint-noise": true,
   "--fingerprint-platform": true,
   "--fingerprint-screen-height": true,
   "--fingerprint-screen-width": true,
@@ -94,6 +96,11 @@ const FINGERPRINT_SWITCHES = {
   "--fingerprint-webrtc-ip": true,
   "--fingerprint-webrtc-udp": true,
 };
+// A switch this far from a known one, and not itself known, is a typo of it.
+// --fingeprint-platform=windows is one edit from --fingerprint-platform and
+// Chromium drops it without a word, which turns a cross-OS launch into the
+// host's own persona while the script says otherwise.
+const NEAR_MISS_DISTANCE = 2;
 // Longest --fingerprint value the binary accepts before exiting non-zero.
 const MAX_SEED_LENGTH = 512;
 // Where a published release lives, used only to build a download URL. The
@@ -817,6 +824,21 @@ export function resolveProfile(options = {}) {
   };
 }
 
+// Levenshtein distance capped at limit + 1, so a far pair exits early.
+function editDistance(a, b, limit) {
+  if (Math.abs(a.length - b.length) > limit) return limit + 1;
+  let previous = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const current = [i];
+    for (let j = 1; j <= b.length; j++) {
+      current.push(Math.min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)));
+    }
+    if (Math.min(...current) > limit) return limit + 1;
+    previous = current;
+  }
+  return previous[b.length];
+}
+
 function checkFingerprintSwitches(args) {
   for (const item of args) {
     if (typeof item !== "string") continue;
@@ -846,14 +868,24 @@ function checkFingerprintSwitches(args) {
         "APOSTATE_USER_DATA_DIR_SWITCH_IN_ARGS",
       );
     }
-    if (!item.startsWith("--fingerprint")) continue;
+    if (!item.startsWith("--")) continue;
     const name = item.split("=", 1)[0];
-    if (FINGERPRINT_SWITCHES[name] !== true) {
+    if (FINGERPRINT_SWITCHES[name] === true) continue;
+    if (name.startsWith("--fingerprint")) {
       throw new ProfileResolutionError(
         `${name} is not a switch this browser reads; Chromium would ignore it and leave that surface host-inherited. Supported: ${Object.keys(FINGERPRINT_SWITCHES).sort().join(", ")}`,
         { switch: name },
         "APOSTATE_UNKNOWN_FINGERPRINT_SWITCH",
       );
+    }
+    for (const known of Object.keys(FINGERPRINT_SWITCHES)) {
+      if (editDistance(name, known, NEAR_MISS_DISTANCE) <= NEAR_MISS_DISTANCE) {
+        throw new ProfileResolutionError(
+          `${name} is not a switch this browser reads and looks like a typo of ${known}; Chromium would ignore it and leave that surface host-inherited`,
+          { switch: name, suggestion: known },
+          "APOSTATE_MISSPELLED_FINGERPRINT_SWITCH",
+        );
+      }
     }
   }
 }

@@ -501,15 +501,18 @@ print(catalogue['browser_build'])
             )
             self.assertIn("--fingerprint-platform=windows", aliased)
 
-    def test_unknown_fingerprint_switch_is_refused_before_launch(self) -> None:
+    def test_unknown_or_misspelled_fingerprint_switch_is_refused_at_config_time(self) -> None:
         # Chromium ignores an unknown switch silently, which would leave the
-        # surface host-inherited while the caller believed it was set.
-        launch_module = importlib.import_module("apostate.launch")
-        plan = launch_module._resolve_plan(
-            translate_options(fingerprint=7, args=["--fingerprint-gpu-vendr=Apple"], geoip=False)
-        )
+        # surface host-inherited while the caller believed it was set. A one
+        # letter typo of a known switch is the same failure, so it is refused
+        # by name; a switch that is neither is Chromium's business.
         with self.assertRaisesRegex(ConfigurationError, "not a switch this browser reads"):
-            launch_module._native_args(plan)
+            translate_options(args=["--fingerprint-gpu-vendr=Apple"], geoip=False)
+        with self.assertRaisesRegex(ConfigurationError, "typo of --fingerprint-platform"):
+            translate_options(args=["--fingeprint-platform=windows"], geoip=False)
+        for accepted in ("--fingerprint-noise", "--fingerprint-platform=windows", "--disable-http2", "--lang=en-US"):
+            with self.subTest(switch=accepted):
+                self.assertEqual(translate_options(args=[accepted], geoip=False).args, (accepted,))
 
     def test_host_inheritance_accepts_every_spelling_the_binary_accepts(self) -> None:
         for token in ("host", "off", "false", "0", "disable", "DISABLED"):
