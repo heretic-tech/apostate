@@ -131,4 +131,16 @@ say "workspace has $((avail_kb / 1048576))GB free at $WORKSPACE"
 # else, which is how a warning gets ignored.
 [ "$avail_kb" -gt 104857600 ] || warn "under 100GB free; a complete ${APOSTATE_TARGET:-build} needs ${need_gb}GB"
 
+# Resolution, not existence. fetch-sources.sh checks that $DEPOT_TOOLS/gclient
+# is executable and then runs `gclient` bare, and on Windows the file passed
+# that check while PATH held a drive-letter entry split in two, so the sync
+# died 25 minutes later with "command not found". This is the step that owns
+# "depot_tools is usable", so it is the step that has to prove it.
+resolved="$(command -v gclient || true)"
+[ -n "$resolved" ] || die "gclient is not on PATH; lib.sh put $DEPOT_TOOLS there and the shell cannot see it"
+resolved_dir="$(cd "$(dirname "$resolved")" && pwd -P)"
+expected_dir="$(cd "$DEPOT_TOOLS" && pwd -P)"
+[ "$resolved_dir" = "$expected_dir" ] ||
+  die "gclient resolves to $resolved, not to the pinned depot_tools at $DEPOT_TOOLS"
+
 say "bootstrap ok  chromium=$CHROMIUM_VERSION  workspace=$WORKSPACE"
