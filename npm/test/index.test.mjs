@@ -18,6 +18,7 @@ import {
   binaryInfo,
   discoveryReport,
   ensureBinary,
+  extractionFailureMessage,
   expectedArtifactName,
   launch,
   launchProcess,
@@ -507,48 +508,30 @@ test("rejects an unpublished platform without downloading another platform's art
 });
 
 test("an extraction failure names the tool that is missing, not the archive", async () => {
-  // A verified download this system has no tool to open. tar's own words are
-  // "unrecognized archive format" whether zstd is absent, tar is too old for
-  // --zstd, or tar is GNU and the archive is a zip -- three different fixes
-  // behind one message, which is what sends an operator looking at the
-  // download instead of at their toolchain.
+  // Both packages verify SHA-256 before opening an archive, so reaching tar at
+  // all means the bytes were right and this system has no tool to read them.
+  // tar's own words are "unrecognized archive format" whether zstd is absent,
+  // tar is too old for --zstd, or tar is GNU and the archive is a zip: three
+  // different fixes behind one sentence, which sends an operator to look at
+  // their download instead of their toolchain.
   //
-  // Both arms run against a PATH holding only the stubs and node, so what the
-  // host happens to have installed decides nothing: the runner has zstd and
-  // this laptop does not, and the same two answers must come out of both.
-  const bytes = Buffer.from("stands in for a verified download");
-  const sha256 = createHash("sha256").update(bytes).digest("hex");
-  const manifest = {
-    package_version: PACKAGE_VERSION, chromium_version: CHROMIUM_VERSION,
-    catalogue_version: CATALOGUE_VERSION, platform: "linux-x64",
-    artifact: `apostate-${CHROMIUM_VERSION}-linux-x64.tar.zst`, sha256,
-  };
-  for (const [zstdInstalled, expected] of [
-    [false, /install the `zstd` command line tool/],
-    [true, /Unable to read tar archive/],
-  ]) {
-    const cacheDir = await mkdtemp(join(tmpdir(), "apostate-node-cache-"));
-    const stubs = await mkdtemp(join(tmpdir(), "apostate-node-path-"));
-    await writeFile(join(stubs, "tar"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
-    if (zstdInstalled) {
-      await writeFile(join(stubs, "zstd"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
-    }
-    const previousPath = process.env.PATH;
-    process.env.PATH = `${stubs}:${dirname(process.execPath)}`;
-    try {
-      await assert.rejects(
-        ensureBinary({
-          target: "linux-x64", searchRoots: [], cacheDir, manifest,
-          download: async () => bytes,
-        }),
-        (error) => error instanceof BinaryExtractionError && expected.test(error.message),
-      );
-    } finally {
-      process.env.PATH = previousPath;
-      await rm(cacheDir, { recursive: true, force: true });
-      await rm(stubs, { recursive: true, force: true });
-    }
-  }
+  // Called directly rather than through an arranged PATH. The first version of
+  // this test spawned a stub tar and asserted which branch ran, which made the
+  // host decide the result: it passed on a laptop without zstd and failed on a
+  // runner with it.
+  const zstdMissing = extractionFailureMessage("zst", false, "tar exited with code 1");
+  assert.match(zstdMissing, /install the `zstd` command line tool/);
+  assert.match(zstdMissing, /tar exited with code 1/);
+
+  // A tool that is installed must not be blamed: on a machine with zstd the
+  // failure is something else, and saying "install zstd" would be a confident
+  // wrong answer rather than an unhelpful one.
+  assert.match(extractionFailureMessage("zst", true, "tar exited with code 1"),
+               /^Unable to read tar archive/);
+
+  // The zip case is GNU tar ahead of bsdtar on PATH, which is a different fix.
+  assert.match(extractionFailureMessage("zip", false, "tar exited with code 1"),
+               /cannot read a zip archive/);
 });
 
 test("accepts scalar release manifest and rejects tampered cache state", async () => {

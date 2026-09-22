@@ -2199,18 +2199,25 @@ async function runTar(operands, cwd, capture = false, kind = undefined) {
       zstdPresent = false;
     }
   }
+  throw new BinaryExtractionError(extractionFailureMessage(kind, zstdPresent, detail));
+}
+
+// Which of the three failures this was, given what the system turned out to
+// have. Separated from the probing above because the probe reads the host and
+// the choice does not: a test that has to arrange a PATH is a test that
+// reports where it ran, which is how the first version of this passed on a
+// laptop and failed on a runner.
+export function extractionFailureMessage(kind, zstdPresent, detail) {
   if (kind === "zst" && !zstdPresent) {
-    throw new BinaryExtractionError(
-      "this system cannot read a .tar.zst archive: install the `zstd` command " +
-      `line tool, or a tar new enough to accept --zstd (tar reported: ${detail}).`);
+    return "this system cannot read a .tar.zst archive: install the `zstd` command " +
+           `line tool, or a tar new enough to accept --zstd (tar reported: ${detail}).`;
   }
   if (kind === "zip") {
-    throw new BinaryExtractionError(
-      "this system's `tar` cannot read a zip archive, which usually means GNU " +
-      "tar is ahead of bsdtar on PATH: run `tar --version`, and use bsdtar or " +
-      `libarchive's tar for this archive (tar reported: ${detail}).`);
+    return "this system's `tar` cannot read a zip archive, which usually means GNU " +
+           "tar is ahead of bsdtar on PATH: run `tar --version`, and use bsdtar or " +
+           `libarchive's tar for this archive (tar reported: ${detail}).`;
   }
-  throw new BinaryExtractionError(`Unable to read tar archive: ${detail}.`);
+  return `Unable to read tar archive: ${detail}.`;
 }
 
 async function scanTarArchive(archivePath, destination, kind = "zst") {
