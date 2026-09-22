@@ -158,10 +158,10 @@ contribution. One run per row.
 
 | Persona | Suspect score | Tampering | Anomaly score | Anti-detect | Virtual machine |
 | --- | --- | --- | --- | --- | --- |
-| macOS, the host's own (`--fingerprint=42`) | 6 | false | 0.0021 | false | false |
+| macOS, the host's own (`--fingerprint=42`) | 5 | false | 0.0021 | false | false |
 | Windows (`--fingerprint=42 --fingerprint-platform=windows`) | 36 | true, ML 0.997 | 1 | true | true |
 
-The macOS row is the quiet one, and its 6 is the exit's residential-proxy
+The macOS row is the quiet one, and its 5 is the exit's residential-proxy
 verdict. The Windows row is a cross-OS persona on a host that is not that
 OS. Seven candidate causes were forced to the value a real Windows machine
 reports and measured again, one run each:
@@ -184,11 +184,12 @@ source of them, so naming Windows voices on a Mac yields an empty list,
 which is worse than the host's.
 
 Varying the persona and the claimed GPU independently separates the two
-signals. Four runs, same host, same protocol:
+signals. Four runs, same host, same protocol, each through an explicit
+profile that differs only in those two fields:
 
 | Persona | Claimed GPU | Anomaly | Anti-detect | Virtual machine | Suspect |
 | --- | --- | --- | --- | --- | --- |
-| macOS, the host's own | Apple Metal, the host's own | 0.0021 | false | false | 6 |
+| macOS, the host's own | Apple Metal, the host's own | 0.0021 | false | false | 5 |
 | macOS | Intel Direct3D 11 | 1 | false | false | 12 |
 | Windows | Intel Direct3D 11 | 1 | true | true | 36 |
 | Windows | Apple Metal | 1 | true | true | 36 |

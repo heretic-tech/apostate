@@ -223,7 +223,7 @@ needs nothing installed.
 
 The same applies to any persona that is not the host's OS, on any host.
 Measured on a Mac, FingerprintJS Pro gives the macOS persona a suspect score
-of 6 with no tampering verdict and the Windows persona 36 with one. Installing
+of 5 with no tampering verdict and the Windows persona 36 with one. Installing
 the Windows font set on that host did not change the verdict, so fonts are
 necessary and not sufficient for a cross-OS persona. What has been tested and
 what is still open is in
