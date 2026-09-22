@@ -113,7 +113,7 @@ Field meanings:
 | `geoip` | When `true`, resolve locale and timezone from the observed network exit before launch. |
 | `proxy` | Proxy URL and credentials, if any. Credentials are used for launch and are never written to diagnostics or logs. |
 | `headless` | Whether Chromium is launched headless. |
-| `user_data_dir` | Persistent profile directory for cookies, storage and history. It does not hold the identity. `null` selects the integration's temporary-directory policy. |
+| `user_data_dir` | Persistent profile directory for cookies, storage, history and, at `DIR/apostate/identity`, the seed the directory is bound to unless `--fingerprint` overrides it. A context option: `launch()` refuses it and `launch_persistent_context` takes it positionally. `null` selects the integration's temporary-directory policy. |
 | `args` | Additional Chromium arguments. Integrations must preserve the canonical profile and localization semantics when adding them. |
 
 Package APIs may expose idiomatic camelCase aliases, but aliases map to this

@@ -379,9 +379,12 @@ decides both the limits and the extension list.
 
 Built and measured on the deployment target, a headless Linux server with no
 GPU. A Windows persona there presented an NVIDIA D3D11 identity, the anchor's
-extension list with nothing missing and nothing extra, and every one of the
-anchor's numeric limits. `scripts/checks/gl-caps-check.mjs` is the regression
-test.
+WebGL1 extension list complete, its WebGL2 list one name short, and every one
+of the anchor's numeric limits. `scripts/checks/gl-caps-check.mjs` is the
+regression test for the limits. The one missing WebGL2 name is
+`WEBGL_provoking_vertex`, which both Windows anchors claim and which is
+deliberately not served; see
+[The extension list, and the five names that are served](#the-extension-list-and-the-five-names-that-are-served).
 
 A host with no graphics device draws a hardware anchor of the claimed
 platform. Under that host's default persona, Windows, that is one of the
@@ -666,11 +669,13 @@ A profile whose GPU cluster matches the host's backend is served exactly.
 Measured through the shipped binary on an Apple M4 Max running ANGLE/Metal,
 the `macos-metal-apple` anchor claimed 39 WebGL1 and 36 WebGL2 extensions and
 delivered all of them, with nothing missing and nothing extra. The serving
-path for a mismatched backend, patch `0104`, is exercised by the GPU-less
-Linux measurement in
-[A GPU-less host serves a hardware GPU identity](#a-gpu-less-host-serves-a-hardware-gpu-identity):
-a Direct3D 11 anchor's extension list arriving complete on a SwiftShader host
-can only happen if the five names below are served.
+path for a mismatched backend, patch `0104`, is what the GPU-less Linux
+measurement in
+[A GPU-less host serves a hardware GPU identity](#a-gpu-less-host-serves-a-hardware-gpu-identity)
+exercises: SwiftShader does not offer `WEBGL_blend_func_extended`, both
+Windows anchors claim it on WebGL1, and the WebGL1 list arrived complete. The
+same run's WebGL2 list was short by `WEBGL_provoking_vertex`, which is the
+unserved case below behaving as documented.
 
 Everywhere else there is a gap between what a cluster claims and what the
 host's GL stack implements. A SwiftShader host, the deployment target, offers

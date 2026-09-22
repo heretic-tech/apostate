@@ -982,6 +982,12 @@ export function toCanonicalLaunchConfig(options = {}) {
   if (!Array.isArray(args) || args.some((arg) => typeof arg !== "string")) {
     throw new TypeError("args must be an array of strings.");
   }
+  // Refused here, at config time, and not only when arguments are built:
+  // buildLaunchArguments runs after ensureBinary, so a refusal there costs a
+  // ~150 MB download to say something knowable up front. The call is pure and
+  // runs again there, which keeps launchProcess honest if a caller bypasses
+  // this function.
+  checkFingerprintSwitches(args);
   const userDataDir = options.userDataDir ?? options.user_data_dir ?? null;
   if (userDataDir !== null && typeof userDataDir !== "string") {
     throw new TypeError("userDataDir must be a path string.");
@@ -2970,8 +2976,29 @@ async function assertPublishedOrDiscoverable(options, target) {
 // Returns a real browser object from whichever driver is installed: a
 // Playwright `Browser` (newPage, newContext, close) or a Puppeteer `Browser`.
 // An existing Playwright or Puppeteer script works by changing only the import.
+//
+// A persistent profile is refused here, as the Python package refuses it. A
+// Playwright persistent profile is a BrowserContext, so honouring userDataDir
+// would change this function's return type on one option, and a caller doing
+// `browser.newContext()` would find no such method. launchPersistentContext is
+// the entry point whose return type already matches.
 export async function launch(options = {}) {
   if (!isObject(options)) throw new TypeError("Launch options must be an object.");
+  const userDataDir = options.userDataDir ?? options.user_data_dir ?? null;
+  if (userDataDir !== null && userDataDir !== undefined) {
+    throw new ProfileResolutionError(
+      "launch() returns a Browser and cannot take a persistent profile (userDataDir); call launchPersistentContext(userDataDir, options), which returns the context bound to that directory. The identity is stable there with no flag.",
+      { option: "userDataDir" },
+      "APOSTATE_USER_DATA_DIR_ON_LAUNCH",
+    );
+  }
+  return launchWithDriver(options);
+}
+
+// The shared body behind launch() and launchPersistentContext(). Whether the
+// result is a Browser or a persistent BrowserContext follows from
+// config.user_data_dir, which only launchPersistentContext sets.
+async function launchWithDriver(options) {
   const prepared = await prepareLaunch(options);
   // Three checks, cheapest first, and the order is the whole point.
   //
@@ -3088,7 +3115,7 @@ export async function launchPersistentContext(userDataDir, options = {}) {
     throw new TypeError("launchPersistentContext received conflicting userDataDir values.");
   }
   await mkdir(resolve(userDataDir), { recursive: true });
-  return launch({ ...options, userDataDir });
+  return launchWithDriver({ ...options, userDataDir });
 }
 
 // Playwright passes this by default; Patchright and Puppeteer do not.
