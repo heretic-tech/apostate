@@ -106,10 +106,11 @@ holds, and a persona that has them all installed needs no second visit. See
 [docs/LIMITATIONS.md](LIMITATIONS.md#fonts-are-yours-to-install).
 
 Without the fonts, FingerprintJS Pro reads a Windows persona on a Mac as a
-machine with no fonts at all: `fonts: []`, an anomaly score of 1 and a
-tampering verdict, against 6 and no verdict for the host's own persona on
-the same exit. The measurement is in
-[docs/LIMITATIONS.md](LIMITATIONS.md#cross-os-is-a-risk).
+machine with no fonts at all: `fonts: []`, against four families for the
+host's own persona. Installing the full Windows set changes the served list
+but did not change that measurement's tampering verdict, so this step is
+necessary and not sufficient on a cross-OS persona. What has been tested is
+in [docs/LIMITATIONS.md](LIMITATIONS.md#cross-os-is-a-risk).
 
 ### macOS persona
 

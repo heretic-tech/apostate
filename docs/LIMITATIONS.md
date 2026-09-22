@@ -151,30 +151,36 @@ page-visible.
 
 Measured against FingerprintJS Pro at `demo.fingerprint.com/playground`
 (agent 4.1.5), on the shipped `macos-arm64` artifact, headed, through
-`launch_persistent_context`, with `geoip=True` over one sticky residential
-SOCKS5 session so the exit was the same for every leg. The host has no
-Windows fonts installed.
+`launch_persistent_context` with a fresh profile directory per run, over
+residential SOCKS5 exits with the exit's own timezone passed explicitly, so
+no run carries an incognito, returning-visitor or timezone-mismatch
+contribution. One run per row.
 
 | Persona | Suspect score | Tampering | Anomaly score | Anti-detect | Virtual machine |
 | --- | --- | --- | --- | --- | --- |
 | macOS, the host's own (`--fingerprint=42`) | 6 | false | 0.0021 | false | false |
-| Windows (`--fingerprint=42 --fingerprint-platform=windows`) | 36 | true, ML 0.999 | 1 | true | true |
+| Windows (`--fingerprint=42 --fingerprint-platform=windows`) | 36 | true, ML 0.997 | 1 | true | true |
 
-The 6 is the exit's residential-proxy verdict and nothing about the
-browser. The Windows row is what the section above predicts. Its raw
-attributes show `fonts: []`, a Windows 11 machine on which none of the
-agent's 52 probe families exists, and the population has no such machine,
-which is the anomaly score. Its canvas text and geometry hashes and its
-audio value are byte-identical to the macOS row's, because
+The macOS row is the quiet one, and its 6 is the exit's residential-proxy
+verdict. The Windows row is a cross-OS persona on a host that is not that
+OS, and four candidate causes have been tested and eliminated:
+
+| Change | Result |
+| --- | --- |
+| Install the full Windows 11 English font set on the host | Served list goes from `[]` to `Calibri, Segoe UI Light`; anomaly 1, VM true, tampering true, unchanged |
+| Place and size the window inside the claimed work area | Score 36 to 34; every verdict unchanged |
+| Claim a screen that equals the window plus a taskbar gap, through an explicit profile | Score 36 to 44 and `rare_device` becomes true, because the resulting panel is not one that exists; verdicts unchanged |
+| `--fingerprint-noise` on, so the canvas readback is perturbed | Canvas hashes change and stay stable per profile; verdicts unchanged |
+
+What is not eliminated is that the served font list is still two families
+where a real Windows 11 shows about a dozen, because the pack, not the
+host, is now the binding constraint; see
+[Fonts are yours to install](#fonts-are-yours-to-install). Independently,
+the canvas text and geometry hashes and the audio value are byte-identical
+to the macOS row's with noise off, because
 [canvas and audio are rendered, not replayed](#canvas-and-audio-are-rendered-not-replayed):
 the emoji glyphs, the CoreText rasterisation and the arm64 float path are
-the host's under a Windows user agent. Filling the claimed work area with
-`--window-size=1920,1032 --window-position=0,0` moved the score to 34 and
-left every verdict in place, so the window rect is not what the virtual
-machine rule reads. A competitor's Windows persona on the same exit and the
-same host was flagged as well, with `anti_detect_browser: true` and the
-device rated "not seen", at 22: it leaves the host's four macOS families
-visible under the Windows user agent and keeps the Retina panel at 2x.
+the host's under a Windows user agent. Both remain open.
 
 ### What the host still decides
 
