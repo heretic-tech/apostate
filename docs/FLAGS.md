@@ -372,6 +372,11 @@ readback comes back one step from the bytes this build rendered. Without it,
 under `--fingerprint=host`, and under a profile with no identity to key on,
 the readback is byte-for-byte what stock Chromium of this version produces.
 
+The switch is presence-gated: it takes no value, and any value it is given is
+ignored. `--fingerprint-noise=false` therefore turns noise **on**, which is
+the opposite of what it reads like. Omitting the switch is how you turn it
+off. Both packages refuse an off-looking value rather than let it through.
+
 What it changes:
 
 | Route | Effect |

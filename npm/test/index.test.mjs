@@ -189,6 +189,16 @@ test("refuses an unknown or misspelled fingerprint switch at config time", () =>
     assert.deepEqual(toCanonicalLaunchConfig({ args: [accepted] }).args, [accepted]);
   }
 });
+test("refuses an off-looking --fingerprint-noise value because it turns noise on", () => {
+  // The binary tests whether the switch is present, never what it is set to,
+  // so --fingerprint-noise=false enables readback noise. A competitor's
+  // documentation recommends that exact string.
+  for (const spelling of ["--fingerprint-noise=false", "--fingerprint-noise=0", "--fingerprint-noise=off"]) {
+    assert.throws(() => toCanonicalLaunchConfig({ args: [spelling] }),
+      (error) => error.code === "APOSTATE_NOISE_SWITCH_READS_BACKWARDS");
+  }
+  assert.deepEqual(toCanonicalLaunchConfig({ args: ["--fingerprint-noise"] }).args, ["--fingerprint-noise"]);
+});
 test("loads the version 2 catalogue and reports its anchors, axes and policy ids", () => {
   const catalogue = loadCatalogue();
   assert.deepEqual(Object.keys(catalogue).sort(), [

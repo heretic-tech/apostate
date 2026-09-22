@@ -101,6 +101,11 @@ const FINGERPRINT_SWITCHES = {
 // Chromium drops it without a word, which turns a cross-OS launch into the
 // host's own persona while the script says otherwise.
 const NEAR_MISS_DISTANCE = 2;
+// Values that read as "off" on a presence-gated switch. The binary tests
+// whether --fingerprint-noise is present, never what it is set to, so
+// --fingerprint-noise=false enables noise. A competitor's documentation
+// recommends exactly that string, so operators arrive carrying it.
+const OFF_TOKENS = { false: true, 0: true, no: true, off: true, disable: true, disabled: true };
 // Longest --fingerprint value the binary accepts before exiting non-zero.
 const MAX_SEED_LENGTH = 512;
 // Where a published release lives, used only to build a download URL. The
@@ -870,6 +875,13 @@ function checkFingerprintSwitches(args) {
     }
     if (!item.startsWith("--")) continue;
     const name = item.split("=", 1)[0];
+    if (name === "--fingerprint-noise" && OFF_TOKENS[item.slice(name.length + 1).trim().toLowerCase()] === true) {
+      throw new ProfileResolutionError(
+        `${item} turns readback noise ON. The switch is presence-gated: the binary tests whether it is there, not what it is set to, so any value enables it. Noise is off by default; omit the switch to keep it off.`,
+        { switch: name },
+        "APOSTATE_NOISE_SWITCH_READS_BACKWARDS",
+      );
+    }
     if (FINGERPRINT_SWITCHES[name] === true) continue;
     if (name.startsWith("--fingerprint")) {
       throw new ProfileResolutionError(

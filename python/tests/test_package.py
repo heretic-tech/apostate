@@ -514,6 +514,18 @@ print(catalogue['browser_build'])
             with self.subTest(switch=accepted):
                 self.assertEqual(translate_options(args=[accepted], geoip=False).args, (accepted,))
 
+    def test_an_off_looking_noise_value_is_refused_because_it_turns_noise_on(self) -> None:
+        # The binary tests whether --fingerprint-noise is present, never what
+        # it is set to, so --fingerprint-noise=false enables readback noise.
+        # A competitor's documentation recommends that exact string, so it
+        # arrives in real scripts meaning the opposite of what it does.
+        for spelling in ("--fingerprint-noise=false", "--fingerprint-noise=0", "--fingerprint-noise=off"):
+            with self.subTest(switch=spelling):
+                with self.assertRaisesRegex(ConfigurationError, "turns readback noise ON"):
+                    translate_options(args=[spelling], geoip=False)
+        self.assertEqual(translate_options(args=["--fingerprint-noise"], geoip=False).args,
+                         ("--fingerprint-noise",))
+
     def test_host_inheritance_accepts_every_spelling_the_binary_accepts(self) -> None:
         for token in ("host", "off", "false", "0", "disable", "DISABLED"):
             with self.subTest(token=token):

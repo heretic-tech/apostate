@@ -128,6 +128,12 @@ FINGERPRINT_SWITCHES = frozenset({
 #: the host's own persona while the script says otherwise.
 _NEAR_MISS_DISTANCE = 2
 
+#: Values that read as "off" on a presence-gated switch. The binary tests
+#: whether ``--fingerprint-noise`` is present, never what it is set to, so
+#: ``--fingerprint-noise=false`` enables noise. A competitor's documentation
+#: recommends exactly that string, so operators arrive carrying it.
+_OFF_TOKENS = frozenset({"false", "0", "no", "off", "disable", "disabled"})
+
 #: Longest ``--fingerprint`` value the binary accepts before exiting non-zero.
 MAX_SEED_LENGTH = 512
 
@@ -277,7 +283,13 @@ def check_fingerprint_switches(args: Any) -> None:
     for item in args:
         if not isinstance(item, str) or not item.startswith("--"):
             continue
-        name = item.split("=", 1)[0]
+        name, _, value = item.partition("=")
+        if name == "--fingerprint-noise" and value.strip().lower() in _OFF_TOKENS:
+            raise ConfigurationError(
+                f"{item} turns readback noise ON. The switch is presence-gated: the binary "
+                "tests whether it is there, not what it is set to, so any value enables it. "
+                "Noise is off by default; omit the switch to keep it off."
+            )
         if name in FINGERPRINT_SWITCHES:
             continue
         if name.startswith("--fingerprint"):
