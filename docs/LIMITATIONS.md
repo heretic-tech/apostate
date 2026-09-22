@@ -864,22 +864,29 @@ product this one is measured against serves `{nvidia, lovelace}` beside a
 GeForce RTX 3070, and Lovelace is Ada where the 3070 is Ampere, so its own
 pair contradicts itself.
 
-### The one residual, off the default path
+### Every identity answers, including the two that measured nothing
 
 Two of the eleven Linux Vulkan identities, the RTX 3090 and the RTX PRO 4000
 Blackwell, are measured members whose machines returned no WebGPU adapter at
-all. The anchor records that: its WebGPU cluster is non-uniform, with one
-variant carrying the Lovelace adapter pair and one carrying nulls for both
-`high-performance` and `low-power`. Patch `0105` serves what was measured, so
-on those two identities `navigator.gpu.requestAdapter()` resolves `null`.
-That is what a GPU-less machine reports, and it is what those two machines
-reported; on a host that does have a GPU it is unusual beside a WebGL
-GeForce claim, which is the residual. Without `0105` the surface would fall
-through to the host, which on a GPU-less server is
-`{vendor: "google", architecture: "swiftshader"}` beside a GeForce, the
-contradiction this section otherwise rules out. It takes
-`--fingerprint-platform=linux` to reach, since the default persona on a Linux
-host is Windows and the Windows anchors' WebGPU is uniform.
+all: the anchor's WebGPU cluster is non-uniform, one variant carrying the
+Lovelace adapter pair and one carrying nulls. Serving only what those two
+measured meant `navigator.gpu.requestAdapter()` resolved to whatever the host
+had, which is `null` on a machine with no GPU and Apple's adapter on a Mac,
+either of which contradicts the GeForce string WebGL presents beside it.
+
+So those two identities carry a derived adapter. The 19 features and the
+36-entry limit table are their cluster's Ada members' verbatim, because those
+are properties of the Vulkan driver branch Dawn sits on rather than of the
+board, and every member of that anchor ran the same driver. Only the
+architecture string differs, and it is what NVIDIA's Dawn backend reports for
+that silicon: `ampere` and `blackwell`. The option's note says which field is
+derived, and a capture from either board replaces it.
+
+A page therefore gets an adapter under every persona this catalogue offers,
+and it agrees with the WebGL identity beside it. What a derived table cannot
+promise is that these two boards' own limits are identical to their siblings'
+in every entry; nothing in the corpus says otherwise, and a machine that
+answers is worth more than one that is silent in a way only this browser is.
 
 ## Network quality and battery are profile values
 
