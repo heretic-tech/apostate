@@ -1,1 +1,2889 @@
-{"axis":"font_packs","conditioned_on":["platform","os_release"],"description":"Font family packs: a mandatory platform core plus an independent inclusion decision per optional pack. Servability is `none`: the browser does NOT check whether the claimed platform's faces are on disk, and a pack is drawable unconditionally. Provisioning is the user's setup step and the documentation tells them what to install; the binary assumes it is done. `requires.families` is kept as a DECLARATIVE statement of the families each pack names -- for the macOS core pack it is the 30-name subset that the 76-name probe list used by the common unattended fingerprinters actually tests, which is the part worth being able to point at -- and is no longer a precondition on anything. This does not let a pack claim faces the host lacks: patch 0090's enumeration filter is subtractive, so the visible set is always the intersection of this list with what the host really has. Assuming provisioning means the browser stops checking, not that it starts claiming absent faces.","label":"font_packs","option_sets":[{"key":{"os_release":"macos-26-6-2","platform":"macos"},"options":[{"evidence":"physical-ground-truth","id":"platform-core","note":"MEASURED. The complete enumerable family set of the reference Mac, not the 32 names a 76-name probe list happened to cover. Patch 0090 makes this list the font surface, and the filter is subtractive, so a list shorter than the machine's real one is itself the tell: enforcing the old 32-name pack would have presented a Mac with 30 visible families. `requires.families` stays the smaller 30-name mandatory subset -- the names the cheap unattended probe lists (FingerprintJS and friends) actually test -- because a core pack is never dropped and conflating `requires` with `value` is what produced the 32. Two names the old pack listed, Courier and Times, are NOT enumerable families on the host: they resolve for CSS and for the last-resort path but never appear in queryLocalFonts, so they are out of the enumerable list.","pack_kind":"core","requires":{"families":["Andale Mono","Arial","Arial Black","Arial Narrow","Arial Rounded MT Bold","Arial Unicode MS","Comic Sans MS","Courier New","Geneva","Georgia","Helvetica","Helvetica Neue","Hiragino Sans","Impact","Lucida Grande","Menlo","Microsoft Sans Serif","Monaco","Optima","Palatino","Papyrus","PingFang SC","Tahoma","Times New Roman","Trebuchet MS","Verdana","Wingdings","Wingdings 2","Wingdings 3","Zapfino"]},"source":"local/macos-m4max-queryLocalFonts-20260918.json; queryLocalFonts with a real permission grant on the macos-metal-apple-850a91233555 anchor host (Apple M4 Max, macOS 26.6.2): 184 families / 536 faces","value":{"fonts":{"enumeration_allowlist":["Academy Engraved LET","Al Bayan","Al Nile","Al Tarikh","American Typewriter","Andale Mono","Apple Braille","Apple Chancery","Apple Color Emoji","Apple SD Gothic Neo","Apple Symbols","AppleGothic","AppleMyungjo","Arial","Arial Black","Arial Hebrew","Arial Hebrew Scholar","Arial Narrow","Arial Rounded MT Bold","Arial Unicode MS","Avenir","Avenir Next","Avenir Next Condensed","Ayuthaya","Baghdad","Bangla MN","Bangla Sangam MN","Baskerville","Beirut","Big Caslon","Bodoni 72","Bodoni 72 Oldstyle","Bodoni 72 Smallcaps","Bodoni Ornaments","Bradley Hand","Brush Script MT","Chalkboard","Chalkboard SE","Chalkduster","Charter","Cochin","Comic Sans MS","Copperplate","Corsiva Hebrew","Courier New","DIN Alternate","DIN Condensed","Damascus","DecoType Naskh","Devanagari MT","Devanagari Sangam MN","Didot","Diwan Kufi","Diwan Thuluth","Euphemia UCAS","Farah","Farisi","Futura","GB18030 Bitmap","Galvji","Geeza Pro","Geneva","Georgia","Gill Sans","Grantha Sangam MN","Gujarati MT","Gujarati Sangam MN","Gurmukhi MN","Gurmukhi MT","Gurmukhi Sangam MN","Heiti SC","Heiti TC","Helvetica","Helvetica Neue","Herculanum","Hiragino Maru Gothic ProN","Hiragino Mincho ProN","Hiragino Sans","Hiragino Sans GB","Hoefler Text","ITF Devanagari","ITF Devanagari Marathi","Impact","InaiMathi","Kailasa","Kannada MN","Kannada Sangam MN","Kefa III","Khmer MN","Khmer Sangam MN","Kohinoor Bangla","Kohinoor Devanagari","Kohinoor Gujarati","Kohinoor Telugu","Kokonor","Krungthep","KufiStandardGK","Lao MN","Lao Sangam MN","Lucida Grande","Luminari","Malayalam MN","Malayalam Sangam MN","Marker Felt","Menlo","Microsoft Sans Serif","Mishafi","Mishafi Gold","Monaco","Mshtakan","Mukta Mahee","Muna","Myanmar MN","Myanmar Sangam MN","Nadeem","Nanum Gothic","Nanum Myeongjo","New Peninim MT","Noteworthy","Noto Nastaliq Urdu","Noto Sans Batak","Noto Sans Kannada","Noto Sans Myanmar","Noto Sans NKo","Noto Sans Oriya","Noto Sans Syriac","Noto Sans Tagalog","Noto Serif Myanmar","Optima","Oriya MN","Oriya Sangam MN","Osaka","PT Mono","PT Sans","PT Sans Caption","PT Sans Narrow","PT Serif","PT Serif Caption","Palatino","Papyrus","Party LET","Phosphate","PingFang HK","PingFang MO","PingFang SC","PingFang TC","Plantagenet Cherokee","Raanana","Rockwell","STFangsong","STIX Two Math","STIX Two Text","STSong","Sana","Sathu","Savoye LET","Shree Devanagari 714","SignPainter","Silom","Sinhala MN","Sinhala Sangam MN","Skia","Snell Roundhand","Songti SC","Songti TC","Sukhumvit Set","Symbol","Tahoma","Tamil MN","Tamil Sangam MN","Telugu MN","Telugu Sangam MN","Thonburi","Times New Roman","Trattatello","Trebuchet MS","Verdana","Waseem","Webdings","Wingdings","Wingdings 2","Wingdings 3","Zapf Dingbats","Zapfino"]}},"weight":100},{"evidence":"catalogue-value","id":"microsoft-office","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). Microsoft Office for Mac font set. Calibri, Cambria and Consolas are Office-supplied on macOS and platform-core on Windows, which is why the pack contents differ per platform. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["Calibri","Cambria","Cambria Math","Candara","Consolas","Constantia","Corbel","Franklin Gothic Book","Gill Sans MT","Lucida Console","Lucida Sans Unicode","MS Reference Sans Serif","MT Extra","Palatino Linotype","Perpetua","Rockwell","Tw Cen MT"]},"source":"microsoft-office installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Calibri","Cambria","Cambria Math","Candara","Consolas","Constantia","Corbel","Franklin Gothic Book","Gill Sans MT","Lucida Console","Lucida Sans Unicode","MS Reference Sans Serif","MT Extra","Palatino Linotype","Perpetua","Rockwell","Tw Cen MT"]}},"weight":46},{"evidence":"catalogue-value","id":"adobe-creative-cloud","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). Adobe Creative Cloud desktop font activation. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["Adobe Clean","Adobe Garamond Pro","Minion Pro","Myriad Pro","Source Code Pro","Source Sans 3","Source Serif 4"]},"source":"adobe-creative-cloud installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Adobe Clean","Adobe Garamond Pro","Minion Pro","Myriad Pro","Source Code Pro","Source Sans 3","Source Serif 4"]}},"weight":12},{"evidence":"catalogue-value","id":"cjk-language-pack","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). macOS additional CJK language resources. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["Apple SD Gothic Neo","Heiti SC","Hiragino Kaku Gothic Pro","Hiragino Mincho ProN","Kaiti SC","PingFang HK","PingFang TC","STSong","Songti SC"]},"source":"cjk-language-pack installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Apple SD Gothic Neo","Heiti SC","Hiragino Kaku Gothic Pro","Hiragino Mincho ProN","Kaiti SC","PingFang HK","PingFang TC","STSong","Songti SC"]}},"weight":22},{"evidence":"catalogue-value","id":"libreoffice","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). LibreOffice ships Liberation, DejaVu, Carlito and Caladea on every platform, which is why these families are not by themselves a Linux tell (docs/METHODOLOGY.md). AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["Caladea","Carlito","DejaVu Sans","DejaVu Sans Mono","DejaVu Serif","Liberation Mono","Liberation Sans","Liberation Serif"]},"source":"libreoffice installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Caladea","Carlito","DejaVu Sans","DejaVu Sans Mono","DejaVu Serif","Liberation Mono","Liberation Sans","Liberation Serif"]}},"weight":10},{"evidence":"catalogue-value","id":"developer-cascadia","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). A developer toolchain: Cascadia arrives with Windows Terminal and VS Code font installs. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["Cascadia Code","Cascadia Code PL","Cascadia Mono","Cascadia Mono PL"]},"source":"developer-cascadia installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Cascadia Code","Cascadia Code PL","Cascadia Mono","Cascadia Mono PL"]}},"weight":9},{"evidence":"catalogue-value","id":"google-fonts-desktop","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). A desktop Google Fonts install. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["Inter","Lato","Montserrat","Noto Sans","Open Sans","Oswald","Poppins","Raleway","Roboto","Source Sans 3"]},"source":"google-fonts-desktop installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Inter","Lato","Montserrat","Noto Sans","Open Sans","Oswald","Poppins","Raleway","Roboto","Source Sans 3"]}},"weight":11}]},{"key":{"os_release":"macos-26-5-0","platform":"macos"},"options":[{"evidence":"physical-ground-truth","id":"platform-core","note":"MEASURED. The complete enumerable family set of the reference Mac, not the 32 names a 76-name probe list happened to cover. Patch 0090 makes this list the font surface, and the filter is subtractive, so a list shorter than the machine's real one is itself the tell: enforcing the old 32-name pack would have presented a Mac with 30 visible families. `requires.families` stays the smaller 30-name mandatory subset -- the names the cheap unattended probe lists (FingerprintJS and friends) actually test -- because a core pack is never dropped and conflating `requires` with `value` is what produced the 32. Two names the old pack listed, Courier and Times, are NOT enumerable families on the host: they resolve for CSS and for the last-resort path but never appear in queryLocalFonts, so they are out of the enumerable list.","pack_kind":"core","requires":{"families":["Andale Mono","Arial","Arial Black","Arial Narrow","Arial Rounded MT Bold","Arial Unicode MS","Comic Sans MS","Courier New","Geneva","Georgia","Helvetica","Helvetica Neue","Hiragino Sans","Impact","Lucida Grande","Menlo","Microsoft Sans Serif","Monaco","Optima","Palatino","Papyrus","PingFang SC","Tahoma","Times New Roman","Trebuchet MS","Verdana","Wingdings","Wingdings 2","Wingdings 3","Zapfino"]},"source":"local/macos-m4max-queryLocalFonts-20260918.json; queryLocalFonts with a real permission grant on the macos-metal-apple-850a91233555 anchor host (Apple M4 Max, macOS 26.6.2): 184 families / 536 faces","value":{"fonts":{"enumeration_allowlist":["Academy Engraved LET","Al Bayan","Al Nile","Al Tarikh","American Typewriter","Andale Mono","Apple Braille","Apple Chancery","Apple Color Emoji","Apple SD Gothic Neo","Apple Symbols","AppleGothic","AppleMyungjo","Arial","Arial Black","Arial Hebrew","Arial Hebrew Scholar","Arial Narrow","Arial Rounded MT Bold","Arial Unicode MS","Avenir","Avenir Next","Avenir Next Condensed","Ayuthaya","Baghdad","Bangla MN","Bangla Sangam MN","Baskerville","Beirut","Big Caslon","Bodoni 72","Bodoni 72 Oldstyle","Bodoni 72 Smallcaps","Bodoni Ornaments","Bradley Hand","Brush Script MT","Chalkboard","Chalkboard SE","Chalkduster","Charter","Cochin","Comic Sans MS","Copperplate","Corsiva Hebrew","Courier New","DIN Alternate","DIN Condensed","Damascus","DecoType Naskh","Devanagari MT","Devanagari Sangam MN","Didot","Diwan Kufi","Diwan Thuluth","Euphemia UCAS","Farah","Farisi","Futura","GB18030 Bitmap","Galvji","Geeza Pro","Geneva","Georgia","Gill Sans","Grantha Sangam MN","Gujarati MT","Gujarati Sangam MN","Gurmukhi MN","Gurmukhi MT","Gurmukhi Sangam MN","Heiti SC","Heiti TC","Helvetica","Helvetica Neue","Herculanum","Hiragino Maru Gothic ProN","Hiragino Mincho ProN","Hiragino Sans","Hiragino Sans GB","Hoefler Text","ITF Devanagari","ITF Devanagari Marathi","Impact","InaiMathi","Kailasa","Kannada MN","Kannada Sangam MN","Kefa III","Khmer MN","Khmer Sangam MN","Kohinoor Bangla","Kohinoor Devanagari","Kohinoor Gujarati","Kohinoor Telugu","Kokonor","Krungthep","KufiStandardGK","Lao MN","Lao Sangam MN","Lucida Grande","Luminari","Malayalam MN","Malayalam Sangam MN","Marker Felt","Menlo","Microsoft Sans Serif","Mishafi","Mishafi Gold","Monaco","Mshtakan","Mukta Mahee","Muna","Myanmar MN","Myanmar Sangam MN","Nadeem","Nanum Gothic","Nanum Myeongjo","New Peninim MT","Noteworthy","Noto Nastaliq Urdu","Noto Sans Batak","Noto Sans Kannada","Noto Sans Myanmar","Noto Sans NKo","Noto Sans Oriya","Noto Sans Syriac","Noto Sans Tagalog","Noto Serif Myanmar","Optima","Oriya MN","Oriya Sangam MN","Osaka","PT Mono","PT Sans","PT Sans Caption","PT Sans Narrow","PT Serif","PT Serif Caption","Palatino","Papyrus","Party LET","Phosphate","PingFang HK","PingFang MO","PingFang SC","PingFang TC","Plantagenet Cherokee","Raanana","Rockwell","STFangsong","STIX Two Math","STIX Two Text","STSong","Sana","Sathu","Savoye LET","Shree Devanagari 714","SignPainter","Silom","Sinhala MN","Sinhala Sangam MN","Skia","Snell Roundhand","Songti SC","Songti TC","Sukhumvit Set","Symbol","Tahoma","Tamil MN","Tamil Sangam MN","Telugu MN","Telugu Sangam MN","Thonburi","Times New Roman","Trattatello","Trebuchet MS","Verdana","Waseem","Webdings","Wingdings","Wingdings 2","Wingdings 3","Zapf Dingbats","Zapfino"]}},"weight":100},{"evidence":"catalogue-value","id":"microsoft-office","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). Microsoft Office for Mac font set. Calibri, Cambria and Consolas are Office-supplied on macOS and platform-core on Windows, which is why the pack contents differ per platform. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["Calibri","Cambria","Cambria Math","Candara","Consolas","Constantia","Corbel","Franklin Gothic Book","Gill Sans MT","Lucida Console","Lucida Sans Unicode","MS Reference Sans Serif","MT Extra","Palatino Linotype","Perpetua","Rockwell","Tw Cen MT"]},"source":"microsoft-office installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Calibri","Cambria","Cambria Math","Candara","Consolas","Constantia","Corbel","Franklin Gothic Book","Gill Sans MT","Lucida Console","Lucida Sans Unicode","MS Reference Sans Serif","MT Extra","Palatino Linotype","Perpetua","Rockwell","Tw Cen MT"]}},"weight":46},{"evidence":"catalogue-value","id":"adobe-creative-cloud","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). Adobe Creative Cloud desktop font activation. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["Adobe Clean","Adobe Garamond Pro","Minion Pro","Myriad Pro","Source Code Pro","Source Sans 3","Source Serif 4"]},"source":"adobe-creative-cloud installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Adobe Clean","Adobe Garamond Pro","Minion Pro","Myriad Pro","Source Code Pro","Source Sans 3","Source Serif 4"]}},"weight":12},{"evidence":"catalogue-value","id":"cjk-language-pack","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). macOS additional CJK language resources. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["Apple SD Gothic Neo","Heiti SC","Hiragino Kaku Gothic Pro","Hiragino Mincho ProN","Kaiti SC","PingFang HK","PingFang TC","STSong","Songti SC"]},"source":"cjk-language-pack installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Apple SD Gothic Neo","Heiti SC","Hiragino Kaku Gothic Pro","Hiragino Mincho ProN","Kaiti SC","PingFang HK","PingFang TC","STSong","Songti SC"]}},"weight":22},{"evidence":"catalogue-value","id":"libreoffice","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). LibreOffice ships Liberation, DejaVu, Carlito and Caladea on every platform, which is why these families are not by themselves a Linux tell (docs/METHODOLOGY.md). AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["Caladea","Carlito","DejaVu Sans","DejaVu Sans Mono","DejaVu Serif","Liberation Mono","Liberation Sans","Liberation Serif"]},"source":"libreoffice installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Caladea","Carlito","DejaVu Sans","DejaVu Sans Mono","DejaVu Serif","Liberation Mono","Liberation Sans","Liberation Serif"]}},"weight":10},{"evidence":"catalogue-value","id":"developer-cascadia","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). A developer toolchain: Cascadia arrives with Windows Terminal and VS Code font installs. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["Cascadia Code","Cascadia Code PL","Cascadia Mono","Cascadia Mono PL"]},"source":"developer-cascadia installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Cascadia Code","Cascadia Code PL","Cascadia Mono","Cascadia Mono PL"]}},"weight":9},{"evidence":"catalogue-value","id":"google-fonts-desktop","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). A desktop Google Fonts install. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["Inter","Lato","Montserrat","Noto Sans","Open Sans","Oswald","Poppins","Raleway","Roboto","Source Sans 3"]},"source":"google-fonts-desktop installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Inter","Lato","Montserrat","Noto Sans","Open Sans","Oswald","Poppins","Raleway","Roboto","Source Sans 3"]}},"weight":11}]},{"key":{"os_release":"macos-15-7-2","platform":"macos"},"options":[{"evidence":"physical-ground-truth","id":"platform-core","note":"MEASURED. The complete enumerable family set of the reference Mac, not the 32 names a 76-name probe list happened to cover. Patch 0090 makes this list the font surface, and the filter is subtractive, so a list shorter than the machine's real one is itself the tell: enforcing the old 32-name pack would have presented a Mac with 30 visible families. `requires.families` stays the smaller 30-name mandatory subset -- the names the cheap unattended probe lists (FingerprintJS and friends) actually test -- because a core pack is never dropped and conflating `requires` with `value` is what produced the 32. Two names the old pack listed, Courier and Times, are NOT enumerable families on the host: they resolve for CSS and for the last-resort path but never appear in queryLocalFonts, so they are out of the enumerable list.","pack_kind":"core","requires":{"families":["Andale Mono","Arial","Arial Black","Arial Narrow","Arial Rounded MT Bold","Arial Unicode MS","Comic Sans MS","Courier New","Geneva","Georgia","Helvetica","Helvetica Neue","Hiragino Sans","Impact","Lucida Grande","Menlo","Microsoft Sans Serif","Monaco","Optima","Palatino","Papyrus","PingFang SC","Tahoma","Times New Roman","Trebuchet MS","Verdana","Wingdings","Wingdings 2","Wingdings 3","Zapfino"]},"source":"local/macos-m4max-queryLocalFonts-20260918.json; queryLocalFonts with a real permission grant on the macos-metal-apple-850a91233555 anchor host (Apple M4 Max, macOS 26.6.2): 184 families / 536 faces","value":{"fonts":{"enumeration_allowlist":["Academy Engraved LET","Al Bayan","Al Nile","Al Tarikh","American Typewriter","Andale Mono","Apple Braille","Apple Chancery","Apple Color Emoji","Apple SD Gothic Neo","Apple Symbols","AppleGothic","AppleMyungjo","Arial","Arial Black","Arial Hebrew","Arial Hebrew Scholar","Arial Narrow","Arial Rounded MT Bold","Arial Unicode MS","Avenir","Avenir Next","Avenir Next Condensed","Ayuthaya","Baghdad","Bangla MN","Bangla Sangam MN","Baskerville","Beirut","Big Caslon","Bodoni 72","Bodoni 72 Oldstyle","Bodoni 72 Smallcaps","Bodoni Ornaments","Bradley Hand","Brush Script MT","Chalkboard","Chalkboard SE","Chalkduster","Charter","Cochin","Comic Sans MS","Copperplate","Corsiva Hebrew","Courier New","DIN Alternate","DIN Condensed","Damascus","DecoType Naskh","Devanagari MT","Devanagari Sangam MN","Didot","Diwan Kufi","Diwan Thuluth","Euphemia UCAS","Farah","Farisi","Futura","GB18030 Bitmap","Galvji","Geeza Pro","Geneva","Georgia","Gill Sans","Grantha Sangam MN","Gujarati MT","Gujarati Sangam MN","Gurmukhi MN","Gurmukhi MT","Gurmukhi Sangam MN","Heiti SC","Heiti TC","Helvetica","Helvetica Neue","Herculanum","Hiragino Maru Gothic ProN","Hiragino Mincho ProN","Hiragino Sans","Hiragino Sans GB","Hoefler Text","ITF Devanagari","ITF Devanagari Marathi","Impact","InaiMathi","Kailasa","Kannada MN","Kannada Sangam MN","Kefa III","Khmer MN","Khmer Sangam MN","Kohinoor Bangla","Kohinoor Devanagari","Kohinoor Gujarati","Kohinoor Telugu","Kokonor","Krungthep","KufiStandardGK","Lao MN","Lao Sangam MN","Lucida Grande","Luminari","Malayalam MN","Malayalam Sangam MN","Marker Felt","Menlo","Microsoft Sans Serif","Mishafi","Mishafi Gold","Monaco","Mshtakan","Mukta Mahee","Muna","Myanmar MN","Myanmar Sangam MN","Nadeem","Nanum Gothic","Nanum Myeongjo","New Peninim MT","Noteworthy","Noto Nastaliq Urdu","Noto Sans Batak","Noto Sans Kannada","Noto Sans Myanmar","Noto Sans NKo","Noto Sans Oriya","Noto Sans Syriac","Noto Sans Tagalog","Noto Serif Myanmar","Optima","Oriya MN","Oriya Sangam MN","Osaka","PT Mono","PT Sans","PT Sans Caption","PT Sans Narrow","PT Serif","PT Serif Caption","Palatino","Papyrus","Party LET","Phosphate","PingFang HK","PingFang MO","PingFang SC","PingFang TC","Plantagenet Cherokee","Raanana","Rockwell","STFangsong","STIX Two Math","STIX Two Text","STSong","Sana","Sathu","Savoye LET","Shree Devanagari 714","SignPainter","Silom","Sinhala MN","Sinhala Sangam MN","Skia","Snell Roundhand","Songti SC","Songti TC","Sukhumvit Set","Symbol","Tahoma","Tamil MN","Tamil Sangam MN","Telugu MN","Telugu Sangam MN","Thonburi","Times New Roman","Trattatello","Trebuchet MS","Verdana","Waseem","Webdings","Wingdings","Wingdings 2","Wingdings 3","Zapf Dingbats","Zapfino"]}},"weight":100},{"evidence":"catalogue-value","id":"microsoft-office","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). Microsoft Office for Mac font set. Calibri, Cambria and Consolas are Office-supplied on macOS and platform-core on Windows, which is why the pack contents differ per platform. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["Calibri","Cambria","Cambria Math","Candara","Consolas","Constantia","Corbel","Franklin Gothic Book","Gill Sans MT","Lucida Console","Lucida Sans Unicode","MS Reference Sans Serif","MT Extra","Palatino Linotype","Perpetua","Rockwell","Tw Cen MT"]},"source":"microsoft-office installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Calibri","Cambria","Cambria Math","Candara","Consolas","Constantia","Corbel","Franklin Gothic Book","Gill Sans MT","Lucida Console","Lucida Sans Unicode","MS Reference Sans Serif","MT Extra","Palatino Linotype","Perpetua","Rockwell","Tw Cen MT"]}},"weight":46},{"evidence":"catalogue-value","id":"adobe-creative-cloud","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). Adobe Creative Cloud desktop font activation. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["Adobe Clean","Adobe Garamond Pro","Minion Pro","Myriad Pro","Source Code Pro","Source Sans 3","Source Serif 4"]},"source":"adobe-creative-cloud installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Adobe Clean","Adobe Garamond Pro","Minion Pro","Myriad Pro","Source Code Pro","Source Sans 3","Source Serif 4"]}},"weight":12},{"evidence":"catalogue-value","id":"cjk-language-pack","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). macOS additional CJK language resources. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["Apple SD Gothic Neo","Heiti SC","Hiragino Kaku Gothic Pro","Hiragino Mincho ProN","Kaiti SC","PingFang HK","PingFang TC","STSong","Songti SC"]},"source":"cjk-language-pack installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Apple SD Gothic Neo","Heiti SC","Hiragino Kaku Gothic Pro","Hiragino Mincho ProN","Kaiti SC","PingFang HK","PingFang TC","STSong","Songti SC"]}},"weight":22},{"evidence":"catalogue-value","id":"libreoffice","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). LibreOffice ships Liberation, DejaVu, Carlito and Caladea on every platform, which is why these families are not by themselves a Linux tell (docs/METHODOLOGY.md). AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["Caladea","Carlito","DejaVu Sans","DejaVu Sans Mono","DejaVu Serif","Liberation Mono","Liberation Sans","Liberation Serif"]},"source":"libreoffice installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Caladea","Carlito","DejaVu Sans","DejaVu Sans Mono","DejaVu Serif","Liberation Mono","Liberation Sans","Liberation Serif"]}},"weight":10},{"evidence":"catalogue-value","id":"developer-cascadia","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). A developer toolchain: Cascadia arrives with Windows Terminal and VS Code font installs. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["Cascadia Code","Cascadia Code PL","Cascadia Mono","Cascadia Mono PL"]},"source":"developer-cascadia installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Cascadia Code","Cascadia Code PL","Cascadia Mono","Cascadia Mono PL"]}},"weight":9},{"evidence":"catalogue-value","id":"google-fonts-desktop","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). A desktop Google Fonts install. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["Inter","Lato","Montserrat","Noto Sans","Open Sans","Oswald","Poppins","Raleway","Roboto","Source Sans 3"]},"source":"google-fonts-desktop installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Inter","Lato","Montserrat","Noto Sans","Open Sans","Oswald","Poppins","Raleway","Roboto","Source Sans 3"]}},"weight":11}]},{"key":{"os_release":"windows-11","platform":"windows"},"options":[{"evidence":"physical-ground-truth","id":"platform-core","note":"Mandatory core set: the families the claimed platform cannot be without. Enumeration is subtractive and always servable, but a missing core family is the defensible detection (docs/METHODOLOGY.md), so a host that cannot serve one is reported as a limitation rather than silently narrowed. Measured fonts.detected set on the Windows reference host, minus Roboto and Noto Sans. Courier, Helvetica and Times are kept because GDI aliases them on every Windows install, so their absence would be the tell. Also carries all five generic families measured on the Windows reference capture (resources/fingerprints/raw/windows-chrome-20260910T140813Z.json, probes fonts.metrics): each generic is the named family in the same capture whose ten TextMetrics fields match it exactly at 40px. They are set UNCONDITIONALLY, not gated on any pack being drawn and not on any file being on disk: under the assumed-provisioning policy the browser does not verify faces, and gating monospace on the microsoft-office pack would leave roughly half of Windows personas inheriting the HOST's monospace generic, which on a Linux host is a different family. monospace is Consolas, not the Courier New that IDS_FIXED_FONT_FAMILY in locale_settings_win.grd declares: ShouldUseAlternateDefaultFixedFont in chrome/browser/ui/prefs/prefs_tab_helper.cc substitutes IDS_FIXED_FONT_FAMILY_ALT_WIN = Consolas for any Courier default, and the capture settles it -- Courier New measures 160.01953125 with fontBoundingBox 33/12 while the monospace generic and Consolas both measure 149.9609375 with 37/10. Deriving these from the .grd alone ships the wrong family. `math` stays unset: the capture does not measure it.","pack_kind":"core","requires":{"families":["Arial","Arial Black","Arial Narrow","Calibri","Cambria","Cambria Math","Comic Sans MS","Consolas","Courier","Courier New","Georgia","Helvetica","Impact","Lucida Console","Lucida Sans Unicode","MS Gothic","MS PGothic","MS Sans Serif","MS Serif","Microsoft Sans Serif","Palatino Linotype","Segoe Print","Segoe Script","Segoe UI","Segoe UI Light","Segoe UI Semibold","Segoe UI Symbol","Tahoma","Times","Times New Roman","Trebuchet MS","Verdana","Wingdings","Wingdings 2","Wingdings 3"]},"source":"resources/fingerprints/raw/windows-chrome-20260910T140813Z.json","value":{"fonts":{"enumeration_allowlist":["Arial","Arial Black","Arial Narrow","Calibri","Cambria","Cambria Math","Comic Sans MS","Consolas","Courier","Courier New","Georgia","Helvetica","Impact","Lucida Console","Lucida Sans Unicode","MS Gothic","MS PGothic","MS Sans Serif","MS Serif","Microsoft Sans Serif","Palatino Linotype","Segoe Print","Segoe Script","Segoe UI","Segoe UI Light","Segoe UI Semibold","Segoe UI Symbol","Tahoma","Times","Times New Roman","Trebuchet MS","Verdana","Wingdings","Wingdings 2","Wingdings 3"],"generic_family_map":{"cursive":"Comic Sans MS","fantasy":"Impact","monospace":"Consolas","sans-serif":"Arial","serif":"Times New Roman"}}},"weight":100},{"evidence":"catalogue-value","id":"microsoft-office","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). Microsoft Office for Windows font set, excluding the families Windows itself already ships. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence. Carries no generic family: all five are set unconditionally on the platform core pack, because a generic gated on an optional pack would leave the host's own generic in effect whenever that pack is not drawn.","pack_kind":"optional","requires":{"families":["Bookshelf Symbol 7","Candara","Constantia","Corbel","Franklin Gothic Book","Gabriola","Gill Sans MT","MS Reference Sans Serif","MS Reference Specialty","MT Extra","Perpetua","Rockwell","Sitka Banner","Sitka Display","Sitka Heading","Sitka Small","Sitka Subheading","Sitka Text","Tw Cen MT"]},"source":"microsoft-office installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Bookshelf Symbol 7","Candara","Constantia","Corbel","Franklin Gothic Book","Gabriola","Gill Sans MT","MS Reference Sans Serif","MS Reference Specialty","MT Extra","Perpetua","Rockwell","Sitka Banner","Sitka Display","Sitka Heading","Sitka Small","Sitka Subheading","Sitka Text","Tw Cen MT"]}},"weight":52},{"evidence":"catalogue-value","id":"adobe-creative-cloud","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). Adobe Creative Cloud desktop font activation. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["Adobe Clean","Adobe Garamond Pro","Minion Pro","Myriad Pro","Source Code Pro","Source Sans 3","Source Serif 4"]},"source":"adobe-creative-cloud installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Adobe Clean","Adobe Garamond Pro","Minion Pro","Myriad Pro","Source Code Pro","Source Sans 3","Source Serif 4"]}},"weight":12},{"evidence":"catalogue-value","id":"cjk-language-pack","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). Windows optional CJK language features. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["DengXian","FangSong","KaiTi","Malgun Gothic","Meiryo","Microsoft JhengHei","Microsoft YaHei","MingLiU","NSimSun","SimSun","Yu Gothic","Yu Mincho"]},"source":"cjk-language-pack installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["DengXian","FangSong","KaiTi","Malgun Gothic","Meiryo","Microsoft JhengHei","Microsoft YaHei","MingLiU","NSimSun","SimSun","Yu Gothic","Yu Mincho"]}},"weight":18},{"evidence":"catalogue-value","id":"libreoffice","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). LibreOffice ships Liberation, DejaVu, Carlito and Caladea on every platform. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["Caladea","Carlito","DejaVu Sans","DejaVu Sans Mono","DejaVu Serif","Liberation Mono","Liberation Sans","Liberation Serif"]},"source":"libreoffice installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Caladea","Carlito","DejaVu Sans","DejaVu Sans Mono","DejaVu Serif","Liberation Mono","Liberation Sans","Liberation Serif"]}},"weight":14},{"evidence":"catalogue-value","id":"developer-cascadia","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). Windows Terminal and the VS Code font install both bring Cascadia. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["Cascadia Code","Cascadia Code PL","Cascadia Mono","Cascadia Mono PL"]},"source":"developer-cascadia installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Cascadia Code","Cascadia Code PL","Cascadia Mono","Cascadia Mono PL"]}},"weight":16},{"evidence":"catalogue-value","id":"google-fonts-desktop","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). A desktop Google Fonts install. Roboto and Noto Sans were measured present on the Windows reference host and are attributed here rather than to the platform core. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["Inter","Lato","Montserrat","Noto Sans","Open Sans","Oswald","Poppins","Raleway","Roboto","Source Sans 3"]},"source":"google-fonts-desktop installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Inter","Lato","Montserrat","Noto Sans","Open Sans","Oswald","Poppins","Raleway","Roboto","Source Sans 3"]}},"weight":12}]},{"key":{"os_release":"windows-10-22h2","platform":"windows"},"options":[{"evidence":"physical-ground-truth","id":"platform-core","note":"Mandatory core set: the families the claimed platform cannot be without. Enumeration is subtractive and always servable, but a missing core family is the defensible detection (docs/METHODOLOGY.md), so a host that cannot serve one is reported as a limitation rather than silently narrowed. Measured fonts.detected set on the Windows reference host, minus Roboto and Noto Sans. Courier, Helvetica and Times are kept because GDI aliases them on every Windows install, so their absence would be the tell. Also carries all five generic families measured on the Windows reference capture (resources/fingerprints/raw/windows-chrome-20260910T140813Z.json, probes fonts.metrics): each generic is the named family in the same capture whose ten TextMetrics fields match it exactly at 40px. They are set UNCONDITIONALLY, not gated on any pack being drawn and not on any file being on disk: under the assumed-provisioning policy the browser does not verify faces, and gating monospace on the microsoft-office pack would leave roughly half of Windows personas inheriting the HOST's monospace generic, which on a Linux host is a different family. monospace is Consolas, not the Courier New that IDS_FIXED_FONT_FAMILY in locale_settings_win.grd declares: ShouldUseAlternateDefaultFixedFont in chrome/browser/ui/prefs/prefs_tab_helper.cc substitutes IDS_FIXED_FONT_FAMILY_ALT_WIN = Consolas for any Courier default, and the capture settles it -- Courier New measures 160.01953125 with fontBoundingBox 33/12 while the monospace generic and Consolas both measure 149.9609375 with 37/10. Deriving these from the .grd alone ships the wrong family. `math` stays unset: the capture does not measure it.","pack_kind":"core","requires":{"families":["Arial","Arial Black","Arial Narrow","Calibri","Cambria","Cambria Math","Comic Sans MS","Consolas","Courier","Courier New","Georgia","Helvetica","Impact","Lucida Console","Lucida Sans Unicode","MS Gothic","MS PGothic","MS Sans Serif","MS Serif","Microsoft Sans Serif","Palatino Linotype","Segoe Print","Segoe Script","Segoe UI","Segoe UI Light","Segoe UI Semibold","Segoe UI Symbol","Tahoma","Times","Times New Roman","Trebuchet MS","Verdana","Wingdings","Wingdings 2","Wingdings 3"]},"source":"resources/fingerprints/raw/windows-chrome-20260910T140813Z.json","value":{"fonts":{"enumeration_allowlist":["Arial","Arial Black","Arial Narrow","Calibri","Cambria","Cambria Math","Comic Sans MS","Consolas","Courier","Courier New","Georgia","Helvetica","Impact","Lucida Console","Lucida Sans Unicode","MS Gothic","MS PGothic","MS Sans Serif","MS Serif","Microsoft Sans Serif","Palatino Linotype","Segoe Print","Segoe Script","Segoe UI","Segoe UI Light","Segoe UI Semibold","Segoe UI Symbol","Tahoma","Times","Times New Roman","Trebuchet MS","Verdana","Wingdings","Wingdings 2","Wingdings 3"],"generic_family_map":{"cursive":"Comic Sans MS","fantasy":"Impact","monospace":"Consolas","sans-serif":"Arial","serif":"Times New Roman"}}},"weight":100},{"evidence":"catalogue-value","id":"microsoft-office","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). Microsoft Office for Windows font set, excluding the families Windows itself already ships. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence. Carries no generic family: all five are set unconditionally on the platform core pack, because a generic gated on an optional pack would leave the host's own generic in effect whenever that pack is not drawn.","pack_kind":"optional","requires":{"families":["Bookshelf Symbol 7","Candara","Constantia","Corbel","Franklin Gothic Book","Gabriola","Gill Sans MT","MS Reference Sans Serif","MS Reference Specialty","MT Extra","Perpetua","Rockwell","Sitka Banner","Sitka Display","Sitka Heading","Sitka Small","Sitka Subheading","Sitka Text","Tw Cen MT"]},"source":"microsoft-office installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Bookshelf Symbol 7","Candara","Constantia","Corbel","Franklin Gothic Book","Gabriola","Gill Sans MT","MS Reference Sans Serif","MS Reference Specialty","MT Extra","Perpetua","Rockwell","Sitka Banner","Sitka Display","Sitka Heading","Sitka Small","Sitka Subheading","Sitka Text","Tw Cen MT"]}},"weight":52},{"evidence":"catalogue-value","id":"adobe-creative-cloud","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). Adobe Creative Cloud desktop font activation. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["Adobe Clean","Adobe Garamond Pro","Minion Pro","Myriad Pro","Source Code Pro","Source Sans 3","Source Serif 4"]},"source":"adobe-creative-cloud installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Adobe Clean","Adobe Garamond Pro","Minion Pro","Myriad Pro","Source Code Pro","Source Sans 3","Source Serif 4"]}},"weight":12},{"evidence":"catalogue-value","id":"cjk-language-pack","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). Windows optional CJK language features. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["DengXian","FangSong","KaiTi","Malgun Gothic","Meiryo","Microsoft JhengHei","Microsoft YaHei","MingLiU","NSimSun","SimSun","Yu Gothic","Yu Mincho"]},"source":"cjk-language-pack installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["DengXian","FangSong","KaiTi","Malgun Gothic","Meiryo","Microsoft JhengHei","Microsoft YaHei","MingLiU","NSimSun","SimSun","Yu Gothic","Yu Mincho"]}},"weight":18},{"evidence":"catalogue-value","id":"libreoffice","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). LibreOffice ships Liberation, DejaVu, Carlito and Caladea on every platform. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["Caladea","Carlito","DejaVu Sans","DejaVu Sans Mono","DejaVu Serif","Liberation Mono","Liberation Sans","Liberation Serif"]},"source":"libreoffice installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Caladea","Carlito","DejaVu Sans","DejaVu Sans Mono","DejaVu Serif","Liberation Mono","Liberation Sans","Liberation Serif"]}},"weight":14},{"evidence":"catalogue-value","id":"developer-cascadia","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). Windows Terminal and the VS Code font install both bring Cascadia. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["Cascadia Code","Cascadia Code PL","Cascadia Mono","Cascadia Mono PL"]},"source":"developer-cascadia installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Cascadia Code","Cascadia Code PL","Cascadia Mono","Cascadia Mono PL"]}},"weight":16},{"evidence":"catalogue-value","id":"google-fonts-desktop","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). A desktop Google Fonts install. Roboto and Noto Sans were measured present on the Windows reference host and are attributed here rather than to the platform core. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["Inter","Lato","Montserrat","Noto Sans","Open Sans","Oswald","Poppins","Raleway","Roboto","Source Sans 3"]},"source":"google-fonts-desktop installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Inter","Lato","Montserrat","Noto Sans","Open Sans","Oswald","Poppins","Raleway","Roboto","Source Sans 3"]}},"weight":12}]},{"key":{"os_release":"linux-x86-64","platform":"linux"},"options":[{"evidence":"physical-ground-truth","id":"platform-core","note":"Mandatory core set: the families the claimed platform cannot be without. Enumeration is subtractive and always servable, but a missing core family is the defensible detection (docs/METHODOLOGY.md), so a host that cannot serve one is reported as a limitation rather than silently narrowed. Measured union of the two Linux reference hosts, minus the families attributable to installed packs. Arial, Helvetica, Times and Courier are present because fontconfig aliases them to metric-compatible substitutes (docs/METHODOLOGY.md).","pack_kind":"core","requires":{"families":["Arial","Courier","Courier New","DejaVu Sans","Helvetica","Liberation Sans","Noto Sans","Times","Times New Roman"]},"source":"resources/fingerprints/raw/stock-linux-20260907T150627Z.json","value":{"fonts":{"enumeration_allowlist":["Arial","Courier","Courier New","DejaVu Sans","Helvetica","Liberation Sans","Noto Sans","Times","Times New Roman"]}},"weight":100},{"evidence":"catalogue-value","id":"ubuntu-desktop","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). An Ubuntu or GNOME desktop install. Ubuntu was measured present on the Linux NVIDIA Ada reference host. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["Cantarell","Ubuntu","Ubuntu Condensed","Ubuntu Mono"]},"source":"ubuntu-desktop installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Cantarell","Ubuntu","Ubuntu Condensed","Ubuntu Mono"]}},"weight":54},{"evidence":"catalogue-value","id":"libreoffice","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). LibreOffice is preinstalled on most desktop Linux distributions. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["Caladea","Carlito","DejaVu Sans","DejaVu Sans Mono","DejaVu Serif","Liberation Mono","Liberation Sans","Liberation Serif"]},"source":"libreoffice installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Caladea","Carlito","DejaVu Sans","DejaVu Sans Mono","DejaVu Serif","Liberation Mono","Liberation Sans","Liberation Serif"]}},"weight":62},{"evidence":"catalogue-value","id":"cjk-language-pack","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). The distribution CJK font packages. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["Noto Sans CJK JP","Noto Sans CJK KR","Noto Sans CJK SC","Noto Sans CJK TC","Noto Serif CJK SC"]},"source":"cjk-language-pack installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Noto Sans CJK JP","Noto Sans CJK KR","Noto Sans CJK SC","Noto Sans CJK TC","Noto Serif CJK SC"]}},"weight":26},{"evidence":"catalogue-value","id":"developer-cascadia","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). A developer toolchain font install. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["Cascadia Code","Cascadia Code PL","Cascadia Mono","Cascadia Mono PL"]},"source":"developer-cascadia installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Cascadia Code","Cascadia Code PL","Cascadia Mono","Cascadia Mono PL"]}},"weight":12},{"evidence":"catalogue-value","id":"google-fonts-desktop","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). A desktop Google Fonts install. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["Inter","Lato","Montserrat","Open Sans","Oswald","Poppins","Raleway","Roboto","Source Sans 3"]},"source":"google-fonts-desktop installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Inter","Lato","Montserrat","Open Sans","Oswald","Poppins","Raleway","Roboto","Source Sans 3"]}},"weight":18}]},{"key":{"os_release":"windows-11-22h2","platform":"windows"},"options":[{"evidence":"physical-ground-truth","id":"platform-core","note":"Mandatory core set: the families the claimed platform cannot be without. Enumeration is subtractive and always servable, but a missing core family is the defensible detection (docs/METHODOLOGY.md), so a host that cannot serve one is reported as a limitation rather than silently narrowed. Measured fonts.detected set on the Windows reference host, minus Roboto and Noto Sans. Courier, Helvetica and Times are kept because GDI aliases them on every Windows install, so their absence would be the tell. Also carries all five generic families measured on the Windows reference capture (resources/fingerprints/raw/windows-chrome-20260910T140813Z.json, probes fonts.metrics): each generic is the named family in the same capture whose ten TextMetrics fields match it exactly at 40px. They are set UNCONDITIONALLY, not gated on any pack being drawn and not on any file being on disk: under the assumed-provisioning policy the browser does not verify faces, and gating monospace on the microsoft-office pack would leave roughly half of Windows personas inheriting the HOST's monospace generic, which on a Linux host is a different family. monospace is Consolas, not the Courier New that IDS_FIXED_FONT_FAMILY in locale_settings_win.grd declares: ShouldUseAlternateDefaultFixedFont in chrome/browser/ui/prefs/prefs_tab_helper.cc substitutes IDS_FIXED_FONT_FAMILY_ALT_WIN = Consolas for any Courier default, and the capture settles it -- Courier New measures 160.01953125 with fontBoundingBox 33/12 while the monospace generic and Consolas both measure 149.9609375 with 37/10. Deriving these from the .grd alone ships the wrong family. `math` stays unset: the capture does not measure it.","pack_kind":"core","requires":{"families":["Arial","Arial Black","Arial Narrow","Calibri","Cambria","Cambria Math","Comic Sans MS","Consolas","Courier","Courier New","Georgia","Helvetica","Impact","Lucida Console","Lucida Sans Unicode","MS Gothic","MS PGothic","MS Sans Serif","MS Serif","Microsoft Sans Serif","Palatino Linotype","Segoe Print","Segoe Script","Segoe UI","Segoe UI Light","Segoe UI Semibold","Segoe UI Symbol","Tahoma","Times","Times New Roman","Trebuchet MS","Verdana","Wingdings","Wingdings 2","Wingdings 3"]},"source":"resources/fingerprints/raw/windows-chrome-20260910T140813Z.json","value":{"fonts":{"enumeration_allowlist":["Arial","Arial Black","Arial Narrow","Calibri","Cambria","Cambria Math","Comic Sans MS","Consolas","Courier","Courier New","Georgia","Helvetica","Impact","Lucida Console","Lucida Sans Unicode","MS Gothic","MS PGothic","MS Sans Serif","MS Serif","Microsoft Sans Serif","Palatino Linotype","Segoe Print","Segoe Script","Segoe UI","Segoe UI Light","Segoe UI Semibold","Segoe UI Symbol","Tahoma","Times","Times New Roman","Trebuchet MS","Verdana","Wingdings","Wingdings 2","Wingdings 3"],"generic_family_map":{"cursive":"Comic Sans MS","fantasy":"Impact","monospace":"Consolas","sans-serif":"Arial","serif":"Times New Roman"}}},"weight":100},{"evidence":"catalogue-value","id":"microsoft-office","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). Microsoft Office for Windows font set, excluding the families Windows itself already ships. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence. Carries no generic family: all five are set unconditionally on the platform core pack, because a generic gated on an optional pack would leave the host's own generic in effect whenever that pack is not drawn.","pack_kind":"optional","requires":{"families":["Bookshelf Symbol 7","Candara","Constantia","Corbel","Franklin Gothic Book","Gabriola","Gill Sans MT","MS Reference Sans Serif","MS Reference Specialty","MT Extra","Perpetua","Rockwell","Sitka Banner","Sitka Display","Sitka Heading","Sitka Small","Sitka Subheading","Sitka Text","Tw Cen MT"]},"source":"microsoft-office installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Bookshelf Symbol 7","Candara","Constantia","Corbel","Franklin Gothic Book","Gabriola","Gill Sans MT","MS Reference Sans Serif","MS Reference Specialty","MT Extra","Perpetua","Rockwell","Sitka Banner","Sitka Display","Sitka Heading","Sitka Small","Sitka Subheading","Sitka Text","Tw Cen MT"]}},"weight":52},{"evidence":"catalogue-value","id":"adobe-creative-cloud","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). Adobe Creative Cloud desktop font activation. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["Adobe Clean","Adobe Garamond Pro","Minion Pro","Myriad Pro","Source Code Pro","Source Sans 3","Source Serif 4"]},"source":"adobe-creative-cloud installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Adobe Clean","Adobe Garamond Pro","Minion Pro","Myriad Pro","Source Code Pro","Source Sans 3","Source Serif 4"]}},"weight":12},{"evidence":"catalogue-value","id":"cjk-language-pack","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). Windows optional CJK language features. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["DengXian","FangSong","KaiTi","Malgun Gothic","Meiryo","Microsoft JhengHei","Microsoft YaHei","MingLiU","NSimSun","SimSun","Yu Gothic","Yu Mincho"]},"source":"cjk-language-pack installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["DengXian","FangSong","KaiTi","Malgun Gothic","Meiryo","Microsoft JhengHei","Microsoft YaHei","MingLiU","NSimSun","SimSun","Yu Gothic","Yu Mincho"]}},"weight":18},{"evidence":"catalogue-value","id":"libreoffice","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). LibreOffice ships Liberation, DejaVu, Carlito and Caladea on every platform. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["Caladea","Carlito","DejaVu Sans","DejaVu Sans Mono","DejaVu Serif","Liberation Mono","Liberation Sans","Liberation Serif"]},"source":"libreoffice installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Caladea","Carlito","DejaVu Sans","DejaVu Sans Mono","DejaVu Serif","Liberation Mono","Liberation Sans","Liberation Serif"]}},"weight":14},{"evidence":"catalogue-value","id":"developer-cascadia","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). Windows Terminal and the VS Code font install both bring Cascadia. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["Cascadia Code","Cascadia Code PL","Cascadia Mono","Cascadia Mono PL"]},"source":"developer-cascadia installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Cascadia Code","Cascadia Code PL","Cascadia Mono","Cascadia Mono PL"]}},"weight":16},{"evidence":"catalogue-value","id":"google-fonts-desktop","note":"Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). A desktop Google Fonts install. Roboto and Noto Sans were measured present on the Windows reference host and are attributed here rather than to the platform core. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.","pack_kind":"optional","requires":{"families":["Inter","Lato","Montserrat","Noto Sans","Open Sans","Oswald","Poppins","Raleway","Roboto","Source Sans 3"]},"source":"google-fonts-desktop installed-software font bundle","value":{"fonts":{"enumeration_allowlist":["Inter","Lato","Montserrat","Noto Sans","Open Sans","Oswald","Poppins","Raleway","Roboto","Source Sans 3"]}},"weight":12}]}],"schema":"apostate/dispersion/1","selection":"core-plus-subset","servability":"none"}
+{
+ "axis": "font_packs",
+ "conditioned_on": [
+  "platform",
+  "os_release"
+ ],
+ "description": "Font family packs: a mandatory platform core plus an independent inclusion decision per optional pack. Servability is `none`: the browser does NOT check whether the claimed platform's faces are on disk, and a pack is drawable unconditionally. Provisioning is the user's setup step and the documentation tells them what to install; the binary assumes it is done. `requires.families` is kept as a DECLARATIVE statement of the families each pack names -- for the macOS core pack it is the 30-name subset that the 76-name probe list used by the common unattended fingerprinters actually tests, which is the part worth being able to point at -- and is no longer a precondition on anything. This does not let a pack claim faces the host lacks: patch 0090's enumeration filter is subtractive, so the visible set is always the intersection of this list with what the host really has. Assuming provisioning means the browser stops checking, not that it starts claiming absent faces.",
+ "label": "font_packs",
+ "option_sets": [
+  {
+   "key": {
+    "os_release": "macos-26-6-2",
+    "platform": "macos"
+   },
+   "options": [
+    {
+     "evidence": "physical-ground-truth",
+     "id": "platform-core",
+     "note": "MEASURED. The complete enumerable family set of the reference Mac, not the 32 names a 76-name probe list happened to cover. Patch 0090 makes this list the font surface, and the filter is subtractive, so a list shorter than the machine's real one is itself the tell: enforcing the old 32-name pack would have presented a Mac with 30 visible families. `requires.families` stays the smaller 30-name mandatory subset -- the names the cheap unattended probe lists (FingerprintJS and friends) actually test -- because a core pack is never dropped and conflating `requires` with `value` is what produced the 32. Two names the old pack listed, Courier and Times, are NOT enumerable families on the host: they resolve for CSS and for the last-resort path but never appear in queryLocalFonts, so they are out of the enumerable list.",
+     "pack_kind": "core",
+     "requires": {
+      "families": [
+       "Andale Mono",
+       "Arial",
+       "Arial Black",
+       "Arial Narrow",
+       "Arial Rounded MT Bold",
+       "Arial Unicode MS",
+       "Comic Sans MS",
+       "Courier New",
+       "Geneva",
+       "Georgia",
+       "Helvetica",
+       "Helvetica Neue",
+       "Hiragino Sans",
+       "Impact",
+       "Lucida Grande",
+       "Menlo",
+       "Microsoft Sans Serif",
+       "Monaco",
+       "Optima",
+       "Palatino",
+       "Papyrus",
+       "PingFang SC",
+       "Tahoma",
+       "Times New Roman",
+       "Trebuchet MS",
+       "Verdana",
+       "Wingdings",
+       "Wingdings 2",
+       "Wingdings 3",
+       "Zapfino"
+      ]
+     },
+     "source": "local/macos-m4max-queryLocalFonts-20260918.json; queryLocalFonts with a real permission grant on the macos-metal-apple-850a91233555 anchor host (Apple M4 Max, macOS 26.6.2): 184 families / 536 faces",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Academy Engraved LET",
+        "Al Bayan",
+        "Al Nile",
+        "Al Tarikh",
+        "American Typewriter",
+        "Andale Mono",
+        "Apple Braille",
+        "Apple Chancery",
+        "Apple Color Emoji",
+        "Apple SD Gothic Neo",
+        "Apple Symbols",
+        "AppleGothic",
+        "AppleMyungjo",
+        "Arial",
+        "Arial Black",
+        "Arial Hebrew",
+        "Arial Hebrew Scholar",
+        "Arial Narrow",
+        "Arial Rounded MT Bold",
+        "Arial Unicode MS",
+        "Avenir",
+        "Avenir Next",
+        "Avenir Next Condensed",
+        "Ayuthaya",
+        "Baghdad",
+        "Bangla MN",
+        "Bangla Sangam MN",
+        "Baskerville",
+        "Beirut",
+        "Big Caslon",
+        "Bodoni 72",
+        "Bodoni 72 Oldstyle",
+        "Bodoni 72 Smallcaps",
+        "Bodoni Ornaments",
+        "Bradley Hand",
+        "Brush Script MT",
+        "Chalkboard",
+        "Chalkboard SE",
+        "Chalkduster",
+        "Charter",
+        "Cochin",
+        "Comic Sans MS",
+        "Copperplate",
+        "Corsiva Hebrew",
+        "Courier New",
+        "DIN Alternate",
+        "DIN Condensed",
+        "Damascus",
+        "DecoType Naskh",
+        "Devanagari MT",
+        "Devanagari Sangam MN",
+        "Didot",
+        "Diwan Kufi",
+        "Diwan Thuluth",
+        "Euphemia UCAS",
+        "Farah",
+        "Farisi",
+        "Futura",
+        "GB18030 Bitmap",
+        "Galvji",
+        "Geeza Pro",
+        "Geneva",
+        "Georgia",
+        "Gill Sans",
+        "Grantha Sangam MN",
+        "Gujarati MT",
+        "Gujarati Sangam MN",
+        "Gurmukhi MN",
+        "Gurmukhi MT",
+        "Gurmukhi Sangam MN",
+        "Heiti SC",
+        "Heiti TC",
+        "Helvetica",
+        "Helvetica Neue",
+        "Herculanum",
+        "Hiragino Maru Gothic ProN",
+        "Hiragino Mincho ProN",
+        "Hiragino Sans",
+        "Hiragino Sans GB",
+        "Hoefler Text",
+        "ITF Devanagari",
+        "ITF Devanagari Marathi",
+        "Impact",
+        "InaiMathi",
+        "Kailasa",
+        "Kannada MN",
+        "Kannada Sangam MN",
+        "Kefa III",
+        "Khmer MN",
+        "Khmer Sangam MN",
+        "Kohinoor Bangla",
+        "Kohinoor Devanagari",
+        "Kohinoor Gujarati",
+        "Kohinoor Telugu",
+        "Kokonor",
+        "Krungthep",
+        "KufiStandardGK",
+        "Lao MN",
+        "Lao Sangam MN",
+        "Lucida Grande",
+        "Luminari",
+        "Malayalam MN",
+        "Malayalam Sangam MN",
+        "Marker Felt",
+        "Menlo",
+        "Microsoft Sans Serif",
+        "Mishafi",
+        "Mishafi Gold",
+        "Monaco",
+        "Mshtakan",
+        "Mukta Mahee",
+        "Muna",
+        "Myanmar MN",
+        "Myanmar Sangam MN",
+        "Nadeem",
+        "Nanum Gothic",
+        "Nanum Myeongjo",
+        "New Peninim MT",
+        "Noteworthy",
+        "Noto Nastaliq Urdu",
+        "Noto Sans Batak",
+        "Noto Sans Kannada",
+        "Noto Sans Myanmar",
+        "Noto Sans NKo",
+        "Noto Sans Oriya",
+        "Noto Sans Syriac",
+        "Noto Sans Tagalog",
+        "Noto Serif Myanmar",
+        "Optima",
+        "Oriya MN",
+        "Oriya Sangam MN",
+        "Osaka",
+        "PT Mono",
+        "PT Sans",
+        "PT Sans Caption",
+        "PT Sans Narrow",
+        "PT Serif",
+        "PT Serif Caption",
+        "Palatino",
+        "Papyrus",
+        "Party LET",
+        "Phosphate",
+        "PingFang HK",
+        "PingFang MO",
+        "PingFang SC",
+        "PingFang TC",
+        "Plantagenet Cherokee",
+        "Raanana",
+        "Rockwell",
+        "STFangsong",
+        "STIX Two Math",
+        "STIX Two Text",
+        "STSong",
+        "Sana",
+        "Sathu",
+        "Savoye LET",
+        "Shree Devanagari 714",
+        "SignPainter",
+        "Silom",
+        "Sinhala MN",
+        "Sinhala Sangam MN",
+        "Skia",
+        "Snell Roundhand",
+        "Songti SC",
+        "Songti TC",
+        "Sukhumvit Set",
+        "Symbol",
+        "Tahoma",
+        "Tamil MN",
+        "Tamil Sangam MN",
+        "Telugu MN",
+        "Telugu Sangam MN",
+        "Thonburi",
+        "Times New Roman",
+        "Trattatello",
+        "Trebuchet MS",
+        "Verdana",
+        "Waseem",
+        "Webdings",
+        "Wingdings",
+        "Wingdings 2",
+        "Wingdings 3",
+        "Zapf Dingbats",
+        "Zapfino"
+       ]
+      }
+     },
+     "weight": 100
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "microsoft-office",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). Microsoft Office for Mac font set. Calibri, Cambria and Consolas are Office-supplied on macOS and platform-core on Windows, which is why the pack contents differ per platform. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Calibri",
+       "Cambria",
+       "Cambria Math",
+       "Candara",
+       "Consolas",
+       "Constantia",
+       "Corbel",
+       "Franklin Gothic Book",
+       "Gill Sans MT",
+       "Lucida Console",
+       "Lucida Sans Unicode",
+       "MS Reference Sans Serif",
+       "MT Extra",
+       "Palatino Linotype",
+       "Perpetua",
+       "Rockwell",
+       "Tw Cen MT"
+      ]
+     },
+     "source": "microsoft-office installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Calibri",
+        "Cambria",
+        "Cambria Math",
+        "Candara",
+        "Consolas",
+        "Constantia",
+        "Corbel",
+        "Franklin Gothic Book",
+        "Gill Sans MT",
+        "Lucida Console",
+        "Lucida Sans Unicode",
+        "MS Reference Sans Serif",
+        "MT Extra",
+        "Palatino Linotype",
+        "Perpetua",
+        "Rockwell",
+        "Tw Cen MT"
+       ]
+      }
+     },
+     "weight": 46
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "adobe-creative-cloud",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). Adobe Creative Cloud desktop font activation. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Adobe Clean",
+       "Adobe Garamond Pro",
+       "Minion Pro",
+       "Myriad Pro",
+       "Source Code Pro",
+       "Source Sans 3",
+       "Source Serif 4"
+      ]
+     },
+     "source": "adobe-creative-cloud installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Adobe Clean",
+        "Adobe Garamond Pro",
+        "Minion Pro",
+        "Myriad Pro",
+        "Source Code Pro",
+        "Source Sans 3",
+        "Source Serif 4"
+       ]
+      }
+     },
+     "weight": 12
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "cjk-language-pack",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). macOS additional CJK language resources. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Apple SD Gothic Neo",
+       "Heiti SC",
+       "Hiragino Kaku Gothic Pro",
+       "Hiragino Mincho ProN",
+       "Kaiti SC",
+       "PingFang HK",
+       "PingFang TC",
+       "STSong",
+       "Songti SC"
+      ]
+     },
+     "source": "cjk-language-pack installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Apple SD Gothic Neo",
+        "Heiti SC",
+        "Hiragino Kaku Gothic Pro",
+        "Hiragino Mincho ProN",
+        "Kaiti SC",
+        "PingFang HK",
+        "PingFang TC",
+        "STSong",
+        "Songti SC"
+       ]
+      }
+     },
+     "weight": 22
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "libreoffice",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). LibreOffice ships Liberation, DejaVu, Carlito and Caladea on every platform, which is why these families are not by themselves a Linux tell (docs/METHODOLOGY.md). AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Caladea",
+       "Carlito",
+       "DejaVu Sans",
+       "DejaVu Sans Mono",
+       "DejaVu Serif",
+       "Liberation Mono",
+       "Liberation Sans",
+       "Liberation Serif"
+      ]
+     },
+     "source": "libreoffice installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Caladea",
+        "Carlito",
+        "DejaVu Sans",
+        "DejaVu Sans Mono",
+        "DejaVu Serif",
+        "Liberation Mono",
+        "Liberation Sans",
+        "Liberation Serif"
+       ]
+      }
+     },
+     "weight": 10
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "developer-cascadia",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). A developer toolchain: Cascadia arrives with Windows Terminal and VS Code font installs. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Cascadia Code",
+       "Cascadia Code PL",
+       "Cascadia Mono",
+       "Cascadia Mono PL"
+      ]
+     },
+     "source": "developer-cascadia installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Cascadia Code",
+        "Cascadia Code PL",
+        "Cascadia Mono",
+        "Cascadia Mono PL"
+       ]
+      }
+     },
+     "weight": 9
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "google-fonts-desktop",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). A desktop Google Fonts install. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Inter",
+       "Lato",
+       "Montserrat",
+       "Noto Sans",
+       "Open Sans",
+       "Oswald",
+       "Poppins",
+       "Raleway",
+       "Roboto",
+       "Source Sans 3"
+      ]
+     },
+     "source": "google-fonts-desktop installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Inter",
+        "Lato",
+        "Montserrat",
+        "Noto Sans",
+        "Open Sans",
+        "Oswald",
+        "Poppins",
+        "Raleway",
+        "Roboto",
+        "Source Sans 3"
+       ]
+      }
+     },
+     "weight": 11
+    }
+   ]
+  },
+  {
+   "key": {
+    "os_release": "macos-26-5-0",
+    "platform": "macos"
+   },
+   "options": [
+    {
+     "evidence": "physical-ground-truth",
+     "id": "platform-core",
+     "note": "MEASURED. The complete enumerable family set of the reference Mac, not the 32 names a 76-name probe list happened to cover. Patch 0090 makes this list the font surface, and the filter is subtractive, so a list shorter than the machine's real one is itself the tell: enforcing the old 32-name pack would have presented a Mac with 30 visible families. `requires.families` stays the smaller 30-name mandatory subset -- the names the cheap unattended probe lists (FingerprintJS and friends) actually test -- because a core pack is never dropped and conflating `requires` with `value` is what produced the 32. Two names the old pack listed, Courier and Times, are NOT enumerable families on the host: they resolve for CSS and for the last-resort path but never appear in queryLocalFonts, so they are out of the enumerable list.",
+     "pack_kind": "core",
+     "requires": {
+      "families": [
+       "Andale Mono",
+       "Arial",
+       "Arial Black",
+       "Arial Narrow",
+       "Arial Rounded MT Bold",
+       "Arial Unicode MS",
+       "Comic Sans MS",
+       "Courier New",
+       "Geneva",
+       "Georgia",
+       "Helvetica",
+       "Helvetica Neue",
+       "Hiragino Sans",
+       "Impact",
+       "Lucida Grande",
+       "Menlo",
+       "Microsoft Sans Serif",
+       "Monaco",
+       "Optima",
+       "Palatino",
+       "Papyrus",
+       "PingFang SC",
+       "Tahoma",
+       "Times New Roman",
+       "Trebuchet MS",
+       "Verdana",
+       "Wingdings",
+       "Wingdings 2",
+       "Wingdings 3",
+       "Zapfino"
+      ]
+     },
+     "source": "local/macos-m4max-queryLocalFonts-20260918.json; queryLocalFonts with a real permission grant on the macos-metal-apple-850a91233555 anchor host (Apple M4 Max, macOS 26.6.2): 184 families / 536 faces",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Academy Engraved LET",
+        "Al Bayan",
+        "Al Nile",
+        "Al Tarikh",
+        "American Typewriter",
+        "Andale Mono",
+        "Apple Braille",
+        "Apple Chancery",
+        "Apple Color Emoji",
+        "Apple SD Gothic Neo",
+        "Apple Symbols",
+        "AppleGothic",
+        "AppleMyungjo",
+        "Arial",
+        "Arial Black",
+        "Arial Hebrew",
+        "Arial Hebrew Scholar",
+        "Arial Narrow",
+        "Arial Rounded MT Bold",
+        "Arial Unicode MS",
+        "Avenir",
+        "Avenir Next",
+        "Avenir Next Condensed",
+        "Ayuthaya",
+        "Baghdad",
+        "Bangla MN",
+        "Bangla Sangam MN",
+        "Baskerville",
+        "Beirut",
+        "Big Caslon",
+        "Bodoni 72",
+        "Bodoni 72 Oldstyle",
+        "Bodoni 72 Smallcaps",
+        "Bodoni Ornaments",
+        "Bradley Hand",
+        "Brush Script MT",
+        "Chalkboard",
+        "Chalkboard SE",
+        "Chalkduster",
+        "Charter",
+        "Cochin",
+        "Comic Sans MS",
+        "Copperplate",
+        "Corsiva Hebrew",
+        "Courier New",
+        "DIN Alternate",
+        "DIN Condensed",
+        "Damascus",
+        "DecoType Naskh",
+        "Devanagari MT",
+        "Devanagari Sangam MN",
+        "Didot",
+        "Diwan Kufi",
+        "Diwan Thuluth",
+        "Euphemia UCAS",
+        "Farah",
+        "Farisi",
+        "Futura",
+        "GB18030 Bitmap",
+        "Galvji",
+        "Geeza Pro",
+        "Geneva",
+        "Georgia",
+        "Gill Sans",
+        "Grantha Sangam MN",
+        "Gujarati MT",
+        "Gujarati Sangam MN",
+        "Gurmukhi MN",
+        "Gurmukhi MT",
+        "Gurmukhi Sangam MN",
+        "Heiti SC",
+        "Heiti TC",
+        "Helvetica",
+        "Helvetica Neue",
+        "Herculanum",
+        "Hiragino Maru Gothic ProN",
+        "Hiragino Mincho ProN",
+        "Hiragino Sans",
+        "Hiragino Sans GB",
+        "Hoefler Text",
+        "ITF Devanagari",
+        "ITF Devanagari Marathi",
+        "Impact",
+        "InaiMathi",
+        "Kailasa",
+        "Kannada MN",
+        "Kannada Sangam MN",
+        "Kefa III",
+        "Khmer MN",
+        "Khmer Sangam MN",
+        "Kohinoor Bangla",
+        "Kohinoor Devanagari",
+        "Kohinoor Gujarati",
+        "Kohinoor Telugu",
+        "Kokonor",
+        "Krungthep",
+        "KufiStandardGK",
+        "Lao MN",
+        "Lao Sangam MN",
+        "Lucida Grande",
+        "Luminari",
+        "Malayalam MN",
+        "Malayalam Sangam MN",
+        "Marker Felt",
+        "Menlo",
+        "Microsoft Sans Serif",
+        "Mishafi",
+        "Mishafi Gold",
+        "Monaco",
+        "Mshtakan",
+        "Mukta Mahee",
+        "Muna",
+        "Myanmar MN",
+        "Myanmar Sangam MN",
+        "Nadeem",
+        "Nanum Gothic",
+        "Nanum Myeongjo",
+        "New Peninim MT",
+        "Noteworthy",
+        "Noto Nastaliq Urdu",
+        "Noto Sans Batak",
+        "Noto Sans Kannada",
+        "Noto Sans Myanmar",
+        "Noto Sans NKo",
+        "Noto Sans Oriya",
+        "Noto Sans Syriac",
+        "Noto Sans Tagalog",
+        "Noto Serif Myanmar",
+        "Optima",
+        "Oriya MN",
+        "Oriya Sangam MN",
+        "Osaka",
+        "PT Mono",
+        "PT Sans",
+        "PT Sans Caption",
+        "PT Sans Narrow",
+        "PT Serif",
+        "PT Serif Caption",
+        "Palatino",
+        "Papyrus",
+        "Party LET",
+        "Phosphate",
+        "PingFang HK",
+        "PingFang MO",
+        "PingFang SC",
+        "PingFang TC",
+        "Plantagenet Cherokee",
+        "Raanana",
+        "Rockwell",
+        "STFangsong",
+        "STIX Two Math",
+        "STIX Two Text",
+        "STSong",
+        "Sana",
+        "Sathu",
+        "Savoye LET",
+        "Shree Devanagari 714",
+        "SignPainter",
+        "Silom",
+        "Sinhala MN",
+        "Sinhala Sangam MN",
+        "Skia",
+        "Snell Roundhand",
+        "Songti SC",
+        "Songti TC",
+        "Sukhumvit Set",
+        "Symbol",
+        "Tahoma",
+        "Tamil MN",
+        "Tamil Sangam MN",
+        "Telugu MN",
+        "Telugu Sangam MN",
+        "Thonburi",
+        "Times New Roman",
+        "Trattatello",
+        "Trebuchet MS",
+        "Verdana",
+        "Waseem",
+        "Webdings",
+        "Wingdings",
+        "Wingdings 2",
+        "Wingdings 3",
+        "Zapf Dingbats",
+        "Zapfino"
+       ]
+      }
+     },
+     "weight": 100
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "microsoft-office",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). Microsoft Office for Mac font set. Calibri, Cambria and Consolas are Office-supplied on macOS and platform-core on Windows, which is why the pack contents differ per platform. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Calibri",
+       "Cambria",
+       "Cambria Math",
+       "Candara",
+       "Consolas",
+       "Constantia",
+       "Corbel",
+       "Franklin Gothic Book",
+       "Gill Sans MT",
+       "Lucida Console",
+       "Lucida Sans Unicode",
+       "MS Reference Sans Serif",
+       "MT Extra",
+       "Palatino Linotype",
+       "Perpetua",
+       "Rockwell",
+       "Tw Cen MT"
+      ]
+     },
+     "source": "microsoft-office installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Calibri",
+        "Cambria",
+        "Cambria Math",
+        "Candara",
+        "Consolas",
+        "Constantia",
+        "Corbel",
+        "Franklin Gothic Book",
+        "Gill Sans MT",
+        "Lucida Console",
+        "Lucida Sans Unicode",
+        "MS Reference Sans Serif",
+        "MT Extra",
+        "Palatino Linotype",
+        "Perpetua",
+        "Rockwell",
+        "Tw Cen MT"
+       ]
+      }
+     },
+     "weight": 46
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "adobe-creative-cloud",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). Adobe Creative Cloud desktop font activation. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Adobe Clean",
+       "Adobe Garamond Pro",
+       "Minion Pro",
+       "Myriad Pro",
+       "Source Code Pro",
+       "Source Sans 3",
+       "Source Serif 4"
+      ]
+     },
+     "source": "adobe-creative-cloud installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Adobe Clean",
+        "Adobe Garamond Pro",
+        "Minion Pro",
+        "Myriad Pro",
+        "Source Code Pro",
+        "Source Sans 3",
+        "Source Serif 4"
+       ]
+      }
+     },
+     "weight": 12
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "cjk-language-pack",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). macOS additional CJK language resources. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Apple SD Gothic Neo",
+       "Heiti SC",
+       "Hiragino Kaku Gothic Pro",
+       "Hiragino Mincho ProN",
+       "Kaiti SC",
+       "PingFang HK",
+       "PingFang TC",
+       "STSong",
+       "Songti SC"
+      ]
+     },
+     "source": "cjk-language-pack installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Apple SD Gothic Neo",
+        "Heiti SC",
+        "Hiragino Kaku Gothic Pro",
+        "Hiragino Mincho ProN",
+        "Kaiti SC",
+        "PingFang HK",
+        "PingFang TC",
+        "STSong",
+        "Songti SC"
+       ]
+      }
+     },
+     "weight": 22
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "libreoffice",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). LibreOffice ships Liberation, DejaVu, Carlito and Caladea on every platform, which is why these families are not by themselves a Linux tell (docs/METHODOLOGY.md). AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Caladea",
+       "Carlito",
+       "DejaVu Sans",
+       "DejaVu Sans Mono",
+       "DejaVu Serif",
+       "Liberation Mono",
+       "Liberation Sans",
+       "Liberation Serif"
+      ]
+     },
+     "source": "libreoffice installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Caladea",
+        "Carlito",
+        "DejaVu Sans",
+        "DejaVu Sans Mono",
+        "DejaVu Serif",
+        "Liberation Mono",
+        "Liberation Sans",
+        "Liberation Serif"
+       ]
+      }
+     },
+     "weight": 10
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "developer-cascadia",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). A developer toolchain: Cascadia arrives with Windows Terminal and VS Code font installs. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Cascadia Code",
+       "Cascadia Code PL",
+       "Cascadia Mono",
+       "Cascadia Mono PL"
+      ]
+     },
+     "source": "developer-cascadia installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Cascadia Code",
+        "Cascadia Code PL",
+        "Cascadia Mono",
+        "Cascadia Mono PL"
+       ]
+      }
+     },
+     "weight": 9
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "google-fonts-desktop",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). A desktop Google Fonts install. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Inter",
+       "Lato",
+       "Montserrat",
+       "Noto Sans",
+       "Open Sans",
+       "Oswald",
+       "Poppins",
+       "Raleway",
+       "Roboto",
+       "Source Sans 3"
+      ]
+     },
+     "source": "google-fonts-desktop installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Inter",
+        "Lato",
+        "Montserrat",
+        "Noto Sans",
+        "Open Sans",
+        "Oswald",
+        "Poppins",
+        "Raleway",
+        "Roboto",
+        "Source Sans 3"
+       ]
+      }
+     },
+     "weight": 11
+    }
+   ]
+  },
+  {
+   "key": {
+    "os_release": "macos-15-7-2",
+    "platform": "macos"
+   },
+   "options": [
+    {
+     "evidence": "physical-ground-truth",
+     "id": "platform-core",
+     "note": "MEASURED. The complete enumerable family set of the reference Mac, not the 32 names a 76-name probe list happened to cover. Patch 0090 makes this list the font surface, and the filter is subtractive, so a list shorter than the machine's real one is itself the tell: enforcing the old 32-name pack would have presented a Mac with 30 visible families. `requires.families` stays the smaller 30-name mandatory subset -- the names the cheap unattended probe lists (FingerprintJS and friends) actually test -- because a core pack is never dropped and conflating `requires` with `value` is what produced the 32. Two names the old pack listed, Courier and Times, are NOT enumerable families on the host: they resolve for CSS and for the last-resort path but never appear in queryLocalFonts, so they are out of the enumerable list.",
+     "pack_kind": "core",
+     "requires": {
+      "families": [
+       "Andale Mono",
+       "Arial",
+       "Arial Black",
+       "Arial Narrow",
+       "Arial Rounded MT Bold",
+       "Arial Unicode MS",
+       "Comic Sans MS",
+       "Courier New",
+       "Geneva",
+       "Georgia",
+       "Helvetica",
+       "Helvetica Neue",
+       "Hiragino Sans",
+       "Impact",
+       "Lucida Grande",
+       "Menlo",
+       "Microsoft Sans Serif",
+       "Monaco",
+       "Optima",
+       "Palatino",
+       "Papyrus",
+       "PingFang SC",
+       "Tahoma",
+       "Times New Roman",
+       "Trebuchet MS",
+       "Verdana",
+       "Wingdings",
+       "Wingdings 2",
+       "Wingdings 3",
+       "Zapfino"
+      ]
+     },
+     "source": "local/macos-m4max-queryLocalFonts-20260918.json; queryLocalFonts with a real permission grant on the macos-metal-apple-850a91233555 anchor host (Apple M4 Max, macOS 26.6.2): 184 families / 536 faces",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Academy Engraved LET",
+        "Al Bayan",
+        "Al Nile",
+        "Al Tarikh",
+        "American Typewriter",
+        "Andale Mono",
+        "Apple Braille",
+        "Apple Chancery",
+        "Apple Color Emoji",
+        "Apple SD Gothic Neo",
+        "Apple Symbols",
+        "AppleGothic",
+        "AppleMyungjo",
+        "Arial",
+        "Arial Black",
+        "Arial Hebrew",
+        "Arial Hebrew Scholar",
+        "Arial Narrow",
+        "Arial Rounded MT Bold",
+        "Arial Unicode MS",
+        "Avenir",
+        "Avenir Next",
+        "Avenir Next Condensed",
+        "Ayuthaya",
+        "Baghdad",
+        "Bangla MN",
+        "Bangla Sangam MN",
+        "Baskerville",
+        "Beirut",
+        "Big Caslon",
+        "Bodoni 72",
+        "Bodoni 72 Oldstyle",
+        "Bodoni 72 Smallcaps",
+        "Bodoni Ornaments",
+        "Bradley Hand",
+        "Brush Script MT",
+        "Chalkboard",
+        "Chalkboard SE",
+        "Chalkduster",
+        "Charter",
+        "Cochin",
+        "Comic Sans MS",
+        "Copperplate",
+        "Corsiva Hebrew",
+        "Courier New",
+        "DIN Alternate",
+        "DIN Condensed",
+        "Damascus",
+        "DecoType Naskh",
+        "Devanagari MT",
+        "Devanagari Sangam MN",
+        "Didot",
+        "Diwan Kufi",
+        "Diwan Thuluth",
+        "Euphemia UCAS",
+        "Farah",
+        "Farisi",
+        "Futura",
+        "GB18030 Bitmap",
+        "Galvji",
+        "Geeza Pro",
+        "Geneva",
+        "Georgia",
+        "Gill Sans",
+        "Grantha Sangam MN",
+        "Gujarati MT",
+        "Gujarati Sangam MN",
+        "Gurmukhi MN",
+        "Gurmukhi MT",
+        "Gurmukhi Sangam MN",
+        "Heiti SC",
+        "Heiti TC",
+        "Helvetica",
+        "Helvetica Neue",
+        "Herculanum",
+        "Hiragino Maru Gothic ProN",
+        "Hiragino Mincho ProN",
+        "Hiragino Sans",
+        "Hiragino Sans GB",
+        "Hoefler Text",
+        "ITF Devanagari",
+        "ITF Devanagari Marathi",
+        "Impact",
+        "InaiMathi",
+        "Kailasa",
+        "Kannada MN",
+        "Kannada Sangam MN",
+        "Kefa III",
+        "Khmer MN",
+        "Khmer Sangam MN",
+        "Kohinoor Bangla",
+        "Kohinoor Devanagari",
+        "Kohinoor Gujarati",
+        "Kohinoor Telugu",
+        "Kokonor",
+        "Krungthep",
+        "KufiStandardGK",
+        "Lao MN",
+        "Lao Sangam MN",
+        "Lucida Grande",
+        "Luminari",
+        "Malayalam MN",
+        "Malayalam Sangam MN",
+        "Marker Felt",
+        "Menlo",
+        "Microsoft Sans Serif",
+        "Mishafi",
+        "Mishafi Gold",
+        "Monaco",
+        "Mshtakan",
+        "Mukta Mahee",
+        "Muna",
+        "Myanmar MN",
+        "Myanmar Sangam MN",
+        "Nadeem",
+        "Nanum Gothic",
+        "Nanum Myeongjo",
+        "New Peninim MT",
+        "Noteworthy",
+        "Noto Nastaliq Urdu",
+        "Noto Sans Batak",
+        "Noto Sans Kannada",
+        "Noto Sans Myanmar",
+        "Noto Sans NKo",
+        "Noto Sans Oriya",
+        "Noto Sans Syriac",
+        "Noto Sans Tagalog",
+        "Noto Serif Myanmar",
+        "Optima",
+        "Oriya MN",
+        "Oriya Sangam MN",
+        "Osaka",
+        "PT Mono",
+        "PT Sans",
+        "PT Sans Caption",
+        "PT Sans Narrow",
+        "PT Serif",
+        "PT Serif Caption",
+        "Palatino",
+        "Papyrus",
+        "Party LET",
+        "Phosphate",
+        "PingFang HK",
+        "PingFang MO",
+        "PingFang SC",
+        "PingFang TC",
+        "Plantagenet Cherokee",
+        "Raanana",
+        "Rockwell",
+        "STFangsong",
+        "STIX Two Math",
+        "STIX Two Text",
+        "STSong",
+        "Sana",
+        "Sathu",
+        "Savoye LET",
+        "Shree Devanagari 714",
+        "SignPainter",
+        "Silom",
+        "Sinhala MN",
+        "Sinhala Sangam MN",
+        "Skia",
+        "Snell Roundhand",
+        "Songti SC",
+        "Songti TC",
+        "Sukhumvit Set",
+        "Symbol",
+        "Tahoma",
+        "Tamil MN",
+        "Tamil Sangam MN",
+        "Telugu MN",
+        "Telugu Sangam MN",
+        "Thonburi",
+        "Times New Roman",
+        "Trattatello",
+        "Trebuchet MS",
+        "Verdana",
+        "Waseem",
+        "Webdings",
+        "Wingdings",
+        "Wingdings 2",
+        "Wingdings 3",
+        "Zapf Dingbats",
+        "Zapfino"
+       ]
+      }
+     },
+     "weight": 100
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "microsoft-office",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). Microsoft Office for Mac font set. Calibri, Cambria and Consolas are Office-supplied on macOS and platform-core on Windows, which is why the pack contents differ per platform. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Calibri",
+       "Cambria",
+       "Cambria Math",
+       "Candara",
+       "Consolas",
+       "Constantia",
+       "Corbel",
+       "Franklin Gothic Book",
+       "Gill Sans MT",
+       "Lucida Console",
+       "Lucida Sans Unicode",
+       "MS Reference Sans Serif",
+       "MT Extra",
+       "Palatino Linotype",
+       "Perpetua",
+       "Rockwell",
+       "Tw Cen MT"
+      ]
+     },
+     "source": "microsoft-office installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Calibri",
+        "Cambria",
+        "Cambria Math",
+        "Candara",
+        "Consolas",
+        "Constantia",
+        "Corbel",
+        "Franklin Gothic Book",
+        "Gill Sans MT",
+        "Lucida Console",
+        "Lucida Sans Unicode",
+        "MS Reference Sans Serif",
+        "MT Extra",
+        "Palatino Linotype",
+        "Perpetua",
+        "Rockwell",
+        "Tw Cen MT"
+       ]
+      }
+     },
+     "weight": 46
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "adobe-creative-cloud",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). Adobe Creative Cloud desktop font activation. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Adobe Clean",
+       "Adobe Garamond Pro",
+       "Minion Pro",
+       "Myriad Pro",
+       "Source Code Pro",
+       "Source Sans 3",
+       "Source Serif 4"
+      ]
+     },
+     "source": "adobe-creative-cloud installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Adobe Clean",
+        "Adobe Garamond Pro",
+        "Minion Pro",
+        "Myriad Pro",
+        "Source Code Pro",
+        "Source Sans 3",
+        "Source Serif 4"
+       ]
+      }
+     },
+     "weight": 12
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "cjk-language-pack",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). macOS additional CJK language resources. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Apple SD Gothic Neo",
+       "Heiti SC",
+       "Hiragino Kaku Gothic Pro",
+       "Hiragino Mincho ProN",
+       "Kaiti SC",
+       "PingFang HK",
+       "PingFang TC",
+       "STSong",
+       "Songti SC"
+      ]
+     },
+     "source": "cjk-language-pack installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Apple SD Gothic Neo",
+        "Heiti SC",
+        "Hiragino Kaku Gothic Pro",
+        "Hiragino Mincho ProN",
+        "Kaiti SC",
+        "PingFang HK",
+        "PingFang TC",
+        "STSong",
+        "Songti SC"
+       ]
+      }
+     },
+     "weight": 22
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "libreoffice",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). LibreOffice ships Liberation, DejaVu, Carlito and Caladea on every platform, which is why these families are not by themselves a Linux tell (docs/METHODOLOGY.md). AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Caladea",
+       "Carlito",
+       "DejaVu Sans",
+       "DejaVu Sans Mono",
+       "DejaVu Serif",
+       "Liberation Mono",
+       "Liberation Sans",
+       "Liberation Serif"
+      ]
+     },
+     "source": "libreoffice installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Caladea",
+        "Carlito",
+        "DejaVu Sans",
+        "DejaVu Sans Mono",
+        "DejaVu Serif",
+        "Liberation Mono",
+        "Liberation Sans",
+        "Liberation Serif"
+       ]
+      }
+     },
+     "weight": 10
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "developer-cascadia",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). A developer toolchain: Cascadia arrives with Windows Terminal and VS Code font installs. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Cascadia Code",
+       "Cascadia Code PL",
+       "Cascadia Mono",
+       "Cascadia Mono PL"
+      ]
+     },
+     "source": "developer-cascadia installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Cascadia Code",
+        "Cascadia Code PL",
+        "Cascadia Mono",
+        "Cascadia Mono PL"
+       ]
+      }
+     },
+     "weight": 9
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "google-fonts-desktop",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). A desktop Google Fonts install. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Inter",
+       "Lato",
+       "Montserrat",
+       "Noto Sans",
+       "Open Sans",
+       "Oswald",
+       "Poppins",
+       "Raleway",
+       "Roboto",
+       "Source Sans 3"
+      ]
+     },
+     "source": "google-fonts-desktop installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Inter",
+        "Lato",
+        "Montserrat",
+        "Noto Sans",
+        "Open Sans",
+        "Oswald",
+        "Poppins",
+        "Raleway",
+        "Roboto",
+        "Source Sans 3"
+       ]
+      }
+     },
+     "weight": 11
+    }
+   ]
+  },
+  {
+   "key": {
+    "os_release": "windows-11",
+    "platform": "windows"
+   },
+   "options": [
+    {
+     "evidence": "catalogue-value",
+     "id": "platform-core",
+     "note": "Mandatory core set: the families the claimed platform cannot be without. Membership is the family list of a Windows 11 English release font set, redistributed at https://github.com/liblaf/fonts/releases/download/Win11/Win11-English.zip and unpacked rather than vendored here; 37 of them are additionally confirmed present by this project's own Windows capture, whose probe list is bounded and so cannot speak to the rest. Enumeration is subtractive and always servable, so a family the host lacks simply does not appear; a missing core family is the defensible failure, an absent one is not.",
+     "pack_kind": "core",
+     "requires": {
+      "families": [
+       "Arial",
+       "Arial Black",
+       "Arial Narrow",
+       "Bahnschrift",
+       "Calibri",
+       "Calibri Light",
+       "Cambria",
+       "Cambria Math",
+       "Candara",
+       "Candara Light",
+       "Comic Sans MS",
+       "Consolas",
+       "Constantia",
+       "Corbel",
+       "Corbel Light",
+       "Courier",
+       "Courier New",
+       "Ebrima",
+       "Franklin Gothic Medium",
+       "Gabriola",
+       "Gadugi",
+       "Georgia",
+       "Helvetica",
+       "Impact",
+       "Ink Free",
+       "Javanese Text",
+       "Leelawadee UI",
+       "Lucida Console",
+       "Lucida Sans Unicode",
+       "MS Gothic",
+       "MS PGothic",
+       "MS Sans Serif",
+       "MS Serif",
+       "MS UI Gothic",
+       "MV Boli",
+       "Malgun Gothic",
+       "Marlett",
+       "Microsoft Himalaya",
+       "Microsoft JhengHei",
+       "Microsoft JhengHei UI",
+       "Microsoft New Tai Lue",
+       "Microsoft PhagsPa",
+       "Microsoft Sans Serif",
+       "Microsoft Tai Le",
+       "Microsoft YaHei",
+       "Microsoft YaHei UI",
+       "Microsoft Yi Baiti",
+       "Mongolian Baiti",
+       "Myanmar Text",
+       "NSimSun",
+       "Nirmala UI",
+       "Palatino Linotype",
+       "Segoe Fluent Icons",
+       "Segoe MDL2 Assets",
+       "Segoe Print",
+       "Segoe Script",
+       "Segoe UI",
+       "Segoe UI Black",
+       "Segoe UI Emoji",
+       "Segoe UI Historic",
+       "Segoe UI Light",
+       "Segoe UI Semibold",
+       "Segoe UI Semilight",
+       "Segoe UI Symbol",
+       "Segoe UI Variable",
+       "SimSun",
+       "Sitka",
+       "Sylfaen",
+       "Symbol",
+       "Tahoma",
+       "Times",
+       "Times New Roman",
+       "Trebuchet MS",
+       "Verdana",
+       "Webdings",
+       "Wingdings",
+       "Wingdings 2",
+       "Wingdings 3",
+       "Yu Gothic",
+       "Yu Gothic UI"
+      ]
+     },
+     "source": "https://github.com/liblaf/fonts/releases/download/Win11/Win11-English.zip",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Arial",
+        "Arial Black",
+        "Arial Narrow",
+        "Bahnschrift",
+        "Calibri",
+        "Calibri Light",
+        "Cambria",
+        "Cambria Math",
+        "Candara",
+        "Candara Light",
+        "Comic Sans MS",
+        "Consolas",
+        "Constantia",
+        "Corbel",
+        "Corbel Light",
+        "Courier",
+        "Courier New",
+        "Ebrima",
+        "Franklin Gothic Medium",
+        "Gabriola",
+        "Gadugi",
+        "Georgia",
+        "Helvetica",
+        "Impact",
+        "Ink Free",
+        "Javanese Text",
+        "Leelawadee UI",
+        "Lucida Console",
+        "Lucida Sans Unicode",
+        "MS Gothic",
+        "MS PGothic",
+        "MS Sans Serif",
+        "MS Serif",
+        "MS UI Gothic",
+        "MV Boli",
+        "Malgun Gothic",
+        "Marlett",
+        "Microsoft Himalaya",
+        "Microsoft JhengHei",
+        "Microsoft JhengHei UI",
+        "Microsoft New Tai Lue",
+        "Microsoft PhagsPa",
+        "Microsoft Sans Serif",
+        "Microsoft Tai Le",
+        "Microsoft YaHei",
+        "Microsoft YaHei UI",
+        "Microsoft Yi Baiti",
+        "Mongolian Baiti",
+        "Myanmar Text",
+        "NSimSun",
+        "Nirmala UI",
+        "Palatino Linotype",
+        "Segoe Fluent Icons",
+        "Segoe MDL2 Assets",
+        "Segoe Print",
+        "Segoe Script",
+        "Segoe UI",
+        "Segoe UI Black",
+        "Segoe UI Emoji",
+        "Segoe UI Historic",
+        "Segoe UI Light",
+        "Segoe UI Semibold",
+        "Segoe UI Semilight",
+        "Segoe UI Symbol",
+        "Segoe UI Variable",
+        "SimSun",
+        "Sitka",
+        "Sylfaen",
+        "Symbol",
+        "Tahoma",
+        "Times",
+        "Times New Roman",
+        "Trebuchet MS",
+        "Verdana",
+        "Webdings",
+        "Wingdings",
+        "Wingdings 2",
+        "Wingdings 3",
+        "Yu Gothic",
+        "Yu Gothic UI"
+       ],
+       "generic_family_map": {
+        "cursive": "Comic Sans MS",
+        "fantasy": "Impact",
+        "monospace": "Consolas",
+        "sans-serif": "Arial",
+        "serif": "Times New Roman"
+       }
+      }
+     },
+     "weight": 100
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "microsoft-office",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). Microsoft Office for Windows font set, excluding the families Windows itself already ships. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence. Carries no generic family: all five are set unconditionally on the platform core pack, because a generic gated on an optional pack would leave the host's own generic in effect whenever that pack is not drawn.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Bookshelf Symbol 7",
+       "Franklin Gothic Book",
+       "Gill Sans MT",
+       "MS Reference Sans Serif",
+       "MS Reference Specialty",
+       "MT Extra",
+       "Perpetua",
+       "Rockwell",
+       "Sitka Banner",
+       "Sitka Display",
+       "Sitka Heading",
+       "Sitka Small",
+       "Sitka Subheading",
+       "Sitka Text",
+       "Tw Cen MT"
+      ]
+     },
+     "source": "microsoft-office installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Bookshelf Symbol 7",
+        "Franklin Gothic Book",
+        "Gill Sans MT",
+        "MS Reference Sans Serif",
+        "MS Reference Specialty",
+        "MT Extra",
+        "Perpetua",
+        "Rockwell",
+        "Sitka Banner",
+        "Sitka Display",
+        "Sitka Heading",
+        "Sitka Small",
+        "Sitka Subheading",
+        "Sitka Text",
+        "Tw Cen MT"
+       ]
+      }
+     },
+     "weight": 52
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "adobe-creative-cloud",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). Adobe Creative Cloud desktop font activation. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Adobe Clean",
+       "Adobe Garamond Pro",
+       "Minion Pro",
+       "Myriad Pro",
+       "Source Code Pro",
+       "Source Sans 3",
+       "Source Serif 4"
+      ]
+     },
+     "source": "adobe-creative-cloud installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Adobe Clean",
+        "Adobe Garamond Pro",
+        "Minion Pro",
+        "Myriad Pro",
+        "Source Code Pro",
+        "Source Sans 3",
+        "Source Serif 4"
+       ]
+      }
+     },
+     "weight": 12
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "japanese-supplemental",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell. Split by language because Windows ships these as separate per-language supplemental font features, so a machine with one language's set does not thereby have another's.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Meiryo",
+       "Yu Mincho"
+      ]
+     },
+     "source": "https://github.com/liblaf/fonts/releases/download/Win11/Win11-English.zip",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Meiryo",
+        "Yu Mincho"
+       ]
+      }
+     },
+     "weight": 22
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "chinese-simplified-supplemental",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell. Split by language because Windows ships these as separate per-language supplemental font features, so a machine with one language's set does not thereby have another's.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "DengXian",
+       "FangSong",
+       "KaiTi"
+      ]
+     },
+     "source": "https://github.com/liblaf/fonts/releases/download/Win11/Win11-English.zip",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "DengXian",
+        "FangSong",
+        "KaiTi"
+       ]
+      }
+     },
+     "weight": 16
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "chinese-traditional-supplemental",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell. Split by language because Windows ships these as separate per-language supplemental font features, so a machine with one language's set does not thereby have another's.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "MingLiU"
+      ]
+     },
+     "source": "https://github.com/liblaf/fonts/releases/download/Win11/Win11-English.zip",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "MingLiU"
+       ]
+      }
+     },
+     "weight": 12
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "libreoffice",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). LibreOffice ships Liberation, DejaVu, Carlito and Caladea on every platform. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Caladea",
+       "Carlito",
+       "DejaVu Sans",
+       "DejaVu Sans Mono",
+       "DejaVu Serif",
+       "Liberation Mono",
+       "Liberation Sans",
+       "Liberation Serif"
+      ]
+     },
+     "source": "libreoffice installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Caladea",
+        "Carlito",
+        "DejaVu Sans",
+        "DejaVu Sans Mono",
+        "DejaVu Serif",
+        "Liberation Mono",
+        "Liberation Sans",
+        "Liberation Serif"
+       ]
+      }
+     },
+     "weight": 14
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "developer-cascadia",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). Windows Terminal and the VS Code font install both bring Cascadia. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Cascadia Code",
+       "Cascadia Code PL",
+       "Cascadia Mono",
+       "Cascadia Mono PL"
+      ]
+     },
+     "source": "developer-cascadia installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Cascadia Code",
+        "Cascadia Code PL",
+        "Cascadia Mono",
+        "Cascadia Mono PL"
+       ]
+      }
+     },
+     "weight": 16
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "google-fonts-desktop",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). A desktop Google Fonts install. Roboto and Noto Sans were measured present on the Windows reference host and are attributed here rather than to the platform core. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Inter",
+       "Lato",
+       "Montserrat",
+       "Noto Sans",
+       "Open Sans",
+       "Oswald",
+       "Poppins",
+       "Raleway",
+       "Roboto",
+       "Source Sans 3"
+      ]
+     },
+     "source": "google-fonts-desktop installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Inter",
+        "Lato",
+        "Montserrat",
+        "Noto Sans",
+        "Open Sans",
+        "Oswald",
+        "Poppins",
+        "Raleway",
+        "Roboto",
+        "Source Sans 3"
+       ]
+      }
+     },
+     "weight": 12
+    }
+   ]
+  },
+  {
+   "key": {
+    "os_release": "windows-10-22h2",
+    "platform": "windows"
+   },
+   "options": [
+    {
+     "evidence": "catalogue-value",
+     "id": "platform-core",
+     "note": "Mandatory core set: the families the claimed platform cannot be without. Membership is the family list of a Windows 11 English release font set, redistributed at https://github.com/liblaf/fonts/releases/download/Win11/Win11-English.zip and unpacked rather than vendored here; 37 of them are additionally confirmed present by this project's own Windows capture, whose probe list is bounded and so cannot speak to the rest. Enumeration is subtractive and always servable, so a family the host lacks simply does not appear; a missing core family is the defensible failure, an absent one is not.",
+     "pack_kind": "core",
+     "requires": {
+      "families": [
+       "Arial",
+       "Arial Black",
+       "Arial Narrow",
+       "Bahnschrift",
+       "Calibri",
+       "Calibri Light",
+       "Cambria",
+       "Cambria Math",
+       "Candara",
+       "Candara Light",
+       "Comic Sans MS",
+       "Consolas",
+       "Constantia",
+       "Corbel",
+       "Corbel Light",
+       "Courier",
+       "Courier New",
+       "Ebrima",
+       "Franklin Gothic Medium",
+       "Gabriola",
+       "Gadugi",
+       "Georgia",
+       "Helvetica",
+       "Impact",
+       "Ink Free",
+       "Javanese Text",
+       "Leelawadee UI",
+       "Lucida Console",
+       "Lucida Sans Unicode",
+       "MS Gothic",
+       "MS PGothic",
+       "MS Sans Serif",
+       "MS Serif",
+       "MS UI Gothic",
+       "MV Boli",
+       "Malgun Gothic",
+       "Marlett",
+       "Microsoft Himalaya",
+       "Microsoft JhengHei",
+       "Microsoft JhengHei UI",
+       "Microsoft New Tai Lue",
+       "Microsoft PhagsPa",
+       "Microsoft Sans Serif",
+       "Microsoft Tai Le",
+       "Microsoft YaHei",
+       "Microsoft YaHei UI",
+       "Microsoft Yi Baiti",
+       "Mongolian Baiti",
+       "Myanmar Text",
+       "NSimSun",
+       "Nirmala UI",
+       "Palatino Linotype",
+       "Segoe MDL2 Assets",
+       "Segoe Print",
+       "Segoe Script",
+       "Segoe UI",
+       "Segoe UI Black",
+       "Segoe UI Emoji",
+       "Segoe UI Historic",
+       "Segoe UI Light",
+       "Segoe UI Semibold",
+       "Segoe UI Semilight",
+       "Segoe UI Symbol",
+       "SimSun",
+       "Sitka",
+       "Sylfaen",
+       "Symbol",
+       "Tahoma",
+       "Times",
+       "Times New Roman",
+       "Trebuchet MS",
+       "Verdana",
+       "Webdings",
+       "Wingdings",
+       "Wingdings 2",
+       "Wingdings 3",
+       "Yu Gothic",
+       "Yu Gothic UI"
+      ]
+     },
+     "source": "https://github.com/liblaf/fonts/releases/download/Win11/Win11-English.zip",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Arial",
+        "Arial Black",
+        "Arial Narrow",
+        "Bahnschrift",
+        "Calibri",
+        "Calibri Light",
+        "Cambria",
+        "Cambria Math",
+        "Candara",
+        "Candara Light",
+        "Comic Sans MS",
+        "Consolas",
+        "Constantia",
+        "Corbel",
+        "Corbel Light",
+        "Courier",
+        "Courier New",
+        "Ebrima",
+        "Franklin Gothic Medium",
+        "Gabriola",
+        "Gadugi",
+        "Georgia",
+        "Helvetica",
+        "Impact",
+        "Ink Free",
+        "Javanese Text",
+        "Leelawadee UI",
+        "Lucida Console",
+        "Lucida Sans Unicode",
+        "MS Gothic",
+        "MS PGothic",
+        "MS Sans Serif",
+        "MS Serif",
+        "MS UI Gothic",
+        "MV Boli",
+        "Malgun Gothic",
+        "Marlett",
+        "Microsoft Himalaya",
+        "Microsoft JhengHei",
+        "Microsoft JhengHei UI",
+        "Microsoft New Tai Lue",
+        "Microsoft PhagsPa",
+        "Microsoft Sans Serif",
+        "Microsoft Tai Le",
+        "Microsoft YaHei",
+        "Microsoft YaHei UI",
+        "Microsoft Yi Baiti",
+        "Mongolian Baiti",
+        "Myanmar Text",
+        "NSimSun",
+        "Nirmala UI",
+        "Palatino Linotype",
+        "Segoe MDL2 Assets",
+        "Segoe Print",
+        "Segoe Script",
+        "Segoe UI",
+        "Segoe UI Black",
+        "Segoe UI Emoji",
+        "Segoe UI Historic",
+        "Segoe UI Light",
+        "Segoe UI Semibold",
+        "Segoe UI Semilight",
+        "Segoe UI Symbol",
+        "SimSun",
+        "Sitka",
+        "Sylfaen",
+        "Symbol",
+        "Tahoma",
+        "Times",
+        "Times New Roman",
+        "Trebuchet MS",
+        "Verdana",
+        "Webdings",
+        "Wingdings",
+        "Wingdings 2",
+        "Wingdings 3",
+        "Yu Gothic",
+        "Yu Gothic UI"
+       ],
+       "generic_family_map": {
+        "cursive": "Comic Sans MS",
+        "fantasy": "Impact",
+        "monospace": "Consolas",
+        "sans-serif": "Arial",
+        "serif": "Times New Roman"
+       }
+      }
+     },
+     "weight": 100
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "microsoft-office",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). Microsoft Office for Windows font set, excluding the families Windows itself already ships. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence. Carries no generic family: all five are set unconditionally on the platform core pack, because a generic gated on an optional pack would leave the host's own generic in effect whenever that pack is not drawn.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Bookshelf Symbol 7",
+       "Franklin Gothic Book",
+       "Gill Sans MT",
+       "MS Reference Sans Serif",
+       "MS Reference Specialty",
+       "MT Extra",
+       "Perpetua",
+       "Rockwell",
+       "Sitka Banner",
+       "Sitka Display",
+       "Sitka Heading",
+       "Sitka Small",
+       "Sitka Subheading",
+       "Sitka Text",
+       "Tw Cen MT"
+      ]
+     },
+     "source": "microsoft-office installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Bookshelf Symbol 7",
+        "Franklin Gothic Book",
+        "Gill Sans MT",
+        "MS Reference Sans Serif",
+        "MS Reference Specialty",
+        "MT Extra",
+        "Perpetua",
+        "Rockwell",
+        "Sitka Banner",
+        "Sitka Display",
+        "Sitka Heading",
+        "Sitka Small",
+        "Sitka Subheading",
+        "Sitka Text",
+        "Tw Cen MT"
+       ]
+      }
+     },
+     "weight": 52
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "adobe-creative-cloud",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). Adobe Creative Cloud desktop font activation. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Adobe Clean",
+       "Adobe Garamond Pro",
+       "Minion Pro",
+       "Myriad Pro",
+       "Source Code Pro",
+       "Source Sans 3",
+       "Source Serif 4"
+      ]
+     },
+     "source": "adobe-creative-cloud installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Adobe Clean",
+        "Adobe Garamond Pro",
+        "Minion Pro",
+        "Myriad Pro",
+        "Source Code Pro",
+        "Source Sans 3",
+        "Source Serif 4"
+       ]
+      }
+     },
+     "weight": 12
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "japanese-supplemental",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell. Split by language because Windows ships these as separate per-language supplemental font features, so a machine with one language's set does not thereby have another's.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Meiryo",
+       "Yu Mincho"
+      ]
+     },
+     "source": "https://github.com/liblaf/fonts/releases/download/Win11/Win11-English.zip",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Meiryo",
+        "Yu Mincho"
+       ]
+      }
+     },
+     "weight": 22
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "chinese-simplified-supplemental",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell. Split by language because Windows ships these as separate per-language supplemental font features, so a machine with one language's set does not thereby have another's.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "DengXian",
+       "FangSong",
+       "KaiTi"
+      ]
+     },
+     "source": "https://github.com/liblaf/fonts/releases/download/Win11/Win11-English.zip",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "DengXian",
+        "FangSong",
+        "KaiTi"
+       ]
+      }
+     },
+     "weight": 16
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "chinese-traditional-supplemental",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell. Split by language because Windows ships these as separate per-language supplemental font features, so a machine with one language's set does not thereby have another's.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "MingLiU"
+      ]
+     },
+     "source": "https://github.com/liblaf/fonts/releases/download/Win11/Win11-English.zip",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "MingLiU"
+       ]
+      }
+     },
+     "weight": 12
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "libreoffice",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). LibreOffice ships Liberation, DejaVu, Carlito and Caladea on every platform. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Caladea",
+       "Carlito",
+       "DejaVu Sans",
+       "DejaVu Sans Mono",
+       "DejaVu Serif",
+       "Liberation Mono",
+       "Liberation Sans",
+       "Liberation Serif"
+      ]
+     },
+     "source": "libreoffice installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Caladea",
+        "Carlito",
+        "DejaVu Sans",
+        "DejaVu Sans Mono",
+        "DejaVu Serif",
+        "Liberation Mono",
+        "Liberation Sans",
+        "Liberation Serif"
+       ]
+      }
+     },
+     "weight": 14
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "developer-cascadia",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). Windows Terminal and the VS Code font install both bring Cascadia. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Cascadia Code",
+       "Cascadia Code PL",
+       "Cascadia Mono",
+       "Cascadia Mono PL"
+      ]
+     },
+     "source": "developer-cascadia installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Cascadia Code",
+        "Cascadia Code PL",
+        "Cascadia Mono",
+        "Cascadia Mono PL"
+       ]
+      }
+     },
+     "weight": 16
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "google-fonts-desktop",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). A desktop Google Fonts install. Roboto and Noto Sans were measured present on the Windows reference host and are attributed here rather than to the platform core. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Inter",
+       "Lato",
+       "Montserrat",
+       "Noto Sans",
+       "Open Sans",
+       "Oswald",
+       "Poppins",
+       "Raleway",
+       "Roboto",
+       "Source Sans 3"
+      ]
+     },
+     "source": "google-fonts-desktop installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Inter",
+        "Lato",
+        "Montserrat",
+        "Noto Sans",
+        "Open Sans",
+        "Oswald",
+        "Poppins",
+        "Raleway",
+        "Roboto",
+        "Source Sans 3"
+       ]
+      }
+     },
+     "weight": 12
+    }
+   ]
+  },
+  {
+   "key": {
+    "os_release": "linux-x86-64",
+    "platform": "linux"
+   },
+   "options": [
+    {
+     "evidence": "physical-ground-truth",
+     "id": "platform-core",
+     "note": "Mandatory core set: the families the claimed platform cannot be without. Enumeration is subtractive and always servable, but a missing core family is the defensible detection (docs/METHODOLOGY.md), so a host that cannot serve one is reported as a limitation rather than silently narrowed. Measured union of the two Linux reference hosts, minus the families attributable to installed packs. Arial, Helvetica, Times and Courier are present because fontconfig aliases them to metric-compatible substitutes (docs/METHODOLOGY.md).",
+     "pack_kind": "core",
+     "requires": {
+      "families": [
+       "Arial",
+       "Courier",
+       "Courier New",
+       "DejaVu Sans",
+       "Helvetica",
+       "Liberation Sans",
+       "Noto Sans",
+       "Times",
+       "Times New Roman"
+      ]
+     },
+     "source": "resources/fingerprints/raw/stock-linux-20260907T150627Z.json",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Arial",
+        "Courier",
+        "Courier New",
+        "DejaVu Sans",
+        "Helvetica",
+        "Liberation Sans",
+        "Noto Sans",
+        "Times",
+        "Times New Roman"
+       ]
+      }
+     },
+     "weight": 100
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "ubuntu-desktop",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). An Ubuntu or GNOME desktop install. Ubuntu was measured present on the Linux NVIDIA Ada reference host. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Cantarell",
+       "Ubuntu",
+       "Ubuntu Condensed",
+       "Ubuntu Mono"
+      ]
+     },
+     "source": "ubuntu-desktop installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Cantarell",
+        "Ubuntu",
+        "Ubuntu Condensed",
+        "Ubuntu Mono"
+       ]
+      }
+     },
+     "weight": 54
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "libreoffice",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). LibreOffice is preinstalled on most desktop Linux distributions. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Caladea",
+       "Carlito",
+       "DejaVu Sans",
+       "DejaVu Sans Mono",
+       "DejaVu Serif",
+       "Liberation Mono",
+       "Liberation Sans",
+       "Liberation Serif"
+      ]
+     },
+     "source": "libreoffice installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Caladea",
+        "Carlito",
+        "DejaVu Sans",
+        "DejaVu Sans Mono",
+        "DejaVu Serif",
+        "Liberation Mono",
+        "Liberation Sans",
+        "Liberation Serif"
+       ]
+      }
+     },
+     "weight": 62
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "cjk-language-pack",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). The distribution CJK font packages. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Noto Sans CJK JP",
+       "Noto Sans CJK KR",
+       "Noto Sans CJK SC",
+       "Noto Sans CJK TC",
+       "Noto Serif CJK SC"
+      ]
+     },
+     "source": "cjk-language-pack installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Noto Sans CJK JP",
+        "Noto Sans CJK KR",
+        "Noto Sans CJK SC",
+        "Noto Sans CJK TC",
+        "Noto Serif CJK SC"
+       ]
+      }
+     },
+     "weight": 26
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "developer-cascadia",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). A developer toolchain font install. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Cascadia Code",
+       "Cascadia Code PL",
+       "Cascadia Mono",
+       "Cascadia Mono PL"
+      ]
+     },
+     "source": "developer-cascadia installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Cascadia Code",
+        "Cascadia Code PL",
+        "Cascadia Mono",
+        "Cascadia Mono PL"
+       ]
+      }
+     },
+     "weight": 12
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "google-fonts-desktop",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). A desktop Google Fonts install. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Inter",
+       "Lato",
+       "Montserrat",
+       "Open Sans",
+       "Oswald",
+       "Poppins",
+       "Raleway",
+       "Roboto",
+       "Source Sans 3"
+      ]
+     },
+     "source": "google-fonts-desktop installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Inter",
+        "Lato",
+        "Montserrat",
+        "Open Sans",
+        "Oswald",
+        "Poppins",
+        "Raleway",
+        "Roboto",
+        "Source Sans 3"
+       ]
+      }
+     },
+     "weight": 18
+    }
+   ]
+  },
+  {
+   "key": {
+    "os_release": "windows-11-22h2",
+    "platform": "windows"
+   },
+   "options": [
+    {
+     "evidence": "catalogue-value",
+     "id": "platform-core",
+     "note": "Mandatory core set: the families the claimed platform cannot be without. Membership is the family list of a Windows 11 English release font set, redistributed at https://github.com/liblaf/fonts/releases/download/Win11/Win11-English.zip and unpacked rather than vendored here; 37 of them are additionally confirmed present by this project's own Windows capture, whose probe list is bounded and so cannot speak to the rest. Enumeration is subtractive and always servable, so a family the host lacks simply does not appear; a missing core family is the defensible failure, an absent one is not.",
+     "pack_kind": "core",
+     "requires": {
+      "families": [
+       "Arial",
+       "Arial Black",
+       "Arial Narrow",
+       "Bahnschrift",
+       "Calibri",
+       "Calibri Light",
+       "Cambria",
+       "Cambria Math",
+       "Candara",
+       "Candara Light",
+       "Comic Sans MS",
+       "Consolas",
+       "Constantia",
+       "Corbel",
+       "Corbel Light",
+       "Courier",
+       "Courier New",
+       "Ebrima",
+       "Franklin Gothic Medium",
+       "Gabriola",
+       "Gadugi",
+       "Georgia",
+       "Helvetica",
+       "Impact",
+       "Ink Free",
+       "Javanese Text",
+       "Leelawadee UI",
+       "Lucida Console",
+       "Lucida Sans Unicode",
+       "MS Gothic",
+       "MS PGothic",
+       "MS Sans Serif",
+       "MS Serif",
+       "MS UI Gothic",
+       "MV Boli",
+       "Malgun Gothic",
+       "Marlett",
+       "Microsoft Himalaya",
+       "Microsoft JhengHei",
+       "Microsoft JhengHei UI",
+       "Microsoft New Tai Lue",
+       "Microsoft PhagsPa",
+       "Microsoft Sans Serif",
+       "Microsoft Tai Le",
+       "Microsoft YaHei",
+       "Microsoft YaHei UI",
+       "Microsoft Yi Baiti",
+       "Mongolian Baiti",
+       "Myanmar Text",
+       "NSimSun",
+       "Nirmala UI",
+       "Palatino Linotype",
+       "Segoe Fluent Icons",
+       "Segoe MDL2 Assets",
+       "Segoe Print",
+       "Segoe Script",
+       "Segoe UI",
+       "Segoe UI Black",
+       "Segoe UI Emoji",
+       "Segoe UI Historic",
+       "Segoe UI Light",
+       "Segoe UI Semibold",
+       "Segoe UI Semilight",
+       "Segoe UI Symbol",
+       "Segoe UI Variable",
+       "SimSun",
+       "Sitka",
+       "Sylfaen",
+       "Symbol",
+       "Tahoma",
+       "Times",
+       "Times New Roman",
+       "Trebuchet MS",
+       "Verdana",
+       "Webdings",
+       "Wingdings",
+       "Wingdings 2",
+       "Wingdings 3",
+       "Yu Gothic",
+       "Yu Gothic UI"
+      ]
+     },
+     "source": "https://github.com/liblaf/fonts/releases/download/Win11/Win11-English.zip",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Arial",
+        "Arial Black",
+        "Arial Narrow",
+        "Bahnschrift",
+        "Calibri",
+        "Calibri Light",
+        "Cambria",
+        "Cambria Math",
+        "Candara",
+        "Candara Light",
+        "Comic Sans MS",
+        "Consolas",
+        "Constantia",
+        "Corbel",
+        "Corbel Light",
+        "Courier",
+        "Courier New",
+        "Ebrima",
+        "Franklin Gothic Medium",
+        "Gabriola",
+        "Gadugi",
+        "Georgia",
+        "Helvetica",
+        "Impact",
+        "Ink Free",
+        "Javanese Text",
+        "Leelawadee UI",
+        "Lucida Console",
+        "Lucida Sans Unicode",
+        "MS Gothic",
+        "MS PGothic",
+        "MS Sans Serif",
+        "MS Serif",
+        "MS UI Gothic",
+        "MV Boli",
+        "Malgun Gothic",
+        "Marlett",
+        "Microsoft Himalaya",
+        "Microsoft JhengHei",
+        "Microsoft JhengHei UI",
+        "Microsoft New Tai Lue",
+        "Microsoft PhagsPa",
+        "Microsoft Sans Serif",
+        "Microsoft Tai Le",
+        "Microsoft YaHei",
+        "Microsoft YaHei UI",
+        "Microsoft Yi Baiti",
+        "Mongolian Baiti",
+        "Myanmar Text",
+        "NSimSun",
+        "Nirmala UI",
+        "Palatino Linotype",
+        "Segoe Fluent Icons",
+        "Segoe MDL2 Assets",
+        "Segoe Print",
+        "Segoe Script",
+        "Segoe UI",
+        "Segoe UI Black",
+        "Segoe UI Emoji",
+        "Segoe UI Historic",
+        "Segoe UI Light",
+        "Segoe UI Semibold",
+        "Segoe UI Semilight",
+        "Segoe UI Symbol",
+        "Segoe UI Variable",
+        "SimSun",
+        "Sitka",
+        "Sylfaen",
+        "Symbol",
+        "Tahoma",
+        "Times",
+        "Times New Roman",
+        "Trebuchet MS",
+        "Verdana",
+        "Webdings",
+        "Wingdings",
+        "Wingdings 2",
+        "Wingdings 3",
+        "Yu Gothic",
+        "Yu Gothic UI"
+       ],
+       "generic_family_map": {
+        "cursive": "Comic Sans MS",
+        "fantasy": "Impact",
+        "monospace": "Consolas",
+        "sans-serif": "Arial",
+        "serif": "Times New Roman"
+       }
+      }
+     },
+     "weight": 100
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "microsoft-office",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). Microsoft Office for Windows font set, excluding the families Windows itself already ships. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence. Carries no generic family: all five are set unconditionally on the platform core pack, because a generic gated on an optional pack would leave the host's own generic in effect whenever that pack is not drawn.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Bookshelf Symbol 7",
+       "Franklin Gothic Book",
+       "Gill Sans MT",
+       "MS Reference Sans Serif",
+       "MS Reference Specialty",
+       "MT Extra",
+       "Perpetua",
+       "Rockwell",
+       "Sitka Banner",
+       "Sitka Display",
+       "Sitka Heading",
+       "Sitka Small",
+       "Sitka Subheading",
+       "Sitka Text",
+       "Tw Cen MT"
+      ]
+     },
+     "source": "microsoft-office installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Bookshelf Symbol 7",
+        "Franklin Gothic Book",
+        "Gill Sans MT",
+        "MS Reference Sans Serif",
+        "MS Reference Specialty",
+        "MT Extra",
+        "Perpetua",
+        "Rockwell",
+        "Sitka Banner",
+        "Sitka Display",
+        "Sitka Heading",
+        "Sitka Small",
+        "Sitka Subheading",
+        "Sitka Text",
+        "Tw Cen MT"
+       ]
+      }
+     },
+     "weight": 52
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "adobe-creative-cloud",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). Adobe Creative Cloud desktop font activation. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Adobe Clean",
+       "Adobe Garamond Pro",
+       "Minion Pro",
+       "Myriad Pro",
+       "Source Code Pro",
+       "Source Sans 3",
+       "Source Serif 4"
+      ]
+     },
+     "source": "adobe-creative-cloud installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Adobe Clean",
+        "Adobe Garamond Pro",
+        "Minion Pro",
+        "Myriad Pro",
+        "Source Code Pro",
+        "Source Sans 3",
+        "Source Serif 4"
+       ]
+      }
+     },
+     "weight": 12
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "japanese-supplemental",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell. Split by language because Windows ships these as separate per-language supplemental font features, so a machine with one language's set does not thereby have another's.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Meiryo",
+       "Yu Mincho"
+      ]
+     },
+     "source": "https://github.com/liblaf/fonts/releases/download/Win11/Win11-English.zip",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Meiryo",
+        "Yu Mincho"
+       ]
+      }
+     },
+     "weight": 22
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "chinese-simplified-supplemental",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell. Split by language because Windows ships these as separate per-language supplemental font features, so a machine with one language's set does not thereby have another's.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "DengXian",
+       "FangSong",
+       "KaiTi"
+      ]
+     },
+     "source": "https://github.com/liblaf/fonts/releases/download/Win11/Win11-English.zip",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "DengXian",
+        "FangSong",
+        "KaiTi"
+       ]
+      }
+     },
+     "weight": 16
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "chinese-traditional-supplemental",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell. Split by language because Windows ships these as separate per-language supplemental font features, so a machine with one language's set does not thereby have another's.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "MingLiU"
+      ]
+     },
+     "source": "https://github.com/liblaf/fonts/releases/download/Win11/Win11-English.zip",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "MingLiU"
+       ]
+      }
+     },
+     "weight": 12
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "libreoffice",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). LibreOffice ships Liberation, DejaVu, Carlito and Caladea on every platform. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Caladea",
+       "Carlito",
+       "DejaVu Sans",
+       "DejaVu Sans Mono",
+       "DejaVu Serif",
+       "Liberation Mono",
+       "Liberation Sans",
+       "Liberation Serif"
+      ]
+     },
+     "source": "libreoffice installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Caladea",
+        "Carlito",
+        "DejaVu Sans",
+        "DejaVu Sans Mono",
+        "DejaVu Serif",
+        "Liberation Mono",
+        "Liberation Sans",
+        "Liberation Serif"
+       ]
+      }
+     },
+     "weight": 14
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "developer-cascadia",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). Windows Terminal and the VS Code font install both bring Cascadia. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Cascadia Code",
+       "Cascadia Code PL",
+       "Cascadia Mono",
+       "Cascadia Mono PL"
+      ]
+     },
+     "source": "developer-cascadia installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Cascadia Code",
+        "Cascadia Code PL",
+        "Cascadia Mono",
+        "Cascadia Mono PL"
+       ]
+      }
+     },
+     "weight": 16
+    },
+    {
+     "evidence": "catalogue-value",
+     "id": "google-fonts-desktop",
+     "note": "Installed-software bundle. A pack is all-or-nothing: installed fonts arrive together, and a handful of individually drawn families is synthesis and a tell (docs/FINGERPRINTS.md section 3). A desktop Google Fonts install. Roboto and Noto Sans were measured present on the Windows reference host and are attributed here rather than to the platform core. AUTHORED, NOT MEASURED: the family list is the bundle's published contents, and the weight is an authored prevalence.",
+     "pack_kind": "optional",
+     "requires": {
+      "families": [
+       "Inter",
+       "Lato",
+       "Montserrat",
+       "Noto Sans",
+       "Open Sans",
+       "Oswald",
+       "Poppins",
+       "Raleway",
+       "Roboto",
+       "Source Sans 3"
+      ]
+     },
+     "source": "google-fonts-desktop installed-software font bundle",
+     "value": {
+      "fonts": {
+       "enumeration_allowlist": [
+        "Inter",
+        "Lato",
+        "Montserrat",
+        "Noto Sans",
+        "Open Sans",
+        "Oswald",
+        "Poppins",
+        "Raleway",
+        "Roboto",
+        "Source Sans 3"
+       ]
+      }
+     },
+     "weight": 12
+    }
+   ]
+  }
+ ],
+ "schema": "apostate/dispersion/1",
+ "selection": "core-plus-subset",
+ "servability": "none"
+}
