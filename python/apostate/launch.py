@@ -15,8 +15,8 @@ from typing import Any, Callable, Mapping, NamedTuple
 from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
 from .binary import BinaryManager, ensure_binary, resolve_named_binary, target_platform
-from .config import (LaunchConfig, check_fingerprint_switches, is_host_seed,
-                     translate_options)
+from .config import (GEOIP_BUDGET_SECONDS, LaunchConfig, check_fingerprint_switches,
+                     is_host_seed, translate_options)
 from .errors import ConfigurationError, GeoIPError, LaunchError, ProfileError
 from .geoip import GeoIPResult, resolve_geoip
 from .profile_validation import validate_profile
@@ -263,7 +263,7 @@ def _launch_environment(plan: LaunchPlan, supplied: Mapping[str, Any] | None) ->
 
 
 def _resolve_plan(config: LaunchConfig, *, resolver: Any = None, catalogue: Any = None,
-                  geoip_provider: Any = None, geoip_timeout: float = 10.0) -> LaunchPlan:
+                  geoip_provider: Any = None, geoip_timeout: float = GEOIP_BUDGET_SECONDS) -> LaunchPlan:
     network_result: GeoIPResult | None = None
     geoip_warnings: list[str] = []
     proxy_value = _proxy_url(config.proxy)
@@ -808,7 +808,7 @@ def launch(*, fingerprint: int | str | None = None, fingerprint_platform: str | 
            binary_path: str | Path | None = None, cache_dir: str | Path | None = None,
            manifest: Mapping[str, Any] | str | Path | None = None,
            downloader: Callable[[str], Any] | None = None, resolver: Any = None,
-           catalogue: Any = None, geoip_provider: Any = None, geoip_timeout: float = 10.0,
+           catalogue: Any = None, geoip_provider: Any = None, geoip_timeout: float = GEOIP_BUDGET_SECONDS,
            driver: str | None = None,
            **playwright_options: Any) -> Any:
     """Launch the native browser through a Patchright-compatible sync API."""
@@ -908,7 +908,7 @@ def launch_persistent_context(user_data_dir: str | Path, *, context_options: Map
     plan = _resolve_plan(config, resolver=options.pop("resolver", None),
                          catalogue=options.pop("catalogue", None),
                          geoip_provider=options.pop("geoip_provider", None),
-                         geoip_timeout=options.pop("geoip_timeout", 10.0))
+                         geoip_timeout=options.pop("geoip_timeout", GEOIP_BUDGET_SECONDS))
     binary_path = options.pop("binary_path", None)
     cache_dir = options.pop("cache_dir", None)
     manifest = options.pop("manifest", None)
@@ -956,7 +956,7 @@ async def launch_async(**options: Any) -> Any:
                                user_data_dir=options.pop("user_data_dir", None), args=options.pop("args", None))
     _refuse_user_data_dir(config, entry="launch_async")
     plan = _resolve_plan(config, resolver=options.pop("resolver", None), catalogue=options.pop("catalogue", None),
-                         geoip_provider=options.pop("geoip_provider", None), geoip_timeout=options.pop("geoip_timeout", 10.0))
+                         geoip_provider=options.pop("geoip_provider", None), geoip_timeout=options.pop("geoip_timeout", GEOIP_BUDGET_SECONDS))
     binary_path = options.pop("binary_path", None)
     cache_dir = options.pop("cache_dir", None)
     manifest = options.pop("manifest", None)
@@ -1035,7 +1035,7 @@ async def launch_persistent_context_async(user_data_dir: str | Path, *, context_
                                geoip=options.pop("geoip", True), proxy=options.pop("proxy", None), headless=options.pop("headless", True),
                                user_data_dir=path, args=options.pop("args", None))
     plan = _resolve_plan(config, resolver=options.pop("resolver", None), catalogue=options.pop("catalogue", None),
-                         geoip_provider=options.pop("geoip_provider", None), geoip_timeout=options.pop("geoip_timeout", 10.0))
+                         geoip_provider=options.pop("geoip_provider", None), geoip_timeout=options.pop("geoip_timeout", GEOIP_BUDGET_SECONDS))
     binary_path = options.pop("binary_path", None)
     cache_dir = options.pop("cache_dir", None)
     manifest = options.pop("manifest", None)

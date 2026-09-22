@@ -29,6 +29,16 @@ CATALOGUE_VERSION = 2
 PROFILE_SCHEMA_VERSION = 3
 SUPPORTED_PLATFORMS = frozenset({"windows", "macos", "linux"})
 
+#: How long a launch may spend learning where its exit is, across every
+#: endpoint and retry the lookup makes. It is the one number three modules
+#: need -- ``launch``'s ``geoip_timeout``, ``geoip.resolve_geoip``'s
+#: ``timeout`` and ``_prelaunch_geoip``'s cascade budget -- so it lives here
+#: rather than being spelled out three times. The rest of the retry policy
+#: (endpoint list, attempts, backoff, per-attempt ceiling) has one consumer
+#: and lives with it in ``_prelaunch_geoip``. ``npm/src/index.ts`` carries the
+#: same value as ``GEOIP_BUDGET_MS``.
+GEOIP_BUDGET_SECONDS = 20.0
+
 #: Tokens the binary treats as "inherit the host and compose nothing". All six
 #: are exactly equivalent and case-insensitive; ``off`` is what users arriving
 #: from other anti-detect wrappers type, ``host`` is this repository's spelling.
@@ -468,7 +478,8 @@ def resolve_profile(config: LaunchConfig, resolver: Resolver | None = None) -> d
 
 __all__ = [
     "PACKAGE_VERSION", "CHROMIUM_VERSION", "CATALOGUE_VERSION",
-    "PROFILE_SCHEMA_VERSION", "DEFAULT_PERSONA_BY_HOST", "LaunchConfig",
+    "PROFILE_SCHEMA_VERSION", "GEOIP_BUDGET_SECONDS", "DEFAULT_PERSONA_BY_HOST",
+    "LaunchConfig",
     "Resolver", "default_persona_for_host", "host_persona",
     "normalize_platform", "resolve_profile", "translate_options",
 ]

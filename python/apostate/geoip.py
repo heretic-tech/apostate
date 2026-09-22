@@ -8,12 +8,13 @@ from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Protocol, Sequence
 from urllib.parse import quote, urlsplit, urlunsplit
 
-from .config import country_locale
+from .config import GEOIP_BUDGET_SECONDS, country_locale
 from .errors import GeoIPError, GeoIPUnavailableError
 
 
 class GeoIPProvider(Protocol):
-    def lookup(self, proxy: str | None = None, *, timeout: float = 10.0) -> Mapping[str, Any]:
+    def lookup(self, proxy: str | None = None, *,
+               timeout: float = GEOIP_BUDGET_SECONDS) -> Mapping[str, Any]:
         """Return a mapping containing locale and timezone for the exit IP."""
 
 
@@ -165,8 +166,9 @@ def normalize_result(value: Any) -> GeoIPResult:
         languages = ()
     # A two-letter code or nothing, as _prelaunch_geoip's _country_code does: a
     # provider that answers "Germany" under `country` has given a name rather
-    # than a code, and a name maps to nothing.
-    country = _first(value, "country_code", "countryCode", "country")
+    # than a code, and a name maps to nothing. ``country_iso`` is ifconfig.co's
+    # spelling of the code; it keeps the name in ``country``.
+    country = _first(value, "country_code", "countryCode", "country_iso", "country")
     country = country.strip().upper() if isinstance(country, str) else None
     if country is not None and not re.fullmatch(r"[A-Z]{2}", country):
         country = None
@@ -187,7 +189,7 @@ def normalize_result(value: Any) -> GeoIPResult:
 
 
 def resolve_geoip(provider: Any = None, *, proxy: str | None = None,
-                  timeout: float = 10.0, require_locale: bool = True,
+                  timeout: float = GEOIP_BUDGET_SECONDS, require_locale: bool = True,
                   require_timezone: bool = True) -> GeoIPResult:
     if timeout <= 0:
         raise GeoIPError("GeoIP timeout must be greater than zero")
@@ -200,7 +202,7 @@ def resolve_geoip(provider: Any = None, *, proxy: str | None = None,
         if proxy:
             detail = detail.replace(proxy, redact_proxy(proxy) or "<proxy>")
         raise GeoIPError(
-            f"GeoIP lookup failed for {redact_proxy(proxy) or 'direct network'}: {detail}"
+            f"GeoIP lookup failed for {redact_proxy(proxy) or 'the direct network'}: {detail}"
         ) from exc
     missing = []
     if require_timezone and not result.timezone:

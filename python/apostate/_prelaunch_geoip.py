@@ -18,10 +18,17 @@ and ``socks5://``/``socks5h://`` through a minimal RFC 1928 CONNECT handshake
 with RFC 1929 username/password authentication, wrapped in :mod:`ssl` for an
 https endpoint. A SOCKS proxy is the common shape for residential exits, and
 requiring PySocks for it would make an anti-detect launcher's headline feature
-an optional extra.  Tests and package adapters may still inject a callable
+an optional extra.  Both SOCKS spellings hand the endpoint's *name* to the
+proxy, so the lookup's DNS leaves the exit's network and never this one; see
+``_socks5_target``.  Tests and package adapters may still inject a callable
 accepting :class:`HTTPTransportRequest`, or a callable with the equivalent
 ``(url, timeout, proxy)`` arguments; an injected transport owns the actual
 network operation and must honor ``timeout``.
+
+A lookup walks ``GEOIP_ENDPOINTS`` in order, retrying each a bounded number of
+times, so one unreachable or rate-limited site does not cost the launch its
+localization.  The npm package's ``defaultGeoipLookup`` walks the same list in
+the same order with the same attempt counts, timeouts and parsing rules.
 
 This module does not enforce WebRTC/native network behavior.  It exposes that
 requirement as ``pending-native-capability`` so callers cannot mistake launch
@@ -38,23 +45,60 @@ import socket
 import ssl
 import struct
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Any, Callable, Mapping, Optional, Tuple, Union
+from typing import Any, Callable, Mapping, Optional, Sequence, Tuple, Union
 
-from .config import CATALOGUE_VERSION, CHROMIUM_VERSION, PACKAGE_VERSION, country_locale
+from .config import (CATALOGUE_VERSION, CHROMIUM_VERSION, GEOIP_BUDGET_SECONDS,
+                     PACKAGE_VERSION, country_locale)
 
 _UNSET = object()
 
-RESOLVER_VERSION = 1
-PROVIDER_NAME = "ipwho.is"
-PROVIDER_VERSION = "1"
+RESOLVER_VERSION = 2
+#: This package's own cascading resolver rather than any one site: the answer
+#: may come from any of ``GEOIP_ENDPOINTS``, and ``GeoIPDiagnostics.request_url``
+#: names the one that gave it.
+PROVIDER_NAME = "apostate-geoip"
+PROVIDER_VERSION = "2"
 MAPPING_VERSION = 1
-DEFAULT_ENDPOINT = "https://ipwho.is/"
-DEFAULT_TIMEOUT_SECONDS = 2.0
+
+#: Tried in this order, once per attempt, until one answers with both a country
+#: and a timezone. Plain HTTP throughout: a residential SOCKS5 exit that
+#: refuses CONNECT to :443 still carries :80, and the country an exit reports
+#: is not a secret worth a TLS handshake the proxy may drop. Four independent
+#: operators, so a single outage or rate limit cannot silence the lookup.
+#: Byte-identical to ``GEOIP_ENDPOINTS`` in ``npm/src/index.ts``.
+GEOIP_ENDPOINTS: Tuple[str, ...] = (
+    "http://ip-api.com/json/",
+    "http://ipinfo.io/json",
+    "http://ipwho.is/",
+    "http://ifconfig.co/json",
+)
+DEFAULT_ENDPOINT = GEOIP_ENDPOINTS[0]
+
+#: Two attempts per endpoint: one retry absorbs a dropped SOCKS handshake or a
+#: reset, which is the common transient on a residential exit, while a third
+#: attempt on a site that has now failed twice buys less than moving on does.
+GEOIP_ATTEMPTS_PER_ENDPOINT = 2
+#: Fixed, never jittered: two launches with the same configuration must take
+#: the same path. Long enough for a proxy to finish tearing down the failed
+#: circuit, short enough to be invisible next to the attempt it precedes.
+GEOIP_RETRY_BACKOFF_SECONDS = 0.5
+#: One attempt's ceiling. A measured SOCKS5 handshake plus one HTTP round trip
+#: through a distant residential exit runs 0.8-2.3s, so 5s covers a slow exit
+#: with margin and still fits eight attempts inside the budget below.
+GEOIP_ATTEMPT_TIMEOUT_SECONDS = 5.0
+#: The whole cascade's ceiling, and the default for ``timeout``. Unbudgeted the
+#: worst case is 4 endpoints x 2 attempts x 5s plus backoff, which is 42s of a
+#: launch spent on a lookup; the 20s in ``apostate.config`` is long enough that
+#: a working proxy always finishes and short enough that a dead one is not
+#: mistaken for a hang. It lives there because ``launch`` and ``geoip`` default
+#: their public timeout arguments to the same number.
+DEFAULT_TIMEOUT_SECONDS = GEOIP_BUDGET_SECONDS
 MAX_TIMEOUT_SECONDS = 30.0
 MAX_RESPONSE_BYTES = 1024 * 1024
 
@@ -409,10 +453,17 @@ class GeoIPResult:
 class GeoIPResolver:
     """Resolve network localization once and retain that result immutably.
 
-    ``geoip=True`` performs one request through the supplied proxy (or direct
-    when no proxy is configured).  Explicit locale/timezone values always win;
-    profile values are considered only after a successful lookup.  No host
-    locale/timezone defaults are fabricated by this class.
+    ``geoip=True`` walks ``GEOIP_ENDPOINTS`` through the supplied proxy (or
+    direct when no proxy is configured) until one answers with a country and a
+    timezone, retrying each endpoint ``GEOIP_ATTEMPTS_PER_ENDPOINT`` times.
+    Explicit locale/timezone values always win; profile values are considered
+    only after a successful lookup.  No host locale/timezone defaults are
+    fabricated by this class.
+
+    ``endpoints`` replaces the default list, and ``endpoint`` is the singular
+    spelling of a one-site list; an adapter that pins its own provider, or a
+    test that points the walk at a fixture server, uses one of the two.
+    ``timeout`` is the whole cascade's budget, not one request's.
     """
 
     def __init__(
@@ -425,7 +476,8 @@ class GeoIPResolver:
         profile_locale: Optional[str] = None,
         profile_timezone: Optional[str] = None,
         transport: Optional[Callable[..., Any]] = None,
-        endpoint: str = DEFAULT_ENDPOINT,
+        endpoint: Optional[str] = None,
+        endpoints: Optional[Sequence[str]] = None,
         timeout: float = DEFAULT_TIMEOUT_SECONDS,
         provider: str = PROVIDER_NAME,
         provider_version: str = PROVIDER_VERSION,
@@ -446,7 +498,20 @@ class GeoIPResolver:
             if profile_timezone is not None
             else None
         )
-        self._endpoint = _validate_endpoint(endpoint)
+        if endpoint is not None and endpoints is not None:
+            raise GeoIPConfigurationError(
+                "pass endpoint or endpoints, not both; endpoint is the one-site spelling")
+        if endpoints is not None:
+            chosen = tuple(_validate_endpoint(value) for value in endpoints)
+            if not chosen:
+                raise GeoIPConfigurationError("endpoints must name at least one URL")
+        elif endpoint is not None:
+            chosen = (_validate_endpoint(endpoint),)
+        else:
+            chosen = GEOIP_ENDPOINTS
+        self._endpoints = chosen
+        #: Where a failure that never reached an endpoint is reported against.
+        self._endpoint = chosen[0]
         self._timeout = _validate_timeout(timeout)
         if not isinstance(provider, str) or not provider.strip():
             raise GeoIPConfigurationError("provider must be a non-empty string")
@@ -560,18 +625,13 @@ class GeoIPResolver:
                 diagnostics=diagnostics,
             )
 
-        try:
-            payload = self._lookup(mode)
-            ip, country_code, region, derived_locale, derived_timezone = _parse_provider_payload(payload)
-        except GeoIPProviderError as exc:
-            if exc.diagnostics is None:
-                exc.diagnostics = self._error_diagnostics(mode, "provider-error", str(exc))
-            raise
+        endpoint, parsed = self._cascade(mode)
+        ip, country_code, region, derived_locale, derived_timezone = parsed
         effective_locale = self._locale or derived_locale or self._profile_locale
         effective_timezone = self._timezone or derived_timezone or self._profile_timezone
         diagnostics = GeoIPDiagnostics(
             lookup_mode=mode,
-            request_url=self._endpoint,
+            request_url=endpoint,
             proxy=redact_proxy_url(self._proxy),
             timeout_seconds=self._timeout,
             provider=self._provider,
@@ -599,10 +659,89 @@ class GeoIPResolver:
             diagnostics=diagnostics,
         )
 
-    def _lookup(self, mode: str) -> Mapping[str, Any]:
+    def _cascade(self, mode: str) -> Tuple[str, Tuple[Optional[str], ...]]:
+        """Walk the endpoints in order until one answers usefully.
+
+        Every failure is retried on the same endpoint before the walk moves on,
+        because the transient this exists to absorb -- a dropped SOCKS
+        handshake, a reset, a rate limit -- is not distinguishable from a dead
+        site on the first try. ``self._timeout`` is the whole walk's ceiling,
+        and the walk never exceeds it: after the first attempt, which always
+        runs, another starts only while the budget still holds a whole one. So
+        a hung endpoint cannot spend the budget the remaining ones need, and a
+        dead proxy costs a launch the budget rather than the sum of every
+        attempt it could have made.
+
+        An endpoint that answers with a country *and* a timezone ends the walk.
+        One that answers with only part of the pair is kept as a fallback and
+        the walk continues: the missing half is never derived, because this
+        repository has no country-to-timezone table and a guessed zone is
+        exactly the contradiction with the exit IP that the lookup exists to
+        prevent. A kept half still beats the host's own value, so it is
+        returned once the list is exhausted rather than discarded.
+        """
+
+        attempt_timeout = min(GEOIP_ATTEMPT_TIMEOUT_SECONDS, self._timeout)
+        deadline = time.monotonic() + self._timeout
+        attempts = 0
+        endpoints = 0
+        best: Optional[Tuple[str, Tuple[Optional[str], ...]]] = None
+        last_error: Optional[GeoIPError] = None
+        exhausted = False
+        for endpoint in self._endpoints:
+            counted = False
+            for attempt in range(GEOIP_ATTEMPTS_PER_ENDPOINT):
+                # Fixed, never jittered: two launches configured alike must take
+                # the same path, and a retry is only ever the second try at one
+                # site.
+                delay = GEOIP_RETRY_BACKOFF_SECONDS if attempt else 0.0
+                if attempts and deadline - time.monotonic() - delay < attempt_timeout:
+                    exhausted = True
+                    break
+                if delay:
+                    time.sleep(delay)
+                if not counted:
+                    counted = True
+                    endpoints += 1
+                attempts += 1
+                try:
+                    payload = self._lookup(mode, endpoint, attempt_timeout)
+                    parsed = _parse_provider_payload(payload)
+                except GeoIPError as exc:
+                    if exc.diagnostics is None:
+                        exc.diagnostics = self._error_diagnostics(
+                            mode, "provider-error", str(exc), endpoint)
+                    last_error = exc
+                    continue
+                if parsed[1] is not None and parsed[4] is not None:
+                    return endpoint, parsed
+                if best is None:
+                    best = (endpoint, parsed)
+                # The site answered; a second identical request answers the same.
+                break
+            if exhausted:
+                break
+        if best is not None:
+            return best
+        detail = str(last_error) if last_error is not None else "no endpoint was reachable"
+        budget = f" ({self._timeout:g}s budget exhausted)" if exhausted else ""
+        # Spelled out rather than run through a pluralizer so the sentence is
+        # readable here and trivially identical to the one npm/src/index.ts
+        # builds for the same exhausted cascade.
+        tried = f"{attempts} attempts" if attempts != 1 else "1 attempt"
+        across = f"{endpoints} endpoints" if endpoints != 1 else "1 endpoint"
+        message = (f"every GeoIP endpoint failed: {tried} across {across}"
+                   f"{budget}; last error: {detail}")
+        diagnostics = (last_error.diagnostics if last_error is not None else None) \
+            or self._error_diagnostics(mode, "transport-error", message, self._endpoint)
+        error = (GeoIPTimeoutError if isinstance(last_error, GeoIPTimeoutError)
+                 else GeoIPLookupError)
+        raise error(message, diagnostics=diagnostics) from None
+
+    def _lookup(self, mode: str, endpoint: str, timeout: float) -> Mapping[str, Any]:
         request = HTTPTransportRequest(
-            url=self._endpoint,
-            timeout=self._timeout,
+            url=endpoint,
+            timeout=timeout,
             mode=mode,
             proxy=self._proxy,
         )
@@ -612,51 +751,44 @@ class GeoIPResolver:
             response = _coerce_response(raw_response)
         except GeoIPError as exc:
             if exc.diagnostics is None:
-                exc.diagnostics = self._error_diagnostics(mode, "transport-error", str(exc))
+                exc.diagnostics = self._error_diagnostics(
+                    mode, "transport-error", str(exc), endpoint)
             raise
         except (TimeoutError, socket.timeout) as exc:
-            diagnostics = self._error_diagnostics(mode, "timeout", str(exc) or "transport timeout")
-            raise GeoIPTimeoutError(
-                f"GeoIP lookup timed out after {self._timeout:g}s ({mode} mode; proxy={redact_proxy_url(self._proxy) or 'none'})",
-                diagnostics=diagnostics,
-            ) from None
+            raise self._timed_out(mode, endpoint, timeout, exc) from None
         except urllib.error.URLError as exc:
             if _is_timeout_error(exc):
-                diagnostics = self._error_diagnostics(mode, "timeout", str(exc) or "transport timeout")
-                raise GeoIPTimeoutError(
-                    f"GeoIP lookup timed out after {self._timeout:g}s ({mode} mode; proxy={redact_proxy_url(self._proxy) or 'none'})",
-                    diagnostics=diagnostics,
-                ) from None
+                raise self._timed_out(mode, endpoint, timeout, exc) from None
             safe = _redact_proxy_text(str(exc) or exc.__class__.__name__)
-            diagnostics = self._error_diagnostics(mode, "transport-error", safe)
+            diagnostics = self._error_diagnostics(mode, "transport-error", safe, endpoint)
             raise GeoIPLookupError(
                 f"GeoIP lookup failed in {mode} mode: {safe}", diagnostics=diagnostics
             ) from None
         except Exception as exc:
             safe = _redact_proxy_text(str(exc) or exc.__class__.__name__)
-            diagnostics = self._error_diagnostics(mode, "transport-error", safe)
+            diagnostics = self._error_diagnostics(mode, "transport-error", safe, endpoint)
             raise GeoIPLookupError(
                 f"GeoIP lookup failed in {mode} mode: {safe}", diagnostics=diagnostics
             ) from None
         if response.status < 200 or response.status >= 300:
             message = f"provider returned HTTP {response.status}"
-            diagnostics = self._error_diagnostics(mode, "http-error", message)
+            diagnostics = self._error_diagnostics(mode, "http-error", message, endpoint)
             raise GeoIPProviderError(message, diagnostics=diagnostics)
         if isinstance(response.body, bytes):
             if len(response.body) > MAX_RESPONSE_BYTES:
                 message = "provider response exceeded the maximum size"
-                diagnostics = self._error_diagnostics(mode, "response-too-large", message)
+                diagnostics = self._error_diagnostics(mode, "response-too-large", message, endpoint)
                 raise GeoIPProviderError(message, diagnostics=diagnostics)
             try:
                 body = response.body.decode("utf-8", errors="strict")
             except UnicodeDecodeError:
                 message = "provider response was not valid UTF-8"
-                diagnostics = self._error_diagnostics(mode, "invalid-response", message)
+                diagnostics = self._error_diagnostics(mode, "invalid-response", message, endpoint)
                 raise GeoIPProviderError(message, diagnostics=diagnostics) from None
         elif isinstance(response.body, str):
             if len(response.body.encode("utf-8")) > MAX_RESPONSE_BYTES:
                 message = "provider response exceeded the maximum size"
-                diagnostics = self._error_diagnostics(mode, "response-too-large", message)
+                diagnostics = self._error_diagnostics(mode, "response-too-large", message, endpoint)
                 raise GeoIPProviderError(message, diagnostics=diagnostics)
             body = response.body
         elif isinstance(response.body, Mapping):
@@ -665,24 +797,35 @@ class GeoIPResolver:
             return response.body
         else:
             message = "provider response body must be JSON bytes, text, or a mapping"
-            diagnostics = self._error_diagnostics(mode, "invalid-response", message)
+            diagnostics = self._error_diagnostics(mode, "invalid-response", message, endpoint)
             raise GeoIPProviderError(message, diagnostics=diagnostics)
         try:
             payload = json.loads(body)
         except (TypeError, ValueError, UnicodeError):
             message = "provider returned invalid JSON"
-            diagnostics = self._error_diagnostics(mode, "invalid-json", message)
+            diagnostics = self._error_diagnostics(mode, "invalid-json", message, endpoint)
             raise GeoIPProviderError(message, diagnostics=diagnostics) from None
         if not isinstance(payload, Mapping):
             message = "provider JSON root must be an object"
-            diagnostics = self._error_diagnostics(mode, "invalid-response", message)
+            diagnostics = self._error_diagnostics(mode, "invalid-response", message, endpoint)
             raise GeoIPProviderError(message, diagnostics=diagnostics)
         return payload
 
-    def _error_diagnostics(self, mode: str, status: str, error: str) -> GeoIPDiagnostics:
+    def _timed_out(self, mode: str, endpoint: str, timeout: float,
+                   error: BaseException) -> "GeoIPTimeoutError":
+        diagnostics = self._error_diagnostics(
+            mode, "timeout", str(error) or "transport timeout", endpoint)
+        return GeoIPTimeoutError(
+            f"GeoIP lookup timed out after {timeout:g}s ({mode} mode; "
+            f"proxy={redact_proxy_url(self._proxy) or 'none'})",
+            diagnostics=diagnostics,
+        )
+
+    def _error_diagnostics(self, mode: str, status: str, error: str,
+                           endpoint: str) -> GeoIPDiagnostics:
         return GeoIPDiagnostics(
             lookup_mode=mode,
-            request_url=self._endpoint,
+            request_url=endpoint,
             proxy=redact_proxy_url(self._proxy),
             timeout_seconds=self._timeout,
             provider=self._provider,
@@ -795,15 +938,43 @@ def _valid_provider_timezone(value: Any) -> Optional[str]:
         return None
 
 
-def _parse_provider_payload(payload: Mapping[str, Any]) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str], Optional[str]]:
-    if payload.get("success") is False:
+def _provider_failure(payload: Mapping[str, Any]) -> Optional[str]:
+    """The message a site puts inside a 200, or ``None`` when it answered.
+
+    Three spellings across the endpoint list: ipwho.is sets ``success`` false,
+    ip-api.com sets ``status`` to ``"fail"``, and ipinfo.io answers a rate
+    limit with an ``error`` object. Without this a rate-limited reply parses as
+    "no usable fields", which is true but says nothing about why.
+    """
+
+    if payload.get("success") is False or payload.get("status") == "fail":
         message = payload.get("message")
-        safe = _redact_proxy_text(message if isinstance(message, str) else "provider reported failure")
-        raise GeoIPProviderError(f"provider reported failure: {safe}")
-    ip = _valid_ip(payload.get("ip") or payload.get("query"))
-    country = _country_code(payload.get("country_code") or payload.get("countryCode"))
-    region = _valid_region(payload.get("region") or payload.get("region_name") or payload.get("regionName"))
-    timezone = _valid_provider_timezone(payload.get("timezone") or payload.get("time_zone"))
+        return message if isinstance(message, str) and message.strip() else "provider reported failure"
+    error = payload.get("error")
+    if isinstance(error, Mapping):
+        message = error.get("message") or error.get("title")
+        return message if isinstance(message, str) and message.strip() else "provider reported an error"
+    if isinstance(error, str) and error.strip():
+        return error
+    return None
+
+
+def _parse_provider_payload(payload: Mapping[str, Any]) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str], Optional[str]]:
+    failure = _provider_failure(payload)
+    if failure is not None:
+        raise GeoIPProviderError(f"provider reported failure: {_redact_proxy_text(failure)}")
+    ip = _valid_ip(payload.get("ip") or payload.get("query") or payload.get("ipAddress")
+                   or payload.get("ip_address"))
+    # ``country`` last and behind the two-letter test that ``_country_code``
+    # applies: ipinfo.io answers it with "US" and ip-api.com with "United
+    # States", and only one of those is a country code. ifconfig.co spells the
+    # code ``country_iso`` and puts the name in ``country``.
+    country = _country_code(payload.get("country_code") or payload.get("countryCode")
+                            or payload.get("country_iso") or payload.get("country"))
+    region = _valid_region(payload.get("region") or payload.get("region_name")
+                           or payload.get("regionName"))
+    timezone = _valid_provider_timezone(payload.get("timezone") or payload.get("time_zone")
+                                        or payload.get("timeZone"))
     locale = country_locale(country)
     # A successful provider may omit a field.  Leave that field unresolved so
     # the caller sees the gap; never fill it with a host or en-US/UTC default.
@@ -900,13 +1071,26 @@ def _recv_exactly(sock: socket.socket, count: int) -> bytes:
     return b"".join(chunks)
 
 
-def _socks5_target(scheme: str, host: str) -> Tuple[int, bytes]:
+def _socks5_target(host: str) -> Tuple[int, bytes]:
     """``(ATYP, encoded address)`` for the CONNECT request.
 
-    ``socks5h`` hands the name to the proxy, which is the whole point of the
-    ``h``: the DNS query leaves the proxy's network rather than this one.
-    ``socks5`` resolves here, as the scheme says. An address literal needs
-    neither and is sent as one.
+    The name always goes to the proxy, for both ``socks5://`` and
+    ``socks5h://``. This used to honour the scheme literally and resolve a
+    ``socks5://`` target here, which broke the lookup two ways at once.
+
+    The visible one: this host's resolver answers with its own preference
+    order, and ``getaddrinfo`` put ipwho.is's AAAA record first. A residential
+    SOCKS5 exit that has no IPv6 route replies 0x01, "general SOCKS server
+    failure", so ``geoip=True`` behind a working proxy failed on every dual
+    stacked endpoint while ``curl --proxy socks5h://`` through the same proxy
+    answered.
+
+    The one that matters more: a local resolution is a DNS query for the GeoIP
+    endpoint leaving *this* network, and it pins the tunnel to an address this
+    host chose. The lookup exists to learn where the exit is, so its own DNS
+    has no business being answered here.
+
+    An address literal needs no resolution either way and is sent as one.
     """
 
     literal = host.strip("[]")
@@ -914,13 +1098,6 @@ def _socks5_target(scheme: str, host: str) -> Tuple[int, bytes]:
         address = ipaddress.ip_address(literal)
     except ValueError:
         address = None
-    if address is None and scheme == "socks5":
-        try:
-            resolved = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
-        except OSError as exc:
-            raise GeoIPLookupError(
-                f"cannot resolve {host} for the SOCKS5 proxy: {exc}") from None
-        address = ipaddress.ip_address(resolved[0][4][0])
     if address is not None:
         return (0x01, address.packed) if address.version == 4 else (0x04, address.packed)
     try:
@@ -977,7 +1154,7 @@ def _socks5_connect(proxy: ProxyConfig, host: str, port: int,
         elif method != 0x00:
             raise GeoIPLookupError(
                 f"SOCKS5 proxy chose unsupported authentication method {method}")
-        address_type, address = _socks5_target(proxy.scheme, host)
+        address_type, address = _socks5_target(host)
         sock.sendall(b"\x05\x01\x00" + bytes([address_type]) + address
                      + struct.pack("!H", port))
         version, reply, _reserved, bound_type = _recv_exactly(sock, 4)
@@ -1073,7 +1250,11 @@ def urllib_transport(request: HTTPTransportRequest) -> HTTPTransportResponse:
                 headers=tuple(response_headers.items()) if response_headers else (),
             )
     except urllib.error.HTTPError as exc:
-        body = exc.read(MAX_RESPONSE_BYTES + 1)
+        # Closed once the body is read. The object wraps a tempfile, so an
+        # unclosed one warns from the garbage collector -- and a cascade that
+        # walks past several sites answering 5xx would leak one handle per site.
+        with exc:
+            body = exc.read(MAX_RESPONSE_BYTES + 1)
         return HTTPTransportResponse(status=int(exc.code), body=body)
 
 
@@ -1086,7 +1267,8 @@ def resolve_prelaunch_geoip(
     profile_locale: Optional[str] = None,
     profile_timezone: Optional[str] = None,
     transport: Optional[Callable[..., Any]] = None,
-    endpoint: str = DEFAULT_ENDPOINT,
+    endpoint: Optional[str] = None,
+    endpoints: Optional[Sequence[str]] = None,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
     provider: str = PROVIDER_NAME,
     provider_version: str = PROVIDER_VERSION,
@@ -1104,6 +1286,7 @@ def resolve_prelaunch_geoip(
         profile_timezone=profile_timezone,
         transport=transport,
         endpoint=endpoint,
+        endpoints=endpoints,
         timeout=timeout,
         provider=provider,
         provider_version=provider_version,
@@ -1128,6 +1311,11 @@ __all__ = [
     "PROVIDER_NAME",
     "PROVIDER_VERSION",
     "MAPPING_VERSION",
+    "GEOIP_ENDPOINTS",
+    "GEOIP_ATTEMPTS_PER_ENDPOINT",
+    "GEOIP_RETRY_BACKOFF_SECONDS",
+    "GEOIP_ATTEMPT_TIMEOUT_SECONDS",
+    "GEOIP_BUDGET_SECONDS",
     "DEFAULT_ENDPOINT",
     "DEFAULT_TIMEOUT_SECONDS",
     "MAX_TIMEOUT_SECONDS",

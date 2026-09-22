@@ -206,6 +206,58 @@ class _FakeSocks5Server:
                                + b"\r\nConnection: close\r\n\r\n" + body)
 
 
+class _FakeGeoIPEndpoint:
+    """One GeoIP site, serving a fixed reply and counting what reached it.
+
+    Real sockets rather than an injected transport: the cascade's whole job is
+    to survive a site that is down, and "down" is an HTTP status or a closed
+    connection, not an exception a double chose to raise.
+    """
+
+    def __init__(self, payload: dict[str, Any] | None = None, *, status: int = 200) -> None:
+        self.payload = payload
+        self.status = status
+        self.requests = 0
+        self._socket = socket.socket()
+        self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._socket.bind(("127.0.0.1", 0))
+        self._socket.listen(8)
+        self.url = f"http://127.0.0.1:{self._socket.getsockname()[1]}/json"
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._serve, daemon=True)
+
+    def __enter__(self) -> "_FakeGeoIPEndpoint":
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc: Any) -> bool:
+        self._stop.set()
+        self._socket.close()
+        self._thread.join(timeout=5)
+        return False
+
+    def _serve(self) -> None:
+        while not self._stop.is_set():
+            try:
+                connection, _address = self._socket.accept()
+            except OSError:
+                return
+            with connection:
+                connection.settimeout(5)
+                self.requests += 1
+                request = b""
+                while b"\r\n\r\n" not in request:
+                    chunk = connection.recv(4096)
+                    if not chunk:
+                        break
+                    request += chunk
+                body = json.dumps(self.payload if self.payload is not None else {}).encode("utf-8")
+                connection.sendall(
+                    f"HTTP/1.1 {self.status} X\r\nContent-Type: application/json\r\n".encode("ascii")
+                    + b"Content-Length: " + str(len(body)).encode("ascii")
+                    + b"\r\nConnection: close\r\n\r\n" + body)
+
+
 class PackageContractTests(unittest.TestCase):
     def test_translate_options_uses_canonical_snake_case_and_stable_seed(self) -> None:
         config = translate_options(
@@ -1294,6 +1346,16 @@ print(catalogue['browser_build'])
         geoip_module = importlib.import_module("apostate._prelaunch_geoip")
         for scheme, endpoint, address_type, expected_host in (
             ("socks5h", "http://exit.example.test/json", 3, b"exit.example.test"),
+            # The load-bearing one. ``socks5://`` is the spelling a caller
+            # writes, because it is what Chromium's --proxy-server takes, and
+            # this used to resolve the name here and send a literal. On a dual
+            # stacked endpoint getaddrinfo answered with the AAAA record first,
+            # and a residential exit with no IPv6 route refused the CONNECT
+            # with "general SOCKS server failure" -- so geoip=True failed
+            # behind a proxy that curl reached through socks5h:// at the same
+            # moment. The name goes to the proxy under either spelling now,
+            # which also keeps the lookup's own DNS off this network.
+            ("socks5", "http://exit.example.test/json", 3, b"exit.example.test"),
             ("socks5", "http://127.0.0.1:9/json", 1, b"\x7f\x00\x00\x01"),
         ):
             with self.subTest(scheme=scheme):
@@ -1313,6 +1375,90 @@ print(catalogue['browser_build'])
                 # And the credential never reaches a diagnostic.
                 self.assertEqual(result.diagnostics.proxy,
                                  f"{scheme}://127.0.0.1:{server.port}")
+
+    def test_a_dead_endpoint_is_retried_then_the_walk_moves_on_and_resolves(self) -> None:
+        """One site being down must not cost the launch its localization.
+
+        The lookup used to be one request to one HTTPS site, so anything that
+        refused it -- an outage, a rate limit, a proxy that would not carry
+        :443 -- ended with no locale and no timezone, which means the browser
+        serves the host's own from a foreign exit. That is the leak the lookup
+        exists to close, so a failure now costs an attempt rather than the
+        answer. npm/test/index.test.mjs pins the same behaviour against the
+        same fixture shape.
+        """
+        geoip_module = importlib.import_module("apostate._prelaunch_geoip")
+        with _FakeGeoIPEndpoint(status=503) as down, \
+                _FakeGeoIPEndpoint({"country_code": "MY", "timezone": "Asia/Kuala_Lumpur",
+                                    "ip": "203.0.113.7"}) as up:
+            result = geoip_module.resolve_prelaunch_geoip(
+                endpoints=(down.url, up.url), timeout=10.0)
+        self.assertEqual(result.country_code, "MY")
+        self.assertEqual(result.timezone, "Asia/Kuala_Lumpur")
+        self.assertEqual(result.locale, "ms")
+        self.assertEqual(result.timezone_source, "geoip")
+        # The failing site was tried twice before the walk gave up on it, and
+        # the one that answered was asked once. Literal counts: the retry is
+        # the behaviour under test, so reading it back off the constant would
+        # make this pass whatever the constant said.
+        self.assertEqual((down.requests, up.requests), (2, 1))
+        # Diagnostics name the site that actually answered, not the first tried.
+        self.assertEqual(result.diagnostics.request_url, up.url)
+
+    def test_an_answer_missing_the_timezone_yields_to_a_later_site(self) -> None:
+        """A country with no timezone is half an answer, and half is not enough.
+
+        There is no country-to-timezone table in this repository, so deriving
+        the missing half would mean inventing a zone -- which is exactly the
+        contradiction with the exit IP that detectors score. The walk carries
+        on instead, and only falls back to the half it has once nothing better
+        arrives.
+        """
+        geoip_module = importlib.import_module("apostate._prelaunch_geoip")
+        with _FakeGeoIPEndpoint({"country_code": "MY", "ip": "203.0.113.7"}) as partial, \
+                _FakeGeoIPEndpoint({"country_code": "DE", "timezone": "Europe/Berlin"}) as full:
+            both = geoip_module.resolve_prelaunch_geoip(
+                endpoints=(partial.url, full.url), timeout=10.0)
+            # A site that answered is not retried: it would answer the same.
+            self.assertEqual(partial.requests, 1)
+            alone = geoip_module.resolve_prelaunch_geoip(
+                endpoints=(partial.url,), timeout=10.0)
+        self.assertEqual((both.country_code, both.timezone), ("DE", "Europe/Berlin"))
+        # Nothing invented for the half that never arrived.
+        self.assertEqual((alone.country_code, alone.locale), ("MY", "ms"))
+        self.assertIsNone(alone.timezone)
+
+    def test_no_working_endpoint_sends_no_override_instead_of_a_fabricated_one(self) -> None:
+        """The honest failure survives, and now says how hard it tried.
+
+        A launch that cannot reach any site keeps sending no override at all:
+        the browser's own precedence settles locale and timezone, and nothing
+        is invented. What the message adds is the count, because "the lookup
+        failed" used to be indistinguishable from "the lookup was tried once".
+        """
+        geoip_module = importlib.import_module("apostate._prelaunch_geoip")
+        launch_module = importlib.import_module("apostate.launch")
+        with _FakeGeoIPEndpoint(status=503) as first, _FakeGeoIPEndpoint(status=500) as second:
+            urls = (first.url, second.url)
+
+            def provider(proxy: Any = None, timeout: float = 10.0) -> Any:
+                return geoip_module.resolve_prelaunch_geoip(
+                    proxy=proxy, endpoints=urls, timeout=timeout)
+
+            stream = io.StringIO()
+            with contextlib.redirect_stderr(stream):
+                plan = launch_module._resolve_plan(
+                    translate_options(fingerprint=4242), geoip_provider=provider)
+        args = launch_module._native_args(plan)
+        self.assertEqual([item for item in args
+                          if item.startswith("--fingerprint-locale")
+                          or item.startswith("--fingerprint-timezone")], [])
+        self.assertFalse(any("en-US" in item or "UTC" in item for item in args))
+        self.assertIn("--fingerprint=4242", args)
+        warning = plan.diagnostics["warnings"][0]
+        self.assertIn("every GeoIP endpoint failed: 4 attempts across 2 endpoints", warning)
+        self.assertIn("No locale or timezone override is sent and none is invented", warning)
+        self.assertIn(warning, stream.getvalue())
 
     def test_a_socks_credential_travels_in_the_envelope_and_not_to_the_driver(self) -> None:
         """Playwright refuses a socks server that carries a username.

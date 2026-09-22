@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { createServer, request as httpRequest } from "node:http";
+import { createServer as createSocket } from "node:net";
 import { chmod, lstat, mkdir, readFile, readdir, readlink, writeFile } from "node:fs/promises";
 import { mkdtemp, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
@@ -1477,4 +1478,197 @@ test("a country derives its locale and its accept-language list for every territ
     + " the host's own is served for that field."
     + " Pass locale explicitly to guarantee a match.\u001b[0m",
   ]);
+});
+
+
+// One GeoIP site, serving a fixed reply and counting what reached it. Real
+// sockets rather than a stubbed resolver: the cascade's whole job is to survive
+// a site that is down, and "down" is an HTTP status or a closed connection, not
+// an exception a double chose to throw. python/tests/test_package.py runs the
+// same fixture shape through the Python cascade.
+async function fakeGeoipEndpoint(payload, status = 200) {
+  const state = { requests: 0 };
+  const server = createServer((request, response) => {
+    state.requests += 1;
+    response.writeHead(status, { "content-type": "application/json" });
+    response.end(JSON.stringify(payload ?? {}));
+  });
+  await new Promise((ready) => server.listen(0, "127.0.0.1", ready));
+  state.url = `http://127.0.0.1:${server.address().port}/json`;
+  state.close = () => new Promise((closed) => server.close(closed));
+  return state;
+}
+
+test("a dead GeoIP endpoint is retried, then the walk moves on and still resolves", async () => {
+  // The lookup used to make one attempt per site with no retry, so an outage,
+  // a rate limit or a proxy that would not carry the request ended with no
+  // locale and no timezone -- which means the browser serves the host's own
+  // from a foreign exit, the leak the lookup exists to close. A failure now
+  // costs an attempt rather than the answer.
+  const down = await fakeGeoipEndpoint(null, 503);
+  const up = await fakeGeoipEndpoint({ country_code: "MY", timezone: "Asia/Kuala_Lumpur", ip: "203.0.113.7" });
+  try {
+    const config = await resolveLaunchConfig({
+      fingerprint: "host",
+      _geoipEndpoints: [down.url, up.url],
+    });
+    assert.equal(config.locale, "ms");
+    assert.equal(config.timezone, "Asia/Kuala_Lumpur");
+    // The failing site was retried before the walk gave up on it, and the one
+    // that answered was asked once.
+    assert.equal(down.requests, 2);
+    assert.equal(up.requests, 1);
+  } finally {
+    await down.close();
+    await up.close();
+  }
+});
+
+test("a GeoIP answer missing the timezone yields to a later site", async () => {
+  // There is no country-to-timezone table in this repository, so deriving the
+  // missing half would mean inventing a zone -- exactly the contradiction with
+  // the exit IP that detectors score. The walk carries on instead, and falls
+  // back to the half it has only once nothing better arrives.
+  const partial = await fakeGeoipEndpoint({ country_code: "MY", ip: "203.0.113.7" });
+  const full = await fakeGeoipEndpoint({ country_code: "DE", timezone: "Europe/Berlin" });
+  const warnings = [];
+  const original = console.warn;
+  console.warn = (line) => warnings.push(line);
+  try {
+    const both = await resolveLaunchConfig({
+      fingerprint: "host",
+      _geoipEndpoints: [partial.url, full.url],
+    });
+    assert.equal(both.locale, "de-DE");
+    assert.equal(both.timezone, "Europe/Berlin");
+    // A site that answered is not retried: it would answer the same.
+    assert.equal(partial.requests, 1);
+
+    const alone = await resolveLaunchConfig({
+      fingerprint: "host",
+      _geoipEndpoints: [partial.url],
+    });
+    assert.equal(alone.locale, "ms");
+    assert.equal(alone.timezone, null);
+  } finally {
+    console.warn = original;
+    await partial.close();
+    await full.close();
+  }
+});
+
+test("no working GeoIP endpoint sends no override instead of a fabricated one", async () => {
+  // A launch that cannot reach any site keeps sending no override at all: the
+  // browser's own precedence settles locale and timezone, and nothing is
+  // invented. What the message adds is the count, because "the lookup failed"
+  // used to be indistinguishable from "the lookup was tried once".
+  const first = await fakeGeoipEndpoint(null, 503);
+  const second = await fakeGeoipEndpoint(null, 500);
+  const warnings = [];
+  const original = console.warn;
+  console.warn = (line) => warnings.push(line);
+  let config;
+  try {
+    config = await resolveLaunchConfig({
+      fingerprint: "host",
+      _geoipEndpoints: [first.url, second.url],
+    });
+  } finally {
+    console.warn = original;
+    await first.close();
+    await second.close();
+  }
+  assert.equal(config.locale, null);
+  assert.equal(config.timezone, null);
+  const warning = warnings.join("\n");
+  assert.match(warning, /every GeoIP endpoint failed: 4 attempts across 2 endpoints/);
+  assert.match(warning, /No locale or timezone override is sent and none is invented/);
+  assert.equal(/en-US|UTC/.test(warning.replace("GeoIP", "")), false);
+});
+
+// One connection, one RFC 1928 handshake, one HTTP reply. Small enough to read
+// in full, which is the point: it is the thing that says whether the CONNECT
+// carries a name or an address, so it must not be a second implementation of
+// the same misunderstanding. python/tests/test_package.py drives the Python
+// transport against the same shape.
+async function fakeSocks5Server(payload) {
+  const state = { addressType: null, host: null, port: null, credentials: null };
+  const server = createSocket((connection) => {
+    let stage = "greeting";
+    let buffer = Buffer.alloc(0);
+    connection.on("data", (chunk) => {
+      buffer = Buffer.concat([buffer, chunk]);
+      if (stage === "greeting" && buffer.length >= 2 + buffer[1]) {
+        buffer = buffer.subarray(2 + buffer[1]);
+        stage = "auth";
+        connection.write(Buffer.from([0x05, 0x02]));
+      }
+      if (stage === "auth" && buffer.length >= 2) {
+        const userLength = buffer[1];
+        const passLength = buffer[2 + userLength];
+        if (buffer.length < 3 + userLength + passLength) return;
+        state.credentials = [
+          buffer.subarray(2, 2 + userLength).toString("utf8"),
+          buffer.subarray(3 + userLength, 3 + userLength + passLength).toString("utf8"),
+        ];
+        buffer = buffer.subarray(3 + userLength + passLength);
+        stage = "connect";
+        connection.write(Buffer.from([0x01, 0x00]));
+      }
+      if (stage === "connect" && buffer.length >= 5) {
+        state.addressType = buffer[3];
+        const length = state.addressType === 0x03 ? buffer[4] : (state.addressType === 0x01 ? 4 : 16);
+        const start = state.addressType === 0x03 ? 5 : 4;
+        if (buffer.length < start + length + 2) return;
+        state.host = state.addressType === 0x03
+          ? buffer.subarray(start, start + length).toString("utf8")
+          : [...buffer.subarray(start, start + length)].join(".");
+        state.port = buffer.readUInt16BE(start + length);
+        buffer = buffer.subarray(start + length + 2);
+        stage = "tunnel";
+        connection.write(Buffer.from([0x05, 0, 0, 0x01, 127, 0, 0, 1, 0, 80]));
+      }
+      if (stage === "tunnel" && buffer.includes("\r\n\r\n")) {
+        stage = "done";
+        const body = JSON.stringify(payload);
+        connection.end(`HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n`
+          + `content-length: ${Buffer.byteLength(body)}\r\nconnection: close\r\n\r\n${body}`);
+      }
+    });
+    connection.on("error", () => {});
+  });
+  await new Promise((ready) => server.listen(0, "127.0.0.1", ready));
+  state.url = `socks5://geo%20user:p%40ss@127.0.0.1:${server.address().port}`;
+  state.close = () => new Promise((closed) => server.close(closed));
+  return state;
+}
+
+test("a socks5 GeoIP lookup hands the endpoint name to the proxy, never resolving it here", async () => {
+  // The reported failure. socks5:// is the spelling a caller writes, because it
+  // is what Chromium's --proxy-server takes, and socks-proxy-agent reads the
+  // scheme literally: socks5: resolved the name on this host and connected to
+  // the address it picked. dns.lookup put the endpoint's AAAA record first, a
+  // residential exit with no IPv6 route answered "Socks5 proxy rejected
+  // connection - Failure", and the launch fell back to the host's own locale
+  // and timezone behind a proxy curl reached through socks5h:// at the same
+  // moment. Worse than the outage: a DNS query for the GeoIP endpoint left
+  // this network, and the lookup exists to learn where the exit is.
+  const proxy = await fakeSocks5Server({ country_code: "MY", timezone: "Asia/Kuala_Lumpur", ip: "203.0.113.7" });
+  try {
+    const config = await resolveLaunchConfig({
+      fingerprint: "host",
+      proxy: proxy.url,
+      _geoipEndpoints: ["http://exit.example.test/json"],
+    });
+    assert.equal(proxy.addressType, 3);
+    assert.equal(proxy.host, "exit.example.test");
+    assert.equal(proxy.port, 80);
+    // RFC 1929 is sent decoded, not as the percent-encoded URL text.
+    assert.deepEqual(proxy.credentials, ["geo user", "p@ss"]);
+    assert.equal(config.locale, "ms");
+    assert.equal(config.timezone, "Asia/Kuala_Lumpur");
+    assert.equal(config.webrtc_ip, "203.0.113.7");
+  } finally {
+    await proxy.close();
+  }
 });

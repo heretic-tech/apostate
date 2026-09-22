@@ -206,12 +206,32 @@ class CatalogueIntegrityTests(unittest.TestCase):
                     if "Built-in Audio Analog Stereo" in label:
                         self.assertEqual("linux", platform, f"{label} on {platform}")
 
-    def test_only_local_voices_are_offered(self) -> None:
+    def test_network_voices_are_one_browser_set_and_never_a_per_profile_invention(self) -> None:
+        """The nineteen `Google <language>` voices belong to the build, not a machine.
+
+        Both captures in this tree record the same nineteen names, so an option
+        that offers any of them must offer exactly that set: a profile that
+        carried its own selection would be claiming a browser nobody ships.
+        Local voices are the machine's and vary freely by option.
+        """
+        remote_sets = set()
         for option_set in self.tables["voices"]["option_sets"]:
             for option in option_set["options"]:
-                for voice in option["value"].get("speech", {}).get("voices", []):
-                    self.assertTrue(voice["local_service"],
-                                    "network voices are a build capability, not a profile value")
+                remote = tuple(sorted(
+                    (v["name"], v["lang"])
+                    for v in option["value"].get("speech", {}).get("voices", [])
+                    if not v["local_service"]))
+                if remote:
+                    remote_sets.add(remote)
+                for name, _ in remote:
+                    # Chrome names four of these with U+00A0 rather than a
+                    # space, which is why the captures are copied verbatim and
+                    # never retyped.
+                    self.assertTrue(
+                        name.startswith("Google") and name[6] in (" ", "\u00a0"), name)
+        self.assertEqual(1, len(remote_sets),
+                         "every option offering network voices must offer the same set")
+        self.assertEqual(19, len(next(iter(remote_sets))))
 
 
 class CompositionTests(unittest.TestCase):
@@ -760,8 +780,13 @@ class CompositionTests(unittest.TestCase):
         self.assertEqual("en-US,en", resolver._language_key("en-US,en", table))
         self.assertEqual("", resolver._language_key("fr-FR,fr", table))
         self.assertEqual("", resolver._language_key(None, table))
+        # A list the table does not key on is served that platform's own voices.
+        # It used to be served the host's, which under a foreign persona is the
+        # one answer that cannot be a machine.
         resolved = resolver.resolve_profile(dict(BASE_CONFIG, locale_policy="en-au"))
-        self.assertNotIn("speech", resolved)
+        voices = resolved["speech"]["voices"]
+        self.assertTrue(voices)
+        self.assertTrue(any(v["local_service"] for v in voices))
 
     def test_locale_follows_launch_precedence_geoip_then_the_host_and_never_a_draw(self) -> None:
         """The seed must not reach the locale surface, at any seed.
@@ -850,15 +875,15 @@ class CompositionTests(unittest.TestCase):
     GOLDEN_SECTIONS = frozenset({
         "audio", "battery", "browser", "cpu", "extensions", "fonts", "gl_extensions",
         "gl_limits", "gl_precisions", "gpu", "id", "media", "memory", "network",
-        "platform", "screen", "theme", "webgpu", "window",
+        "platform", "screen", "speech", "theme", "webgpu", "window",
     })
     GOLDEN_PROFILES = {
         "windows": ("fp-b0b97b3a3531b65ee50f45fc", GOLDEN_SECTIONS,
-                    "ac103c892db3b788603b01d00d25abd2437952d5442cce4fd208a18b3cfde5d8"),
+                    "66b468ff85fd2d4e8a8860cb367b7a2440c870d81f8b490454dc78a0d65925f5"),
         "macos": ("fp-60eab51485a4a8465ce3c24a", GOLDEN_SECTIONS,
-                  "b6bf66c998b5149302cc0f460ce80227583b7c035e66c561914f16b31cbac316"),
+                  "13b45e6d94e474a2d5951edf02b696102f69deb79e2344908b4fe505d9661995"),
         "linux": ("fp-8c5f63da9ef88ea749549a91", GOLDEN_SECTIONS,
-                  "46f883956d6a41b27b7ffc2c39097a65ea88fbedefa5af94ab961e8e38ffa6e6"),
+                  "c47b9d05773df32fca21dfa40131148c406d534abbfe169198dc0686525ec7b9"),
     }
 
     def _check_golden(self, persona: str, profile: dict, digest: str,

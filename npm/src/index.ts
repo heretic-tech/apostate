@@ -1062,11 +1062,54 @@ export function toCanonicalLaunchConfig(options = {}) {
   };
 }
 
+// Tried in this order, once per attempt, until one answers with both a country
+// and a timezone. Plain HTTP throughout: a residential SOCKS5 exit that refuses
+// CONNECT to :443 still carries :80, and the country an exit reports is not a
+// secret worth a TLS handshake the proxy may drop. Four independent operators,
+// so a single outage or rate limit cannot silence the lookup. Byte-identical to
+// GEOIP_ENDPOINTS in python/apostate/_prelaunch_geoip.py.
+const GEOIP_ENDPOINTS = Object.freeze([
+  "http://ip-api.com/json/",
+  "http://ipinfo.io/json",
+  "http://ipwho.is/",
+  "http://ifconfig.co/json",
+]);
+
+// Two attempts per endpoint: one retry absorbs a dropped SOCKS handshake or a
+// reset, which is the common transient on a residential exit, while a third
+// attempt on a site that has now failed twice buys less than moving on does.
+const GEOIP_ATTEMPTS_PER_ENDPOINT = 2;
+// Fixed, never jittered: two launches configured alike must take the same path.
+const GEOIP_RETRY_BACKOFF_MS = 500;
+// One attempt's ceiling. A measured SOCKS5 handshake plus one HTTP round trip
+// through a distant residential exit runs 0.8-2.3s, so 5s covers a slow exit
+// with margin and still fits eight attempts inside the budget below.
+const GEOIP_ATTEMPT_TIMEOUT_MS = 5000;
+// The whole cascade's ceiling, and the default for geoipTimeoutMs. Unbudgeted
+// the worst case is 4 endpoints x 2 attempts x 5s plus backoff, which is 42s of
+// a launch spent on a lookup; 20s is long enough that a working proxy always
+// finishes and short enough that a dead one is not mistaken for a hang.
+// python/apostate/config.py carries the same value as GEOIP_BUDGET_SECONDS.
+const GEOIP_BUDGET_MS = 20000;
+
 function proxyAgentForGeoip(target, proxy) {
   if (!proxy) return undefined;
   const proxyUrl = new URL(proxy);
-  if (proxyUrl.protocol === "socks4:" || proxyUrl.protocol === "socks5:") {
-    return new SocksProxyAgent(proxy);
+  if (proxyUrl.protocol === "socks4:" || proxyUrl.protocol === "socks5:"
+      || proxyUrl.protocol === "socks4a:" || proxyUrl.protocol === "socks5h:") {
+    // The name always goes to the proxy. socks-proxy-agent reads the scheme
+    // literally -- socks5: resolves here, socks5h: hands the name over -- and
+    // a socks5: URL is what a caller writes, because that is the spelling
+    // Chromium's --proxy-server takes. Resolving here broke the lookup two
+    // ways: this host's resolver answers with its own preference order, so
+    // dns.lookup put ipwho.is's AAAA record first and a residential exit with
+    // no IPv6 route answered "Socks5 proxy rejected connection - Failure";
+    // and, worse, a DNS query for the GeoIP endpoint left *this* network
+    // while the lookup's whole purpose is to learn where the exit is.
+    const remote = new URL(proxy);
+    remote.protocol = proxyUrl.protocol === "socks4:" ? "socks4a:"
+      : proxyUrl.protocol === "socks5:" ? "socks5h:" : proxyUrl.protocol;
+    return new SocksProxyAgent(remote.href);
   }
   if (proxyUrl.protocol !== "http:" && proxyUrl.protocol !== "https:") {
     throw new GeoIPError(`Unsupported GeoIP proxy scheme ${proxyUrl.protocol}.`, {
@@ -1079,108 +1122,221 @@ function proxyAgentForGeoip(target, proxy) {
   return new HttpProxyAgent(proxy);
 }
 
-function requestGeoipJson(url, proxy, signal) {
+function requestGeoipJson(url, proxy, signal, timeoutMs) {
   const target = new URL(url);
   if (target.protocol !== "http:" && target.protocol !== "https:") {
     throw new GeoIPError(`GeoIP URL must use HTTP or HTTPS, got ${target.protocol}.`);
   }
   const requester = target.protocol === "https:" ? httpsRequest : httpRequest;
   const agent = proxyAgentForGeoip(target, proxy);
-  return new Promise((resolveResponse, rejectResponse) => {
-    let settled = false;
-    let request;
-    const finish = (callback, value) => {
-      if (settled) return;
-      settled = true;
-      signal?.removeEventListener("abort", abort);
-      callback(value);
-    };
-    const abort = () => {
-      request?.destroy(new Error("GeoIP request aborted."));
-    };
-    if (signal?.aborted) {
-      finish(rejectResponse, Object.assign(new Error("GeoIP request aborted."), { name: "AbortError" }));
-      return;
-    }
-    try {
-      request = requester(target, {
-        agent,
-        headers: {
-          accept: "application/json",
-          "user-agent": `apostate-node/${PACKAGE_VERSION}`,
-        },
-        signal,
-      }, (response) => {
-        let size = 0;
-        const chunks = [];
-        response.setEncoding("utf8");
-        response.on("data", (chunk) => {
-          size += Buffer.byteLength(chunk);
-          if (size > 1024 * 1024) {
-            request.destroy(new Error("GeoIP response exceeded 1 MiB."));
-            return;
-          }
-          chunks.push(chunk);
-        });
-        response.on("end", () => {
-          const body = chunks.join("");
-          if (response.statusCode < 200 || response.statusCode >= 300) {
-            finish(rejectResponse, new Error(`GeoIP endpoint returned HTTP ${response.statusCode}.`));
-            return;
-          }
-          try {
-            finish(resolveResponse, JSON.parse(body));
-          } catch {
-            finish(rejectResponse, new Error("GeoIP endpoint returned invalid JSON."));
-          }
-        });
-        response.on("error", (error) => finish(rejectResponse, error));
-      });
-      request.once("error", (error) => {
-        if (error?.name === "AbortError" || signal?.aborted) {
-          finish(rejectResponse, Object.assign(new Error("GeoIP request aborted."), { name: "AbortError" }));
-        } else {
-          finish(rejectResponse, error);
+  const { promise, resolve: settle, reject: fail } = Promise.withResolvers();
+  let settled = false;
+  let request;
+  let timer;
+  const finish = (callback, value) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", abort);
+    callback(value);
+  };
+  const abort = () => {
+    request?.destroy(new Error("GeoIP request aborted."));
+  };
+  if (signal?.aborted) {
+    finish(fail, Object.assign(new Error("GeoIP request aborted."), { name: "AbortError" }));
+    return promise;
+  }
+  // One attempt's own ceiling, separate from the cascade budget the signal
+  // carries: an endpoint that accepts the connection and then never answers
+  // must cost this attempt and not the whole walk. Worded exactly as
+  // python/apostate/_prelaunch_geoip.py::GeoIPResolver._timed_out words it,
+  // because this sentence is the package's and not the runtime's.
+  timer = setTimeout(() => {
+    request?.destroy(new Error(`GeoIP lookup timed out after ${timeoutMs / 1000}s `
+      + `(${proxy ? "proxy" : "direct"} mode; proxy=${redactProxy(proxy) ?? "none"})`));
+  }, timeoutMs);
+  try {
+    request = requester(target, {
+      agent,
+      headers: {
+        accept: "application/json",
+        "user-agent": `apostate-node/${PACKAGE_VERSION}`,
+      },
+      signal,
+    }, (response) => {
+      let size = 0;
+      const chunks = [];
+      response.setEncoding("utf8");
+      response.on("data", (chunk) => {
+        size += Buffer.byteLength(chunk);
+        if (size > 1024 * 1024) {
+          request.destroy(new Error("GeoIP response exceeded 1 MiB."));
+          return;
         }
+        chunks.push(chunk);
       });
-      signal?.addEventListener("abort", abort, { once: true });
-      request.end();
-    } catch (error) {
-      finish(rejectResponse, error);
-    }
-  });
+      response.on("end", () => {
+        const body = chunks.join("");
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          finish(fail, new Error(`GeoIP endpoint returned HTTP ${response.statusCode}.`));
+          return;
+        }
+        let payload;
+        try {
+          payload = JSON.parse(body);
+        } catch {
+          finish(fail, new Error("GeoIP endpoint returned invalid JSON."));
+          return;
+        }
+        if (!isObject(payload)) {
+          finish(fail, new Error("GeoIP endpoint returned a JSON root that is not an object."));
+          return;
+        }
+        finish(settle, payload);
+      });
+      response.on("error", (error) => finish(fail, error));
+    });
+    request.once("error", (error) => {
+      if (error?.name === "AbortError" || signal?.aborted) {
+        finish(fail, Object.assign(new Error("GeoIP request aborted."), { name: "AbortError" }));
+      } else {
+        finish(fail, error);
+      }
+    });
+    signal?.addEventListener("abort", abort, { once: true });
+    request.end();
+  } catch (error) {
+    finish(fail, error);
+  }
+  return promise;
 }
 
-async function defaultGeoipLookup(url, proxy, signal) {
-  if (url) {
-    return requestGeoipJson(url, proxy, signal);
+// The message a site puts inside a 200, or null when it answered. Three
+// spellings across GEOIP_ENDPOINTS: ipwho.is sets `success` false, ip-api.com
+// sets `status` to "fail", and ipinfo.io answers a rate limit with an `error`
+// object. Without this a rate-limited reply reads as "no usable fields", which
+// is true but says nothing about why.
+// python/apostate/_prelaunch_geoip.py::_provider_failure.
+function geoipProviderFailure(payload) {
+  if (payload.success === false || payload.status === "fail") {
+    const message = payload.message;
+    return typeof message === "string" && message.trim() ? message : "provider reported failure";
   }
+  const error = payload.error;
+  if (isObject(error)) {
+    const message = error.message ?? error.title;
+    return typeof message === "string" && message.trim() ? message : "provider reported an error";
+  }
+  if (typeof error === "string" && error.trim()) return error;
+  return null;
+}
 
-  // Cascading fallbacks for more robust lookups, preferring free, reliable endpoints
-  const endpoints = [
-    "http://ip-api.com/json/",
-    "https://ipapi.co/json/",
-    "https://freeipapi.com/api/json"
-  ];
+// `country` last and behind the two-letter test: ipinfo.io answers it with "US"
+// and ip-api.com with "United States", and only one of those is a country code.
+// ifconfig.co spells the code `country_iso` and keeps the name in `country`.
+// python/apostate/_prelaunch_geoip.py::_country_code over the same key order.
+function geoipCountry(payload) {
+  const value = payload.country_code ?? payload.countryCode ?? payload.country_iso ?? payload.country;
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim().toUpperCase();
+  return /^[A-Z]{2}$/.test(trimmed) ? trimmed : null;
+}
 
+// Walk GEOIP_ENDPOINTS in order until one answers usefully, returning that
+// site's payload untouched.
+//
+// Every failure is retried on the same endpoint before the walk moves on,
+// because the transient this exists to absorb -- a dropped SOCKS handshake, a
+// reset, a rate limit -- is not distinguishable from a dead site on the first
+// try. `budgetMs` is the whole walk's ceiling and the walk never exceeds it:
+// after the first attempt, which always runs, another starts only while the
+// budget still holds a whole one.
+//
+// An endpoint that answers with a country *and* a timezone ends the walk. One
+// that answers with only part of the pair is kept as a fallback and the walk
+// continues: the missing half is never derived, because this repository has no
+// country-to-timezone table and a guessed zone is exactly the contradiction
+// with the exit IP that the lookup exists to prevent. A kept half still beats
+// the host's own value, so it is returned once the list is exhausted rather
+// than discarded.
+//
+// python/apostate/_prelaunch_geoip.py::GeoIPResolver._cascade, endpoint for
+// endpoint and attempt for attempt.
+async function defaultGeoipLookup(url, proxy, signal, budgetMs, endpointList) {
+  // `url` names a single site instead of the list, which is what an adapter or
+  // a test pointing the lookup at a fixture wants; it gets the same retries.
+  const endpoints = url ? [url] : (endpointList ?? GEOIP_ENDPOINTS);
+  const attemptTimeoutMs = Math.min(GEOIP_ATTEMPT_TIMEOUT_MS, budgetMs);
+  const deadline = Date.now() + budgetMs;
+  let attempts = 0;
+  let endpointsTried = 0;
+  let best = null;
   let lastError;
+  let exhausted = false;
   for (const endpoint of endpoints) {
-    try {
-      const result = await requestGeoipJson(endpoint, proxy, signal);
-      // Ensure API didn't return a custom error state inside 200 OK
-      if (result && result.status === 'fail') {
-        throw new Error(`API returned fail: ${result.message}`);
+    let counted = false;
+    for (let attempt = 0; attempt < GEOIP_ATTEMPTS_PER_ENDPOINT; attempt += 1) {
+      // Fixed, never jittered: two launches configured alike must take the same
+      // path, and a retry is only ever the second try at one site.
+      const delay = attempt ? GEOIP_RETRY_BACKOFF_MS : 0;
+      if (attempts && deadline - Date.now() - delay < attemptTimeoutMs) {
+        exhausted = true;
+        break;
       }
-      if (result && typeof result === 'object') {
-        return result;
+      if (delay) {
+        const { promise, resolve: wake } = Promise.withResolvers();
+        setTimeout(wake, delay);
+        await promise;
       }
-    } catch (error) {
-      lastError = error;
-      // Continue to try the next endpoint in the cascade
+      if (!counted) {
+        counted = true;
+        endpointsTried += 1;
+      }
+      attempts += 1;
+      let payload;
+      let country = null;
+      let timezone = null;
+      try {
+        payload = await requestGeoipJson(endpoint, proxy, signal, attemptTimeoutMs);
+        const failure = geoipProviderFailure(payload);
+        if (failure !== null) throw new Error(`provider reported failure: ${failure}`);
+        country = geoipCountry(payload);
+        timezone = geoipTimezone(payload.timezone ?? payload.time_zone ?? payload.timeZone);
+        const ip = payload.ip ?? payload.query ?? payload.ipAddress ?? payload.ip_address;
+        const region = payload.region ?? payload.region_name ?? payload.regionName;
+        // python/apostate/_prelaunch_geoip.py::_parse_provider_payload ends on
+        // the same test: a 200 carrying none of the four fields is a site that
+        // answered with nothing, and the walk has to keep going rather than
+        // settle for it.
+        if (country === null && timezone === null
+            && !(typeof ip === "string" && isIP(ip.trim()) !== 0)
+            && !(typeof region === "string" && region.trim() && region.trim().length <= 256)) {
+          throw new Error("provider response did not contain usable GeoIP fields");
+        }
+      } catch (error) {
+        lastError = error;
+        // The caller's own budget ran out; nothing further can be attempted.
+        if (error?.name === "AbortError") exhausted = true;
+        if (exhausted) break;
+        continue;
+      }
+      if (country !== null && timezone !== null) return payload;
+      if (best === null) best = payload;
+      // The site answered; a second identical request answers the same.
+      break;
     }
+    if (exhausted) break;
   }
-
-  throw lastError || new Error("All default GeoIP endpoints failed.");
+  if (best !== null) return best;
+  const detail = lastError?.message ?? (lastError === undefined ? "no endpoint was reachable" : String(lastError));
+  const budget = exhausted ? ` (${budgetMs / 1000}s budget exhausted)` : "";
+  // Spelled out rather than run through a pluralizer so the sentence is
+  // readable here and trivially identical to the one
+  // python/apostate/_prelaunch_geoip.py builds for the same exhausted cascade.
+  const tried = attempts === 1 ? "1 attempt" : `${attempts} attempts`;
+  const across = endpointsTried === 1 ? "1 endpoint" : `${endpointsTried} endpoints`;
+  throw new Error(`every GeoIP endpoint failed: ${tried} across ${across}${budget}; last error: ${detail}`);
 }
 
 // Country -> locale, read from the asset scripts/generate-country-locales.py
@@ -1230,14 +1386,8 @@ function geoipLocale(result) {
     const first = languages.split(",")[0].trim();
     if (first) return first;
   }
-  // `country` last and behind the two-letter test: ip-api answers it with
-  // "Malaysia" while ipapi.co answers it with "MY", and only one of those is
-  // a key into the table.
-  const country = result.country_code ?? result.countryCode ?? result.country;
-  if (typeof country === "string" && /^[A-Za-z]{2}$/.test(country.trim())) {
-    return GEOIP_COUNTRY_LOCALES[country.trim().toUpperCase()] ?? null;
-  }
-  return null;
+  const country = geoipCountry(result);
+  return country === null ? null : GEOIP_COUNTRY_LOCALES[country] ?? null;
 }
 
 // A successful lookup may omit a field. That field comes back null and stays
@@ -1320,14 +1470,20 @@ async function prepareLaunch(options = {}) {
 
   if (canonical.geoip && (canonical.locale === null || canonical.timezone === null || (canonical.proxy !== null && !hasSwitch(canonical.args, "--fingerprint-webrtc-ip")))) {
     const controller = new AbortController();
-    const timeoutMs = Number.isFinite(options.geoipTimeoutMs) ? Math.max(1, options.geoipTimeoutMs) : 10000;
+    const timeoutMs = Number.isFinite(options.geoipTimeoutMs) ? Math.max(1, options.geoipTimeoutMs) : GEOIP_BUDGET_MS;
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const resolver = options.geoipResolver ?? ((context) => defaultGeoipLookup(options.geoipUrl, context.proxy, context.signal));
+      // The controller is the hard stop; the cascade enforces the same budget
+      // itself so an exhausted walk reports what it tried rather than reaching
+      // the caller as a bare abort.
+      const resolver = options.geoipResolver
+        ?? ((context) => defaultGeoipLookup(options.geoipUrl, context.proxy, context.signal,
+          context.timeout_ms, options._geoipEndpoints));
       geoipResult = validateGeoipResult(await resolver({
         proxy: canonical.proxy,
         proxy_redacted: redactProxy(canonical.proxy),
         signal: controller.signal,
+        timeout_ms: timeoutMs,
       }));
     } catch (error) {
       // What stood here was "PRACTICAL FIX: Revert to fallback instead of
