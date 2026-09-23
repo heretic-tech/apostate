@@ -97,7 +97,7 @@
         },
         "brands": {
           "type": "array",
-          "description": "Reference record of the Sec-CH-UA brand list in major-version form. The brand list is a build invariant, not a profile value: user_agent_utils.cc adds the product brand only under #if !BUILDFLAG(CHROMIUM_BRANDING), so a Chromium build emits two brands where Chrome emits three (docs/FINGERPRINTS.md section 8), and patch 0008 restores the third rather than composing a list. The native loader does not read this field and does not rewrite the emitted list. Evidence class: native-derived.",
+          "description": "Reference record of the Sec-CH-UA brand list in major-version form. The brand list is a build invariant, not a profile value: user_agent_utils.cc adds the product brand only under #if !BUILDFLAG(CHROMIUM_BRANDING), so a Chromium build emits two brands where Chrome emits three (docs/HOW_IT_WORKS.md), and patch 0008 restores the third rather than composing a list. The native loader does not read this field and does not rewrite the emitted list. Evidence class: native-derived.",
           "items": {
             "type": "object",
             "additionalProperties": false,

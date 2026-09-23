@@ -62,10 +62,9 @@ which:
 | `release-tag` | `…/releases/download/v<package version>/<archive>.manifest.json` | `transport-integrity` |
 | `release-latest` | `…/releases/latest/download/<archive>.manifest.json` | `transport-integrity` |
 
-A launcher release and a browser release move independently — this package is
-0.1.1 and installs the binaries published as v0.1.0 — so the package cannot
-always carry the digest of the archive it needs. When it cannot, it fetches
-the manifest the release publishes beside the archive, and it says so on
+A launcher release and a browser release move independently, so the package
+cannot always carry the digest of the archive it needs. When it cannot, it
+fetches the manifest the release publishes beside the archive, and it says so on
 stderr. **That is a transport-integrity check, not provenance:** it catches a
 corrupted or truncated download, and nothing more, because the digest then
 travels with the bytes. Provenance is `gh attestation verify` — see
@@ -189,22 +188,19 @@ const browser = await launch({ fingerprint: 42 });
 Same seed, same fingerprint, on every launch and on every machine — a seed
 travels as a string, where a profile directory has to be copied.
 
-It is not the only thing that pins a device, and this changed: a persistent
-`userDataDir` now keeps one too. The first launch against a directory mints an
-identity into `DIR/apostate/identity` and every launch after reads it back,
-because that directory already holds cookies and logged-in sessions, and one
-account whose hardware changes between visits is a worse story than any single
-fingerprint value. Three lifetimes:
+A persistent context keeps one too. `launchPersistentContext(DIR)` stores the
+machine's seed in `DIR/apostate/identity` on its first launch and reads it back
+on every launch after, so the machine stays with the cookies and logins in that
+directory. `launch()` does not take a user data directory. Three lifetimes:
 
 | You launch with | The identity is | It lasts |
 |---|---|---|
-| nothing | drawn fresh from OS entropy | this launch only, recorded nowhere |
-| `userDataDir: DIR` | bound to `DIR` | until you delete `DIR`; it survives renaming and moving it |
+| `launch()` | drawn fresh from OS entropy | this launch only, recorded nowhere |
+| `launchPersistentContext(DIR)` | bound to `DIR` | until you delete `DIR/apostate/identity`; renaming or moving `DIR` changes nothing |
 | `fingerprint: SEED` | the one that seed selects | forever, on any host |
 
-If you wanted a fresh machine every run and have been reusing one directory out
-of habit, you now have to say so — drop `userDataDir`, give each run its own,
-or delete `DIR/apostate/identity` between runs.
+For a fresh machine on every run with a persistent context, give each run its
+own directory or delete `DIR/apostate/identity` between runs.
 
 Viewport geometry is handled for you: the drivers' default viewports report
 impossible values (Playwright: `screen == inner == avail` with
@@ -234,11 +230,10 @@ const browser = await launch({
 |---|---|---|
 | `fingerprint` | a fresh random seed | Seed for the whole identity. `"host"` (also `"off"`, `"false"`, `"0"`, `"disable"`, `"disabled"`) inherits the real machine and composes nothing. |
 | `fingerprintPlatform` | host's own OS on macOS and Windows; `"windows"` on Linux | `windows`, `macos` or `linux`. Selects the GPU cluster as well as the OS identity. Needs that platform's fonts installed — see below. Cannot be combined with host inheritance. |
-| `locale`, `timezone` | GeoIP of the effective egress, else the host's own | Override just these. Never drawn from the seed: a timezone the seed chose cannot correlate with the exit IP, so the precedence is this override, then GeoIP, then the host. The resolved locale is also written into the browser process environment (`LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG`), which is what moves `Intl` formatting rather than only the language list; a composed launch never inherits those from your shell, so your own locale cannot leak into a synthetic identity. Host inheritance is the one exception and does inherit them. Takes effect once the artifact ships the full locale pak set — see docs/FINGERPRINTS.md section 8. |
-| `geoip` | `true` | Best-effort: derive locale and timezone from the effective egress — the proxy exit when one is configured, the direct IP otherwise. The timezone is the provider's; the **locale is inferred from the country** through `assets/country-locales.json`, generated from CLDR territoryInfo and Chromium's own accept-language list and covering all 257 territories CLDR knows (`MY` → `ms`, `GT` → `es-419`, `IN` → `en-IN`). A lookup that fails, or one that names no country, never invents one — it warns into `browser.apostateDiagnostics.warnings`, sends no override for the field it could not answer for, and the launch serves the host's own. Behind a proxy that is the host's and not the exit's. Pass `locale` and `timezone` explicitly when geo-matching has to be guaranteed. |
+| `locale`, `timezone` | from GeoIP; without it, `en-US` and the host's timezone | Set these two yourself. They are never drawn from the seed, because a drawn timezone would not match the exit IP. The locale is also written into the browser's environment (`LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG`) so `Intl` formatting follows it. Only host mode inherits your shell's locale. |
+| `geoip` | `true` | Best-effort: derive locale and timezone from the effective egress, the proxy exit when one is configured and the direct IP otherwise. The timezone is the provider's; the locale is inferred from the country through `assets/country-locales.json`, which covers every territory CLDR knows (`MY` gives `ms`, `GT` gives `es-419`, `IN` gives `en-IN`). A lookup that fails, or names no country, invents nothing: it adds a warning to `browser.apostateDiagnostics.warnings` and sends no switch for the field it could not answer, so the persona uses `en-US` and the host's timezone there. Behind a proxy the host's timezone is not the exit's, so pass `locale` and `timezone` explicitly when the match has to be guaranteed. |
 | `proxy` | none | `http://`, `https://`, `socks5://`; credentials are kept out of the command line. |
 | `headless` | `true` | |
-| `userDataDir` | off-the-record | Persist cookies and storage. |
 | `args` | none | Extra switches passed to the browser. |
 | `driver` | first one installed | Force a specific driver by package name. |
 
@@ -288,12 +283,9 @@ If the host already has a display, the browser uses it. Without Xvfb, a
 headed launch on such a host stops with an error that says to install it or
 pass `headless: true`.
 
-What a page can still tell on such a host is render timing and per-pixel output,
-which come from the rasteriser rather than from the identity. The measured
-numbers, the exact extension names a software backend does not currently serve,
-and the status of the served GPU identity — new in this release, and on that
-page's list of behaviours written but not yet run — are in
-[docs/LIMITATIONS.md](https://github.com/heretic-tech/apostate/blob/main/docs/LIMITATIONS.md).
+What a page can still tell on such a host, such as rendering speed and the
+rendered pixels, is listed in
+[docs/KNOWN_GAPS.md](https://github.com/heretic-tech/apostate/blob/main/docs/KNOWN_GAPS.md).
 
 ### Fonts for a cross-platform persona
 
@@ -397,9 +389,8 @@ decides what the check is worth, and the two cases are not the same strength:
   substituted archive as well as a damaged one.
 - **A manifest fetched from the release** (`manifest_trust:
   transport-integrity`). The digest travels with the bytes, so it detects a
-  corrupted or truncated download and nothing else. This is the path a
-  launcher-only release takes — 0.1.1 installing the v0.1.0 binaries — and it
-  says so on stderr when it happens.
+  corrupted or truncated download and nothing else. A launcher installing a
+  release published before it takes this path, and says so on stderr.
 
 For the stronger claim in either case, releases carry GitHub build-provenance
 attestations, which bind the archive to the repository, commit and workflow

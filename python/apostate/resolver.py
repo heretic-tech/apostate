@@ -2,7 +2,7 @@
 
 Catalogue version 2 composes a profile from an anchor and the dispersion axes,
 and that compositor lives in the browser process in C++ as the only
-implementation (``docs/FINGERPRINTS.md`` section 7). This module therefore does
+implementation (docs/HOW_IT_WORKS.md). This module therefore does
 not compose. What it does is decide which of the two native selection paths a
 launch uses and hand the browser the switches for it:
 

@@ -5,7 +5,7 @@ Catalogue version 2 replaced the fourteen-family catalogue with a composition
 model: invariants belong to the build, an anchor is a measured GPU capability
 cluster taken atomically, and every other varying surface is drawn by seed from
 an enumerated option table under ``resources/profiles/dispersion/``.
-``docs/FINGERPRINTS.md`` is the model and this module is its reference
+docs/HOW_IT_WORKS.md is the model and this module is its reference
 implementation.
 
 The browser process owns the production compositor; this module exists so the
@@ -307,7 +307,7 @@ def _read_object(path: Path, what: str) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------
-# Seed derivation (docs/FINGERPRINTS.md section 5)
+# Seed derivation (docs/HOW_IT_WORKS.md)
 # --------------------------------------------------------------------------
 def seed_root(seed: str, platform: str, browser_build: str,
               catalogue_version: int = CATALOGUE_VERSION,
@@ -994,7 +994,7 @@ def _resolve_locale_surface(profile: dict[str, Any], config: Mapping[str, Any],
                             policy: Mapping[str, Any] | None) -> dict[str, dict[str, Any]]:
     """Settle locale.accept_languages and locale.timezone, and name each source.
 
-    FINGERPRINTS.md §6 conditions this surface on "launch precedence, GeoIP"
+    docs/HOW_IT_WORKS.md conditions this surface on "launch precedence, GeoIP"
     and gives it no option table. It is not a dispersion axis and a seed must
     never reach it: a drawn timezone does not merely fail to match the egress,
     it guarantees a mismatch, because the draw cannot see where the connection
@@ -1276,7 +1276,7 @@ def _anchor_capability_layer(record: Mapping[str, Any], renderer: str | None) ->
     An anchor is atomic: selecting it takes the whole cluster, not just the
     identity strings. Presenting a member's renderer string on top of the
     host's own capability tables is precisely the retired catalogue's failure
-    (docs/FINGERPRINTS.md sections 1 and 4), so the cluster is merged here.
+    (docs/HOW_IT_WORKS.md), so the cluster is merged here.
 
     WebGL1 and WebGL2 agree on every shared MAX_* limit and every shader
     precision entry in all four anchors -- that agreement is what makes them one

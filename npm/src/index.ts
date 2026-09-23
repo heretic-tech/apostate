@@ -78,7 +78,7 @@ const HOST_INHERITANCE_SEED = "host";
 const HOST_INHERITANCE_SEEDS = {
   host: true, off: true, false: true, "0": true, disable: true, disabled: true,
 };
-// docs/FINGERPRINTS.md section 7: the compositor is the browser process's and is
+// docs/HOW_IT_WORKS.md: the compositor is the browser process's and is
 // the only implementation. The package does not compose; it hands the browser
 // the selectors and lets the browser process compose. Measured on the shipped
 // macos-arm64 artifact at 152.0.7977.83: --fingerprint=42 yields en-GB /
@@ -640,7 +640,7 @@ function cataloguePolicyIds(policies, family) {
 
 // The catalogue describes the browser process's composition model. The package
 // reads it to report the anchors, axes and policy ids it will compose from, and
-// never to compose: see docs/FINGERPRINTS.md section 7.
+// never to compose: see docs/HOW_IT_WORKS.md.
 export function loadCatalogue(path = DEFAULT_CATALOGUE_PATH) {
   const cataloguePath = resolve(path);
   let parsed;
@@ -1452,7 +1452,7 @@ function posixLocale(tag) {
 // that moves Intl.DateTimeFormat, Intl.NumberFormat, Intl.Collator and
 // toLocaleString together with navigator.languages; --lang moves none of them,
 // measured on stock Chrome as well as on ours. It has no effect on an artifact
-// that ships one locale pak -- see docs/FINGERPRINTS.md section 8 and
+// that ships one locale pak -- see docs/HOW_IT_WORKS.md and
 // scripts/package-artifact.sh, which now ships the full set.
 function localeEnvironment(config, resolution) {
   const seed = config.fingerprint;

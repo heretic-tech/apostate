@@ -240,7 +240,7 @@ def _locale_environment(plan: LaunchPlan) -> dict[str, str]:
     that moves `Intl.DateTimeFormat`, `Intl.NumberFormat`, `Intl.Collator` and
     `toLocaleString` together with `navigator.languages`; `--lang` moves none
     of them, measured on stock Chrome as well as on ours. It has no effect on
-    an artifact that ships one locale pak -- see docs/FINGERPRINTS.md section 8
+    an artifact that ships one locale pak -- see docs/HOW_IT_WORKS.md
     and scripts/package-artifact.sh, which now ships the full set.
     """
     if is_host_seed(plan.config.fingerprint):

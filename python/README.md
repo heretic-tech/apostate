@@ -138,22 +138,19 @@ browser = launch(fingerprint=42)
 Same seed, same fingerprint, on every launch and on every machine — a seed
 travels as a string, where a profile directory has to be copied.
 
-It is not the only thing that pins a device, and this changed: a persistent
-`user_data_dir` now keeps one too. The first launch against a directory mints
-an identity into `DIR/apostate/identity` and every launch after reads it back,
-because that directory already holds cookies and logged-in sessions, and one
-account whose hardware changes between visits is a worse story than any single
-fingerprint value. Three lifetimes:
+A persistent context keeps one too. `launch_persistent_context(DIR)` stores the
+machine's seed in `DIR/apostate/identity` on its first launch and reads it back
+on every launch after, so the machine stays with the cookies and logins in that
+directory. `launch()` does not take a user data directory. Three lifetimes:
 
 | You launch with | The identity is | It lasts |
 |---|---|---|
-| nothing | drawn fresh from OS entropy | this launch only, recorded nowhere |
-| `user_data_dir=DIR` | bound to `DIR` | until you delete `DIR`; it survives renaming and moving it |
+| `launch()` | drawn fresh from OS entropy | this launch only, recorded nowhere |
+| `launch_persistent_context(DIR)` | bound to `DIR` | until you delete `DIR/apostate/identity`; renaming or moving `DIR` changes nothing |
 | `fingerprint=SEED` | the one that seed selects | forever, on any host |
 
-If you wanted a fresh machine every run and have been reusing one directory out
-of habit, you now have to say so — drop `user_data_dir`, give each run its own,
-or delete `DIR/apostate/identity` between runs.
+For a fresh machine on every run with a persistent context, give each run its
+own directory or delete `DIR/apostate/identity` between runs.
 
 Viewport geometry is handled for you: the drivers' default viewports report
 impossible values (Playwright: `screen == inner == avail` with
@@ -183,11 +180,10 @@ browser = launch(
 |---|---|---|
 | `fingerprint` | a fresh random seed | Seed for the whole identity. `"host"` (also `"off"`, `"false"`, `"0"`, `"disable"`, `"disabled"`) inherits the real machine and composes nothing. |
 | `fingerprint_platform` | host's own OS on macOS and Windows; `"windows"` on Linux | `windows`, `macos` or `linux`. Selects the GPU cluster as well as the OS identity. Needs that platform's fonts installed — see below. Cannot be combined with host inheritance. |
-| `locale`, `timezone` | GeoIP of the effective egress, else the host's own | Override just these. Never drawn from the seed: a timezone the seed chose cannot correlate with the exit IP, so the precedence is this override, then GeoIP, then the host. The resolved locale is also written into the browser process environment (`LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG`), which is what moves `Intl` formatting rather than only the language list; a composed launch never inherits those from your shell, so your own locale cannot leak into a synthetic identity. Host inheritance is the one exception and does inherit them. Takes effect once the artifact ships the full locale pak set — see docs/FINGERPRINTS.md section 8. |
-| `geoip` | `True` | Best-effort: derive locale and timezone from the effective egress — the proxy exit when one is configured, the direct IP otherwise. The lookup ships with the package and needs no repository checkout and no extra dependency: it speaks `http(s)://`, `socks5://` and `socks5h://` proxies, including RFC 1929 username/password, out of the standard library. A failed or partial lookup never invents one and no longer raises from `launch()` — it warns into the plan's `diagnostics["warnings"]`, sends no override for the fields it could not answer for, and the launch serves the host's own for those. Behind a proxy that is the host's and not the exit's. Pass `locale` and `timezone` explicitly when geo-matching has to be guaranteed. `resolve_geoip()` called directly still raises. Inject your own with `geoip_provider=`. |
+| `locale`, `timezone` | from GeoIP; without it, `en-US` and the host's timezone | Set these two yourself. They are never drawn from the seed, because a drawn timezone would not match the exit IP. The locale is also written into the browser's environment (`LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG`) so `Intl` formatting follows it. Only host mode inherits your shell's locale. |
+| `geoip` | `True` | Best-effort: derive locale and timezone from the effective egress, the proxy exit when one is configured and the direct IP otherwise. The lookup ships with the package and needs no extra dependency: it speaks `http(s)://`, `socks5://` and `socks5h://` proxies, including username and password, out of the standard library. A failed or partial lookup does not raise from `launch()` and invents nothing: it adds a warning to the plan's `diagnostics["warnings"]` and sends no switch for the field it could not answer, so the persona uses `en-US` and the host's timezone there. Behind a proxy the host's timezone is not the exit's, so pass `locale` and `timezone` explicitly when the match has to be guaranteed. `resolve_geoip()` called directly still raises. Inject your own with `geoip_provider=`. |
 | `proxy` | none | `http://`, `https://`, `socks5://`. The endpoint goes on the command line and the credential travels in the launch envelope, so it is in no log and no socket-pool key — and a SOCKS credential is deliberately withheld from the driver, which refuses to start when one is present. `socks5h://` is not a Chromium proxy scheme; use `socks5://`, which already resolves the destination proxy-side. |
 | `headless` | `True` | |
-| `user_data_dir` | off-the-record | Persist cookies and storage. |
 | `args` | none | Extra switches passed to the browser. |
 
 ### Headless Linux servers
@@ -236,12 +232,9 @@ If the host already has a display, the browser uses it. Without Xvfb, a
 headed launch on such a host stops with an error that says to install it or
 pass `headless=True`.
 
-What a page can still tell on such a host is render timing and per-pixel output,
-which come from the rasteriser rather than from the identity. The measured
-numbers, the exact extension names a software backend does not currently serve,
-and the status of the served GPU identity — new in this release, and on that
-page's list of behaviours written but not yet run — are in
-[docs/LIMITATIONS.md](https://github.com/heretic-tech/apostate/blob/main/docs/LIMITATIONS.md).
+What a page can still tell on such a host, such as rendering speed and the
+rendered pixels, is listed in
+[docs/KNOWN_GAPS.md](https://github.com/heretic-tech/apostate/blob/main/docs/KNOWN_GAPS.md).
 
 ### Fonts for a cross-platform persona
 
@@ -360,9 +353,8 @@ depends on whether this package is older than the binaries it installs, and
 | `release-tag` | `releases/download/v<this package's version>/<archive>.manifest.json`, fetched at run time. |
 | `release-latest` | `releases/latest/download/<archive>.manifest.json`, fetched at run time. |
 
-The last two are the reason a launcher installs at all before a matching
-binary release exists — 0.1.1 installs the binaries published as v0.1.0, and
-a launcher fix does not wait on a Chromium rebuild. They are a
+The last two let a launcher install binaries published before it, so a
+launcher fix does not wait on a Chromium rebuild. They are a
 transport-integrity check and not provenance: they catch a truncated or
 corrupted download, and they cannot catch a substituted release, because the
 digest came from the same place as the bytes. `manifest_trust` says `pinned`

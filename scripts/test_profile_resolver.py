@@ -801,7 +801,7 @@ class CompositionTests(unittest.TestCase):
         launch on an Asia/Bangkok host served America/New_York, Europe/London
         or Australia/Sydney depending on the seed -- a timezone uncorrelated
         with the exit IP by construction, which is a first-line correlation
-        check at every fraud vendor. FINGERPRINTS.md section 6 conditions this
+        check at every fraud vendor. docs/HOW_IT_WORKS.md conditions this
         surface on "launch precedence, GeoIP" and gives it no option table.
         """
         host = {"host_timezone": "Asia/Bangkok", "host_languages": "th-TH,th"}
