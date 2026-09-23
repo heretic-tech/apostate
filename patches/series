@@ -121,3 +121,5 @@
 0138-compose-claims-the-host-cpu-architecture.patch
 0139-widevine-loads-a-cdm-beside-the-executable.patch
 0140-mac-helper-signed-to-load-the-widevine-cdm.patch
+0141-media-name-the-communications-device-on-every-host.patch
+0142-webgpu-serve-the-two-float32-features-the-profile-claims.patch

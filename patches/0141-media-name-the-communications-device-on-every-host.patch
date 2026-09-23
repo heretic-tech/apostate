@@ -1,0 +1,23 @@
+Subject: [PATCH] media: name the communications device on every host
+
+A Windows persona lists Windows' virtual communications audio device
+(0131). Chromium only knows its name on Windows builds and hits
+NOTREACHED elsewhere, which crashed the browser on enumerateDevices() on
+a Linux host without a sound card. Other builds now return the English
+Windows name.
+
+diff --git a/media/audio/audio_device_description.cc b/media/audio/audio_device_description.cc
+index d9d394b..1846523 100644
+--- a/media/audio/audio_device_description.cc
++++ b/media/audio/audio_device_description.cc
+@@ -157,7 +157,9 @@ std::string AudioDeviceDescription::GetCommunicationsDeviceName() {
+   // is deprecated.
+   return "";
+ #else
+-  NOTREACHED();
++  // A Windows persona lists Windows' virtual communications device on any
++  // host; this is the name Windows gives it in English.
++  return "Communications";
+ #endif
+ }
+ 

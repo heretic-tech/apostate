@@ -1,0 +1,123 @@
+Subject: [PATCH] webgpu: serve the two float32 features the profile claims
+
+When SwiftShader stands in for the claimed adapter, the page was missing
+float32-filterable and float32-blendable although the profile claims them and
+the real device has them. The claim is read by the names the page uses, but
+Dawn spells these two without the hyphen, so they never matched. Each served
+feature now carries its page name.
+
+diff --git a/gpu/command_buffer/service/webgpu_decoder_impl.cc b/gpu/command_buffer/service/webgpu_decoder_impl.cc
+--- a/gpu/command_buffer/service/webgpu_decoder_impl.cc
++++ b/gpu/command_buffer/service/webgpu_decoder_impl.cc
+@@ -167,37 +167,49 @@
+   X(Core, true, maxColorAttachments)
+ 
+ // The features a page can be told about, in Dawn's own order so a list built
+-// from them reads the way the backend's would.
+-constexpr wgpu::FeatureName kClaimableFeatures[] = {
+-    wgpu::FeatureName::CoreFeaturesAndLimits,
+-    wgpu::FeatureName::DepthClipControl,
+-    wgpu::FeatureName::Depth32FloatStencil8,
+-    wgpu::FeatureName::TextureCompressionBC,
+-    wgpu::FeatureName::TextureCompressionBCSliced3D,
+-    wgpu::FeatureName::TextureCompressionETC2,
+-    wgpu::FeatureName::TextureCompressionASTC,
+-    wgpu::FeatureName::TextureCompressionASTCSliced3D,
+-    wgpu::FeatureName::TimestampQuery,
+-    wgpu::FeatureName::IndirectFirstInstance,
+-    wgpu::FeatureName::ShaderF16,
+-    wgpu::FeatureName::RG11B10UfloatRenderable,
+-    wgpu::FeatureName::BGRA8UnormStorage,
+-    wgpu::FeatureName::Float32Filterable,
+-    wgpu::FeatureName::Float32Blendable,
+-    wgpu::FeatureName::ClipDistances,
+-    wgpu::FeatureName::DualSourceBlending,
+-    wgpu::FeatureName::Subgroups,
+-    wgpu::FeatureName::TextureFormatsTier1,
+-    wgpu::FeatureName::TextureFormatsTier2,
+-    wgpu::FeatureName::PrimitiveIndex,
+-    wgpu::FeatureName::TextureComponentSwizzle,
+-    wgpu::FeatureName::SubgroupSizeControl,
++// from them reads the way the backend's would, each with the name the JS API
++// and the profile give it. Dawn's own names are not those for every feature
++// (it says "float32filterable"), so they cannot be used to read the claim.
++struct ClaimableFeature {
++  wgpu::FeatureName feature;
++  const char* name;
++};
++constexpr ClaimableFeature kClaimableFeatures[] = {
++    {wgpu::FeatureName::CoreFeaturesAndLimits, "core-features-and-limits"},
++    {wgpu::FeatureName::DepthClipControl, "depth-clip-control"},
++    {wgpu::FeatureName::Depth32FloatStencil8, "depth32float-stencil8"},
++    {wgpu::FeatureName::TextureCompressionBC, "texture-compression-bc"},
++    {wgpu::FeatureName::TextureCompressionBCSliced3D,
++     "texture-compression-bc-sliced-3d"},
++    {wgpu::FeatureName::TextureCompressionETC2, "texture-compression-etc2"},
++    {wgpu::FeatureName::TextureCompressionASTC, "texture-compression-astc"},
++    {wgpu::FeatureName::TextureCompressionASTCSliced3D,
++     "texture-compression-astc-sliced-3d"},
++    {wgpu::FeatureName::TimestampQuery, "timestamp-query"},
++    {wgpu::FeatureName::IndirectFirstInstance, "indirect-first-instance"},
++    {wgpu::FeatureName::ShaderF16, "shader-f16"},
++    {wgpu::FeatureName::RG11B10UfloatRenderable, "rg11b10ufloat-renderable"},
++    {wgpu::FeatureName::BGRA8UnormStorage, "bgra8unorm-storage"},
++    {wgpu::FeatureName::Float32Filterable, "float32-filterable"},
++    {wgpu::FeatureName::Float32Blendable, "float32-blendable"},
++    {wgpu::FeatureName::ClipDistances, "clip-distances"},
++    {wgpu::FeatureName::DualSourceBlending, "dual-source-blending"},
++    {wgpu::FeatureName::Subgroups, "subgroups"},
++    {wgpu::FeatureName::TextureFormatsTier1, "texture-formats-tier1"},
++    {wgpu::FeatureName::TextureFormatsTier2, "texture-formats-tier2"},
++    {wgpu::FeatureName::PrimitiveIndex, "primitive-index"},
++    {wgpu::FeatureName::TextureComponentSwizzle, "texture-component-swizzle"},
++    {wgpu::FeatureName::SubgroupSizeControl, "subgroup-size-control"},
+ };
+ 
+ bool IsClaimedFeature(const std::set<std::string>& claimed,
+                       wgpu::FeatureName feature) {
+-  const dawn::native::FeatureInfo* info = dawn::native::GetFeatureInfo(feature);
+-  return info != nullptr && claimed.contains(info->name);
++  for (const ClaimableFeature& entry : kClaimableFeatures) {
++    if (entry.feature == feature) {
++      return claimed.contains(entry.name);
++    }
++  }
++  return false;
+ }
+ 
+ bool IsLimitUndefined(uint32_t value) {
+@@ -1674,9 +1686,9 @@
+     WGPUSupportedFeatures* features_out) {
+   std::vector<wgpu::FeatureName> exposed_features;
+   if (const std::set<std::string>* claimed = ClaimedFeatures()) {
+-    for (wgpu::FeatureName feature : kClaimableFeatures) {
+-      if (IsFeatureExposed(feature) && IsClaimedFeature(*claimed, feature)) {
+-        exposed_features.push_back(feature);
++    for (const ClaimableFeature& entry : kClaimableFeatures) {
++      if (IsFeatureExposed(entry.feature) && claimed->contains(entry.name)) {
++        exposed_features.push_back(entry.feature);
+       }
+     }
+   } else {
+@@ -1753,14 +1765,16 @@
+   }
+   procs.supportedFeaturesFreeMembers(*features_out);
+   std::vector<wgpu::FeatureName> reported;
+-  for (wgpu::FeatureName feature : kClaimableFeatures) {
+-    if (std::ranges::contains(granted, feature) ||
+-        std::ranges::contains(claimed_device_request_->features, feature)) {
+-      reported.push_back(feature);
++  for (const ClaimableFeature& entry : kClaimableFeatures) {
++    if (std::ranges::contains(granted, entry.feature) ||
++        std::ranges::contains(claimed_device_request_->features,
++                              entry.feature)) {
++      reported.push_back(entry.feature);
+     }
+   }
+   for (wgpu::FeatureName feature : granted) {
+-    if (!std::ranges::contains(kClaimableFeatures, feature)) {
++    if (!std::ranges::contains(kClaimableFeatures, feature,
++                               &ClaimableFeature::feature)) {
+       reported.push_back(feature);
+     }
+   }
