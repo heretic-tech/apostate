@@ -158,19 +158,30 @@ export declare function launch(options?: LaunchOptions): Promise<any>;
 export declare function launchContext(options?: LaunchOptions): Promise<any>;
 export declare function launchPersistentContext(userDataDir: string, options?: LaunchOptions): Promise<any>;
 export declare function launchProcess(options?: LaunchOptions): Promise<ApostateProcess>;
+// Installs a Widevine CDM into this package's browser now: source when given,
+// else one found on this machine, else Google's. A launch does the same on its
+// own when the browser has none.
 export declare function provisionWidevine(options?: {
   target?: string;
   cacheDir?: string;
-  source: string;
+  source?: string;
 }): Promise<{
   platform: string;
   platform_verified: boolean;
   source: string;
   version: string | null;
   store: string;
-  installed: string | null;
+  installed: string;
 }>;
 export declare const provision_widevine: typeof provisionWidevine;
+// What a launch runs: gives the browser at executable a CDM if it has none.
+// Resolves to its CDM directory, or null; never rejects.
+export declare function ensureWidevine(executable: string, options?: {
+  target?: string;
+  cacheDir?: string;
+  userDataDir?: string;
+}): Promise<string | null>;
+export declare const ensure_widevine: typeof ensureWidevine;
 export declare const DRIVERS: string[];
 export declare function driverInfo(): Promise<{
   preference_order: string[];

@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
 import {
   request as httpRequest,
@@ -7,7 +7,7 @@ import {
 import {
   request as httpsRequest,
 } from "node:https";
-import { isIP } from "node:net";
+import { connect as connectSocket, isIP } from "node:net";
 import {
   access,
   chmod,
@@ -18,16 +18,28 @@ import {
   mkdtemp,
   readFile,
   readdir,
+  readlink,
   realpath,
   rename,
   rm,
   stat,
   writeFile,
 } from "node:fs/promises";
-import { constants as fsConstants, readFileSync as readFileSyncNative } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { homedir, platform as hostPlatform, arch as hostArch } from "node:os";
+import {
+  accessSync,
+  closeSync,
+  constants as fsConstants,
+  existsSync,
+  openSync,
+  readFileSync as readFileSyncNative,
+  statSync,
+  unlinkSync,
+} from "node:fs";
+import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { homedir, platform as hostPlatform, arch as hostArch, tmpdir } from "node:os";
+import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
+import * as zlib from "node:zlib";
 import { SocksProxyAgent } from "socks-proxy-agent";
 import { HttpProxyAgent } from "http-proxy-agent";
 import { HttpsProxyAgent } from "https-proxy-agent";
@@ -2065,20 +2077,32 @@ export async function verifyArtifact(archive, artifact) {
   return { sha256: actualHash };
 }
 
-async function runCommand(command, args, cwd, capture = false) {
-  return new Promise((resolveCommand, rejectCommand) => {
-    const child = spawn(command, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
-    const stdout = [];
-    const stderr = [];
-    child.stdout?.on("data", (chunk) => stdout.push(Buffer.from(chunk)));
-    child.stderr?.on("data", (chunk) => stderr.push(Buffer.from(chunk)));
-    child.once("error", (error) => rejectCommand(error));
-    child.once("close", (code) => {
-      if (code === 0) return resolveCommand(capture ? Buffer.concat(stdout).toString("utf8") : undefined);
-      const detail = Buffer.concat(stderr).toString("utf8").trim();
-      rejectCommand(new Error(`${command} exited with code ${code}${detail ? `: ${detail}` : ""}`));
+// `input`, when given, makes a fresh stream to feed the command's stdin.
+function runCommand(command, args, cwd, capture = false, input = null) {
+  const { promise, resolve: resolveCommand, reject: rejectCommand } = Promise.withResolvers();
+  const child = spawn(command, args, { cwd, stdio: [input ? "pipe" : "ignore", "pipe", "pipe"] });
+  const stdout = [];
+  const stderr = [];
+  let inputError = null;
+  child.stdout?.on("data", (chunk) => stdout.push(Buffer.from(chunk)));
+  child.stderr?.on("data", (chunk) => stderr.push(Buffer.from(chunk)));
+  child.once("error", (error) => rejectCommand(error));
+  if (input && child.stdin) {
+    const stream = input();
+    stream.once("error", (error) => {
+      inputError = error;
+      child.stdin.destroy();
     });
+    // The command may stop reading before the end; its exit code decides.
+    child.stdin.on("error", () => {});
+    stream.pipe(child.stdin);
+  }
+  child.once("close", (code) => {
+    if (code === 0 && !inputError) return resolveCommand(capture ? Buffer.concat(stdout).toString("utf8") : undefined);
+    const detail = inputError?.message ?? Buffer.concat(stderr).toString("utf8").trim();
+    rejectCommand(new Error(`${command} exited with code ${code}${detail ? `: ${detail}` : ""}`));
   });
+  return promise;
 }
 
 function safeArchiveMemberName(value) {
@@ -2160,6 +2184,17 @@ function scanZipArchive(bytes) {
       if (kind !== 0 && kind !== 0o100000 && kind !== 0o040000 && kind !== 0o120000) {
         throw new BinaryExtractionError(`Archive member ${JSON.stringify(name)} is a special file.`);
       }
+      if (kind === 0o120000) {
+        // A link's target is its data, and it is checked before anything lands.
+        const method = bytes.readUInt16LE(offset + 10);
+        const local = bytes.readUInt32LE(offset + 42);
+        if (local + 30 > bytes.length || bytes.readUInt32LE(local) !== 0x04034b50 || (method !== 0 && method !== 8)) {
+          throw new BinaryExtractionError(`Unable to read the link target of ${JSON.stringify(name)}.`);
+        }
+        const start = local + 30 + bytes.readUInt16LE(local + 26) + bytes.readUInt16LE(local + 28);
+        const raw = bytes.subarray(start, start + bytes.readUInt32LE(offset + 20));
+        checkContainedLink(name, (method === 8 ? zlib.inflateRawSync(raw) : raw).toString("utf8"));
+      }
     }
     offset = nextOffset;
   }
@@ -2170,7 +2205,15 @@ function scanZipArchive(bytes) {
 // be told. Plain first, because `--use-compress-program=zstd` fails on bsdtar.
 const TAR_COMPRESSION_ATTEMPTS = [[], ["--zstd"], ["--use-compress-program=zstd"]];
 
-async function runTar(operands, cwd, capture = false, kind = undefined) {
+async function runTar(operands, cwd, capture = false, kind = undefined, input = null) {
+  if (input) {
+    // What arrives on stdin is already a plain tar: there is no flag to find.
+    try {
+      return await runCommand("tar", operands, cwd, capture, input);
+    } catch (error) {
+      throw new BinaryExtractionError(extractionFailureMessage("tar", true, error?.message ?? "tar failed"));
+    }
+  }
   let firstError;
   for (const prefix of TAR_COMPRESSION_ATTEMPTS) {
     try {
@@ -2220,12 +2263,12 @@ export function extractionFailureMessage(kind, zstdPresent, detail) {
   return `Unable to read tar archive: ${detail}.`;
 }
 
-async function scanTarArchive(archivePath, destination, kind = "zst") {
+async function scanTarArchive(archivePath, destination, kind = "zst", input = null) {
   // `-tf` gives exact names, one per line. `-tvf` gives the mode column and,
   // for a symlink, `<name> -> <target>`. The target is read by anchoring on the
   // exact name from `-tf` rather than by parsing the verbose columns.
-  const names = (await runTar(["-tf", archivePath], destination, true, kind)).split(/\r?\n/).filter((line) => line.length > 0);
-  const details = (await runTar(["-tvf", archivePath], destination, true, kind)).split(/\r?\n/).filter((line) => line.length > 0);
+  const names = (await runTar(["-tf", archivePath], destination, true, kind, input)).split(/\r?\n/).filter((line) => line.length > 0);
+  const details = (await runTar(["-tvf", archivePath], destination, true, kind, input)).split(/\r?\n/).filter((line) => line.length > 0);
   if (names.length !== details.length) throw new BinaryExtractionError("Tar archive listing is ambiguous; refusing extraction.");
   names.forEach((raw, index) => {
     const name = safeArchiveMemberName(raw);
@@ -2254,11 +2297,28 @@ async function scanTarArchive(archivePath, destination, kind = "zst") {
   });
 }
 
+// Every zstd frame starts with these four bytes.
+const ZSTD_MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd]);
+
+// node:zlib reads zstd from Node 22.15. With it a zstd archive is decompressed
+// here and tar only ever reads a plain tar, so the host needs no zstd. The
+// bytes decide, not the name, as in python/apostate/binary.py.
+function zstdInput(bytes) {
+  if (typeof zlib.createZstdDecompress !== "function" || !ZSTD_MAGIC.equals(bytes.subarray(0, 4))) return null;
+  return () => Readable.from([bytes]).pipe(zlib.createZstdDecompress());
+}
+
 async function defaultExtract(bytes, destination, context) {
   const archivePath = join(destination, context.artifact);
   const tree = join(destination, "tree");
-  await writeFile(archivePath, bytes, { mode: 0o600 });
   await mkdir(tree, { recursive: true });
+  const input = context.artifact.endsWith(".tar.zst") ? zstdInput(bytes) : null;
+  if (input) {
+    await scanTarArchive("-", destination, "tar", input);
+    await runTar(["-xf", "-", "-C", tree], destination, false, "tar", input);
+    return tree;
+  }
+  await writeFile(archivePath, bytes, { mode: 0o600 });
   try {
     if (context.artifact.endsWith(".zip")) {
       scanZipArchive(bytes);
@@ -2878,9 +2938,6 @@ export async function ensureBinary(options = {}) {
       package_version: PACKAGE_VERSION,
       platform: target,
     })}\n`, { mode: 0o600 });
-    // Provisioning is an optional extra; a browser that launches without DRM
-    // is far better than no browser at all, so a failure here is not fatal.
-    await applyWidevine(paths.install, target, cacheDir, CHROMIUM_VERSION).catch(() => null);
     return join(paths.install, relativeExecutable);
   } catch (error) {
     if (error instanceof ApostateError) throw error;
@@ -3186,6 +3243,210 @@ function contextOwnsBrowser(context, browser) {
   return context;
 }
 
+// --- Virtual display ----------------------------------------------------------
+//
+// A headed launch on a Linux machine with no display gets a private Xvfb on
+// the first free display number from :99 up, sized to the screen the launch
+// claims. Only the browser's environment is given its DISPLAY, and the server
+// stops when the browser closes or this process exits. Mirrors
+// python/apostate/xvfb.py.
+const XVFB_FIRST_DISPLAY = 99;
+const XVFB_ATTEMPTS = 100;
+const XVFB_START_TIMEOUT_MS = 10000;
+const XVFB_MISSING = "Xvfb is not installed; install it (apt install xvfb) or pass headless: true";
+const liveDisplays = new Set();
+let displayExitHook = false;
+
+function xvfbLockOwner(number) {
+  try {
+    const pid = Number.parseInt(readFileSyncNative(`/tmp/.X${number}-lock`, "ascii").trim(), 10);
+    return Number.isInteger(pid) ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+// Whether a DISPLAY string names an X server that accepts a connection.
+function displayAnswers(value) {
+  const match = /^(.*):(\d+)(?:\..*)?$/.exec(String(value ?? ""));
+  if (!match) return Promise.resolve(false);
+  const [, host, number] = match;
+  const { promise, resolve: settle } = Promise.withResolvers();
+  const socket = connectSocket(host === "" || host === "unix"
+    ? { path: `/tmp/.X11-unix/X${number}` }
+    : { host, port: 6000 + Number(number) });
+  const finish = (answer) => {
+    socket.destroy();
+    settle(answer);
+  };
+  socket.setTimeout(1000, () => finish(false));
+  socket.once("connect", () => finish(true));
+  socket.once("error", () => finish(false));
+  return promise;
+}
+
+function findOnPath(name) {
+  for (const directory of String(process.env.PATH ?? "").split(delimiter)) {
+    if (!directory) continue;
+    const candidate = join(directory, name);
+    try {
+      accessSync(candidate, fsConstants.X_OK);
+      if (statSync(candidate).isFile()) return candidate;
+    } catch {
+      // Not in this directory.
+    }
+  }
+  return null;
+}
+
+class VirtualDisplay {
+  constructor(number, child) {
+    this.number = number;
+    this.name = `:${number}`;
+    this.child = child;
+    this.failed = null;
+    child.once("error", (error) => { this.failed = error; });
+  }
+
+  running() {
+    return this.failed === null && this.child.exitCode === null && this.child.signalCode === null;
+  }
+
+  // Xvfb removes its lock and socket when it exits cleanly. A killed one does
+  // not, and only a lock that still names this server is ours to remove.
+  removeLeftovers() {
+    if (xvfbLockOwner(this.number) !== this.child.pid) return;
+    for (const path of [`/tmp/.X${this.number}-lock`, `/tmp/.X11-unix/X${this.number}`]) {
+      try {
+        unlinkSync(path);
+      } catch {
+        // Already gone.
+      }
+    }
+  }
+
+  // Stays in liveDisplays until it is down, so an exit mid-stop still kills it.
+  async stop() {
+    if (this.running()) {
+      this.child.kill("SIGTERM");
+      await waitForExit(this.child);
+      if (this.running()) {
+        this.child.kill("SIGKILL");
+        await waitForExit(this.child);
+      }
+    }
+    this.removeLeftovers();
+    liveDisplays.delete(this);
+  }
+
+  // Synchronous, for the exit handler, where nothing awaited would run.
+  kill() {
+    liveDisplays.delete(this);
+    if (this.running()) this.child.kill("SIGKILL");
+    this.removeLeftovers();
+  }
+}
+
+// Wait until this server, and not a rival on the same number, answers.
+async function waitForDisplay(display) {
+  const deadline = Date.now() + XVFB_START_TIMEOUT_MS;
+  while (Date.now() < deadline && display.running()) {
+    if (xvfbLockOwner(display.number) === display.child.pid && await displayAnswers(display.name)) return true;
+    const { promise, resolve: wake } = Promise.withResolvers();
+    setTimeout(wake, 20);
+    await promise;
+  }
+  return false;
+}
+
+async function startVirtualDisplay(width, height) {
+  const binary = findOnPath("Xvfb");
+  if (binary === null) throw new BrowserLaunchError(XVFB_MISSING);
+  if (!displayExitHook) {
+    displayExitHook = true;
+    process.once("exit", () => {
+      for (const display of [...liveDisplays]) display.kill();
+    });
+  }
+  let number = XVFB_FIRST_DISPLAY;
+  for (let attempt = 0; attempt < XVFB_ATTEMPTS; attempt += 1) {
+    while (existsSync(`/tmp/.X${number}-lock`) || existsSync(`/tmp/.X11-unix/X${number}`)) number += 1;
+    const logPath = join(tmpdir(), `apostate-xvfb-${randomUUID()}.log`);
+    const log = openSync(logPath, "w+");
+    let child;
+    try {
+      child = spawn(binary, [`:${number}`, "-screen", "0", `${width}x${height}x24`, "-nolisten", "tcp"],
+        { stdio: ["ignore", "ignore", log] });
+    } finally {
+      closeSync(log);
+    }
+    // Never the reason this process stays alive; it stops with the browser.
+    child.unref();
+    const display = new VirtualDisplay(number, child);
+    liveDisplays.add(display);
+    const ready = await waitForDisplay(display);
+    if (!ready) await display.stop();
+    let detail = "";
+    try {
+      detail = ready ? "" : readFileSyncNative(logPath, "utf8").trim();
+      unlinkSync(logPath);
+    } catch {
+      // The log only matters for the message below.
+    }
+    if (ready) return display;
+    // Another launch took this number between the check and the start.
+    if (!detail.includes("already active")) {
+      throw new BrowserLaunchError(`Xvfb failed to start on :${number}${detail ? `: ${detail.slice(-500)}` : ""}`);
+    }
+    number += 1;
+  }
+  throw new BrowserLaunchError("no free X display number was found for Xvfb");
+}
+
+// The screen a launch claims, which its virtual display is made to match. An
+// explicit profile names it, and so do the per-field switches. A seed composes
+// it inside the browser, out of the package's sight, so 1920x1080, the
+// commonest desktop panel, stands in.
+function claimedScreen(config) {
+  const screen = isObject(config.profile) ? config.profile.screen : null;
+  if (isObject(screen) && Number.isInteger(screen.width) && Number.isInteger(screen.height)
+      && screen.width > 0 && screen.height > 0) {
+    return [screen.width, screen.height];
+  }
+  const switches = {};
+  for (const arg of config.args ?? []) {
+    const [name, value = ""] = String(arg).split(/=(.*)/s);
+    if (/^\d+$/.test(value) && Number(value) > 0) switches[name] = Number(value);
+  }
+  const width = switches["--fingerprint-screen-width"];
+  const height = switches["--fingerprint-screen-height"];
+  return width && height ? [width, height] : [1920, 1080];
+}
+
+// Start Xvfb for a headed Linux launch with no display, and name it in `env`,
+// the browser's environment. This process's own is left alone.
+async function virtualDisplayFor(config, env) {
+  if (config.headless || process.platform !== "linux" || env.WAYLAND_DISPLAY) return null;
+  if (await displayAnswers(env.DISPLAY)) return null;
+  const display = await startVirtualDisplay(...claimedScreen(config));
+  env.DISPLAY = display.name;
+  return display;
+}
+
+// Stop the browser's virtual display, if it has one, once the browser closes.
+function stopsDisplay(target, display) {
+  const original = target?.close;
+  if (!display || typeof original !== "function") return target;
+  target.close = async (...args) => {
+    try {
+      return await original.call(target, ...args);
+    } finally {
+      await display.stop();
+    }
+  };
+  return target;
+}
+
 // The publication question, asked only while its answer can still change the
 // outcome. Publication decides whether there is anything to download; a
 // browser already on disk means there is nothing to download, so the answer
@@ -3265,21 +3526,27 @@ async function launchWithDriver(options) {
   // handing the driver a directory only moves the failure somewhere it
   // cannot be explained.
   const binary = await ensureBinary(options);
+  await ensureWidevine(binary, {
+    cacheDir: options.cacheDir ?? options.cache_dir,
+    userDataDir: prepared.config.user_data_dir,
+  });
   const args = buildLaunchArguments(prepared.config, prepared.resolution, { driverOwnsProfile: true });
   const env = {
+    ...process.env,
     // Set, not inherited: only host mode inherits the host's locale
     // environment. See localeEnvironment.
     ...localeEnvironment(prepared.config, prepared.resolution),
     ...(prepared.config.timezone ? { TZ: prepared.config.timezone } : {}),
     ...(options.env ?? {}),
   };
+  const display = await virtualDisplayFor(prepared.config, env);
   // The seed and persona switches already carry the identity, so `headless` is
   // the only launch flag the driver owns; everything else is in `args`.
   const common = {
     executablePath: binary,
     headless: prepared.config.headless,
     args,
-    env: { ...process.env, ...env },
+    env,
     ignoreDefaultArgs: ignoreDefaultArgsFor(options.ignoreDefaultArgs, prepared.config.args),
   };
   try {
@@ -3291,7 +3558,7 @@ async function launchWithDriver(options) {
       browser.apostateDiagnostics = prepared.diagnostics;
       browser.apostateExecutablePath = binary;
       browser.apostateDriverName = driver.name;
-      return browser;
+      return stopsDisplay(browser, display);
     }
     const browser = await driver.puppeteer.launch({
       ...common,
@@ -3304,8 +3571,9 @@ async function launchWithDriver(options) {
     browser.apostateDiagnostics = prepared.diagnostics;
     browser.apostateExecutablePath = binary;
     browser.apostateDriverName = driver.name;
-    return browser;
+    return stopsDisplay(browser, display);
   } catch (error) {
+    await display?.stop();
     if (error instanceof ApostateError) throw error;
     throw new BrowserLaunchError(`Unable to launch Apostate Chromium through ${driver.name}: ${sanitizeErrorMessage(error?.message ?? error, prepared.config.proxy)}.`, { driver: driver.name, proxy: redactProxy(prepared.config.proxy) });
   }
@@ -3317,15 +3585,28 @@ export async function launchProcess(options = {}) {
   if (!isObject(options)) throw new TypeError("Launch options must be an object.");
   const prepared = await prepareLaunch(options);
   const binary = await ensureBinary(options);
+  await ensureWidevine(binary, {
+    cacheDir: options.cacheDir ?? options.cache_dir,
+    userDataDir: prepared.config.user_data_dir,
+  });
   const args = buildLaunchArguments(prepared.config, prepared.resolution);
   const env = {
+    ...process.env,
     // Set, not inherited: only host mode inherits the host's locale
     // environment. See localeEnvironment.
     ...localeEnvironment(prepared.config, prepared.resolution),
     ...(prepared.config.timezone ? { TZ: prepared.config.timezone } : {}),
     ...(options.env ?? {}),
   };
-  const child = await spawnBrowser(binary, args, { ...options, env });
+  const display = await virtualDisplayFor(prepared.config, env);
+  let child;
+  try {
+    child = await spawnBrowser(binary, args, { ...options, env });
+  } catch (error) {
+    await display?.stop();
+    throw error;
+  }
+  if (display) child.once("exit", () => void display.stop());
   return new ApostateProcess(child, binary, prepared.config, prepared.diagnostics);
 }
 
@@ -3394,124 +3675,416 @@ function ignoreDefaultArgsFor(requested, args) {
   return merged;
 }
 
-// --- Widevine DRM provisioning -------------------------------------------
+// --- Widevine DRM -------------------------------------------------------------
 //
-// Chromium fetches the Widevine CDM from Google at runtime into the profile
-// directory, and Apostate cannot ship it -- third_party/widevine/LICENSE
-// forbids redistribution. An ephemeral profile, which is what launch() uses by
-// default, therefore has no CDM, and requestMediaKeySystemAccess rejects with
-// NotSupportedError where a real user's Chrome resolves. A site reads that in
-// one call.
+// Google's licence forbids shipping the Widevine CDM with the browser, so a
+// fresh install has none and requestMediaKeySystemAccess('com.widevine.alpha')
+// rejects with NotSupportedError, which a real Chrome never does. The first
+// launch fixes that. The CDM is copied from a local Google Chrome, or, when
+// there is none, fetched from Google's component update service the way
+// Chromium's own component updater fetches it, and checked against the
+// SHA-256 the service returns. It is kept in the cache directory, shared with
+// the pip package, so this happens once per machine, and copied into the
+// browser's preinstalled-component directory, where it registers at startup
+// for every profile, the throwaway one launch() uses included.
 //
-// A CDM placed in the browser's preinstalled-component directory registers at
-// startup for every profile, including a fresh ephemeral one, with no network
-// and without writing into the profile. That is the directory the artifact
-// already loads MEIPreload from, and where Google Chrome keeps its own copy,
-// in the same layout with no version subdirectory.
-//
-// Nothing is redistributed: the bytes travel from Google to the operator's
-// machine exactly as they do for Chrome, and this only copies a file already
-// on that machine. It is deliberately NOT part of launch(): on a machine with
-// no CDM there is nothing to copy, and a silent no-op would leave a caller
-// believing DRM works. Measured working on macos-arm64 only; the Linux and
-// Windows layouts come from the documented component paths and are unverified.
+// Linux also reads the CDM from a hint file inside the profile directory, so a
+// persistent profile gets that hint too. If no CDM can be had, the launch goes
+// ahead without one and prints one warning. Mirrors python/apostate/widevine.py.
 const WIDEVINE_COMPONENT = "WidevineCdm";
+const WIDEVINE_HINT = "latest-component-updated-widevine-cdm";
+const WIDEVINE_UPDATE_URL = "https://update.googleapis.com/service/update2/json";
+const WIDEVINE_APP_ID = "oimompecagnajdejgnnjijobebaeigek";
+// The platform directory, the library, and how the component updater names
+// the OS and architecture.
 const WIDEVINE_LAYOUT = {
-  "macos-arm64": { subdir: "mac_arm64", library: "libwidevinecdm.dylib", relative: "Chromium.app/Contents/Frameworks/Chromium Framework.framework/Versions/{version}/Libraries" },
-  "linux-x64": { subdir: "linux_x64", library: "libwidevinecdm.so", relative: "" },
-  "linux-arm64": { subdir: "linux_arm64", library: "libwidevinecdm.so", relative: "" },
-  "windows-x64": { subdir: "win_x64", library: "widevinecdm.dll", relative: "" },
+  "macos-arm64": { subdir: "mac_arm64", library: "libwidevinecdm.dylib", os: "mac", arch: "arm64", osName: "Mac OS X" },
+  "linux-x64": { subdir: "linux_x64", library: "libwidevinecdm.so", os: "linux", arch: "x64", osName: "Linux" },
+  "linux-arm64": { subdir: "linux_arm64", library: "libwidevinecdm.so", os: "linux", arch: "arm64", osName: "Linux" },
+  "windows-x64": { subdir: "win_x64", library: "widevinecdm.dll", os: "win", arch: "x64", osName: "Windows" },
 };
-const WIDEVINE_VERIFIED_TARGETS = { "macos-arm64": true };
+// Targets Widevine is known to work on. Windows has not been tried yet.
+const WIDEVINE_VERIFIED_TARGETS = { "macos-arm64": true, "linux-x64": true, "linux-arm64": true };
+// Copied beside the platform directory. _metadata is not: Google Chrome's own
+// bundled copy does not carry it.
+const WIDEVINE_TOP_LEVEL = ["manifest.json", "LICENSE"];
 
-// Shared with the pip package on purpose: same cache root, same store, so
-// provisioning once serves both.
+function widevineLayout(target) {
+  const layout = WIDEVINE_LAYOUT[target];
+  if (!layout) throw new WidevineError(`No Widevine layout is known for ${target}.`, { target });
+  return layout;
+}
+
+// Shared with the pip package on purpose: same cache root, same store.
 function widevineStore(cacheDir) {
   return join(resolve(cacheDir), WIDEVINE_COMPONENT.toLowerCase());
 }
 
-async function copyWidevine(source, destination, subdir, library) {
-  if (!(await isRegularFile(join(source, "_platform_specific", subdir, library)))) {
-    throw new WidevineError(`${source} does not contain _platform_specific/${subdir}/${library}.`);
+async function hasCdm(directory, layout) {
+  return await isRegularFile(join(directory, "manifest.json"))
+    && await isRegularFile(join(directory, "_platform_specific", layout.subdir, layout.library));
+}
+
+async function readCdmVersion(directory) {
+  try {
+    const version = JSON.parse(await readFile(join(directory, "manifest.json"), "utf8"))?.version;
+    return typeof version === "string" && version ? version : null;
+  } catch {
+    return null;
   }
-  const staged = `${destination}.part`;
-  await rm(staged, { recursive: true, force: true });
-  await mkdir(join(staged, "_platform_specific"), { recursive: true });
-  for (const name of ["manifest.json", "LICENSE"]) {
-    if (await isRegularFile(join(source, name))) await copyFile(join(source, name), join(staged, name));
+}
+
+function compareVersions(left, right) {
+  const [a, b] = [left, right].map((value) => String(value ?? "").split(".").filter((part) => /^\d+$/.test(part)).map(Number));
+  for (let index = 0; index < Math.min(a.length, b.length); index += 1) {
+    if (a[index] !== b[index]) return a[index] - b[index];
   }
-  if (!(await isRegularFile(join(staged, "manifest.json")))) {
-    await rm(staged, { recursive: true, force: true });
+  return a.length - b.length;
+}
+
+// Google Chrome's install, then the profiles Chromium browsers fetch into.
+async function widevineSearchRoots() {
+  const home = homedir();
+  if (process.platform === "darwin") {
+    const base = join(home, "Library", "Application Support");
+    return ["/Applications", ...(await readdir(base).catch(() => [])).sort().map((name) => join(base, name))];
+  }
+  if (process.platform === "win32") {
+    const roots = ["PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"]
+      .filter((key) => process.env[key])
+      .map((key) => join(process.env[key], "Google", "Chrome", "Application"));
+    if (process.env.LOCALAPPDATA) {
+      roots.push(join(process.env.LOCALAPPDATA, "Google", "Chrome", "User Data"),
+                 join(process.env.LOCALAPPDATA, "Chromium", "User Data"));
+    }
+    return roots;
+  }
+  return ["/opt/google/chrome", join(home, ".config")];
+}
+
+// Every WidevineCdm directory in root or one level below it.
+async function widevineCandidates(root) {
+  const found = [];
+  if (!(await isDirectory(root))) return found;
+  if (await isDirectory(join(root, WIDEVINE_COMPONENT))) found.push(join(root, WIDEVINE_COMPONENT));
+  const names = (await readdir(root, { withFileTypes: true }).catch(() => []))
+    .filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
+  for (const name of names) {
+    if (await isDirectory(join(root, name, WIDEVINE_COMPONENT))) found.push(join(root, name, WIDEVINE_COMPONENT));
+    // macOS application bundles keep it inside the framework.
+    if (!name.endsWith(".app")) continue;
+    const frameworks = join(root, name, "Contents", "Frameworks");
+    for (const framework of (await readdir(frameworks).catch(() => [])).sort()) {
+      const bundled = join(frameworks, framework, "Libraries", WIDEVINE_COMPONENT);
+      if (framework.endsWith(".framework") && await isDirectory(bundled)) found.push(bundled);
+    }
+  }
+  return found;
+}
+
+// The directory itself or its newest version directory, if either holds a
+// CDM. The component updater writes a version directory; a bundle has none.
+async function widevinePayload(directory, layout) {
+  if (await hasCdm(directory, layout)) return directory;
+  let best = null;
+  for (const name of await readdir(directory).catch(() => [])) {
+    const child = join(directory, name);
+    if (await isDirectory(child) && await hasCdm(child, layout)
+        && (best === null || compareVersions(name, basename(best)) > 0)) best = child;
+  }
+  return best;
+}
+
+// Every CDM already on this machine, newest version first. Nothing is downloaded.
+async function discoverWidevine(target) {
+  const layout = widevineLayout(target);
+  const found = new Map();
+  for (const root of await widevineSearchRoots()) {
+    for (const directory of await widevineCandidates(root)) {
+      const payload = await widevinePayload(directory, layout);
+      if (payload === null) continue;
+      const real = await realpath(payload).catch(() => payload);
+      if (!found.has(real)) found.set(real, { path: payload, version: await readCdmVersion(payload) });
+    }
+  }
+  return [...found.values()].sort((a, b) => compareVersions(b.version, a.version));
+}
+
+// Replace destination with the CDM in source, never half-written.
+async function copyWidevine(source, destination, layout) {
+  if (!(await isRegularFile(join(source, "_platform_specific", layout.subdir, layout.library)))) {
+    throw new WidevineError(`${source} does not contain _platform_specific/${layout.subdir}/${layout.library}.`);
+  }
+  if (!(await isRegularFile(join(source, "manifest.json")))) {
     throw new WidevineError(`${source} has no manifest.json; it is not a CDM directory.`);
   }
-  await cp(join(source, "_platform_specific", subdir), join(staged, "_platform_specific", subdir), { recursive: true });
-  await rm(destination, { recursive: true, force: true });
-  await rename(staged, destination);
+  await mkdir(dirname(destination), { recursive: true });
+  const staged = await mkdtemp(join(dirname(destination), `.${basename(destination)}-`));
+  const retired = `${staged}-old`;
+  try {
+    await chmod(staged, 0o755);
+    for (const name of WIDEVINE_TOP_LEVEL) {
+      if (await isRegularFile(join(source, name))) await copyFile(join(source, name), join(staged, name));
+    }
+    await cp(join(source, "_platform_specific", layout.subdir), join(staged, "_platform_specific", layout.subdir), { recursive: true });
+    if (await lstat(destination).then(() => true, () => false)) await rename(destination, retired);
+    await rename(staged, destination);
+  } finally {
+    await rm(staged, { recursive: true, force: true });
+    await rm(retired, { recursive: true, force: true });
+  }
 }
 
-// Re-applied after every extraction: `--force` and a Chromium upgrade both
-// replace the install tree, and DRM must not silently vanish when they do.
-async function applyWidevine(install, target, cacheDir, version) {
-  const layout = WIDEVINE_LAYOUT[target];
-  if (!layout) return null;
-  const store = widevineStore(cacheDir);
-  if (!(await isRegularFile(join(store, "_platform_specific", layout.subdir, layout.library)))) return null;
-  // Do not conjure an install tree. Writing into a path that holds no browser
-  // would leave an orphan directory that looks installed and is not.
-  if (!(await lstat(install).then((i) => i.isDirectory(), () => false))) return null;
-  const destination = join(install, layout.relative.replace("{version}", version), WIDEVINE_COMPONENT);
-  await copyWidevine(store, destination, layout.subdir, layout.library);
-  return destination;
+async function fetchWidevine(url, init, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    if (!response.ok) throw new Error(`HTTP ${response.status} from ${url}`);
+    return Buffer.from(await response.arrayBuffer());
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
+// Write the CDM files out of a CRX3 package: a header, then a zip.
+async function unpackCrx(data, destination, layout) {
+  const unreadable = () => new WidevineError("The Widevine download is not a readable CRX package.");
+  if (data.length < 12 || data.toString("latin1", 0, 4) !== "Cr24") throw unreadable();
+  const zip = data.subarray(12 + data.readUInt32LE(8));
+  let end = -1;
+  for (let offset = zip.length - 22; offset >= Math.max(0, zip.length - 0xffff - 22); offset -= 1) {
+    if (zip.readUInt32LE(offset) === 0x06054b50) {
+      end = offset;
+      break;
+    }
+  }
+  if (end < 0) throw unreadable();
+  const prefix = `_platform_specific/${layout.subdir}/`;
+  let offset = zip.readUInt32LE(end + 16);
+  for (let count = zip.readUInt16LE(end + 10); count > 0; count -= 1) {
+    if (zip.readUInt32LE(offset) !== 0x02014b50) throw unreadable();
+    const method = zip.readUInt16LE(offset + 10);
+    const size = zip.readUInt32LE(offset + 20);
+    const local = zip.readUInt32LE(offset + 42);
+    const nameLength = zip.readUInt16LE(offset + 28);
+    const name = zip.toString("utf8", offset + 46, offset + 46 + nameLength);
+    offset += 46 + nameLength + zip.readUInt16LE(offset + 30) + zip.readUInt16LE(offset + 32);
+    const leaf = name.startsWith(prefix) ? name.slice(prefix.length) : null;
+    if (!WIDEVINE_TOP_LEVEL.includes(name) && !(leaf && !leaf.includes("/") && leaf !== "." && leaf !== "..")) continue;
+    if (zip.readUInt32LE(local) !== 0x04034b50 || (method !== 0 && method !== 8)) throw unreadable();
+    const start = local + 30 + zip.readUInt16LE(local + 26) + zip.readUInt16LE(local + 28);
+    const raw = zip.subarray(start, start + size);
+    const path = join(destination, name);
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, method === 8 ? zlib.inflateRawSync(raw) : raw, { mode: leaf === layout.library ? 0o755 : 0o644 });
+  }
+  if (!(await hasCdm(destination, layout))) {
+    throw new WidevineError(`The Widevine download does not contain the CDM for _platform_specific/${layout.subdir}.`);
+  }
+}
+
+// Fetch the CDM for target from Google into destination and return its URL:
+// one update check against the component update service, as Chromium's
+// component updater makes it, then the package it names, verified against the
+// SHA-256 in the same reply.
+async function downloadWidevine(target, destination) {
+  const layout = widevineLayout(target);
+  const body = JSON.stringify({ request: {
+    protocol: "3.1", acceptformat: "crx3", ismachine: false,
+    "@updater": "chromium", "@os": layout.os, arch: layout.arch, nacl_arch: layout.arch,
+    os: { platform: layout.osName, arch: layout.arch },
+    prodversion: CHROMIUM_VERSION, updaterversion: CHROMIUM_VERSION,
+    prodchannel: "stable", updaterchannel: "stable",
+    requestid: `{${randomUUID()}}`, sessionid: `{${randomUUID()}}`,
+    app: [{ appid: WIDEVINE_APP_ID, version: "0.0.0.0", enabled: true, updatecheck: {} }],
+  } });
+  const reply = await fetchWidevine(WIDEVINE_UPDATE_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body }, 30000);
+  const text = reply.toString("utf8");
+  let name;
+  let digest;
+  let bases;
+  try {
+    // The reply starts with an anti-XSSI prefix before the JSON.
+    const check = JSON.parse(text.slice(text.indexOf("{"))).response.app[0].updatecheck;
+    const pkg = check.manifest.packages.package[0];
+    if (typeof pkg.name !== "string" || typeof pkg.hash_sha256 !== "string") throw new Error("no package");
+    name = pkg.name;
+    digest = pkg.hash_sha256.toLowerCase();
+    bases = check.urls.url.map((item) => String(item.codebase));
+  } catch {
+    throw new WidevineError(`Google's update service returned no Widevine package for ${target}.`, { target });
+  }
+  const urls = bases.filter((base) => base.startsWith("https://")).map((base) => base + name);
+  if (urls.length === 0) throw new WidevineError("Google's update service returned no https download for Widevine.", { target });
+  let failure = null;
+  for (const url of urls) {
+    let data;
+    try {
+      data = await fetchWidevine(url, {}, 120000);
+    } catch (error) {
+      failure = error;
+      continue;
+    }
+    if (createHash("sha256").update(data).digest("hex") !== digest) {
+      throw new WidevineError(`The Widevine download from ${url} failed SHA-256 verification.`, { target });
+    }
+    await unpackCrx(data, destination, layout);
+    return url;
+  }
+  throw new WidevineError(`Could not download Widevine from Google: ${failure?.message ?? failure}.`, { target });
+}
+
+// Put a CDM into the store: source, else a local copy, else Google's.
+// Returns where it came from.
+async function fillWidevineStore(store, target, source = null) {
+  const layout = widevineLayout(target);
+  const chosen = source ?? (await discoverWidevine(target))[0]?.path ?? null;
+  await mkdir(dirname(store), { recursive: true });
+  if (chosen !== null) {
+    await copyWidevine(chosen, store, layout);
+    return chosen;
+  }
+  const scratch = await mkdtemp(join(dirname(store), ".widevine-download-"));
+  try {
+    const url = await downloadWidevine(target, scratch);
+    await copyWidevine(scratch, store, layout);
+    return url;
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
+}
+
+// The browser's preinstalled-component WidevineCdm directory, or null unless
+// the executable sits in an Apostate payload: the tree
+// scripts/package-artifact.sh stages with build/MANIFEST.lock and
+// resources/profiles/ beside the browser. Nothing else is written into.
+async function widevineComponentDir(executable, target) {
+  const absolute = resolve(String(executable));
+  let root;
+  let component;
+  if (target === "macos-arm64") {
+    const bundle = dirname(dirname(dirname(absolute)));
+    if (!bundle.endsWith(".app")) return null;
+    root = dirname(bundle);
+    const frameworks = join(bundle, "Contents", "Frameworks");
+    const framework = (await readdir(frameworks).catch(() => [])).sort()
+      .find((name) => name.endsWith(".framework"));
+    if (!framework || !(await isDirectory(join(frameworks, framework, "Versions", "Current", "Libraries")))) return null;
+    // The framework loads from Versions/<version>/, which Current names.
+    const version = await readlink(join(frameworks, framework, "Versions", "Current")).catch(() => "Current");
+    component = join(frameworks, framework, "Versions", version, "Libraries", WIDEVINE_COMPONENT);
+  } else {
+    root = dirname(absolute);
+    component = join(root, WIDEVINE_COMPONENT);
+  }
+  if (!(await isRegularFile(join(root, "build", "MANIFEST.lock"))
+      || await isRegularFile(join(root, "resources", "profiles", "catalogue.json")))) return null;
+  return component;
+}
+
+// Run a macOS bundle once before anything is added to it. Gatekeeper checks a
+// bundle's signature seal the first time it runs and refuses one that changed
+// since it was signed; after one clean run it does not check again.
+function runOnce(executable) {
+  const { promise, resolve: settle } = Promise.withResolvers();
+  const child = spawn(executable, ["--version"], { stdio: "ignore" });
+  const timer = setTimeout(() => child.kill("SIGKILL"), 120000);
+  const done = () => {
+    clearTimeout(timer);
+    settle();
+  };
+  child.once("error", done);
+  child.once("exit", done);
+  return promise;
+}
+
+// Point a Linux profile at the CDM, unless it already names a working one.
+async function writeWidevineHint(userDataDir, component, layout) {
+  const hint = join(resolve(String(userDataDir)), WIDEVINE_COMPONENT, WIDEVINE_HINT);
+  let current = null;
+  try {
+    current = JSON.parse(await readFile(hint, "utf8"))?.Path ?? null;
+  } catch {
+    current = null;
+  }
+  if (typeof current === "string" && await hasCdm(current, layout)) return;
+  await mkdir(dirname(hint), { recursive: true });
+  await writeFile(hint, JSON.stringify({ Path: component }));
+}
+
+async function installWidevine(executable, target, store, layout) {
+  const component = await widevineComponentDir(executable, target);
+  if (component === null || await hasCdm(component, layout)) return component;
+  if (target === "macos-arm64" && process.platform === "darwin") await runOnce(executable);
+  await copyWidevine(store, component, layout);
+  return component;
+}
+
+// Give the browser at `executable` a Widevine CDM if it has none. Resolves to
+// the browser's CDM directory, or null when `executable` is not an Apostate
+// install or no CDM could be had. Never rejects: a browser without DRM still
+// launches, and the failure is one warning line.
+export async function ensureWidevine(executable, options = {}) {
+  try {
+    const target = normalizeTarget(options.target);
+    const layout = widevineLayout(target);
+    const component = await widevineComponentDir(executable, target);
+    if (component === null) return null;
+    if (!(await hasCdm(component, layout))) {
+      const store = widevineStore(options.cacheDir ?? options.cache_dir ?? defaultCacheDir());
+      if (!(await hasCdm(store, layout))) await fillWidevineStore(store, target);
+      await installWidevine(executable, target, store, layout);
+    }
+    const userDataDir = options.userDataDir ?? options.user_data_dir;
+    if (userDataDir && target.startsWith("linux-")) await writeWidevineHint(userDataDir, component, layout);
+    return component;
+  } catch (error) {
+    console.warn(`\x1b[33m[Apostate] Widevine is unavailable, launching without DRM: ${error?.message ?? error}\x1b[0m`);
+    return null;
+  }
+}
+
+// Install a CDM into this package's browser now, replacing any it has. `source`
+// is a WidevineCdm directory, with or without a version directory inside.
+// Without it a local copy is used, else Google's, as a launch would. Unlike a
+// launch, this rejects when no CDM can be had.
 export async function provisionWidevine(options = {}) {
   if (!isObject(options)) throw new TypeError("provisionWidevine options must be an object.");
   const target = normalizeTarget(options.target);
-  const layout = WIDEVINE_LAYOUT[target];
-  if (!layout) throw new WidevineError(`No Widevine layout is known for ${target}.`, { target });
-  const source = options.source;
-  if (!source) {
-    throw new WidevineError(
-      "provisionWidevine needs source: a WidevineCdm directory already on this machine. "
-      + "The pip package can find one for you (`python -m apostate provision-drm --list`); "
-      + "Chromium writes it into a persistent --user-data-dir after playing DRM video once.",
-      { target });
-  }
-  const cacheDir = options.cacheDir ?? options.cache_dir ?? defaultCacheDir();
-  let chosen = resolve(String(source));
-  if (!(await isRegularFile(join(chosen, "_platform_specific", layout.subdir, layout.library)))) {
-    // The component updater writes a version directory; a bundle has none.
-    const entries = await readdir(chosen, { withFileTypes: true }).catch(() => []);
-    const versioned = entries.filter((e) => e.isDirectory()).map((e) => e.name).sort().reverse();
-    let found = null;
-    for (const name of versioned) {
-      if (await isRegularFile(join(chosen, name, "_platform_specific", layout.subdir, layout.library))) {
-        found = join(chosen, name);
-        break;
-      }
+  const layout = widevineLayout(target);
+  let chosen = null;
+  if (options.source) {
+    chosen = resolve(String(options.source));
+    if (basename(chosen) !== WIDEVINE_COMPONENT && await isDirectory(join(chosen, WIDEVINE_COMPONENT))) {
+      chosen = join(chosen, WIDEVINE_COMPONENT);
     }
-    if (!found) throw new WidevineError(`${chosen} does not contain _platform_specific/${layout.subdir}/${layout.library}.`, { target });
-    chosen = found;
+    const payload = await widevinePayload(chosen, layout);
+    if (payload === null) {
+      throw new WidevineError(`${chosen} does not contain _platform_specific/${layout.subdir}/${layout.library}.`, { target });
+    }
+    chosen = payload;
   }
-  const store = widevineStore(cacheDir);
-  await mkdir(dirname(store), { recursive: true });
-  await copyWidevine(chosen, store, layout.subdir, layout.library);
-  const manifestVersion = JSON.parse(await readFile(join(store, "manifest.json"), "utf8")).version ?? null;
-  const paths = cachePaths(cacheDir, target);
-  const installed = await applyWidevine(paths.install, target, cacheDir, CHROMIUM_VERSION);
+  const store = widevineStore(options.cacheDir ?? options.cache_dir ?? defaultCacheDir());
+  const origin = await fillWidevineStore(store, target, chosen);
+  const executable = await ensureBinary({ ...options, target });
+  const component = await widevineComponentDir(executable, target);
+  if (component === null) throw new WidevineError(`${executable} is not inside an Apostate install.`, { target });
+  if (target === "macos-arm64" && process.platform === "darwin" && !(await hasCdm(component, layout))) {
+    await runOnce(executable);
+  }
+  await copyWidevine(store, component, layout);
   return {
     platform: target,
     platform_verified: WIDEVINE_VERIFIED_TARGETS[target] === true,
-    source: chosen,
-    version: manifestVersion,
+    source: origin,
+    version: await readCdmVersion(store),
     store,
-    installed,
-    // A CDM being present is not a CDM being registered. launch() strips the
-    // switch, but anyone driving the binary directly must too.
-    requires: `the browser must not run with ${DISABLE_COMPONENT_UPDATE}; it blocks component registration and a provisioned CDM is silently inert. launch() removes it from the driver's defaults automatically.`,
+    installed: component,
   };
 }
 export const provision_widevine = provisionWidevine;
+export const ensure_widevine = ensureWidevine;
 
 // Python-style names are useful when sharing launch code across wrappers.
 export const launch_context = launchContext;

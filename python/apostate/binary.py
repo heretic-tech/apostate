@@ -456,6 +456,10 @@ def _write_link(target: Path, link: str) -> None:
     os.symlink(link, target)
 
 
+#: Every zstd frame starts with these four bytes.
+_ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
+
+
 def _open_tar(archive: Path) -> Iterator[tarfile.TarFile]:
     """Yield a readable tar, including ``.tar.zst`` on interpreters without it.
 
@@ -463,6 +467,9 @@ def _open_tar(archive: Path) -> Iterator[tarfile.TarFile]:
     an older interpreter falls back to the ``zstandard`` distribution and then
     to the ``zstd`` command line tool before giving up with an actionable
     message. Every path iterates sequentially, which is all a stream supports.
+
+    zstd is recognised by its magic bytes, not the file name: the archive is
+    staged as ``<name>.part``.
     """
     suffix = archive.name.lower()
     if suffix.endswith((".zip",)):
@@ -479,8 +486,9 @@ def _open_tar(archive: Path) -> Iterator[tarfile.TarFile]:
         finally:
             handle.close()
         return
-    if not suffix.endswith((".zst", ".tar.zst")):
-        raise UnsupportedArchiveError("artifact is not a supported tar archive")
+    with archive.open("rb") as probe:
+        if probe.read(len(_ZSTD_MAGIC)) != _ZSTD_MAGIC:
+            raise UnsupportedArchiveError("artifact is not a supported tar archive")
     try:
         import zstandard  # type: ignore[import-not-found]
     except ModuleNotFoundError:
@@ -1292,17 +1300,6 @@ class BinaryManager:
                 "package_version": manifest["package_version"],
                 "platform": target_name,
             }, sort_keys=True, separators=(",", ":"), ensure_ascii=True) + "\n", encoding="utf-8")
-            # A provisioned Widevine CDM lives outside the install tree, so
-            # re-apply it here: `install --force` and a Chromium upgrade both
-            # replace this tree, and DRM must not silently vanish when they do.
-            try:
-                from .widevine import apply_to_install
-                apply_to_install(install, target_name, cache_dir=self.cache_dir,
-                                 chromium_version=str(manifest["chromium_version"]))
-            except Exception:
-                # Provisioning is an optional extra; a browser that launches
-                # without DRM is far better than no browser at all.
-                pass
             if keep_archive:
                 os.replace(staged_archive, root / archive_name)
             return install / relative

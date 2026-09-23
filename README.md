@@ -33,8 +33,8 @@ npx apostate install      # npm
 ```
 
 Both packages use the same install directory, so having both does not
-download twice. `apostate path`, `info`, `clear` and `run` are the other
-subcommands; `apostate --help` lists them.
+download twice. `apostate path`, `info`, `clear`, `run` and `fonts` are the
+other subcommands; `apostate --help` lists them.
 
 ### Pointing at an existing browser
 
@@ -108,6 +108,14 @@ credential in the URL. The launcher puts the endpoint on the command line and
 passes the credential inside the profile, so it appears in no log, no
 socket-pool key and no `chrome://version`. Drop the option for a direct
 connection.
+
+The first launch also gives the browser Widevine, the DRM module video sites
+use. Google's licence forbids shipping it in the archive, so the launcher
+copies it from a browser on the machine that has it, such as Google Chrome,
+and otherwise downloads it from Google's update server. It is kept in the
+install cache, so this happens once, and every profile gets it, throwaway ones
+included. `apostate install` does it ahead of time. If it fails, the browser
+launches without DRM and prints a warning. Windows hosts are not verified yet.
 
 The binary also runs on its own, with no flags:
 
@@ -213,13 +221,21 @@ The claimed operating system selects the GPU identity, so a GPU-less server
 presents the renderer string and capability tables of the OS it claims rather
 than its own software rasteriser.
 
-On a Linux host the default persona is Windows. That persona needs the
-Windows fonts installed on the host, listed with sources in
-[docs/FONTS.md](docs/FONTS.md). A Windows machine without Arial does not exist,
-and text metrics measure it. This is the one setup step on a Linux server, and
-missing fonts are the most common reason a session is blocked. The
-alternative, `--fingerprint-platform=linux`, composes the host's own OS and
-needs nothing installed.
+On a Linux host the default persona is Windows, and that persona needs the
+Windows fonts installed on the host. A Windows machine without Arial does not
+exist, and text metrics measure it. This is the one setup step on a Linux
+server, and missing fonts are the most common reason a session is blocked:
+
+```sh
+apostate fonts install windows        # pip
+npx apostate fonts install windows    # npm
+```
+
+That clones the font set with `git` and installs it into your user font
+directory. Apostate does not ship the fonts. [docs/FONTS.md](docs/FONTS.md)
+has the family lists and the fonts for a macOS persona. The alternative,
+`--fingerprint-platform=linux`, composes the host's own OS and needs nothing
+installed.
 
 The same applies to any persona that is not the host's OS, on any host.
 Measured on a Mac, FingerprintJS Pro gives the macOS persona a suspect score
@@ -232,20 +248,22 @@ what is still open is in
 Both packages default to headless, so the `launch()` examples above run
 unchanged on such a host.
 
-For the strictest targets, run headed on a virtual display:
+For the strictest targets, run headed. On a Linux host with no display, a
+headed launch starts its own virtual display with Xvfb and stops it when the
+browser closes. The display is the size of the screen the launch sets, or
+1920x1080 when the seed picks the screen. Only Xvfb has to be installed:
 
 ```sh
 sudo apt install xvfb
-Xvfb :99 -screen 0 1920x1080x24 &
-export DISPLAY=:99
 ```
 
 ```python
 browser = launch(fingerprint=12345, headless=False, proxy="http://user:pass@host:8080")
 ```
 
-The launcher reads `DISPLAY` from its environment, and so does the binary run
-directly: `DISPLAY=:99 ./chrome --fingerprint=12345`.
+If the host already has a display, the browser uses it. The binary run
+directly does not start Xvfb; give it a display yourself:
+`xvfb-run -s "-screen 0 1920x1080x24" ./chrome --fingerprint=12345`.
 
 ## Pin an identity
 
@@ -353,11 +371,6 @@ Not changed:
   software speed, and a texture at the reported `MAX_TEXTURE_SIZE` does not
   allocate.
 - Fonts that are not installed. Enumeration can remove a family, not add one.
-- Widevine DRM on an ephemeral profile. The CDM cannot be redistributed, so it
-  is not in the archive. A persistent `--user-data-dir` fetches it from Google
-  at runtime as Chrome does. For ephemeral profiles, `apostate provision-drm`
-  (pip) copies a CDM already on the machine into the browser's component
-  directory, once.
 
 [docs/LIMITATIONS.md](docs/LIMITATIONS.md) has every residual with its
 measurement.

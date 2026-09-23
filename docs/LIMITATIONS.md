@@ -639,34 +639,34 @@ Windows through the platform decoder and on linux-x64 through patch `0061`'s
 software decoder. On linux-arm64 there is no HEVC decoder unless the host
 exposes one, and Chromium reports that either way.
 
-Widevine DRM works, but the CDM is not part of the download. It is
-Google-licensed proprietary software this project may not redistribute, so
-Chromium fetches it from Google at runtime, into
-`<user-data-dir>/WidevineCdm/<version>/`. Once present,
-`navigator.requestMediaKeySystemAccess('com.widevine.alpha', ...)` resolves
-and `createMediaKeys()` succeeds, byte-identical to stock Chrome including the
-`SW_SECURE_CRYPTO` and `SW_SECURE_DECODE` robustness levels, the rejection of
-all three `HW_SECURE_*` levels, and the rejection of persistent-license
-sessions. Until it is present, every `requestMediaKeySystemAccess` call for it
-rejects with `NotSupportedError`, which a detector reads in one call.
+Widevine DRM works, but it is not part of the download. It is Google-licensed
+proprietary software this project may not redistribute. The Python and Node
+launchers add it on the first launch: they copy it from a browser on the
+machine that has it, such as Google Chrome, and otherwise download it from
+Google's component update server and check its SHA-256. It is kept in the
+install cache, so this happens once per machine, and it goes into the
+browser's own `WidevineCdm` directory, where it registers at startup for every
+profile, throwaway ones included, with no network access. Nothing is
+redistributed; it travels from Google to the operator's machine as it does
+for Chrome.
 
-Three things follow.
-
-A throwaway profile has no CDM. The fetch is also not something to count on:
-across five fresh profiles with full network access, watched for 5 to 20
-minutes each, the CDM arrived once. The pip package's `provision-drm` command
-copies a CDM already on the machine into the browser's preinstalled-component
-directory, where it registers at startup for every profile, ephemeral ones
-included, with no network access. Nothing is redistributed; the CDM travels
-from Google to the operator's machine as it does for Chrome.
+With it, `navigator.requestMediaKeySystemAccess('com.widevine.alpha', ...)`
+resolves and `createMediaKeys()` succeeds, byte-identical to stock Chrome
+including the `SW_SECURE_CRYPTO` and `SW_SECURE_DECODE` robustness levels, the
+rejection of all three `HW_SECURE_*` levels, and the rejection of
+persistent-license sessions. Without it, every `requestMediaKeySystemAccess`
+call for it rejects with `NotSupportedError`, which a detector reads in one
+call. That is the state of a browser the Python or Node package has never
+launched, or of one where the launcher could not get a copy and printed a
+warning. Windows hosts are not verified yet.
 
 There is no race and nothing to retry. Once the CDM is on disk it registers
 before the first page paints. The first `requestMediaKeySystemAccess` call of
 the first page succeeds, measured 9 to 40 ms after page load, with no network
 to Google at all. A page that gets `NotSupportedError` should not retry.
 
-The fetch honours `--proxy-server`. The component update request goes
-through the configured proxy and fails closed when the proxy blocks it.
+The launcher downloads it from the host directly, not through the launch's
+proxy.
 
 What a profile does control is `MediaCapabilities.decodingInfo()`'s
 `powerEfficient`, which is a statement about the claimed GPU's fixed-function

@@ -1,126 +1,138 @@
-"""Widevine DRM provisioning.
+"""Widevine DRM for the Apostate browser.
 
-Chromium fetches the Widevine CDM from Google at runtime into the profile
-directory. Apostate cannot ship it -- ``third_party/widevine/LICENSE`` forbids
-redistribution -- and the runtime fetch does not happen for an ephemeral
-profile, which is what ``launch()`` uses by default. So on a default launch
-``navigator.requestMediaKeySystemAccess('com.widevine.alpha', ...)`` rejects
-with ``NotSupportedError``, and a site can read that in one call.
+Google's licence forbids shipping the Widevine CDM with the browser, so a
+fresh install has none and ``navigator.requestMediaKeySystemAccess(
+'com.widevine.alpha', ...)`` rejects with ``NotSupportedError``, which a real
+Chrome never does. This module fixes that on the first launch.
 
-A CDM placed in the browser's preinstalled-component directory registers at
-startup for every profile, including a fresh ephemeral one, with no network
-access and without writing anything into the profile. That directory is the one
-the shipped artifact already loads ``MEIPreload`` and
-``PrivacySandboxAttestationsPreloaded`` from, and it is where Google Chrome
-keeps its own copy, in the same layout and with no version subdirectory.
+The CDM is copied from a local Google Chrome, or, when there is none, fetched
+from Google's component update service the way Chromium's own component
+updater fetches it, and checked against the SHA-256 the service returns. It is
+kept in the package cache directory, so this happens once per machine, and
+copied into the browser's preinstalled-component directory, where it
+registers at startup for every profile, the throwaway one ``launch()`` uses
+included.
 
-Nothing is redistributed. The CDM travels from Google to the operator's machine
-exactly as it does for Chrome; this module only copies a file that is already
-on that machine into the browser that needs it. It is therefore deliberately
-**not** part of ``launch()``: on a machine with no CDM anywhere there is
-nothing to copy, and a silent no-op inside ``launch()`` would leave a caller
-believing DRM works when it does not. It is an explicit, one-time action.
+Linux also reads the CDM from a hint file inside the profile directory, so a
+persistent profile gets that hint too.
 
-Measured on macos-arm64 at Chromium 152.0.7977.83, with
-``--host-resolver-rules=EXCLUDE 127.0.0.1,MAP * 0.0.0.0`` so no route to Google
-existed: before, every robustness level rejected ``NotSupportedError``; after,
-the empty, ``SW_SECURE_CRYPTO`` and ``SW_SECURE_DECODE`` levels resolved and
-``createMediaKeys()`` succeeded, all three ``HW_SECURE_*`` levels rejected,
-persistent-license rejected, and the profile directory stayed empty.
-
-Linux and Windows are NOT verified. Their layouts are implemented from the
-documented component paths and are reported as unverified by
-:func:`provision`; see ``platform_is_verified``.
+If no CDM can be had, the launch goes ahead without one and prints one warning.
 """
 
 from __future__ import annotations
 
+import hashlib
+import io
 import json
 import os
 import platform
 import shutil
+import subprocess
+import sys
+import tempfile
+import urllib.request
+import uuid
+import zipfile
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, NamedTuple
 
 from .config import CHROMIUM_VERSION
-from .errors import ApostateError, BinaryError
+from .errors import ApostateError
 
 #: The component directory name, both in a profile and in the browser.
 COMPONENT = "WidevineCdm"
 
-#: Per-target: the library subdirectory inside ``_platform_specific``, the
-#: library's file name, and the install-relative directory that the browser
-#: searches for preinstalled components.
-#:
-#: macOS is the only entry measured working. On Linux the preinstalled root is
-#: the directory holding the executable, and ``cdm_registration.cc`` also has a
-#: branch that reads a hint file from the profile instead; on Windows it is
-#: beside the executable. Both are implemented from those paths and unverified.
-_LAYOUT: dict[str, tuple[str, str, str]] = {
-    "macos-arm64": ("mac_arm64", "libwidevinecdm.dylib",
-                    "Chromium.app/Contents/Frameworks/Chromium Framework.framework/"
-                    "Versions/{chromium_version}/Libraries"),
-    "linux-x64": ("linux_x64", "libwidevinecdm.so", ""),
-    "linux-arm64": ("linux_arm64", "libwidevinecdm.so", ""),
-    "windows-x64": ("win_x64", "widevinecdm.dll", ""),
+#: The file a Linux profile names its CDM directory in.
+HINT = "latest-component-updated-widevine-cdm"
+
+#: Google's component update service and the Widevine component's id.
+UPDATE_URL = "https://update.googleapis.com/service/update2/json"
+APP_ID = "oimompecagnajdejgnnjijobebaeigek"
+
+
+class _Platform(NamedTuple):
+    subdir: str   # directory under _platform_specific
+    library: str  # the CDM library's file name
+    os: str       # how the component updater names the OS
+    arch: str
+    os_name: str
+
+
+_LAYOUT: dict[str, _Platform] = {
+    "macos-arm64": _Platform("mac_arm64", "libwidevinecdm.dylib", "mac", "arm64", "Mac OS X"),
+    "linux-x64": _Platform("linux_x64", "libwidevinecdm.so", "linux", "x64", "Linux"),
+    "linux-arm64": _Platform("linux_arm64", "libwidevinecdm.so", "linux", "arm64", "Linux"),
+    "windows-x64": _Platform("win_x64", "widevinecdm.dll", "win", "x64", "Windows"),
 }
 
-#: Only this target's provisioning has been exercised end to end.
-VERIFIED_TARGETS = frozenset({"macos-arm64"})
+#: Targets Widevine is known to work on. Windows has not been tried yet.
+VERIFIED_TARGETS = frozenset({"macos-arm64", "linux-x64", "linux-arm64"})
 
-#: Files copied beside the platform directory. ``_metadata`` is deliberately
-#: not copied: Google Chrome's own bundled copy does not carry it.
+#: Files copied beside the platform directory. ``_metadata`` is not copied:
+#: Google Chrome's own bundled copy does not carry it.
 _TOP_LEVEL = ("manifest.json", "LICENSE")
 
 
 class WidevineError(ApostateError):
-    """Raised when a CDM cannot be found, read, or installed."""
+    """Raised when a CDM cannot be found, fetched, or installed."""
 
 
 def platform_is_verified(target: str) -> bool:
     return target in VERIFIED_TARGETS
 
 
+def _resolve_layout(target: str) -> _Platform:
+    try:
+        return _LAYOUT[target]
+    except KeyError:
+        raise WidevineError(f"no Widevine layout is known for {target}") from None
+
+
+def _has_cdm(directory: Path, spec: _Platform) -> bool:
+    return ((directory / "manifest.json").is_file()
+            and (directory / "_platform_specific" / spec.subdir / spec.library).is_file())
+
+
 def _search_roots() -> Iterator[Path]:
-    """Directories on this machine that a Chromium profile may have fetched into."""
+    """Google Chrome's install, then the profiles Chromium browsers fetch into."""
     home = Path.home()
     if platform.system() == "Darwin":
-        base = home / "Library" / "Application Support"
-        yield from (base.iterdir() if base.is_dir() else ())
         yield Path("/Applications")
+        base = home / "Library" / "Application Support"
+        yield from (sorted(base.iterdir()) if base.is_dir() else ())
     elif os.name == "nt":
-        for key in ("LOCALAPPDATA", "APPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)"):
-            value = os.environ.get(key)
-            if value:
-                yield Path(value)
+        for key in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"):
+            if os.environ.get(key):
+                yield Path(os.environ[key]) / "Google" / "Chrome" / "Application"
+        if os.environ.get("LOCALAPPDATA"):
+            local = Path(os.environ["LOCALAPPDATA"])
+            yield local / "Google" / "Chrome" / "User Data"
+            yield local / "Chromium" / "User Data"
     else:
+        yield Path("/opt/google/chrome")
         yield home / ".config"
-        yield Path("/opt")
-        yield Path("/usr/lib")
 
 
 def _candidate_dirs(root: Path) -> Iterator[Path]:
-    """Yield every ``WidevineCdm`` directory at a plausible depth under *root*."""
+    """Every ``WidevineCdm`` directory in *root* or one level below it."""
     if not root.is_dir():
         return
-    direct = root / COMPONENT
-    if direct.is_dir():
-        yield direct
+    if (root / COMPONENT).is_dir():
+        yield root / COMPONENT
     try:
-        entries = list(root.iterdir())
+        entries = sorted(root.iterdir())
     except OSError:
         return
     for entry in entries:
         if not entry.is_dir() or entry.is_symlink():
             continue
-        nested = entry / COMPONENT
-        if nested.is_dir():
-            yield nested
-        # macOS application bundles keep it under the framework.
+        if (entry / COMPONENT).is_dir():
+            yield entry / COMPONENT
+        # macOS application bundles keep it inside the framework.
         if entry.name.endswith(".app"):
-            for found in entry.glob("Contents/Frameworks/*.framework/Libraries/" + COMPONENT):
-                if found.is_dir():
-                    yield found
+            yield from (found for found in
+                        entry.glob("Contents/Frameworks/*.framework/Libraries/" + COMPONENT)
+                        if found.is_dir())
 
 
 def _read_version(directory: Path) -> str | None:
@@ -132,196 +144,309 @@ def _read_version(directory: Path) -> str | None:
     return version if isinstance(version, str) and version else None
 
 
-def _payload(directory: Path, subdir: str, library: str) -> Path | None:
-    """Return *directory* if it holds this platform's library, else None.
+def _version_key(version: str | None) -> tuple[int, ...]:
+    return tuple(int(part) for part in (version or "").split(".") if part.isdigit())
 
-    Two layouts exist. The component updater writes a version directory
-    (``WidevineCdm/4.10.3050.0/...``); a browser bundle has none
-    (``WidevineCdm/_platform_specific/...``). Both are accepted.
+
+def _payload(directory: Path, spec: _Platform) -> Path | None:
+    """*directory* itself or its newest version directory, if either holds a CDM.
+
+    The component updater writes a version directory
+    (``WidevineCdm/4.10.3050.0/...``); a browser bundle has none.
     """
-    if (directory / "_platform_specific" / subdir / library).is_file():
+    if _has_cdm(directory, spec):
         return directory
-    for child in sorted(directory.iterdir() if directory.is_dir() else (), reverse=True):
-        if child.is_dir() and (child / "_platform_specific" / subdir / library).is_file():
-            return child
-    return None
+    children = [child for child in (directory.iterdir() if directory.is_dir() else ())
+                if child.is_dir() and _has_cdm(child, spec)]
+    return max(children, key=lambda child: _version_key(child.name), default=None)
 
 
 def discover(target: str) -> list[dict[str, Any]]:
-    """Find every CDM already present on this machine, newest version first.
-
-    Only this machine is searched. Nothing is downloaded.
-    """
-    subdir, library, _ = _resolve_layout(target)
+    """Every CDM already on this machine, newest version first. Nothing is downloaded."""
+    spec = _resolve_layout(target)
     found: dict[Path, dict[str, Any]] = {}
     for root in _search_roots():
         for directory in _candidate_dirs(root):
-            payload = _payload(directory, subdir, library)
-            if payload is None:
+            payload = _payload(directory, spec)
+            if payload is None or payload.resolve() in found:
                 continue
-            resolved = payload.resolve()
-            if resolved in found:
-                continue
-            size = (payload / "_platform_specific" / subdir / library).stat().st_size
-            found[resolved] = {"path": str(payload), "version": _read_version(payload),
-                               "bytes": size}
-    return sorted(found.values(), key=lambda item: (item["version"] or ""), reverse=True)
+            size = (payload / "_platform_specific" / spec.subdir / spec.library).stat().st_size
+            found[payload.resolve()] = {"path": str(payload), "version": _read_version(payload),
+                                        "bytes": size}
+    return sorted(found.values(), key=lambda item: _version_key(item["version"]), reverse=True)
 
 
-def _resolve_layout(target: str) -> tuple[str, str, str]:
-    try:
-        return _LAYOUT[target]
-    except KeyError:
-        raise WidevineError(f"no Widevine layout is known for {target}") from None
-
-
-def _copy(source: Path, destination: Path, subdir: str, library: str) -> None:
-    library_source = source / "_platform_specific" / subdir / library
-    if not library_source.is_file():
-        raise WidevineError(f"{source} does not contain _platform_specific/{subdir}/{library}")
-    staged = destination.with_name(destination.name + ".part")
-    shutil.rmtree(staged, ignore_errors=True)
-    (staged / "_platform_specific").mkdir(parents=True, exist_ok=True)
-    for name in _TOP_LEVEL:
-        candidate = source / name
-        if candidate.is_file():
-            shutil.copyfile(candidate, staged / name)
-    if not (staged / "manifest.json").is_file():
-        shutil.rmtree(staged, ignore_errors=True)
+def _copy(source: Path, destination: Path, spec: _Platform) -> None:
+    """Replace *destination* with the CDM in *source*, never half-written."""
+    if not (source / "_platform_specific" / spec.subdir / spec.library).is_file():
+        raise WidevineError(
+            f"{source} does not contain _platform_specific/{spec.subdir}/{spec.library}")
+    if not (source / "manifest.json").is_file():
         raise WidevineError(f"{source} has no manifest.json; it is not a CDM directory")
-    shutil.copytree(source / "_platform_specific" / subdir,
-                    staged / "_platform_specific" / subdir)
-    if destination.exists():
-        retired = destination.with_name(destination.name + ".stale")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    staged = Path(tempfile.mkdtemp(prefix=f".{destination.name}-", dir=destination.parent))
+    staged.chmod(0o755)
+    retired = staged.with_name(staged.name + "-old")
+    try:
+        for name in _TOP_LEVEL:
+            if (source / name).is_file():
+                shutil.copyfile(source / name, staged / name)
+        shutil.copytree(source / "_platform_specific" / spec.subdir,
+                        staged / "_platform_specific" / spec.subdir)
+        if destination.exists():
+            os.replace(destination, retired)
+        os.replace(staged, destination)
+    finally:
+        shutil.rmtree(staged, ignore_errors=True)
         shutil.rmtree(retired, ignore_errors=True)
-        os.replace(destination, retired)
-        shutil.rmtree(retired, ignore_errors=True)
-    os.replace(staged, destination)
+
+
+def _fetch(request: str | urllib.request.Request, timeout: float) -> bytes:
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return response.read()
+
+
+def download(target: str, destination: str | Path) -> str:
+    """Fetch the CDM for *target* from Google into *destination*; return its URL.
+
+    One update check against Google's component update service, as Chromium's
+    component updater makes it, then the package it names, verified against
+    the SHA-256 in the same reply.
+    """
+    spec = _resolve_layout(target)
+    body = json.dumps({"request": {
+        "protocol": "3.1", "acceptformat": "crx3", "ismachine": False,
+        "@updater": "chromium", "@os": spec.os, "arch": spec.arch, "nacl_arch": spec.arch,
+        "os": {"platform": spec.os_name, "arch": spec.arch},
+        "prodversion": CHROMIUM_VERSION, "updaterversion": CHROMIUM_VERSION,
+        "prodchannel": "stable", "updaterchannel": "stable",
+        "requestid": f"{{{uuid.uuid4()}}}", "sessionid": f"{{{uuid.uuid4()}}}",
+        "app": [{"appid": APP_ID, "version": "0.0.0.0", "enabled": True, "updatecheck": {}}],
+    }}).encode("utf-8")
+    reply = _fetch(urllib.request.Request(
+        UPDATE_URL, data=body, headers={"Content-Type": "application/json"}), 30)
+    text = reply.decode("utf-8", "replace")
+    try:
+        # The reply starts with an anti-XSSI prefix before the JSON.
+        check = json.loads(text[text.index("{"):])["response"]["app"][0]["updatecheck"]
+        package = check["manifest"]["packages"]["package"][0]
+        name, digest = str(package["name"]), str(package["hash_sha256"]).lower()
+        bases = [str(item["codebase"]) for item in check["urls"]["url"]]
+    except (ValueError, KeyError, IndexError, TypeError):
+        raise WidevineError("Google's update service returned no Widevine package for "
+                            f"{target}") from None
+    urls = [base + name for base in bases if base.startswith("https://")]
+    if not urls:
+        raise WidevineError("Google's update service returned no https download for Widevine")
+    failure: Exception | None = None
+    for url in urls:
+        try:
+            data = _fetch(url, 120)
+        except OSError as exc:
+            failure = exc
+            continue
+        if hashlib.sha256(data).hexdigest() != digest:
+            raise WidevineError(f"the Widevine download from {url} failed SHA-256 verification")
+        _unpack_crx(data, Path(destination), spec)
+        return url
+    raise WidevineError(f"could not download Widevine from Google: {failure}")
+
+
+def _unpack_crx(data: bytes, destination: Path, spec: _Platform) -> None:
+    """Write the CDM files out of a CRX3 package: a header, then a zip."""
+    if data[:4] != b"Cr24" or len(data) < 12:
+        raise WidevineError("the Widevine download is not a CRX package")
+    start = 12 + int.from_bytes(data[8:12], "little")
+    prefix = f"_platform_specific/{spec.subdir}/"
+    try:
+        with zipfile.ZipFile(io.BytesIO(data[start:])) as archive:
+            for member in archive.infolist():
+                name = member.filename
+                leaf = name[len(prefix):] if name.startswith(prefix) else None
+                if member.is_dir() or not (name in _TOP_LEVEL
+                                           or (leaf and "/" not in leaf and leaf not in (".", ".."))):
+                    continue
+                path = destination / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(archive.read(member))
+                if leaf == spec.library:
+                    path.chmod(0o755)
+    except zipfile.BadZipFile:
+        raise WidevineError("the Widevine download is not a readable CRX package") from None
+    if not _has_cdm(destination, spec):
+        raise WidevineError("the Widevine download does not contain the CDM for "
+                            f"_platform_specific/{spec.subdir}")
 
 
 def store_path(cache_dir: str | Path) -> Path:
-    """Where a provisioned CDM is kept.
-
-    Outside any per-version install directory on purpose: a reinstall or a
-    Chromium upgrade replaces the install tree, and DRM must not silently
-    disappear when it does. The CDM is versioned independently of Chromium.
-    """
+    """Where the CDM is kept: outside every install, so reinstalling keeps it."""
     return Path(cache_dir).expanduser() / COMPONENT.lower()
 
 
-def apply_to_install(install: Path, target: str, *, cache_dir: str | Path,
-                     chromium_version: str) -> Path | None:
-    """Copy a previously provisioned CDM into a freshly extracted install.
+def _fill_store(store: Path, target: str, source: Path | None = None) -> str:
+    """Put a CDM into *store*: *source*, else a local copy, else Google's. Returns the origin."""
+    spec = _resolve_layout(target)
+    if source is None:
+        found = discover(target)
+        source = Path(found[0]["path"]) if found else None
+    store.parent.mkdir(parents=True, exist_ok=True)
+    if source is not None:
+        _copy(source, store, spec)
+        return str(source)
+    with tempfile.TemporaryDirectory(prefix=".widevine-download-", dir=store.parent) as scratch:
+        url = download(target, scratch)
+        _copy(Path(scratch), store, spec)
+    return url
 
-    Returns the installed component directory, or None when nothing has been
-    provisioned. Called by the binary manager after every extraction so that
-    ``install --force`` and a Chromium upgrade keep DRM working.
+
+def _component_dir(executable: Path, target: str) -> Path | None:
+    """The browser's preinstalled-component ``WidevineCdm`` directory.
+
+    ``None`` unless *executable* sits in an Apostate payload, the tree
+    scripts/package-artifact.sh stages with ``build/MANIFEST.lock`` and
+    ``resources/profiles/`` beside the browser. Nothing else is written into.
     """
-    store = store_path(cache_dir)
-    subdir, library, relative = _resolve_layout(target)
-    if not (store / "_platform_specific" / subdir / library).is_file():
+    executable = Path(executable).expanduser().absolute()
+    if target == "macos-arm64":
+        bundle = executable.parent.parent.parent
+        if bundle.suffix != ".app":
+            return None
+        root = bundle.parent
+        current = next(bundle.glob("Contents/Frameworks/*.framework/Versions/Current"), None)
+        if current is None or not (current / "Libraries").is_dir():
+            return None
+        # The framework loads from Versions/<version>/, which Current names.
+        version = os.readlink(current) if current.is_symlink() else current.name
+        component = current.parent / version / "Libraries" / COMPONENT
+    else:
+        root = executable.parent
+        component = root / COMPONENT
+    if not ((root / "build" / "MANIFEST.lock").is_file()
+            or (root / "resources" / "profiles" / "catalogue.json").is_file()):
         return None
-    destination = install / relative.format(chromium_version=chromium_version) / COMPONENT
-    _copy(store, destination, subdir, library)
-    return destination
+    return component
+
+
+def _run_once(executable: Path) -> None:
+    """Run a macOS bundle once before anything is added to it.
+
+    Gatekeeper checks a bundle's signature seal the first time it runs and
+    refuses one that changed since it was signed. After one clean run it does
+    not check again, so the CDM can go in.
+    """
+    try:
+        subprocess.run([str(executable), "--version"], stdin=subprocess.DEVNULL,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120,
+                       check=False)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def _write_hint(user_data_dir: Path, component: Path, spec: _Platform) -> None:
+    """Point a Linux profile at the CDM, unless it already names a working one."""
+    hint = user_data_dir / COMPONENT / HINT
+    try:
+        current = json.loads(hint.read_text(encoding="utf-8")).get("Path")
+    except (OSError, ValueError, AttributeError):
+        current = None
+    if isinstance(current, str) and _has_cdm(Path(current), spec):
+        return
+    hint.parent.mkdir(parents=True, exist_ok=True)
+    hint.write_text(json.dumps({"Path": str(component)}), encoding="utf-8")
+
+
+def _install(executable: Path, target: str, store: Path, spec: _Platform) -> Path | None:
+    component = _component_dir(executable, target)
+    if component is None or _has_cdm(component, spec):
+        return component
+    if target == "macos-arm64" and sys.platform == "darwin":
+        _run_once(executable)
+    _copy(store, component, spec)
+    return component
+
+
+def ensure(executable: str | Path, *, target: str | None = None,
+           cache_dir: str | Path | None = None,
+           user_data_dir: str | Path | None = None) -> Path | None:
+    """Give the browser at *executable* a Widevine CDM if it has none.
+
+    Returns the browser's CDM directory, or ``None`` when *executable* is not
+    an Apostate install or no CDM could be had. Never raises: a browser
+    without DRM still launches, and the failure is one line on stderr.
+    """
+    from .binary import _default_cache_dir, target_platform
+
+    try:
+        target_name = target_platform(target)
+        spec = _resolve_layout(target_name)
+        executable = Path(executable)
+        component = _component_dir(executable, target_name)
+        if component is None:
+            return None
+        if not _has_cdm(component, spec):
+            store = store_path(_default_cache_dir() if cache_dir is None else cache_dir)
+            if not _has_cdm(store, spec):
+                _fill_store(store, target_name)
+            _install(executable, target_name, store, spec)
+        if user_data_dir is not None and target_name.startswith("linux-"):
+            _write_hint(Path(user_data_dir).expanduser().absolute(), component, spec)
+        return component
+    except Exception as exc:  # noqa: BLE001 - DRM must never cost the launch
+        print(f"apostate: Widevine is unavailable, launching without DRM: {exc}",
+              file=sys.stderr)
+        return None
 
 
 def provision(*, target: str | None = None, source: str | Path | None = None,
-              cache_dir: str | Path | None = None,
-              chromium_version: str | None = None,
-              install: str | Path | None = None) -> dict[str, Any]:
-    """Install a CDM found on this machine into the Apostate browser.
+              cache_dir: str | Path | None = None) -> dict[str, Any]:
+    """Install a CDM into this package's browser now, replacing any it has.
 
-    *source* is a ``WidevineCdm`` directory, in either the component-updater or
-    the browser-bundle layout. Omitted, this machine is searched and the newest
-    is used.
+    *source* is a ``WidevineCdm`` directory, with or without a version
+    directory inside. Without it a local copy is used, else Google's, as a
+    launch would. Unlike a launch, this raises when no CDM can be had.
     """
     from .binary import BinaryManager, target_platform
 
     target_name = target_platform(target)
-    subdir, library, relative = _resolve_layout(target_name)
-    manager = BinaryManager(cache_dir=cache_dir)
-    cache_root = manager.cache_dir
-
-    if source is None:
-        candidates = discover(target_name)
-        if not candidates:
-            raise WidevineError(
-                "no Widevine CDM was found on this machine. Chromium fetches it from "
-                "Google into the profile directory, so run a browser with a persistent "
-                "--user-data-dir and play any DRM video once, then re-run this; or pass "
-                "the directory explicitly with source=."
-            )
-        chosen = Path(candidates[0]["path"])
-    else:
+    spec = _resolve_layout(target_name)
+    chosen: Path | None = None
+    if source is not None:
         chosen = Path(source).expanduser()
         if chosen.name != COMPONENT and (chosen / COMPONENT).is_dir():
             chosen = chosen / COMPONENT
-        payload = _payload(chosen, subdir, library)
+        payload = _payload(chosen, spec)
         if payload is None:
             raise WidevineError(
-                f"{chosen} does not contain _platform_specific/{subdir}/{library}"
-            )
+                f"{chosen} does not contain _platform_specific/{spec.subdir}/{spec.library}")
         chosen = payload
-
-    store = store_path(cache_root)
-    store.parent.mkdir(parents=True, exist_ok=True)
-    _copy(chosen, store, subdir, library)
-
-    result: dict[str, Any] = {
+    manager = BinaryManager(cache_dir=cache_dir)
+    store = store_path(manager.cache_dir)
+    origin = _fill_store(store, target_name, chosen)
+    executable = manager.ensure(target=target_name)
+    component = _component_dir(executable, target_name)
+    if component is None:
+        raise WidevineError(f"{executable} is not inside an Apostate install")
+    if target_name == "macos-arm64" and sys.platform == "darwin" and not _has_cdm(component, spec):
+        _run_once(executable)
+    _copy(store, component, spec)
+    return {
         "platform": target_name,
         "platform_verified": platform_is_verified(target_name),
-        "source": str(chosen),
+        "source": origin,
         "version": _read_version(store),
         "store": str(store),
-        "installed": None,
-        # A CDM being present is not a CDM being registered. `launch()` strips
-        # the switch from the driver's defaults, but anyone driving the binary
-        # directly must do it too.
-        "requires": (
-            "the browser must not run with --disable-component-update; it blocks "
-            "component registration and a provisioned CDM is silently inert. "
-            "launch() removes it from the driver's defaults automatically."
-        ),
+        "installed": str(component),
     }
-
-    if install is not None:
-        if chromium_version is None:
-            raise WidevineError("chromium_version is required when install is given")
-        install_root = Path(install).expanduser()
-        version = chromium_version
-    else:
-        # Acquire the browser if it is not already installed: there is nothing
-        # to provision into otherwise, and the caller asked for a working
-        # browser rather than a populated cache directory.
-        try:
-            manager.ensure(target=target_name)
-        except BinaryError as exc:
-            result["reason"] = str(exc)
-            return result
-        # The cache is keyed by Chromium version, and this package speaks to
-        # exactly one: a manifest naming another is refused when it is read.
-        # Asking a manifest for the number would only be a second route to
-        # the same answer, and -- when nothing is published and the install
-        # came from the release's own manifest -- a way to fail after the
-        # install already succeeded.
-        version = chromium_version or CHROMIUM_VERSION
-        install_root = manager._paths(target_name, version)[1]
-
-    destination = install_root / relative.format(chromium_version=version) / COMPONENT
-    _copy(store, destination, subdir, library)
-    result["installed"] = str(destination)
-    result["chromium_version"] = version
-    return result
 
 
 #: Names the package root re-exports, spelled for a caller who did not import
 #: this module directly.
 discover_widevine = discover
+ensure_widevine = ensure
 provision_widevine = provision
 
 __all__ = [
-    "COMPONENT", "VERIFIED_TARGETS", "WidevineError", "apply_to_install", "discover",
-    "discover_widevine", "platform_is_verified", "provision", "provision_widevine",
-    "store_path",
+    "COMPONENT", "VERIFIED_TARGETS", "WidevineError", "discover", "discover_widevine",
+    "download", "ensure", "ensure_widevine", "platform_is_verified", "provision",
+    "provision_widevine", "store_path",
 ]

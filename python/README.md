@@ -200,22 +200,28 @@ capability cluster and renderer string of the OS it claims.
 
 **On a Linux host the default claimed OS is Windows, so install the Windows
 fonts.** It is the one setup step here and the most common cause of a block: a
-Windows persona missing Windows faces is measurable in text metrics. The
-families and where to copy them from are in
-[docs/FONTS.md](https://github.com/heretic-tech/apostate/blob/main/docs/FONTS.md).
-Passing `fingerprint_platform="linux"` composes the host's own OS instead and
-needs nothing installed. Windows-on-Linux is the default because it is the least
-bad cross-OS pairing, not because it is free; `fingerprint_platform="macos"` on
-a Linux host is the riskier one, at 184 core families.
+Windows persona missing Windows faces is measurable in text metrics.
+
+```sh
+python -m apostate fonts install windows
+```
+
+That clones the font set with `git`, copies it into
+`~/.local/share/fonts/apostate-windows` and runs `fc-cache -f`. Passing
+`fingerprint_platform="linux"` composes the host's own OS instead and needs
+nothing installed. Windows-on-Linux is the default because it is the least bad
+cross-OS pairing, not because it is free; `fingerprint_platform="macos"` on a
+Linux host is the riskier one, at 184 core families.
 
 For the most aggressive targets, the suites that score behaviour as well as the
-fingerprint, run headed on a virtual display instead. Still no GPU: the display
-is an X server with nothing behind it.
+fingerprint, run headed instead. Still no GPU is needed. On a Linux host with
+no display, a headed launch starts its own virtual display with Xvfb, gives it
+to the browser, and stops it when the browser closes. The display is the size
+of the screen the launch sets, or 1920x1080 when the seed picks the screen.
+Only Xvfb has to be installed:
 
 ```sh
 sudo apt install xvfb
-Xvfb :99 -screen 0 1920x1080x24 &
-export DISPLAY=:99
 ```
 
 ```python
@@ -226,9 +232,9 @@ browser = launch(
 )
 ```
 
-`DISPLAY` reaches the browser through the environment. The launcher sets no
-environment of its own, so the driver hands the browser yours, and exporting
-`DISPLAY` before the script runs is the whole of the wiring.
+If the host already has a display, the browser uses it. Without Xvfb, a
+headed launch on such a host stops with an error that says to install it or
+pass `headless=True`.
 
 What a page can still tell on such a host is render timing and per-pixel output,
 which come from the rasteriser rather than from the identity. The measured
@@ -241,12 +247,22 @@ page's list of behaviours written but not yet run — are in
 
 Asking for a platform other than the one you are running on means that
 platform's fonts have to be on the host. Apple and Microsoft fonts cannot be
-redistributed, so you supply them; a persona without its fonts is a common
-cause of blocks. Install them into the normal OS font directories (on Linux,
-run `fc-cache -f` afterwards).
+redistributed, so they come from your own machines; a persona without its
+fonts is a common cause of blocks.
+
+```sh
+python -m apostate fonts install windows                    # Linux or macOS host
+python -m apostate fonts export-macos ~/mac-fonts           # on a Mac
+python -m apostate fonts install macos --from ~/mac-fonts   # on the Linux host
+```
+
+`fonts install windows` clones the font set with `git`. `fonts export-macos`
+copies a Mac's system fonts into a directory; copy that directory to the Linux
+host and install it from there. Fonts go into `~/.local/share/fonts/apostate-*`
+on Linux, followed by `fc-cache -f`, and `~/Library/Fonts/apostate-*` on
+macOS.
 [docs/FONTS.md](https://github.com/heretic-tech/apostate/blob/main/docs/FONTS.md)
-has the per-persona family lists, source directories and a verification
-command.
+has the per-persona family lists and a verification command.
 
 The browser assumes you have done this and does not check. What it will not do
 is claim a face that is absent: the font list a page sees is filtered down from
@@ -273,47 +289,43 @@ python -m apostate run -- --fingerprint=42 --fingerprint-explain
 ## Command line
 
 ```sh
-python -m apostate install        # download, verify and extract
+python -m apostate install        # download, verify and extract, then add Widevine
 python -m apostate path           # print the executable path
 python -m apostate info           # install and manifest state as JSON
 python -m apostate run -- --version
 python -m apostate clear          # delete the cache
+python -m apostate fonts install windows
+python -m apostate fonts install macos --from DIR
+python -m apostate fonts export-macos DIR
 ```
 
 ## DRM (Widevine)
 
-Chromium fetches the Widevine CDM from Google at runtime into the profile
-directory, and it cannot be redistributed, so Apostate does not ship it. A
-default `launch()` uses a throwaway profile, so there is no CDM and
-`navigator.requestMediaKeySystemAccess("com.widevine.alpha", ...)` rejects with
-`NotSupportedError` — which a site can read in a single call.
+Widevine is the DRM module video sites use, and Google's licence forbids
+shipping it with the browser. So the first launch adds it: it copies it from a
+browser on the machine that has it, such as Google Chrome, and otherwise
+downloads it from Google's update server and checks its SHA-256. It is kept in
+the cache directory, so this happens once per machine, and it goes into the
+browser's own directory, so every profile gets it, the throwaway one
+`launch()` uses included. With it, a page's
+`navigator.requestMediaKeySystemAccess("com.widevine.alpha", ...)` call
+answers the way a real Chrome does.
 
-If you need DRM, or you want that call to answer the way a real browser does,
-provision a CDM that is already on your machine:
+`python -m apostate install` does the same ahead of time. If no copy can be
+had, the browser launches without DRM and prints one warning. Windows hosts are
+not verified yet.
+
+To install a particular copy instead:
 
 ```sh
-python -m apostate provision-drm --list     # what was found
-python -m apostate provision-drm            # install the newest
+python -m apostate provision-drm --list                 # what this machine has
+python -m apostate provision-drm --source /path/to/WidevineCdm
 ```
 
-That copies it into the browser's preinstalled-component directory, where it
-registers at startup for every profile including a throwaway one, with no
-network and without writing into the profile. It survives
-`apostate install --force` and a Chromium upgrade.
-
-Nothing is redistributed: the CDM travels from Google to your machine exactly as
-it does for Chrome, and this only moves a file already there. If no CDM is
-found, run any Chromium-based browser with a persistent profile and play a DRM
-video once, then re-run. Measured on macOS; Linux and Windows use the same
-command but have not been verified.
-
-One switch matters: `--disable-component-update` gates the whole of
-Chromium's component registration, not just downloading. With it set, **no**
-preinstalled component registers — measured offline, zero of them — so a
-provisioned CDM is silently inert and the browser diverges from a real Chrome
-across every preinstalled component at once. `launch()` removes it from the
-driver's default arguments for you. If you drive the binary yourself, do not
-pass it — Playwright passes it by default, so use
+Do not pass `--disable-component-update` to the browser. It stops every
+preinstalled component from loading, Widevine included. `launch()` removes it
+from the driver's default arguments for you. If you drive the binary yourself,
+Playwright passes it by default, so use
 `ignore_default_args=["--disable-component-update"]` (Python) or
 `ignoreDefaultArgs: ["--disable-component-update"]` (Node). Patchright and
 Puppeteer do not pass it.

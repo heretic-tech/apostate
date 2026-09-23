@@ -7,6 +7,7 @@ import { chmod, lstat, mkdir, readFile, readdir, readlink, writeFile } from "nod
 import { mkdtemp, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import * as zlib from "node:zlib";
 import test from "node:test";
 import {
   BinaryExtractionError,
@@ -18,6 +19,7 @@ import {
   binaryInfo,
   discoveryReport,
   ensureBinary,
+  ensureWidevine,
   extractionFailureMessage,
   expectedArtifactName,
   launch,
@@ -79,6 +81,7 @@ function storedZip(entries) {
     central.writeUInt32LE(data.length, 20);
     central.writeUInt32LE(data.length, 24);
     central.writeUInt16LE(name.length, 28);
+    central.writeUInt32LE(offset, 42);
     if (entry.mode) central.writeUInt32LE((entry.mode << 16) >>> 0, 38);
     centralParts.push(Buffer.concat([central, name]));
     offset += local.length + name.length + data.length;
@@ -662,6 +665,35 @@ test("tar extraction keeps a contained link and refuses an escaping one", async 
   }
 });
 
+test("a zstd archive is unpacked in-process, and still scanned before it is", { skip: typeof zlib.zstdCompressSync !== "function" }, async () => {
+  // With node:zlib's zstd the host's tar only ever reads a plain tar, so a
+  // host without the zstd tool can still install the browser.
+  const cacheDir = await mkdtemp(join(tmpdir(), "apostate-node-zstd-"));
+  try {
+    const benign = zlib.zstdCompressSync(tarArchive([
+      { name: "chrome", data: "binary" },
+      { name: "nested/", type: "5" },
+      { name: "nested/current", type: "2", linkname: "../chrome" },
+    ]));
+    const binary = await ensureBinary({
+      target, searchRoots: [], cacheDir, manifest: releaseManifest(benign, target), download: async () => benign,
+    });
+    assert.equal(await readFile(binary, "utf8"), "binary");
+    assert.equal(await readlink(join(dirname(binary), "nested", "current")), "../chrome");
+
+    const escaping = zlib.zstdCompressSync(tarArchive([
+      { name: "chrome", data: "binary" },
+      { name: "link", type: "2", linkname: "../outside" },
+    ]));
+    await assert.rejects(
+      ensureBinary({ target, searchRoots: [], cacheDir: join(cacheDir, "escaping"), manifest: releaseManifest(escaping, target), download: async () => escaping }),
+      (error) => error instanceof BinaryExtractionError,
+    );
+  } finally {
+    await rm(cacheDir, { recursive: true, force: true });
+  }
+});
+
 test("rejects traversal paths returned by an extractor", async () => {
   const cacheDir = await mkdtemp(join(tmpdir(), "apostate-node-traversal-"));
   try {
@@ -1026,49 +1058,91 @@ test("a named directory with no browser in it is refused by name, not by is-a-fi
   }
 });
 
-test("provisioned Widevine survives a forced reinstall", async () => {
-  // The CDM is stored outside the install tree precisely so that --force and a
-  // Chromium upgrade, which both replace that tree, do not silently remove DRM
-  // and turn a working launch into a NotSupportedError a site reads in one call.
-  const cacheDir = await mkdtemp(join(tmpdir(), "apostate-node-widevine-"));
+test("the cached CDM goes into an Apostate install and nowhere else", async () => {
+  // A launch copies the cached CDM into the browser's preinstalled component
+  // directory, which is also how a reinstall or an upgrade keeps DRM. It
+  // writes only into an Apostate payload: a named binary can be anything.
+  const root = await mkdtemp(join(tmpdir(), "apostate-node-widevine-"));
   try {
-    const archive = Buffer.from("archive bytes");
-    const options = {
-      target: "macos-arm64",
-      searchRoots: [],
-      cacheDir,
-      manifest: releaseManifest(archive, "macos-arm64"),
-      download: async () => archive,
-      extract: async (_bytes, destination) => {
-        const tree = join(destination, "tree");
-        await mkdir(join(tree, "Chromium.app/Contents/MacOS"), { recursive: true });
-        await writeFile(join(tree, "Chromium.app/Contents/MacOS/Chromium"), "binary bytes");
-        return tree;
-      },
-    };
-    await ensureBinary(options);
+    const cacheDir = join(root, "cache");
+    const store = join(cacheDir, "widevinecdm");
+    await mkdir(join(store, "_platform_specific", "linux_x64"), { recursive: true });
+    await writeFile(join(store, "_platform_specific", "linux_x64", "libwidevinecdm.so"), "cdm");
+    await writeFile(join(store, "manifest.json"), JSON.stringify({ version: "4.10.3050.0" }));
 
-    // A CDM in the component-updater layout, i.e. with a version directory.
-    const source = join(cacheDir, "fetched", "WidevineCdm", "4.10.3050.0");
-    await mkdir(join(source, "_platform_specific", "mac_arm64"), { recursive: true });
-    await writeFile(join(source, "_platform_specific", "mac_arm64", "libwidevinecdm.dylib"), "cdm");
-    await writeFile(join(source, "manifest.json"), JSON.stringify({ version: "4.10.3050.0" }));
-
-    const result = await provisionWidevine({
-      target: "macos-arm64", cacheDir, source: join(cacheDir, "fetched", "WidevineCdm"),
-    });
-    assert.equal(result.version, "4.10.3050.0");
-    assert.ok(result.installed, "a present install must receive the CDM");
-    const library = join(result.installed, "_platform_specific", "mac_arm64", "libwidevinecdm.dylib");
-    assert.equal(await readFile(library, "utf8"), "cdm");
+    const chrome = await plantPayload(join(root, "payload"), CHROMIUM_VERSION);
+    const component = await ensureWidevine(chrome, { target: "linux-x64", cacheDir });
+    assert.equal(component, join(root, "payload", "WidevineCdm"));
+    assert.equal(await readFile(join(component, "_platform_specific", "linux_x64", "libwidevinecdm.so"), "utf8"), "cdm");
     // No version directory: the browser reads it from manifest.json, and
     // Google Chrome's own bundled copy has none.
-    assert.deepEqual((await readdir(result.installed)).sort(), ["_platform_specific", "manifest.json"]);
+    assert.deepEqual((await readdir(component)).sort(), ["_platform_specific", "manifest.json"]);
 
-    await ensureBinary({ ...options, force: true });
-    assert.equal(await readFile(library, "utf8"), "cdm", "reinstall must re-apply the CDM");
+    // Linux also reads the CDM from a hint inside a persistent profile.
+    const profile = join(root, "profile");
+    await ensureWidevine(chrome, { target: "linux-x64", cacheDir, userDataDir: profile });
+    const hint = join(profile, "WidevineCdm", "latest-component-updated-widevine-cdm");
+    assert.deepEqual(JSON.parse(await readFile(hint, "utf8")), { Path: component });
+
+    const stock = join(root, "stock");
+    await mkdir(stock, { recursive: true });
+    await writeFile(join(stock, "chrome"), "stock chromium");
+    assert.equal(await ensureWidevine(join(stock, "chrome"), { target: "linux-x64", cacheDir }), null);
+    assert.equal(await lstat(join(stock, "WidevineCdm")).then(() => true, () => false), false);
   } finally {
-    await rm(cacheDir, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a downloaded CDM is kept only when its digest matches", async () => {
+  const root = await mkdtemp(join(tmpdir(), "apostate-node-widevine-download-"));
+  const saved = { fetch: globalThis.fetch, home: process.env.HOME, warn: console.warn };
+  const warnings = [];
+  try {
+    // Nothing on this machine may answer first: no profile under HOME, and no
+    // local Chrome ships linux-arm64.
+    process.env.HOME = root;
+    console.warn = (message) => warnings.push(String(message));
+    const header = Buffer.alloc(12);
+    header.write("Cr24", 0, "latin1");
+    header.writeUInt32LE(3, 4);
+    const crx = Buffer.concat([header, storedZip([
+      { name: "manifest.json", data: JSON.stringify({ version: "4.10.3057.0" }) },
+      { name: "_platform_specific/linux_arm64/libwidevinecdm.so", data: "cdm" },
+      { name: "_metadata/verified_contents.json", data: "{}" },
+    ])]);
+    let digest = "0".repeat(64);
+    const requested = [];
+    globalThis.fetch = async (url) => {
+      requested.push(String(url));
+      if (String(url).endsWith(".crx3")) return new Response(crx);
+      const check = {
+        status: "ok",
+        urls: { url: [{ codebase: "http://cdn.test/" }, { codebase: "https://cdn.test/" }] },
+        manifest: { version: "4.10.3057.0", packages: { package: [{ name: "cdm.crx3", hash_sha256: digest }] } },
+      };
+      return new Response(`)]}'\n${JSON.stringify({ response: { app: [{ updatecheck: check }] } })}`);
+    };
+    const chrome = await plantPayload(join(root, "payload"), CHROMIUM_VERSION);
+    const cacheDir = join(root, "cache");
+
+    assert.equal(await ensureWidevine(chrome, { target: "linux-arm64", cacheDir }), null);
+    assert.match(warnings.join("\n"), /failed SHA-256 verification/);
+    assert.equal(await lstat(join(root, "payload", "WidevineCdm")).then(() => true, () => false), false);
+
+    digest = createHash("sha256").update(crx).digest("hex");
+    requested.length = 0;
+    const component = await ensureWidevine(chrome, { target: "linux-arm64", cacheDir });
+    assert.equal(component, join(root, "payload", "WidevineCdm"));
+    assert.deepEqual(requested, ["https://update.googleapis.com/service/update2/json", "https://cdn.test/cdm.crx3"]);
+    assert.equal(await readFile(join(component, "_platform_specific", "linux_arm64", "libwidevinecdm.so"), "utf8"), "cdm");
+    assert.deepEqual((await readdir(component)).sort(), ["_platform_specific", "manifest.json"]);
+  } finally {
+    globalThis.fetch = saved.fetch;
+    if (saved.home === undefined) delete process.env.HOME;
+    else process.env.HOME = saved.home;
+    console.warn = saved.warn;
+    await rm(root, { recursive: true, force: true });
   }
 });
 

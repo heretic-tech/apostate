@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, NamedTuple
 from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
+from . import xvfb
 from .binary import BinaryManager, ensure_binary, resolve_named_binary, target_platform
 from .config import (GEOIP_BUDGET_SECONDS, LaunchConfig, check_fingerprint_switches,
                      is_host_seed, translate_options)
@@ -21,6 +22,7 @@ from .errors import ConfigurationError, GeoIPError, LaunchError, ProfileError
 from .geoip import GeoIPResult, resolve_geoip
 from .profile_validation import validate_profile
 from .resolver import DeterministicResolver, ProfileResolution
+from .widevine import ensure as ensure_widevine
 
 
 def _proxy_url(value: str | Mapping[str, Any] | None) -> str | None:
@@ -260,6 +262,40 @@ def _launch_environment(plan: LaunchPlan, supplied: Mapping[str, Any] | None) ->
     for key, value in dict(supplied or {}).items():
         env[str(key)] = str(value)
     return env
+
+
+def _claimed_screen(plan: LaunchPlan) -> tuple[int, int]:
+    """The screen a launch claims, which its virtual display is made to match.
+
+    An explicit profile names it, and so do the per-field switches. A seed
+    composes it inside the browser, out of the package's sight, so 1920x1080,
+    the commonest desktop panel, stands in.
+    """
+    screen = plan.profile.get("screen") if isinstance(plan.profile, Mapping) else None
+    if isinstance(screen, Mapping):
+        width, height = screen.get("width"), screen.get("height")
+        if isinstance(width, int) and isinstance(height, int) and width > 0 and height > 0:
+            return width, height
+    switches: dict[str, int] = {}
+    for arg in plan.config.args:
+        name, _, value = str(arg).partition("=")
+        if value.isdigit() and int(value) > 0:
+            switches[name] = int(value)
+    width = switches.get("--fingerprint-screen-width")
+    height = switches.get("--fingerprint-screen-height")
+    return (width, height) if width and height else (1920, 1080)
+
+
+def _virtual_display(plan: LaunchPlan, env: dict[str, str]) -> xvfb.VirtualDisplay | None:
+    """Start Xvfb for a headed Linux launch with no display, and name it in *env*.
+
+    *env* is the browser's environment; this process's own is left alone.
+    """
+    if not xvfb.needs_display(plan.config.headless, env):
+        return None
+    display = xvfb.start(*_claimed_screen(plan))
+    env["DISPLAY"] = display.name
+    return display
 
 
 def _resolve_plan(config: LaunchConfig, *, resolver: Any = None, catalogue: Any = None,
@@ -691,7 +727,7 @@ async def _coherent_viewport_async(target: Any) -> Any:
     return target
 
 
-def _own_driver(target: Any, driver: Any, name: str = "") -> Any:
+def _own_driver(target: Any, driver: Any, name: str = "", display: Any = None) -> Any:
     """Make *target* stop the Playwright driver it was created from.
 
     ``sync_playwright().start()`` installs an event loop in this thread and
@@ -700,7 +736,8 @@ def _own_driver(target: Any, driver: Any, name: str = "") -> Any:
     sync launch in the same process fail with "Sync API inside the asyncio
     loop". A script that launches in a loop -- the common shape for this
     product -- then breaks on its second iteration. So whatever the caller is
-    given closes the driver that produced it.
+    given closes the driver that produced it, and the virtual display the
+    browser ran on, if it had one.
     """
     # A custom or fake backend may return anything, including a plain mapping.
     # Only a driver-backed object has a close() to chain onto.
@@ -716,6 +753,8 @@ def _own_driver(target: Any, driver: Any, name: str = "") -> Any:
                 driver.stop()
             except Exception:
                 pass
+            if display is not None:
+                display.stop()
 
     try:
         target.close = close
@@ -728,7 +767,7 @@ def _own_driver(target: Any, driver: Any, name: str = "") -> Any:
     return target
 
 
-async def _own_driver_async(target: Any, driver: Any, name: str = "") -> Any:
+async def _own_driver_async(target: Any, driver: Any, name: str = "", display: Any = None) -> Any:
     original = getattr(target, "close", None)
     if not callable(original):
         return target
@@ -741,6 +780,8 @@ async def _own_driver_async(target: Any, driver: Any, name: str = "") -> Any:
                 await driver.stop()
             except Exception:
                 pass
+            if display is not None:
+                display.stop()
 
     try:
         target.close = close
@@ -824,7 +865,7 @@ def launch(*, fingerprint: int | str | None = None, fingerprint_platform: str | 
     selection = _load_sync_backend(driver)
     binary = _resolve_executable(binary_path, cache_dir=cache_dir, manifest=manifest,
                                  downloader=downloader)
-    playwright = selection.factory().start()
+    ensure_widevine(binary, cache_dir=cache_dir)
     launch_options = dict(playwright_options)
     launch_options.update(executable_path=str(binary), headless=config.headless, args=_native_args(plan))
     launch_options["ignore_default_args"] = _ignore_default_args(
@@ -834,14 +875,23 @@ def launch(*, fingerprint: int | str | None = None, fingerprint_platform: str | 
     launch_options["env"] = _launch_environment(plan, launch_options.get("env"))
     if config.proxy is not None and "proxy" not in launch_options:
         launch_options["proxy"] = _playwright_proxy(config.proxy)
+    display = _virtual_display(plan, launch_options["env"])
+    try:
+        playwright = selection.factory().start()
+    except BaseException:
+        if display is not None:
+            display.stop()
+        raise
     try:
         return _own_driver(_coherent_viewport(playwright.chromium.launch(**launch_options)),
-                           playwright, selection.name)
+                           playwright, selection.name, display)
     except Exception as exc:
         try:
             playwright.stop()
         except Exception:
             pass
+        if display is not None:
+            display.stop()
         raise _backend_error(exc) from exc
 
 
@@ -918,6 +968,7 @@ def launch_persistent_context(user_data_dir: str | Path, *, context_options: Map
     selection = _load_sync_backend(options.pop("driver", None))
     binary = _resolve_executable(binary_path, cache_dir=cache_dir, manifest=manifest,
                                  downloader=downloader)
+    ensure_widevine(binary, cache_dir=cache_dir, user_data_dir=path)
     options.pop("_async", None)
     if options.get("user_data_dir") is not None:
         raise ConfigurationError("user_data_dir is the positional persistent-context path")
@@ -934,7 +985,13 @@ def launch_persistent_context(user_data_dir: str | Path, *, context_options: Map
         launch_options["no_viewport"] = True
     if config.proxy is not None and "proxy" not in launch_options:
         launch_options["proxy"] = _playwright_proxy(config.proxy)
-    playwright = selection.factory().start()
+    display = _virtual_display(plan, launch_options["env"])
+    try:
+        playwright = selection.factory().start()
+    except BaseException:
+        if display is not None:
+            display.stop()
+        raise
     try:
         context = playwright.chromium.launch_persistent_context(**launch_options)
     except Exception as exc:
@@ -942,8 +999,10 @@ def launch_persistent_context(user_data_dir: str | Path, *, context_options: Map
             playwright.stop()
         except Exception:
             pass
+        if display is not None:
+            display.stop()
         raise _backend_error(exc) from exc
-    return _own_driver(context, playwright, selection.name)
+    return _own_driver(context, playwright, selection.name, display)
 
 
 async def launch_async(**options: Any) -> Any:
@@ -966,7 +1025,7 @@ async def launch_async(**options: Any) -> Any:
     selection = _load_async_backend(options.pop("driver", None))
     binary = _resolve_executable(binary_path, cache_dir=cache_dir, manifest=manifest,
                                  downloader=downloader)
-    playwright = await selection.factory().start()
+    ensure_widevine(binary, cache_dir=cache_dir)
     launch_options = dict(options)
     launch_options.update(executable_path=str(binary), headless=config.headless, args=_native_args(plan))
     launch_options["ignore_default_args"] = _ignore_default_args(
@@ -976,15 +1035,24 @@ async def launch_async(**options: Any) -> Any:
     launch_options["env"] = _launch_environment(plan, launch_options.get("env"))
     if config.proxy is not None and "proxy" not in launch_options:
         launch_options["proxy"] = _playwright_proxy(config.proxy)
+    display = _virtual_display(plan, launch_options["env"])
+    try:
+        playwright = await selection.factory().start()
+    except BaseException:
+        if display is not None:
+            display.stop()
+        raise
     try:
         return await _own_driver_async(
             await _coherent_viewport_async(await playwright.chromium.launch(**launch_options)),
-            playwright, selection.name)
+            playwright, selection.name, display)
     except Exception as exc:
         try:
             await playwright.stop()
         except Exception:
             pass
+        if display is not None:
+            display.stop()
         raise _backend_error(exc) from exc
 
 
@@ -1045,7 +1113,7 @@ async def launch_persistent_context_async(user_data_dir: str | Path, *, context_
     selection = _load_async_backend(options.pop("driver", None))
     binary = _resolve_executable(binary_path, cache_dir=cache_dir, manifest=manifest,
                                  downloader=downloader)
-    playwright = await selection.factory().start()
+    ensure_widevine(binary, cache_dir=cache_dir, user_data_dir=path)
     launch_options = dict(context_options or {})
     launch_options.update(options)
     launch_options.update(executable_path=str(binary), headless=config.headless,
@@ -1059,15 +1127,24 @@ async def launch_persistent_context_async(user_data_dir: str | Path, *, context_
         launch_options["no_viewport"] = True
     if config.proxy is not None and "proxy" not in launch_options:
         launch_options["proxy"] = _playwright_proxy(config.proxy)
+    display = _virtual_display(plan, launch_options["env"])
+    try:
+        playwright = await selection.factory().start()
+    except BaseException:
+        if display is not None:
+            display.stop()
+        raise
     try:
         return await _own_driver_async(
             await playwright.chromium.launch_persistent_context(**launch_options),
-            playwright, selection.name)
+            playwright, selection.name, display)
     except Exception as exc:
         try:
             await playwright.stop()
         except Exception:
             pass
+        if display is not None:
+            display.stop()
         raise _backend_error(exc) from exc
 
 

@@ -13,7 +13,9 @@ import socket
 import subprocess
 import sys
 import threading
+import tarfile
 import tempfile
+import types
 import unittest
 import urllib.error
 import urllib.request
@@ -1101,6 +1103,46 @@ print(catalogue['browser_build'])
                     with self.assertRaises(UnsupportedArchiveError):
                         rejecting.ensure(target="macos-arm64")
 
+    def test_a_staged_tar_zst_is_recognised_by_its_bytes_not_its_name(self) -> None:
+        # The archive is staged as `<name>.part`, so a check on the file name
+        # never saw `.zst`, and every Python older than 3.14 refused a Linux
+        # install. The patched tarfile.open plays that interpreter.
+        binary_module = importlib.import_module("apostate.binary")
+        try:
+            import zstandard  # type: ignore[import-not-found]
+        except ModuleNotFoundError:
+            try:
+                from compression import zstd  # type: ignore[import-not-found]
+            except ModuleNotFoundError:
+                self.skipTest("needs zstandard or Python 3.14's compression.zstd")
+            zstandard = types.SimpleNamespace(
+                ZstdCompressor=lambda: types.SimpleNamespace(compress=zstd.compress),
+                ZstdDecompressor=lambda: types.SimpleNamespace(stream_reader=zstd.ZstdFile))
+        tar = io.BytesIO()
+        with tarfile.open(fileobj=tar, mode="w") as archive:
+            member = tarfile.TarInfo("apostate-test/chrome")
+            member.size, member.mode = len(b"native binary"), 0o755
+            archive.addfile(member, io.BytesIO(b"native binary"))
+        archive_bytes = zstandard.ZstdCompressor().compress(tar.getvalue())
+        manifest = {"package_version": "0.1.0", "chromium_version": CHROMIUM_VERSION,
+                    "catalogue_version": CATALOGUE_VERSION, "platform": "linux-x64",
+                    "artifact": "apostate-test.tar.zst",
+                    "sha256": hashlib.sha256(archive_bytes).hexdigest()}
+        opened = tarfile.open
+
+        def before_python_3_14(*args: Any, **kwargs: Any) -> Any:
+            if kwargs.get("mode") == "r:*":
+                raise tarfile.ReadError("not a gzip, bz2 or xz file")
+            return opened(*args, **kwargs)
+
+        with tempfile.TemporaryDirectory() as temporary, \
+                mock.patch.dict(sys.modules, {"zstandard": zstandard}), \
+                mock.patch.object(binary_module.tarfile, "open", before_python_3_14):
+            manager = BinaryManager(cache_dir=temporary, manifest=manifest,
+                                    downloader=lambda source: archive_bytes)
+            executable = manager.ensure(target="linux-x64")
+            self.assertEqual(executable.read_bytes(), b"native binary")
+
     def _zip_archive(self, files: dict[str, bytes],
                      links: dict[str, str] | None = None) -> bytes:
         buffer = io.BytesIO()
@@ -1546,41 +1588,79 @@ print(catalogue['browser_build'])
             "the host's own is served for that field. Pass locale explicitly to "
             "guarantee a match.\n")
 
-    def test_provisioned_widevine_survives_a_forced_reinstall(self) -> None:
-        # The CDM is stored outside the install tree precisely so that
-        # `install --force` and a Chromium upgrade, which both replace that
-        # tree, do not silently remove DRM and turn a working launch into a
-        # NotSupportedError a site can read in one call.
+    def test_the_cached_cdm_goes_into_an_apostate_install_and_nowhere_else(self) -> None:
+        # A launch copies the cached CDM into the browser's preinstalled
+        # component directory, which is also how a reinstall or an upgrade
+        # keeps DRM. It writes only into an Apostate payload: a named binary
+        # can be anything, including the interpreter running this test.
         from apostate import widevine
-        archive_bytes = self._zip_archive({
-            "apostate-test/Chromium.app/Contents/MacOS/Chromium": b"native binary",
-        })
         with tempfile.TemporaryDirectory() as temporary:
-            manager = BinaryManager(cache_dir=temporary,
-                                    manifest=self._zip_manifest(archive_bytes),
-                                    downloader=lambda source: archive_bytes)
-            manager.ensure(target="macos-arm64")
-            store = widevine.store_path(temporary)
-            platform_dir = store / "_platform_specific" / "mac_arm64"
-            platform_dir.mkdir(parents=True)
-            (platform_dir / "libwidevinecdm.dylib").write_bytes(b"cdm")
+            root = Path(temporary)
+            store = widevine.store_path(root / "cache")
+            (store / "_platform_specific" / "linux_x64").mkdir(parents=True)
+            (store / "_platform_specific" / "linux_x64" / "libwidevinecdm.so").write_bytes(b"cdm")
             (store / "manifest.json").write_text('{"version": "4.10.3050.0"}', encoding="utf-8")
 
-            install = Path(temporary) / CHROMIUM_VERSION / "macos-arm64" / "install"
-            installed = widevine.apply_to_install(
-                install, "macos-arm64", cache_dir=temporary,
-                chromium_version=CHROMIUM_VERSION,
-            )
-            self.assertIsNotNone(installed)
-            library = installed / "_platform_specific" / "mac_arm64" / "libwidevinecdm.dylib"
-            self.assertEqual(library.read_bytes(), b"cdm")
+            chrome = self._plant_payload(root / "payload")
+            component = widevine.ensure(chrome, target="linux-x64", cache_dir=root / "cache")
+            self.assertEqual(component, root / "payload" / "WidevineCdm")
+            assert component is not None
+            self.assertEqual(
+                (component / "_platform_specific" / "linux_x64" / "libwidevinecdm.so").read_bytes(),
+                b"cdm")
             # No version directory: the browser reads the version from
             # manifest.json, and Google Chrome's own bundled copy has none.
-            self.assertEqual(sorted(p.name for p in installed.iterdir()),
+            self.assertEqual(sorted(path.name for path in component.iterdir()),
                              ["_platform_specific", "manifest.json"])
 
-            manager.ensure(target="macos-arm64", force=True)
-            self.assertEqual(library.read_bytes(), b"cdm")
+            # Linux also reads the CDM from a hint inside a persistent profile.
+            profile = root / "profile"
+            widevine.ensure(chrome, target="linux-x64", cache_dir=root / "cache",
+                            user_data_dir=profile)
+            hint = profile / "WidevineCdm" / "latest-component-updated-widevine-cdm"
+            self.assertEqual(json.loads(hint.read_text(encoding="utf-8")),
+                             {"Path": str(component)})
+
+            stock = self._plant_payload(root / "stock", build_record=False, resources=False)
+            self.assertIsNone(widevine.ensure(stock, target="linux-x64",
+                                              cache_dir=root / "cache"))
+            self.assertFalse((root / "stock" / "WidevineCdm").exists())
+
+    def test_a_downloaded_cdm_is_kept_only_when_its_digest_matches(self) -> None:
+        from apostate import widevine
+        package = io.BytesIO()
+        with zipfile.ZipFile(package, "w") as archive:
+            archive.writestr("manifest.json", '{"version": "4.10.3050.0"}')
+            archive.writestr("_platform_specific/linux_x64/libwidevinecdm.so", b"cdm")
+            archive.writestr("_metadata/verified_contents.json", "{}")
+        crx = b"Cr24" + (3).to_bytes(4, "little") + (2).to_bytes(4, "little") + b"\0\0"
+        crx += package.getvalue()
+
+        def reply(digest: str) -> bytes:
+            check = {"status": "ok",
+                     "urls": {"url": [{"codebase": "http://cdn.test/"},
+                                      {"codebase": "https://cdn.test/"}]},
+                     "manifest": {"version": "4.10.3050.0", "packages": {"package": [
+                         {"name": "cdm.crx3", "hash_sha256": digest}]}}}
+            return (")]}'\n" + json.dumps(
+                {"response": {"app": [{"updatecheck": check}]}})).encode("utf-8")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            bad, good = Path(temporary) / "bad", Path(temporary) / "good"
+            with _release({widevine.UPDATE_URL: reply("0" * 64),
+                           "https://cdn.test/cdm.crx3": crx}):
+                with self.assertRaises(widevine.WidevineError):
+                    widevine.download("linux-x64", bad)
+            self.assertFalse(bad.exists())
+            with _release({widevine.UPDATE_URL: reply(hashlib.sha256(crx).hexdigest()),
+                           "https://cdn.test/cdm.crx3": crx}) as requested:
+                self.assertEqual(widevine.download("linux-x64", good),
+                                 "https://cdn.test/cdm.crx3")
+            self.assertEqual(requested, [widevine.UPDATE_URL, "https://cdn.test/cdm.crx3"])
+            self.assertEqual(
+                (good / "_platform_specific" / "linux_x64" / "libwidevinecdm.so").read_bytes(),
+                b"cdm")
+            self.assertFalse((good / "_metadata").exists())
 
     def test_widevine_provisioning_refuses_a_directory_without_a_library(self) -> None:
         from apostate.widevine import WidevineError, provision
@@ -1588,21 +1668,19 @@ print(catalogue['browser_build'])
             empty = Path(temporary) / "WidevineCdm"
             empty.mkdir()
             with self.assertRaises(WidevineError):
-                provision(target="macos-arm64", source=empty, cache_dir=temporary,
-                          chromium_version=CHROMIUM_VERSION, install=Path(temporary) / "install")
+                provision(target="macos-arm64", source=empty, cache_dir=temporary)
 
-    def test_provisioning_without_an_install_path_targets_this_package_s_own(self) -> None:
-        # `apostate provision-drm` with no --source and no install path is the
-        # documented way to do this, and it is the one path that has to work
-        # out what the install directory is rather than being handed it. That
-        # calculation went stale once and nothing noticed: it is the cache
-        # keyed by Chromium version, and it must not need a manifest, because
-        # on a release that publishes nothing the install has already
-        # succeeded by the time it is asked for.
+    def test_provisioning_targets_this_package_s_own_macos_framework(self) -> None:
+        # `apostate provision-drm` has to work out where the browser keeps its
+        # preinstalled components: inside the framework, under the version
+        # directory Versions/Current names. It must not need the network.
         from apostate import widevine
+        framework = "apostate-test/Chromium.app/Contents/Frameworks/Chromium Framework.framework"
         archive_bytes = self._zip_archive({
             "apostate-test/Chromium.app/Contents/MacOS/Chromium": b"native binary",
-        })
+            f"{framework}/Versions/{CHROMIUM_VERSION}/Libraries/MEIPreload/manifest.json": b"{}",
+            "apostate-test/build/MANIFEST.lock": b"",
+        }, links={f"{framework}/Versions/Current": CHROMIUM_VERSION})
         with tempfile.TemporaryDirectory() as temporary:
             source = Path(temporary) / "WidevineCdm"
             platform_dir = source / "_platform_specific" / "mac_arm64"
@@ -1626,6 +1704,8 @@ print(catalogue['browser_build'])
                     / "Chromium.app" / "Contents" / "Frameworks"
                     / f"Chromium Framework.framework/Versions/{CHROMIUM_VERSION}"
                     / "Libraries" / "WidevineCdm"))
+            self.assertEqual((Path(result["installed"]) / "_platform_specific" / "mac_arm64"
+                              / "libwidevinecdm.dylib").read_bytes(), b"cdm")
 
     def test_component_update_switch_is_dropped_from_driver_defaults(self) -> None:
         # Playwright passes --disable-component-update by default, and it blocks
