@@ -1,19 +1,11 @@
-Subject: [PATCH] webgl: clamp on the float query path
+Subject: [PATCH] webgl: clamp limits read through glGetFloatv
 
-The third and last query path. MAX_TEXTURE_LOD_BIAS is a GLfloat, so neither
-0026's 32-bit hook nor 0035's 64-bit one ever saw it, and the value was sitting
-in the profile being ignored: the reference reports 2, SwiftShader reports 15.
+MAX_TEXTURE_LOD_BIAS is a float, so WebGL reads it through glGetFloatv,
+and this hook applies the gl_limits clamp there too. A Windows Intel
+profile reports 2 where SwiftShader reports 15. With the 32-bit and
+64-bit hooks, every limit in the table is served whichever query a page
+uses. Only whole-number claims are served.
 
-That completes the set. glGetIntegerv, glGetInteger64v and glGetFloatv are the
-three ways a limit reaches WebGL, they share one table, and a limit added to
-that table is now served whichever way it is asked for. Getting this wrong
-twice in three patches is the argument for the third one existing at all.
-
-Only integral claims are served. gl_limits holds integers and every entry in
-the table is one, so rounding a float claim would invent a value the profile
-never carried.
-
-Ledger: webgl.limits (extends).
 diff --git a/ui/gl/gl_gl_api_implementation.h b/ui/gl/gl_gl_api_implementation.h
 index 4971a0b..5484ef7 100644
 --- a/ui/gl/gl_gl_api_implementation.h

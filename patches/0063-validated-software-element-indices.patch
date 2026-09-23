@@ -1,3 +1,13 @@
+Subject: [PATCH] webgl: full 32-bit MAX_ELEMENT_INDEX on SwiftShader
+
+On Linux SwiftShader, WebGL2 can report the profile's MAX_ELEMENT_INDEX
+up to 4294967294, the value desktop GPUs report, where ANGLE otherwise
+caps it at 1073741823. SwiftShader handles full 32-bit indices, and the
+higher limit applies only to WebGL contexts where ANGLE validates every
+buffer access. Draws that stream only instanced attributes skip the
+vertex range scan, so a large index is not truncated. Adds a test
+program for large indexed draws.
+
 diff --git a/third_party/angle/src/libANGLE/Caps.h b/third_party/angle/src/libANGLE/Caps.h
 --- a/third_party/angle/src/libANGLE/Caps.h
 +++ b/third_party/angle/src/libANGLE/Caps.h

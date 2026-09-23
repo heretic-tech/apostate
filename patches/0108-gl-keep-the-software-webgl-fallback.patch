@@ -1,106 +1,13 @@
-Subject: gl: keep the software WebGL fallback, so a GPU-less host has a context
+Subject: [PATCH] gl: allow the SwiftShader WebGL fallback by default
 
-This is upstream of patches 0102, 0103 and 0104 in effect even though it sits
-after them in the series, and the dependency is not visible in any diff: on the
-product's primary deployment those three currently have nothing to act on,
-because there is no WebGL context for a composed identity, a served limit table
-or a served extension list to appear on.
-
-Measured on a real headless Linux server running headed under Xvfb:
-canvas.getContext("webgl") returns null. Chrome names it itself --
-gpu/command_buffer/service/context_group.cc reports
-ContextResult::kFatalFailure "WebGL1 blocklisted", chrome://gpu reports "WebGL
-has been disabled via blocklist or the command line", and glxinfo -B under Xvfb
-reports Device: llvmpipe (LLVM 20.1.2), Accelerated: no.
-
-The mechanism, and it is not in this fork's patches. features::
-IsSwiftShaderAllowed() is IsSwiftShaderAllowedByCommandLine() OR
-IsSwiftShaderAllowedByFeature(). The first is true only for
---enable-unsafe-swiftshader or --use-angle=swiftshader[-for-webgl]. The second
-is the kAllowSwiftShaderFallback feature, and upstream left it
-FEATURE_DISABLED_BY_DEFAULT: the implicit fallback was deprecated from Chrome
-130 and removed on Linux and macOS from Chrome 139. So with Mesa llvmpipe as
-the only driver, the blocklist disables WebGL and nothing is allowed to take
-its place. Context creation fails outright where it used to degrade silently.
-
-Nobody caught it because --headless=new turns the fallback on for itself, so
-every measurement taken headless -- which is all of them until now -- saw a
-SwiftShader renderer and a working context. The opt-in is the whole difference:
-bare headed gives a null context and a rejected capture, --enable-unsafe-
-swiftshader gives 44 of 44 probes and an admitted capture, and
---use-gl=angle --use-angle=swiftshader gives an identical renderer.
-
-Why this outranks a renderer string. A page that gets null from
-getContext("webgl") has learned more than any string could have told it:
-effectively no real desktop browser lacks WebGL, so absence identifies the
-browser more surely than any value served on a context that exists. And it
-lands hardest on headed-under-a-virtual-display, which is this project's
-recommended maximum-stealth configuration.
-
-The fix is the feature default, flipped to enabled, plus one console message
-silenced. Three reasons it is a feature default and not
---enable-unsafe-swiftshader appended during startup:
-
-It needs no propagation. IsSwiftShaderAllowed() is consulted in the GPU process
-as well as the browser, and a compiled-in feature default is already true in
-both; a switch has to be copied to every child that asks.
-
-It leaves no argv footprint. A command line is readable by any local process,
-and a browser that advertises --enable-unsafe-swiftshader in its own argv is a
-tell of a different kind from the one being fixed.
-
-And it cannot be keyed on patch 0091's GPU-less detection, which is the obvious
-alternative and is wrong here. 0091's probe is one-way by design: it answers
-from the presence of a DRM render node, and the reference deployment has
-/dev/dri/renderD128 present with no usable driver behind it. So 0091 reports a
-hardware backend on exactly the host that needs this, and a condition built on
-it would miss the case. Restoring the pre-139 default covers the render-node-
-present-but-unusable case that no cheap syscall can detect.
-
-This ALLOWS the fallback; it does not force it. Selection still prefers
-hardware and IsSwiftShaderAllowed() is reached only once hardware has failed,
-so a host with a working GPU takes the branch it took before.
+The AllowSwiftShaderFallback feature is enabled by default. On a host
+with no usable GPU, such as a headed browser under Xvfb with Mesa
+llvmpipe, canvas.getContext("webgl") returns a SwiftShader context
+instead of null. Almost every real desktop browser has WebGL, so a null
+context identifies the browser more surely than any renderer string. The
+page console gets no deprecation warning about the fallback, and
 --disable-features=AllowSwiftShaderFallback turns it off.
 
-The second hunk is required rather than cosmetic, and it is the only
-page-visible part of this change. GLES2DecoderPassthroughImpl gates a console
-message on the absence of the switch, so re-enabling the fallback by feature
-would print "Automatic fallback to software WebGL has been deprecated..." into
-the page's console on every GPU-less launch -- a page-visible observable, and
-the loudest kind, since it names the deprecation in prose. The condition now
-asks what the allow decision asks, features::IsSwiftShaderAllowed(), so the nag
-fires when the fallback happened with no opt-in at all, which after this patch
-is never. It is deliberately not deleted: reaching SwiftShader while the
-fallback is disallowed would be a defect worth seeing.
-
-Nothing else changes observably. The intended change is that WebGL exists.
-
-Interaction with the three GPU patches, checked rather than assumed. Patch
-0103's clamp keys on GetGLImplementationParts().angle !=
-ANGLEImplementation::kSwiftShader, and the fallback route sets exactly that
-token -- it is the same token the deprecation check above tests to recognise
-the fallback, so both routes into SwiftShader, by opt-in and by fallback, are
-indistinguishable to 0103's predicate. So on a GPU-less Linux host with a
-context now existing, 0102 serves the hardware identity over it, 0103 serves
-the claimed limits, and 0104 serves the claimed constants-only extensions.
-
-Windows and macOS. There is no hole on Windows: IsAnySoftwareGLAllowed() ORs
-IsWARPAllowed() in, kAllowD3D11WarpFallback is FEATURE_ENABLED_BY_DEFAULT, and
-D3D11 WARP is a software GL path, so a GPU-less Windows host still gets a
-context. macOS has the same hole as Linux, because IsWARPAllowed() returns
-false off Windows and SwiftShader is the only software path there -- which
-matches the removal landing on Linux and macOS first. This patch is not
-platform-gated, so it covers both.
-
-Needs a build to verify, and V3 on a GPU-less Linux host is the measurement
-that closes it: the before-state is null from getContext("webgl") and the
-after-state is a context carrying the composed identity. What is established
-without a build is that it applies, that both translation units pass the V1
-gate, that the mechanism was read out of ui/gl/gl_features.cc rather than
-inferred, and that the switch route producing 44 of 44 probes was measured on
-the affected host -- and the switch and the feature feed the same predicate.
-
-Ledger: webgl.unmasked-renderer, gpu.feature-status, headless.gpu-stack.
 --- a/ui/gl/gl_features.cc
 +++ b/ui/gl/gl_features.cc
 @@ -318,9 +318,40 @@

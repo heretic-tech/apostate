@@ -1,84 +1,12 @@
-Subject: net: SOCKS5 datagram socket via RFC 1928 UDP ASSOCIATE
+Subject: [PATCH] net: SOCKS5 datagram socket over UDP ASSOCIATE
 
-Chromium can speak SOCKS5 only as a stream. `SOCKS5ClientSocket` hardcodes
-`kTunnelCommand` and discards the reply's bound address, so there is no way to
-open an association, and QUIC therefore has no datagram path through a SOCKS5
-proxy at all.
-
-Adds `SOCKS5DatagramClientSocket`: a `DatagramClientSocket` that relays its
-datagrams through a SOCKS5 proxy using RFC 1928 UDP ASSOCIATE. This patch adds
-only the socket; patch 0080 wires it into `QuicSessionPool`, so nothing here
-changes any existing behaviour.
-
-Design notes, in full in docs/subsystems/network-proxy.md:
-
-  - It owns the TCP control connection for its whole lifetime, because RFC 1928
-    section 7 terminates the association when that connection terminates. After
-    the ASSOCIATE reply nothing is ever written on it; inventing a keep-alive
-    would give the proxy a signature no other SOCKS5 client emits. One
-    outstanding 1-byte read watches for closure, and any completion is latched
-    as a terminal error so the next Write() fails instead of succeeding into a
-    relay that has stopped listening.
-
-  - `ConnectAsync()` is given the proxy's endpoint and `GetPeerAddress()`
-    returns that same endpoint. `QuicChromiumPacketReader` reports
-    `GetPeerAddress()` as every packet's peer address and `QuicConnection`
-    compares it against the address the connection was built with, so returning
-    the relay's port would look like a server address change on every packet.
-
-  - The ASSOCIATE reply's BND.ADDR is substituted with the control connection's
-    peer address when it is unspecified, when it is loopback while the proxy is
-    not, when it names a domain, or when its family differs from the control
-    connection's. The port always comes from BND.PORT. Most proxies answer
-    0.0.0.0, which is legal and means "this host".
-
-  - The per-datagram header is derived once at construction from the
-    destination and stored, so the overhead `GetEncapsulation()` reports can
-    never go stale relative to the bytes actually written. A name destination
-    frames ATYP 0x03 and the proxy resolves it, which is what keeps HTTP/3 from
-    emitting a destination DNS query that the stream path through the same proxy
-    never makes; Chromium's SOCKS5 stream path always passes a hostname for
-    exactly that reason. A destination whose header would leave less than
-    QUIC's 1200-byte Initial floor is declined at construction.
-
-  - Reads strip the header out of band. The single `Read()` copies the payload
-    to the front of the caller's buffer; `ReadMultiple()` reads into its own
-    buffer and packs payloads into the caller's, so every returned offset
-    indexes the caller's buffer and points at inner-packet bytes.
-    `QuicChromiumPacketReader` subspans its own buffer with those offsets, so a
-    stale one would hand it header bytes. Fragmented, malformed and
-    unfittable datagrams are dropped rather than erroring, which is
-    indistinguishable from the packet loss QUIC already handles, and a batch
-    that drops entirely re-reads rather than returning the empty vector the
-    reader CHECKs against.
-
-  - `DatagramClientSocket` gains `GetEncapsulation()`, whose default preserves
-    upstream behaviour for every existing implementation. A SOCKS5 relay cannot
-    carry the inner packet's ECN in either direction, so this socket reports
-    `preserves_ecn = false`, `SetRecvTos()` succeeds without enabling
-    IP_RECVTOS, and `GetLastTos()` and every datagram's metadata report
-    ECN_NOT_ECT. Reporting the relay-to-client hop's TOS as the destination's
-    would be worse than reporting none.
-
-  - No NetLog event type is added: `NetLog()` returns the underlying UDP
-    socket's source, so a net-export capture gains no new field and in
-    particular none holding the relay address or a credential. This socket
-    therefore emits no SOCKS phase event of any kind rather than some of them,
-    and a failed association is read from the connect result. Patch 0096 adds
-    dedicated SOCKS5 authentication events for the stream socket, which owns a
-    NetLog source of its own; those types are available here if this socket is
-    ever given one.
-
-Credentials reuse `SOCKS5Credentials` from patch 0001 and are held only by the
-socket. Nothing puts them in a session key, a pool key or a NetLog parameter.
-
-Tests cover the unauthenticated greeting byte-for-byte against upstream's, the
-RFC 1929 handshake, rejected authentication, method 0xFF, REP 0x07, every
-relay-address substitution rule, the declined overlong destination, write
-framing for both name and IP-literal destinations, read deframing through
-`Read` and `ReadMultiple` including packed offsets, fragment and malformed
-drops, the reported encapsulation, and control-connection closure failing both
-a pending read and a subsequent write.
+Adds SOCKS5DatagramClientSocket, a datagram socket that relays through a
+SOCKS5 proxy with RFC 1928 UDP ASSOCIATE. It holds the TCP control
+connection open for the life of the association and sends nothing on it
+after the handshake. Name destinations go to the proxy for resolution,
+so HTTP/3 through the proxy makes no local DNS query for the
+destination. Nothing uses the socket until patch 0080 wires it into
+QUIC.
 
 diff --git a/net/socket/datagram_client_socket.h b/net/socket/datagram_client_socket.h
 --- a/net/socket/datagram_client_socket.h

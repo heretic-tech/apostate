@@ -1,52 +1,11 @@
-Subject: compose: stop checking whether a persona's fonts are provisioned
+Subject: [PATCH] fonts: assume the claimed platform's fonts are installed
 
-The compositor asked the disk whether each font pack's families had been copied
-into the profile before it would offer the pack, and reported a core pack it
-could not verify as a limitation. The check never worked and could not have
-worked. It looked for each family as a path under the user data directory's
-fonts subdirectory; nothing in the tree ever wrote that directory, no code read
-the fonts.provisioned_directory field that documented it, and the host's own
-installed families cannot be enumerated from base/ at composition time because
-that is Skia's job and Skia starts later. So the answer was always no, and the
-sentence it printed said the claimed platform was missing faces it cannot be
-without, on a host that had every one of them. That text sent a reader of this
-repository down the wrong path today, which is a good enough reason to delete it
-on its own.
-
-The policy it was built for has been replaced. The user installs the claimed
-platform's fonts into the operating system's font directories and the browser
-assumes they are there, with the setup step stated in the documentation rather
-than probed at launch. That is what the reference product does, and it is the
-right division: the binary cannot see the host's font set before the graphics
-stack exists, and the user can see it immediately.
-
-This is not the same rule as memory, and the difference is worth stating because
-the two look contradictory. A drawn memory bucket is clamped down to the host's
-installed RAM, because a user cannot install memory to make the claim true and an
-unbacked claim is falsifiable by allocating. Fonts are assumed, because a user
-can install them. The distinguishing factor is whether the user can change the
-host, not how loud the tell is.
-
-Assuming provisioning means the compositor stops checking, not that it starts
-claiming faces that are absent. Enumeration is served from the composed
-allowlist, and that filter is subtractive: a family whose files really are
-missing still fails to match, exactly as it does on any other browser. Nothing
-here can conjure a typeface.
-
-What goes: the fonts subdirectory constant, FamiliesProvisioned and its
-PathExists walk, the fonts_directory parameter threaded through FilterServable,
-the local that computed it in Compose, and both limitation texts. The
-Servability::kFilesPresent enumerator stays. The compiled tables no longer
-select it -- the font_packs axis declares no servability now, so a pack is
-decided by the seed's subset draw alone -- but the enumerator is part of the
-table format the generator writes, and the switch over it is exhaustive.
-
-FilterOutcome loses its limitations vector along with the loop that drained it,
-because the files-present arm was the only thing that ever pushed to it. The
-struct keeps its single options member; it is a named return value and a later
-servability rule may want notes again.
-
-Compile-unverified: this cannot be built in this session.
+Composition offers a font pack without checking the disk for its files.
+The operator installs the claimed platform's fonts into the system font
+directories, and the browser assumes they are there. A launch-time check
+cannot see the host's fonts anyway, since Skia enumerates them later.
+The allowlist filter only hides families, so a family whose files are
+missing still fails to match on a page, as on any other browser.
 
 --- a/base/apostate/compose.h
 +++ b/base/apostate/compose.h

@@ -1,62 +1,13 @@
-Subject: blink: serve the Battery Status API from the profile
+Subject: [PATCH] battery: Battery Status API from the profile
 
-The Battery Status API is exposed in this build. On the shipped macos-arm64
-binary navigator.getBattery is a function, window.BatteryManager is a
-constructor, and the promise resolves with the build host's real battery:
-charging false, level 0.98, chargingTime Infinity, dischargingTime 46440. No
-patch in the series touches it, so every launch reports whatever machine the
-browser happens to be running on.
-
-That is a contradiction in both directions. A profile whose panel, display
-geometry and media topology describe a MacBook, running on a host with no
-battery, reports charging true with level 1.0, chargingTime 0 and
-dischargingTime Infinity, and that tuple is what a server reports. A profile
-describing a desktop, running on a laptop, reports a discharging battery no
-desktop has. Either way the battery disagrees with the rest of the device, and
-the disagreement is readable in one call with no permission prompt.
-
-The resolution is a battery section in the profile and BatteryDispatcher as the
-emitter. When the section is present the dispatcher never binds the
-BatteryMonitor pipe, so the host's charger state and charge level are not read
-at all rather than read and then overwritten. One status is delivered and
-nothing re-queries it: two reads in one launch are equal and no chargingchange,
-levelchange or dischargingtimechange event ever fires, which is also what a
-machine sitting on a charger looks like over a short visit.
-
-battery.present false is not an absent API and must not be confused with one.
-Desktop Chrome still resolves getBattery(), and it answers exactly the tuple
-BatteryStatus's default constructor holds. So false means emit that tuple,
-which is coherent for a chassis with no battery and incoherent for anything
-else. present true takes the level and charging flag from the profile.
-
-Two coherence rules are derived rather than stated, so a profile cannot express
-a pair the API forbids. chargingTime and dischargingTime are each pinned to
-Infinity in the direction the charge is not moving, and a battery already full
-on the charger gets a chargingTime of zero. The times are also rounded to the
-nearest whole minute, because battery_status_manager_mac.cc reports
-base::Minutes(n).InSeconds() from the IOPM minute count and so cannot produce
-anything else, while Windows BatteryLifeTime and UPower TimeToEmpty report
-seconds and a whole minute is one of the values they can produce. Rounding to
-the most constrained platform is legal on all three. Level needs no rounding
-here: BatteryStatus::EnsureTwoSignificantDigits already quantises it to two
-decimals on every platform, so the constraint is Blink's rather than the
-platform's and holds even where the platform is finer.
-
-The status is delivered on a posted task rather than inline. getBattery()
-resolves after an IPC round trip on a stock build, so resolving synchronously
-from StartListening would resolve the promise a microtask turn earlier than a
-real Chrome does, and PlatformEventDispatcher sets is_listening_ only after
-StartListening returns, so notifying from inside it would reenter the
-dispatcher's own bookkeeping.
-
-What remains open: the battery is only served for launches whose catalogue
-supplies the section. An absent section still means host inheritance, so a
-profile composed without one lands back on the measured behaviour above. The
-coherence link between battery presence and the claimed chassis lives in the
-dispersion data rather than here, because nothing in the profile states a
-chassis directly: every os_release option reports form_factors ["Desktop"],
-which is why presence is conditioned on the panel instead. This patch cannot
-detect a profile that pairs a laptop panel with no battery, or the reverse.
+navigator.getBattery() resolves with the profile's battery section, and
+the browser never reads the host's battery. With present false, it
+reports the default values desktop Chrome gives for a machine with no
+battery. With present true, level and charging come from the profile,
+and chargingTime and dischargingTime follow from them. The status
+arrives once, on a posted task like a real IPC reply, and no change
+events fire. A profile without a battery section leaves the host's
+battery in place.
 
 --- a/base/apostate/profile.h
 +++ b/base/apostate/profile.h

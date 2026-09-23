@@ -1,37 +1,14 @@
-Subject: [PATCH] webgpu: serve the claimed adapter identity at the Dawn layer
+Subject: [PATCH] webgpu: serve the claimed adapter from Dawn
 
-Blink maps Dawn's adapter straight onto the page — adapter.info strings,
-adapter.features, adapter.limits — so the override belongs in Dawn, in the
-same relationship ANGLE has to WebGL. Chromium drives it the way it drives
-SetUseTieredLimits: the decoder reads the profile (it already links the
-loader) and hands plain values across, so Dawn takes no base/ dependency it
-does not already have.
+A page's GPUAdapter info, features and limits come from the profile,
+applied inside Dawn with plain values handed over by the WebGPU decoder.
+Features are the intersection of the profile's list and what the backend
+supports, so a feature the claimed device lacks disappears and none is
+ever added. Each of fifteen listed limits takes the smaller of the claim
+and the driver value. Vendor and architecture strings come from the
+profile verbatim, and subgroup sizes take the minimum with a
+power-of-two check so a bad profile value cannot trip Dawn's validation.
 
-The serving doctrine is patches 0026 and the extensions accessor restated
-for a new backend. The profile's feature set intersects the backend's: the
-five software-only capabilities SwiftShader reports but the Intel iGPU
-lacks (subgroups, subgroup-size-control, astc, astc-sliced-3d, etc2) are
-dropped when the claimed device lacks them and kept when it has them, which
-is why the same code is correct for the Apple profile whose reference
-device genuinely supports all five. Nothing is ever added — a
-claimed-but-unimplemented feature fails at first use. Limits take the
-minimum with saturation, so over-claiming is structurally impossible and a
-future driver that genuinely raises a limit flows straight through. Only
-the vendor and architecture strings are served verbatim, pure labels no
-page can exercise. Subgroup sizes go through the minimum with a
-power-of-two guard, because a non-power-of-two subgroup size trips Dawn's
-own validation and crashing on a profile value would be a new observable.
-
-Fifteen limits are listed explicitly rather than served wholesale, the way
-0026 lists seventeen: a limit nobody reasoned about does not get served.
-
-This closes the vendor and architecture fields and the software-only
-feature half on both profiles. The numeric limits stay red until the
-backend genuinely raises them — lifting the driver is the only honest way
-to let a claim through, per 0027 — as do subgroup sizes and the five
-reference-only features the backend cannot execute.
-
-Ledger: webgpu.adapter-info, webgpu.adapter-features, webgpu.adapter-limits.
 diff --git a/third_party/dawn/include/dawn/native/DawnNative.h b/third_party/dawn/include/dawn/native/DawnNative.h
 --- a/third_party/dawn/include/dawn/native/DawnNative.h
 +++ b/third_party/dawn/include/dawn/native/DawnNative.h

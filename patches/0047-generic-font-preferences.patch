@@ -1,78 +1,12 @@
-Subject: [PATCH] fonts: supply captured generic identities through WebPreferences
+Subject: [PATCH] fonts: generic font families from the profile
 
-Generic CSS families are selected from browser preference maps before
-fontconfig sees the requested face. A fontconfig serif alias therefore cannot
-replace Chrome's existing Times New Roman preference with the Mac's Times.
-
-Read fonts.generic_family_map through the existing profile loader and set the
-common-script maps where Chrome produces WebPreferences. Every renderer uses
-the existing preference delivery. Named families, unknown generic settings and
-unmeasured per-script maps retain their own behavior. No accessor is replaced.
-
-Derivation requires a detected named control matching every captured metric
-and the native preferred identity from Chromium's platform locale resources.
-Widths alone do not identify a font. Standard/default and math remain absent
-when unmeasured. This does not reconstruct a platform's character fallback.
-
-Reference: resources/fingerprints/raw/m4-max-chrome-20260908T163229Z.json,
-fonts.metrics and fonts.detected.
-
-The Windows generic-family control this patch was written without now exists.
-resources/fingerprints/raw/windows-chrome-20260910T140813Z.json measures all six
-generic families at 40px next to 76 named families, which is exactly the pair of
-inputs this patch says a derivation needs: each generic is identified by the
-named family whose ten TextMetrics fields it matches, and the platform resource
-says which family Chrome prefers there. The result is serif = Times New Roman,
-sans-serif = Arial, monospace = Consolas, cursive = Comic Sans MS,
-fantasy = Impact, system-ui = Segoe UI.
-
-Five of the six agree with the platform resource. monospace does not, and the
-disagreement is the resource's, not the capture's: IDS_FIXED_FONT_FAMILY in
-locale_settings_win.grd is Courier New, but ShouldUseAlternateDefaultFixedFont
-in prefs_tab_helper.cc substitutes IDS_FIXED_FONT_FAMILY_ALT_WIN, Consolas, for
-any Courier default. The capture settles it: Courier New measures 160.02 wide
-with fontBoundingBox 33/12, the monospace generic measures 149.96 with 37/10,
-and Consolas measures 149.96 with 37/10. Reading the .grd alone would have put
-the wrong family in a Windows profile, which is why the measurement was worth
-waiting for rather than guessing.
-
-Two generics stay out of the map by decision, not for want of evidence. `math`
-is not measured by the capture, so only one of the two required inputs exists;
-Cambria Math has its own row at 153.73 with 31/9 but nothing attributes it to
-the generic. `system-ui` does not travel through WebPreferences at all -- Blink
-takes it from FontCache::SystemFontFamily -- so this emitter is the wrong place
-for it and setting a serif/sans map entry would not move it.
-
-The default (standard) family needs no change, and the capture proves it rather
-than assuming it. On Windows an absent family falls through to the standard
-font, and every family the reference host lacks -- Menlo, Zapfino, PingFang SC,
-Optima, Papyrus and the rest -- measures identically to the serif generic, so
-the standard font there is Times New Roman. IDS_STANDARD_FONT_FAMILY on Linux is
-also Times New Roman, so the two already agree and there is nothing to select.
-
-Those six identities belong in the profile catalogue rather than in a code
-default, and under the project's font policy they are set unconditionally for a
-Windows persona: the user installs the claimed platform's faces into the
-operating system's own font directories, and the browser assumes that has been
-done rather than checking for the files.
-
-The failure mode if they have not is worth knowing, because it is quiet. A
-Windows profile naming Consolas on a host without Consolas does not fall back
-to the host's monospace face -- the fixed generic falls through to the standard
-font, so every <pre> and every monospace run renders in Times New Roman, which
-is a visible layout break as well as a tell. That is an argument for telling
-the user which faces a persona needs, which the documentation does, and not for
-the browser second-guessing whether they did it.
-
-Primary source at Chromium 79460ebecaa5625e57a5fb679a735659e73dc687:
-- chrome/app/resources/locale_settings_{mac,win,linux}.grd: the preferred
-  identities.
-- chrome/browser/ui/prefs/prefs_tab_helper.cc:
-  ShouldUseAlternateDefaultFixedFont.
-- chrome/browser/chrome_content_browser_client.cc:
-  ChromeContentBrowserClient::OverrideWebPreferences.
-
-Ledger: fonts.generic-families. V1 and browser controls remain required.
+The serif, sans-serif, monospace, cursive and fantasy CSS families map
+to the faces in the profile's fonts.generic_family_map, through Chrome's
+font preferences. These preferences pick the face before fontconfig
+runs, so a fontconfig alias alone cannot change them. A Windows profile
+maps them to Times New Roman, Arial, Consolas, Comic Sans MS and Impact,
+as on a real Windows machine. Named families and per-script maps the
+profile does not set keep their defaults.
 
 diff --git a/base/apostate/profile.h b/base/apostate/profile.h
 --- a/base/apostate/profile.h

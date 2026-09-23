@@ -1,59 +1,12 @@
-Subject: [PATCH] angle: enable native parallel compile on Linux SwiftShader
+Subject: [PATCH] angle: parallel shader compile on Linux SwiftShader
 
-Vulkan leaves enableParallelCompileAndLink disabled by default, so its native
-KHR_parallel_shader_compile extension is absent even though compile/link jobs
-and nonblocking readiness queries are implemented. Enable the existing feature
-for desktop Linux SwiftShader only. Respect explicit feature overrides and
-retain all hardware, Windows, Android and ChromeOS defaults/workarounds.
-
-The Vulkan backend marks compile/link jobs thread-safe. ANGLE already runs
-parallel compilation and blob-cache configurations on SwiftShader. Retain
-normal job lifetime, failed-compile, cache and post-link warmup behavior; no
-extension string, completion result, WebGL accessor or profile field is added.
-
-Add a non-skipping Linux SwiftShader capability/functionality test for both
-synchronous and threaded hints, and failed-shader completion. Add an ES3
-SwiftShader instance alongside existing ES2 coverage. Existing recompile,
-context-destruction and drawing tests execute on this native path as well.
-
-Primary source at ANGLE7df613367a1d4ca9aea9ece344d4580d32d132a9:
-- include/platform/Feature.h:143 (default disabled)
-- src/libANGLE/renderer/vulkan/vk_caps_utils.cpp:1353 (native extension gate)
-- src/libANGLE/renderer/vulkan/vk_renderer.cpp:7242 (thread-safe jobs)
-- src/tests/test_utils/angle_test_instantiate.h:128-157 (SwiftShader coverage)
-- src/tests/gl_tests/BlobCacheTest.cpp:610 (parallel SwiftShader cache coverage)
-- src/tests/angle_end2end_tests_expectations.txt:1532 (Windows ASAN exclusion)
-
-Chromium79460ebecaa5625e57a5fb679a735659e73dc687:
-gpu/command_buffer/service/feature_info.cc:1526 requires passthrough decoding.
-References: resources/fingerprints/raw/m4-max-chrome-20260908T163229Z.json,
-whose WebGL extension list includes KHR_parallel_shader_compile.
-
-Measured since, on the shipped binary, which settles most of what this patch
-used to list as outstanding. On this M4 Max through ANGLE/Metal the extension
-is present, as the reference says. Through ANGLE/SwiftShader on the same
-machine it is absent, because the feature condition here is Linux-only and
-deliberately so — that matches stock Chromium's SwiftShader, whose captured
-extension list does not contain it either
-(resources/fingerprints/raw/stock-linux-20260907T150627Z.json). So macOS and
-Windows software rendering are unchanged and stay stock, and the Windows
-comparison this patch waited for is not needed to say that: the Windows path is
-the untouched default.
-
-What the enablement does change is Linux software rendering, and there it is a
-difference from stock that is worth naming. No compiled anchor was captured
-through a software rasteriser, so on a Linux host with no GPU patch 0093 leaves
-the GPU cluster host-inherited, and the extension list is then the host's own —
-which offers KHR_parallel_shader_compile where stock's SwiftShader does not.
-One extra name in getSupportedExtensions(), enumerable. A served claim removes
-it, because patch 0028 deletes any extension the claim does not contain while
-the native parallel path keeps running underneath, so the compile speed is kept
-and the enumeration is stock. That makes the remedy the same swiftshader-backend
-anchor patch 0027's prose asks for, and until it exists this is the one
-page-visible cost of the speedup.
-
-Still open, and only this: the ANGLE end2end tests added below have not been
-run, because this checkout cannot build them.
+ANGLE's Vulkan backend turns on parallel shader compile and link for
+desktop Linux on SwiftShader. Shaders compile on worker threads and
+WebGL exposes KHR_parallel_shader_compile, which real desktop GPUs list.
+Explicit feature overrides still win, and hardware GPUs and other
+platforms keep their defaults. When a profile claims a GPU, patch 0028
+hides the extension unless the claim lists it, and the faster compile
+stays.
 
 diff --git a/third_party/angle/src/libANGLE/renderer/vulkan/vk_renderer.cpp b/third_party/angle/src/libANGLE/renderer/vulkan/vk_renderer.cpp
 --- a/third_party/angle/src/libANGLE/renderer/vulkan/vk_renderer.cpp

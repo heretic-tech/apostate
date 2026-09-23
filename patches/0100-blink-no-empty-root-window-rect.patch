@@ -1,88 +1,12 @@
-Subject: blink: never publish an empty root window rect to script
+Subject: [PATCH] display: outerWidth and outerHeight are never zero
 
-window.outerWidth and window.outerHeight report 0 on some launches while
-innerWidth and innerHeight are populated. Measured on the shipped
-macos-arm64 build of this series, six launches with identical argv,
---headless=new --window-size=1280,800, no DevTools client attached at any point,
-reading the values at first script, at the load event, and 500ms later:
-
-    run  at first script        at load        +500ms
-      1  1280x800               1280x800       1280x800
-      2  0x0, inner 1280x703    0x0            1280x800
-      3  1280x800               1280x800       1280x800
-      4  0x0, inner 1280x706    0x0            1280x800
-      5  1280x800               1280x800       1280x800
-      6  0x0, inner 1280x713    0x0            1280x800
-
-Three of six, same command line every time, and --window-size does not prevent
-it. So this is a race rather than a switch dependency, and the window it opens
-is not small: the wrong value is still being served at the load event, which is
-after every point a page is likely to read it.
-
-It is worth separating this from the usual kind of finding. An outer window
-smaller than its own viewport is not a weak signal to be weighed against
-others, it is an impossibility, and zero is an impossibility twice over. A
-detector needs no baseline for the machine, no corpus, no second visit and no
-timing measurement. It needs `outerHeight < innerHeight || outerHeight === 0`,
-evaluated in the document head, where fingerprinting script already runs. And
-because it happens with no client attached, it applies to every user of this
-browser whatever they drive it with, or whether they drive it at all.
-
-The cause is two mojo calls that are not ordered with respect to each other.
-WidgetBase::window_screen_rect_ is default-constructed empty and is written from
-exactly one place, WidgetBase::UpdateScreenRects. The viewport size arrives
-separately, on UpdateVisualProperties. Between the two the renderer holds a
-populated viewport and a 0x0 window rect, and
-ChromeClientImpl::RootWindowRect hands that rect to
-LocalDOMWindow::outerWidth, outerHeight, screenX and screenY, which return its
-fields directly. Upstream is aware the state exists - WebFrameWidgetImpl::
-MoveWindowTo skips its pending-rect update when WindowRect() is empty and says
-so in a comment - but nothing guarded the path that reaches JavaScript.
-
-The substitute for an empty rect is the screen's available rect, read from the
-same ScreenInfo the page is already being shown. That is the area a maximised
-window occupies, and the page reads it back as screen.availWidth and
-screen.availHeight, so the substituted window agrees with the screen surfaces
-patches 0010 and 0041 compose instead of being a second and independently wrong
-answer for the same window. It is also fixed at launch, which is the point: the
-race is removed rather than narrowed, because the reported value stops depending
-on whether an IPC has arrived.
-
-WidgetBase::WindowRect() is deliberately left alone. Its emptiness is
-load-bearing: MoveWindowTo and ResizeWindowTo branch on it, and making it
-non-empty would feed a substituted rect into a real window-placement path. For
-the same reason the four placement bindings - moveTo, moveBy, resizeTo, resizeBy
-- keep reading the true rect, and only the four reporting bindings change.
-
-Two things this does not fix, stated rather than implied.
-
-The inner dimensions also move. Across the runs above innerHeight read 703, 706
-and 713 before settling to 657, and a resize fires shortly after load. That is a
-different mechanism - the visual viewport being sized from provisional visual
-properties and then corrected - and this patch does not address it. It is a
-weaker signal than the impossible one, because a viewport that changes size
-early is something a real browser does when a window is being restored, but it
-is a real residual and it belongs to whoever owns the headless display rows.
-
-A page that reads outer dimensions before the browser's real rect arrives and
-again afterwards can still see the value change, from the available rect to the
-true window rect. Closing that requires the browser process to deliver the
-window rect at widget creation rather than on a later call, which is a change in
-a different process and a different patch. What is closed here is that the value
-a page is given is always a possible one.
-
-Also not papered over: a CDP client that sends
-Emulation.setDeviceMetricsOverride can still make innerHeight exceed
-outerHeight, because the override changes the viewport and not the window.
-Puppeteer's default 800x600 viewport does exactly that. That is a driver default
-rather than a browser defect, the wrapper packages set defaultViewport to null
-to avoid it, and lying about the window to match an emulated viewport would be
-the wrong repair.
-
-Compile-unverified: this cannot be built in this session, and the after-state is
-not measured. The before-state above is measured.
-
-Ledger: headless.synthetic-display, screen.outer-dimensions.
+A renderer can receive its viewport size before its window rect, and in
+that gap window.outerWidth, outerHeight, screenX and screenY read 0. A
+page can test outerHeight < innerHeight in the document head, and no
+real browser window fails it. While the window rect is empty, these four
+values report the screen's available rect, which matches
+screen.availWidth and screen.availHeight. moveTo, moveBy, resizeTo and
+resizeBy keep using the real window rect.
 
 --- a/third_party/blink/renderer/core/frame/local_dom_window.cc
 +++ b/third_party/blink/renderer/core/frame/local_dom_window.cc

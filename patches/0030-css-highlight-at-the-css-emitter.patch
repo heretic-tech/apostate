@@ -1,28 +1,12 @@
-Subject: [PATCH] css: serve the Highlight system colour at the CSS emitter
+Subject: [PATCH] css: Highlight system color served after Blink's blend
 
-Patch 0012 supplies the CSS Highlight by writing kColorCssSystemHighlight into
-the colour mixer. That override does apply — it is not dead code — and the value
-still comes out wrong, because Blink runs BlendWithWhite() on it afterwards.
+The CSS Highlight system color resolves to the profile's highlight color
+exactly. Blink passes the color mixer's value through BlendWithWhite(),
+which always returns 80% alpha or less, so an opaque color such as
+rgb(25, 103, 210) cannot come out of the mixer. The value is served in
+SystemHighlightFromColorProvider, after the blend. The mixer entry from
+patch 0012 stays for the browser's own selection UI.
 
-The profile's highlight_argb is derived from the *observed* CSS Highlight of the
-reference device, so injecting it before the blend applies the transform a
-second time. Measured: a profile carrying 0xFF1967D2 produced
-rgba(0, 65, 198, 0.8) in our build, and BlendWithWhite(rgb(25, 103, 210)) is
-exactly rgba(0, 65, 198, 0.8). The patch was working; the layer was wrong.
-
-No pre-blend value can fix it either, which is what makes this a relocation
-rather than a re-derivation. BlendWithWhite walks alpha from kCStartAlpha to
-kCEndAlpha and kCEndAlpha is 204, so for an opaque input it can only return
-something at 80% alpha or less. The reference device reports an opaque
-rgb(25, 103, 210). That colour is not in the range of the function, so no
-argument to it produces the answer and the value has to be served afterwards.
-
-Served in SystemHighlightFromColorProvider, which is the emitter for the CSS
-keyword specifically. 0012's mixer entry stays: it is the correct source for the
-browser's own selection UI, which is a different consumer of the same idea, and
-removing it would fix CSS by breaking the window.
-
-Ledger: css.system-highlight.
 diff --git a/third_party/blink/renderer/core/layout/layout_theme.cc b/third_party/blink/renderer/core/layout/layout_theme.cc
 index 93f1d66..3b3afae 100644
 --- a/third_party/blink/renderer/core/layout/layout_theme.cc

@@ -1,26 +1,11 @@
-Subject: [PATCH] Close the platform identity triangle: navigator.platform and UA
+Subject: [PATCH] ua: navigator.platform and User-Agent from the profile
 
-Patch 0008 gave the Client Hints family the profile's platform, and measuring it
-showed why that is not sufficient on its own: userAgentData reported macOS while
-navigator.platform reported "Linux x86_64" and the UA string still carried
-"X11; Linux x86_64". A browser contradicting itself that way is more detectable
-than one claiming nothing, so these three surfaces have to move together.
-
-navigator.platform is patched at GetReducedNavigatorPlatform, the compile-time
-constant NavigatorBase::platform returns. That covers worker scope for free,
-because worker_navigator.h declares no platform member and inherits the same
-constant — whereas the CDP override lives on Window only. Reading
-navigator.platform inside a Worker therefore refutes any tool spoofing it
-through Emulation, and patching the constant has no such asymmetry. This is the
-clearest case in the project for source patching over CDP.
-
-The UA string is replaced whole rather than assembled from parts. The OS token,
-the AppleWebKit version and the trailing Safari token vary together by platform,
-and rebuilding them from fields would be a second and worse implementation of
-something the capture already records verbatim. GetUserAgentInternal is upstream
-of the header, navigator.userAgent and the worker snapshot alike.
-
-Ledger: navigator.platform, navigator.user-agent, coh.ua-platform-agreement.
+navigator.platform and the User-Agent string come from the profile, so
+they match the platform in Client Hints and navigator.userAgentData.
+navigator.platform is set at the constant NavigatorBase returns, so
+workers report the same value as the window, which a CDP override cannot
+do. The User-Agent string is taken whole from the profile and feeds the
+header, navigator.userAgent and workers alike.
 
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
 index ff7be12..0a74db4 100644

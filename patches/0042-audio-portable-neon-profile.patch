@@ -1,17 +1,11 @@
-Subject: [PATCH] audio: select portable Mac ARM FFT arithmetic from the profile
+Subject: [PATCH] audio: Mac ARM FFT arithmetic from the profile
 
-The Mac ARM reference and x86 native RustFFT planners produce different wave
-tables from identical prepared FFT inputs. Preserve the reference planner's
-algorithm using a separate software lane provider; leave all native planners
-and their CPU availability checks unchanged.
-
-FFTFrame reads the existing platform profile and passes an internal mode to
-the Rust factory. Cache plans by size and mode so a native frame cannot supply
-a cached plan to a Mac ARM frame. No captured samples or hashes enter the DSP.
-
-Reference: resources/fingerprints/raw/m4-max-chrome-20260908T163229Z.json
-Ledger: audio.dsp-conformance, open. Browser verification and independent
-compressor arithmetic differences remain required before conformance closure.
+Under a macOS ARM profile, Web Audio FFTs run a portable copy of
+RustFFT's NEON code, so an x86 host produces the same results a Mac ARM
+machine does. The native x86 planner produces different wave tables from
+the same input, which a page can read back from an OfflineAudioContext.
+FFT plans are cached per size and mode. Other profiles keep the native
+planner.
 
 diff --git a/third_party/blink/renderer/platform/audio/fft_frame.cc b/third_party/blink/renderer/platform/audio/fft_frame.cc
 --- a/third_party/blink/renderer/platform/audio/fft_frame.cc

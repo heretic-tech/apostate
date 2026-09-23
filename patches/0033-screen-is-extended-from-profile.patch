@@ -1,20 +1,11 @@
 Subject: [PATCH] screen: isExtended from the profile
 
-Screen.isExtended reports whether the machine has more than one display, and it
-is readable with no permission at all. Everything else about a second display
-sits behind window-management — getScreenDetails() prompts — so a profile
-replayed from a two-screen capture reports the richer values under permission
-and a bare "one screen" for free, and the two disagree at no cost to the page.
+screen.isExtended returns the profile's screen.is_extended value. A page
+reads it with no permission, while other details about extra displays
+need the window-management permission, so a two-screen profile that
+reports false here contradicts itself. The value is set where the
+browser builds ScreenInfo, so the browser and every renderer agree.
 
-The reference machine reports true; a container with one Xvfb screen reports
-false, and no amount of correct screen geometry changes that.
-
-Patched in display_util.cc, where ScreenInfo is assembled, rather than at
-Screen::isExtended(). ScreenInfo is built once in the browser process and sent
-to every renderer, so overriding it at the accessor would leave the browser's
-own copy — and anything else derived from it — still saying the other thing.
-
-Ledger: screen.is-extended.
 diff --git a/base/apostate/profile.h b/base/apostate/profile.h
 index 7760755..4d594d5 100644
 --- a/base/apostate/profile.h

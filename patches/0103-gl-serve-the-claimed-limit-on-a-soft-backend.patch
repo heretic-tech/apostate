@@ -1,82 +1,14 @@
-Subject: gl: serve the claimed limit on a backend that enforces nothing
+Subject: [PATCH] gl: serve the claimed GL limits on SwiftShader
 
-min(claim, driver) is the right rule on a backend that enforces what it
-reports, and the wrong one on a backend that does not. The clamp did not
-distinguish them, so on the deployment target -- a headless server with no GPU,
-where ANGLE runs SwiftShader -- a composed profile's discrete-GPU renderer
-string sat above the software rasteriser's own limit table.
+On ANGLE's SwiftShader backend, getParameter returns the profile's
+claimed limits, such as MAX_TEXTURE_SIZE, in place of the lower of claim
+and driver. SwiftShader accepts allocations past its own reported
+limits, so the lower number protects nothing, while a GeForce renderer
+string beside a software limit table is an easy lookup for a page. The
+whole claimed table is served, on the integer, 64-bit and float queries
+alike. Hardware backends keep the lower of claim and driver, since they
+reject work past what they report.
 
-That is the cheapest possible contradiction to detect. A page reads
-MAX_TEXTURE_SIZE 8192 next to an NVIDIA GeForce string and needs no GL work at
-all to call it impossible: every discrete GPU of that generation reports 16384
-or more, so it is a lookup table, not a probe. The over-claim the clamp was
-avoiding costs a detector a multi-hundred-megabyte allocation at the reported
-maximum, which is not something a page does on every load. Trading the free
-check for the expensive one is backwards.
-
-Which backends enforce is measured rather than assumed. Through the shipped
-152.0.7977.83 macOS artifact, allocating with texStorage2D / texStorage3D /
-renderbufferStorageMultisample and then checking framebuffer completeness,
-clearing to green and reading a pixel back:
-
-  ANGLE/Metal        reports MAX_TEXTURE_SIZE 16384, MAX_3D_TEXTURE_SIZE 2048,
-                     MAX_SAMPLES 4. 8192 and 16384 both allocate, are
-                     framebuffer-complete and read back green. 32768 returns
-                     GL_INVALID_VALUE, its framebuffer is incomplete and the
-                     clear and read return GL_INVALID_FRAMEBUFFER_OPERATION. A
-                     3D texture at 4096 returns GL_INVALID_VALUE. 8x
-                     multisample returns GL_INVALID_OPERATION. Every reported
-                     number is a real ceiling and every one is usable up to it.
-
-  ANGLE/SwiftShader  nothing errors, at any size, on any of the three. A 3D
-                     texture eight times the reported maximum is accepted
-                     without a GL error. The numbers are soft constants, not
-                     hardware ceilings -- which patch 0027 established from the
-                     other direction when it raised three of them by editing
-                     OUTLINE_RESOLUTION.
-
-So the hook takes the claim where the backend enforces nothing and keeps min()
-where it does. The test is the ANGLE implementation, and it names SwiftShader
-specifically rather than using IsSoftwareGLImplementation(), because that also
-covers D3D11 WARP and WARP's enforcement has not been measured here. Guessing
-in the permissive direction is precisely how an over-claim turns into a failing
-draw call.
-
-All three query paths change together, because a limit read through
-glGetInteger64v or glGetFloatv is the same claim read through a different
-entry point. MAX_ELEMENT_INDEX is the case that moves on the 64-bit path: the
-three hardware anchors claim 4294967294 where SwiftShader reports 1073741823,
-and an index buffer is validated against the reported number rather than
-against the rasteriser.
-
-The residual is real and is not being softened. On a software backend a page
-that allocates at exactly the claimed maximum gets a framebuffer that is not
-complete and reads back black, where a real device returns what it cleared to.
-Two things about it. It is the backend's, not the claim's: measured above, a
-16384 texture already fails completeness under SwiftShader, and 16384 is what
-this fork already reports there -- patch 0027 raised it from 8192, so the defect
-predates this patch by seventy-five patches and is not introduced here. And the
-reference product has it identically: measured on a live headless Linux box, it
-reports MAX_TEXTURE_SIZE 16384 and fails texStorage2D at 16384, where stock
-Chrome reports 8192 and fails only above 8192.
-
-Where this fork can be better than the reference, and at no cost, is
-completeness of the table rather than the size of any one number. The reference
-serves MAX_3D_TEXTURE_SIZE 2048 -- SwiftShader's own value -- behind a GeForce
-RTX 3070 claim, which is a second lookup-table contradiction needing no
-allocation at all. Serving the anchor's measured capture verbatim, every field,
-leaves a reported table that matches a real measured device on every field, so
-the cheap checks all pass and only the expensive allocation probe fails. That is
-why the claim is served whole rather than field by field: a partially served
-table is exactly what makes the reference's 2048 detectable.
-
-Nothing changes on a hardware host. BackendEnforcesGlLimits() is true there, so
-the code that runs is the code that ran before, min() included, warning
-included.
-
-Compile-unverified at the time of writing; V1 is the gate this is submitted to.
-
-Ledger: webgl.parameters, webgl2.parameters, gpu.angle-backend, headless.gpu-stack.
 --- a/ui/gl/gl_gl_api_implementation.cc
 +++ b/ui/gl/gl_gl_api_implementation.cc
 @@ -296,6 +296,40 @@

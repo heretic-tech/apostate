@@ -1,57 +1,13 @@
-Subject: [PATCH] gl: serve the claimed device's limits, clamped to the driver
+Subject: [PATCH] gl: WebGL limits from the profile, clamped to the driver
 
-WebGL limits are the one class of value a page falsifies by *using* it. Ask for
-a texture past the reported MAX_TEXTURE_SIZE and an over-claim collapses in a
-single call, and a spoofed MAX_VERTEX_UNIFORM_VECTORS is recoverable by a
-twelve-step binary search that compiles `uniform vec4 u[N]` and reads
-COMPILE_STATUS. A competitor's issue tracker records both being caught, and the
-conclusion they reached after the second was to remove the spoof rather than
-deepen it.
+Seventeen GL limits, such as MAX_TEXTURE_SIZE and
+MAX_VERTEX_UNIFORM_VECTORS, come from the profile, but never above what
+the driver supports. A page can test a limit by using it, for example by
+allocating a texture at the reported size, so a claim above the driver
+fails in one call. Taking the smaller of the two keeps every reported
+limit usable on any host. A log line records each claim the host cannot
+meet.
 
-So this does not spoof. It serves the profile's value or the driver's, whichever
-is smaller.
-
-The clamp is the whole point. It makes over-claiming structurally impossible
-rather than something profile selection has to avoid, which matters because
-selection cannot be relied on: a browser someone downloads and runs has to be
-coherent on whatever machine it lands on, without the operator first measuring
-their GPU and picking a compatible profile. A profile that is too ambitious for
-its host degrades to the truth instead of lying. Under-claiming is safe in the
-other direction, since ANGLE validates every allocation against the value it
-reported, so a page cannot exceed a limit we understate.
-
-Same rule SysInfo::NumberOfProcessors already follows for hardwareConcurrency,
-applied to the surface where getting it wrong is cheapest to detect, and it logs
-the same way when the claim exceeds the host so the gap is visible rather than
-silent.
-
-Served at RealGLApi::glGetIntegervFn, which is where every integer GL parameter
-passes and four lines from where patch 0007 already serves the driver strings.
-One choke point for both, so the renderer string and the limits it implies
-cannot drift apart.
-
-Seventeen limits are listed explicitly rather than served wholesale. A limit
-that cannot be falsified does not need to come from the profile at all, and one
-outside the list would otherwise be served without anyone having reasoned about
-how a page could check it.
-
-Extensions are not covered here: a profile claiming an extension the driver
-lacks would still expose it, and getExtension is called before its methods are,
-so that is falsifiable too. It belongs at the same choke point and is a separate
-row.
-
-This paragraph used to call that a gap. Patch 0028 serves it at
-ExtensionSupportedAndAllowed, which both getSupportedExtensions and getExtension
-run through, and withholds every name the claimed device does not have. What
-cannot be done is the other direction, adding a name the host lacks, for exactly
-the reason above. That residual is one name wide and only appears across
-backends: measured through the shipped binary on an Apple M4 Max host, the
-backend-matched anchor delivers all 39 WebGL1 and all 36 WebGL2 extensions it
-claims, and a cross-backend anchor is short by OVR_multiview2 alone. The anchor
-axis's existing backend filter is what keeps that to zero on a normal launch,
-and patch 0093 records the limitation when --fingerprint-anchor pins past it.
-
-Ledger: webgl.max-limits.
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
 index d0e6938..709e5bd 100644
 --- a/base/apostate/profile.cc

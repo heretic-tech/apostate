@@ -1,60 +1,13 @@
-Subject: [PATCH] webgl: clamp the WebGL2 uniform and varying limits too
+Subject: [PATCH] webgl: clamp WebGL2 uniform and varying limits
 
-Patch 0026 serves the claimed device's GL limits as min(claim, driver) but
-lists only the WebGL1 set plus a handful of WebGL2 ones. With that list served
-and the shader precision block corrected by 0029, the reference Windows machine
-still disagreed on twelve further parameters, and this adds eleven of them.
+Eleven more WebGL2 limits go through the profile's gl_limits clamp,
+including the uniform block counts, MAX_VARYING_COMPONENTS and the
+vertex output and fragment input component counts. SwiftShader reports
+higher values than desktop GPUs for all of them, for example 60 combined
+uniform blocks where an Intel UHD 630 reports 24. The served value is
+the smaller of the profile and the driver, so a claim above what the GPU
+supports stays at the driver's value.
 
-They are added from measurement rather than from reading the spec: these are
-exactly the ones the V3 diff still showed, and every one reports a number
-SwiftShader sets higher than the real Intel GPU does — 60 uniform blocks against
-24, 245760 combined components against 212992, 128 varying components against
-120. The clamp needs no special casing for that; taking the minimum was already
-the rule and these simply were not on the list it consulted.
-
-Three of the sixteen are left out of this patch, for two different reasons that
-this header originally ran together:
-
-  MAX_SAMPLES        reference 16, SwiftShader 4. Already in the table since
-                     patch 0026, so nothing to add. min() keeps the lower of
-                     the two, and allocating a 16x multisample renderbuffer is
-                     one call that would fail, so the raise is one we cannot
-                     make.
-  MAX_ELEMENT_INDEX  reference 4294967294, ours 1073741823. Read through
-                     glGetInteger64v, a different entry point from this hook.
-  MAX_TEXTURE_LOD_BIAS  reference 2, ours 15. A GLfloat, read through
-                     glGetFloatv, so this integer hook never sees it — and here
-                     the reference is *lower*, so it is a clamp we could make
-                     rather than a raise we could not.
-
-This header used to end "Those stay red and are honestly red." That sentence was
-true when it was written and is false now: the two entry-point objections above
-are missing hooks, not missing capability, and patches 0035 and 0036 added them.
-0035 hooks glGetInteger64v and puts MAX_ELEMENT_INDEX in the table; 0036 hooks
-glGetFloatv and puts MAX_TEXTURE_LOD_BIAS in it; 0070 parses the 64-bit claim.
-All three names are in kApostateGlLimits today and all three are served.
-
-Verified through the shipped 152.0.7977.83 macOS binary on an Apple M4 Max host
-running real ANGLE/Metal, whose own values are MAX_SAMPLES 4,
-MAX_ELEMENT_INDEX 4294967294 and MAX_TEXTURE_LOD_BIAS 15. Pinning
-windows-d3d11-intel-79dfeb5b4f99 with --fingerprint-anchor moves
-MAX_TEXTURE_LOD_BIAS to 2, and pinning linux-vulkan-nvidia-adf287b8f0ee moves
-MAX_ELEMENT_INDEX to 1073741823. Both are the claim, arrived at by min(), on the
-two query paths this patch said the table could not reach.
-
-The four anchors claim MAX_SAMPLES 8 / 4 / 16 / 8, MAX_ELEMENT_INDEX
-1073741823 / 4294967294 / 4294967294 / 4294967294 and MAX_TEXTURE_LOD_BIAS
-15 / 15 / 2 / 2, for linux-vulkan-nvidia, macos-metal-apple,
-windows-d3d11-intel and windows-d3d11-nvidia in that order. min() serves every
-one of those that sits at or below the host, which is the whole point of a
-clamp: the reduction direction is served and the raise direction is not, and
-leaving a limit out of the table loses the reduction as well. What stays red is
-only the raise, and only where the host is genuinely lower — on this host that
-is MAX_SAMPLES for three of the four anchors, and nothing else. Raising a limit
-the rasteriser cannot meet would trade a mismatched number for a failing draw
-call, which is still the worse of the two.
-
-Ledger: webgl.limits (extends).
 diff --git a/ui/gl/gl_gl_api_implementation.cc b/ui/gl/gl_gl_api_implementation.cc
 index 136e3ea..9b07c93 100644
 --- a/ui/gl/gl_gl_api_implementation.cc

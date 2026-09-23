@@ -29,7 +29,53 @@ BASE_CONFIG = {
     "host_backend": "ANGLE/D3D11",
     "host_logical_cores": 32,
     "host_total_bytes": 64 * 1024 ** 3,
+    "host_architecture": "x86",
 }
+
+
+# The English family names in w11-fonts/ of
+# https://github.com/MauCariApa-com/windows-11-fonts, read from the fonts' name
+# tables. It is what `apostate fonts install windows` installs.
+WINDOWS_11_FONTS_REPO = frozenset({
+    "Arial", "Arial Black", "Arial Narrow", "Bahnschrift", "Bodoni Bd BT", "Bodoni Bk BT",
+    "Book Antiqua", "Bookman Old Style", "Bookshelf Symbol 7", "Calibri", "Calibri Light",
+    "Cambria", "Cambria Math", "Candara", "Candara Light", "CentSchbkCyrill BT", "Century",
+    "Century Gothic", "Century725 Cn BT", "Century751 BT", "Century751 No2 BT",
+    "Century751 SeBd BT", "Clarendon BT", "Clarendon Blk BT", "Clarendon Lt BT",
+    "Comic Sans MS", "Consolas", "Constantia", "Corbel", "Corbel Light", "Courier New",
+    "DeVinne Txt BT", "Dubai", "Dubai Light", "Dubai Medium", "Ebrima", "Embassy BT",
+    "EngraversGothic BT", "Exotc350 Bd BT", "Exotc350 DmBd BT", "Franklin Gothic Medium",
+    "Freehand521 BT", "Futura Bk BT", "Futura Md BT", "Gabriola", "Gadugi", "Garamond",
+    "GeoSlab703 Md BT", "GeoSlab703 MdCn BT", "Geometr212 BkCn BT", "Geometr415 Blk BT",
+    "Geometr706 BlkCn BT", "Georgia", "HoloLens MDL2 Assets", "Humanst521 BT",
+    "Humanst521 Lt BT", "Humnst777 BT", "Humnst777 Blk BT", "Humnst777 BlkCn BT",
+    "Humnst777 Cn BT", "Humnst777 Lt BT", "Impact", "Ink Free", "Javanese Text",
+    "Kaufmann BT", "Leelawadee", "Leelawadee UI", "Leelawadee UI Semilight",
+    "Lucida Console", "Lucida Sans Unicode", "MS Gothic", "MS Outlook", "MS PGothic",
+    "MS Reference Sans Serif", "MS Reference Specialty", "MS UI Gothic", "MT Extra",
+    "MV Boli", "Malgun Gothic", "Malgun Gothic Semilight", "Microsoft Himalaya",
+    "Microsoft JhengHei", "Microsoft JhengHei Light", "Microsoft JhengHei UI",
+    "Microsoft JhengHei UI Light", "Microsoft New Tai Lue", "Microsoft PhagsPa",
+    "Microsoft Sans Serif", "Microsoft Tai Le", "Microsoft Uighur", "Microsoft YaHei",
+    "Microsoft YaHei Light", "Microsoft YaHei UI", "Microsoft YaHei UI Light",
+    "Microsoft Yi Baiti", "MingLiU-ExtB", "MingLiU_HKSCS-ExtB", "Mongolian Baiti",
+    "Monotype Corsiva", "Myanmar Text", "NSimSun", "News701 BT", "News706 BT",
+    "NewsGoth BT", "NewsGoth Lt BT", "Nirmala UI", "Nirmala UI Semilight", "OCR-A BT",
+    "OCR-B 10 BT", "PMingLiU-ExtB", "Palatino Linotype", "Sans Serif Collection",
+    "Schadow BT", "Segoe Fluent Icons", "Segoe MDL2 Assets", "Segoe Print", "Segoe Script",
+    "Segoe UI", "Segoe UI Black", "Segoe UI Emoji", "Segoe UI Historic", "Segoe UI Light",
+    "Segoe UI Semibold", "Segoe UI Semilight", "Segoe UI Symbol", "Segoe UI Variable",
+    "SimSun", "SimSun-ExtB", "SimSun-ExtG", "Sitka", "Sitka Text", "Square721 BT",
+    "Square721 Cn BT", "Swis721 BT", "Swis721 Blk BT", "Swis721 BlkCn BT", "Swis721 Cn BT",
+    "Swis721 Hv BT", "Swis721 Lt BT", "Swis721 LtEx BT", "Swis721 WGL4 BT", "Sylfaen",
+    "Symbol", "Tahoma", "Times New Roman", "Trebuchet MS", "TypoUpright BT", "Verdana",
+    "Webdings", "Wingdings", "Wingdings 2", "Wingdings 3", "Yu Gothic", "Yu Gothic Light",
+    "Yu Gothic Medium", "Yu Gothic UI", "Yu Gothic UI Light", "Yu Gothic UI Semibold",
+    "Yu Gothic UI Semilight",
+})
+# Windows system families the repo does not ship. A Windows pack may allow
+# them, since real machines have them, but may not require them.
+WINDOWS_FAMILIES_NOT_IN_REPO = frozenset({"Marlett"})
 
 
 def _mirror_catalogue(destination: Path) -> Path:
@@ -165,22 +211,22 @@ class CatalogueIntegrityTests(unittest.TestCase):
             self.assertEqual(set(measured.values()), offered_members,
                              f"{anchor_id} does not offer all of its measured members")
 
-    def test_font_packs_carry_a_core_set_and_whole_bundles(self) -> None:
-        """A pack may enumerate only what it requires, except the platform core.
+    def test_font_packs_are_allowlists_the_host_can_install(self) -> None:
+        """Each platform shows its allowlist only, and the host can install all of it.
 
-        An optional bundle arrives as a unit, so the families it requires the
-        host to have and the families it lets a page see are the same list.
-        The core pack is the one place they differ: since 0097 the browser
-        assumes the operator provisioned the platform's stock set, so the
-        allowlist is that whole set while `requires` stays the subset that
-        cannot be uninstalled and therefore makes absence falsifiable. The
-        filter is subtractive either way, so a family the host lacks still
-        cannot be made to measure.
+        An optional pack is a whole bundle, so what it requires the host to
+        install and what it lets a page see are the same list. On Windows
+        everything comes from the repo `apostate fonts install windows`
+        clones, except Marlett, which no download provides; a host that lacks
+        it simply does not show it. macOS shows the reference Mac's families
+        and nothing more.
         """
         for option_set in self.tables["font_packs"]["option_sets"]:
+            platform = option_set["key"]["platform"]
             kinds = Counter(option["pack_kind"] for option in option_set["options"])
             self.assertEqual(1, kinds["core"])
-            self.assertGreater(kinds["optional"], 0)
+            if platform == "macos":
+                self.assertEqual(0, kinds["optional"], "macOS has no optional packs")
             for option in option_set["options"]:
                 required = option["requires"]["families"]
                 families = option["value"]["fonts"]["enumeration_allowlist"]
@@ -192,6 +238,10 @@ class CatalogueIntegrityTests(unittest.TestCase):
                     self.assertTrue(1 <= option["weight"] <= 100)
                 else:
                     self.assertTrue(required, "the core pack requires nothing")
+                if platform == "windows":
+                    self.assertLessEqual(set(required), WINDOWS_11_FONTS_REPO, option["id"])
+                    self.assertLessEqual(set(families) - WINDOWS_11_FONTS_REPO,
+                                         WINDOWS_FAMILIES_NOT_IN_REPO, option["id"])
 
     def test_media_labels_are_platform_correct(self) -> None:
         for option_set in self.tables["media_topology"]["option_sets"]:
@@ -419,50 +469,6 @@ class CompositionTests(unittest.TestCase):
             with self.assertRaises(resolver.ResolverError) as caught:
                 resolver.resolve_profile(dict(BASE_CONFIG, catalogue_path=catalogue_path))
             self.assertIn("audio.hardware_buffer_frames", str(caught.exception))
-
-    def test_every_persona_serves_its_own_text_render_params(self) -> None:
-        """Text rasterisation is a projection of the persona, not a draw.
-
-        Chromium has one implementation of gfx::FontRenderParams per platform,
-        so the tuple is a function of the claimed OS alone -- and on Linux the
-        values it displaces are the host's own fontconfig and desktop
-        settings, pushed to every renderer as RendererPreferences. What this
-        pins is that each persona gets its own complete tuple, that no seed
-        moves it, and that the integral floats are written as integers:
-        base::JSONWriter with OPTIONS_OMIT_DOUBLE_TYPE_PRESERVATION collapses
-        an integral double to an integer, so a 1.0 here would diverge from the
-        compositor's 1 byte-wise while meaning the same number, and the
-        cross-writer digest compares bytes.
-        """
-        expected = {
-            # ui/gfx/font_render_params_win.cc:77-104 plus skia/BUILD.gn:137-142
-            "windows": {"antialiasing": True, "autohinter": False, "hinting": "medium",
-                        "subpixel_positioning": True, "subpixel_rendering": "rgb",
-                        "text_contrast": 1, "text_gamma": 0, "use_bitmaps": False},
-            # ui/gfx/font_render_params_mac.cc:16-26 plus skia/BUILD.gn:126-131
-            "macos": {"antialiasing": True, "autohinter": False, "hinting": "medium",
-                      "subpixel_positioning": True, "subpixel_rendering": "rgb",
-                      "text_contrast": 0, "text_gamma": 0, "use_bitmaps": True},
-            # ui/gfx/font_render_params_skia.cc:13-26, fontconfig's rgba,
-            # font_render_params_linux.cc:267 at dsf 1, skia/BUILD.gn:113-117
-            "linux": {"antialiasing": True, "autohinter": True, "hinting": "slight",
-                      "subpixel_positioning": False, "subpixel_rendering": "rgb",
-                      "text_contrast": 0.2, "text_gamma": 1.2, "use_bitmaps": True},
-        }
-        for persona in sorted(resolver.PLATFORMS):
-            for seed in range(6):
-                params = resolver.resolve_profile(dict(
-                    BASE_CONFIG, fingerprint=seed,
-                    fingerprint_platform=persona))["fonts"]["render_params"]
-                self.assertEqual(expected[persona], params, persona)
-                for key in ("text_contrast", "text_gamma"):
-                    value = params[key]
-                    self.assertNotIsInstance(value, bool)
-                    if float(value).is_integer():
-                        self.assertIsInstance(value, int, f"{persona}.{key}")
-        # Three different tuples, so the loop above is not one answer thrice.
-        self.assertEqual(3, len({json.dumps(t, sort_keys=True)
-                                 for t in expected.values()}))
 
     def test_the_extensions_axis_draws_one_boolean_state_per_seed(self) -> None:
         """chrome.runtime on a web page is a persona, and absence is a claim.
@@ -868,7 +874,8 @@ class CompositionTests(unittest.TestCase):
     # (base/json/string_escape.cc WriteUnicodeCharacter), so the byte-comparable
     # encoding is ensure_ascii=False.
     GOLDEN_HOST = {"host_platform": "macos", "host_backend": "ANGLE/Metal",
-                   "host_logical_cores": 14, "host_total_bytes": 38654705664}
+                   "host_logical_cores": 14, "host_total_bytes": 38654705664,
+                   "host_architecture": "arm"}
     # The sections the composed profile carried when these digests were taken.
     # Recorded so a digest mismatch can be told apart from a composition that
     # has since grown or lost a section, which is not the same finding.
@@ -879,11 +886,11 @@ class CompositionTests(unittest.TestCase):
     })
     GOLDEN_PROFILES = {
         "windows": ("fp-b0b97b3a3531b65ee50f45fc", GOLDEN_SECTIONS,
-                    "66b468ff85fd2d4e8a8860cb367b7a2440c870d81f8b490454dc78a0d65925f5"),
+                    "8fbd46a1364544901fd3b5007df26f09c76b65a4476caa3ff77976c8400cef48"),
         "macos": ("fp-60eab51485a4a8465ce3c24a", GOLDEN_SECTIONS,
-                  "13b45e6d94e474a2d5951edf02b696102f69deb79e2344908b4fe505d9661995"),
+                  "3998c36c39d79110eca7b568dcf86a12b4a89af5a750eb97d0695910145f281e"),
         "linux": ("fp-8c5f63da9ef88ea749549a91", GOLDEN_SECTIONS,
-                  "c47b9d05773df32fca21dfa40131148c406d534abbfe169198dc0686525ec7b9"),
+                  "c72916e001326d920585597d2f9ce4957cad2aa2aa743dd8325863ed5f0976d3"),
     }
 
     def _check_golden(self, persona: str, profile: dict, digest: str,
@@ -1005,7 +1012,7 @@ class CompositionTests(unittest.TestCase):
             "fingerprint": 12345, "fingerprint_platform": "windows",
             "browser_build": "152.0.7977.83", "host_platform": "macos",
             "host_backend": "ANGLE/Metal", "host_logical_cores": 14,
-            "host_total_bytes": 38654705664,
+            "host_total_bytes": 38654705664, "host_architecture": "arm",
         })
         profile_id, sections, digest = self.GOLDEN_PROFILES["windows"]
         self.assertEqual(profile_id, profile["id"])

@@ -1,24 +1,13 @@
-Subject: [PATCH] angle: apply profile reductions before caps initialize resources
+Subject: [PATCH] angle: apply profile limits to ANGLE's own caps
 
-The Mac capture reports a 16384 viewport, 16384-byte uniform blocks and
-4096 vertex uniform components. The GL query hooks miss the first two
-parameters and do not reduce the ANGLE state used for viewport and shader
-validation. Passthrough queries also use distinct robust entrypoints.
-
-Read these limits through a typed same-process platform callback installed by
-Chromium before eglInitialize. ANGLE reduces its effective caps before state
-and compiler initialization. Chromium retains the only profile loader; ANGLE
-does not link base, parse JSON, add a GL extension or expose a new entrypoint.
-The appended V1 callback is negotiated through the existing name/count check.
-
-Keep viewport width/height distinct and vertex vectors/components consistent.
-Hash effective uniform limits into program cache keys so a cached permissive
-link cannot bypass a later profile's stricter block-size limit. Native limits
-below the reference remain below it. Point-size and precision behavior are
-outside this patch.
-
-Reference: resources/fingerprints/raw/m4-max-chrome-20260908T163229Z.json
-Ledger proposal: gpu.clamp-conformance. V1 and behavioral V3 remain required.
+ANGLE lowers its internal caps to the profile's gl_limits before it sets
+up context state and the shader compiler. This covers MAX_VIEWPORT_DIMS,
+MAX_UNIFORM_BLOCK_SIZE and the vertex uniform limits, which the Chromium
+query hooks either miss or report without changing what ANGLE enforces.
+A page gets the same limit from a query as from viewport and shader
+validation. Chromium passes the values in through a platform callback,
+limits never rise above the native ones, and the effective limits are
+part of the program cache key.
 
 diff --git a/ui/gl/angle_platform_impl.cc b/ui/gl/angle_platform_impl.cc
 --- a/ui/gl/angle_platform_impl.cc

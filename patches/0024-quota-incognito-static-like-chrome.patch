@@ -1,38 +1,12 @@
-Subject: [PATCH] quota: match Chrome's incognito quota, which Finch enables
+Subject: [PATCH] quota: fixed incognito quota, as stock Chrome ships it
 
-Stock Chrome returns usage + 10 GiB for navigator.storage.estimate().quota in
-incognito, the same constant it returns in regular mode. Our build returned a
-value derived from physical memory, because kIncognitoStaticStorageQuota is
-FEATURE_DISABLED_BY_DEFAULT in the tree and stock Chrome enables it through its
-Finch seed, which we do not have.
+Stock Chrome reports usage plus 10 GiB from navigator.storage.estimate()
+in incognito, the same as in regular mode. It enables
+IncognitoStaticStorageQuota through its Finch seed, which a Chromium
+build does not have, so the feature is on by default here. Without it,
+the incognito quota follows physical memory and differs from every real
+Chrome.
 
-Found by arithmetic that did not add up. The reference MacBook Pro has 36 GiB
-installed. CalculateNominalDynamicSettings computes the incognito pool as
-physical_memory * rand(0.15, 0.2), and CalculateReportedQuota returns the pool
-rounded up when it falls below the 10 GiB cap — so 36 GiB predicts 6 to 8 GiB.
-The Mac reports exactly 10737418240. Reproducing the prediction on our own build
-with the same 36 GiB figure gave 7 GiB, three runs, stable; adding
---enable-features=IncognitoStaticStorageQuota gave 10737418240, matching the Mac
-exactly.
-
-This is the mirror image of the field-trial testing config problem fixed
-earlier. Removing that config stopped us forcing features ON that Chrome has
-off. It did not give us the features Finch turns ON that the compiled-in default
-has off, and this is one. Three populations exist: stock Chrome runs its seed, a
-fork runs the compiled-in defaults, and a fork that leaves the testing config
-enabled runs a third state different from both.
-
-There is no published list of features whose Finch state differs from their
-default, so they have to be found by measuring stock Chrome against our build on
-one machine and diffing. That is now a routine check rather than an accident.
-
-Note this makes patch 0022 inert for the reported quota, which is the correct
-outcome rather than a regression: with the static quota enabled the reported
-value no longer derives from physical memory at all. 0022 still supplies the
-profile's memory to the pool size, which continues to drive available_space, and
-would still be needed if this feature were ever turned off.
-
-Ledger: storage.incognito-quota.
 diff --git a/storage/browser/quota/quota_features.cc b/storage/browser/quota/quota_features.cc
 index 711c811..60a6b2e 100644
 --- a/storage/browser/quota/quota_features.cc

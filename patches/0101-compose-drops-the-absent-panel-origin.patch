@@ -1,31 +1,10 @@
-Subject: compose: drop the panel-origin lookup no profile can answer
+Subject: [PATCH] compose: drop the screen.left and screen.top lookup
 
-DeriveWorkArea read screen.left and screen.top, with .value_or(0) behind each,
-to offset the work area by the panel's origin. Neither key exists.
-config/profile.schema.json declares width, height, the four avail_* fields, the
-four avail_inset_* fields, color_depth, color_gamut, hdr, is_extended and
-displays under screen, and sets additionalProperties false, so a profile that
-carried screen.left would fail validation before the compositor ever saw it.
-Both lookups could only ever miss, and both fallbacks could only ever be zero.
-
-The comment above them was right about the measurement and wrong about where it
-lands: the Windows reference capture did report availLeft 1920 on a second
-monitor with a zero inset, but a profile expresses that through
-screen.displays[].left, which DeriveWorkArea does not touch. The single-panel
-path this function serves has its origin at zero by construction.
-
-So the reads go and the arithmetic says what it does. This changes no emitted
-value: origin_left and origin_top were zero on every input the schema admits.
-
-Found by scripts/check-schema-wiring.py, which reconciles the schema against the
-C++ that reads it in both directions. This was the reverse direction - C++
-reading a key the schema does not define - and it is the cheap half of that
-defect, because the expensive half is a key a profile can set and nothing reads.
-
-Compile-gated at V1: base/apostate/compose.cc compiles against the pinned
-macos-arm64 build.
-
-Ledger: screen.availLeft, screen.availTop.
+The work area derivation reads no panel origin from the profile. The
+profile schema has no screen.left or screen.top and forbids extra keys
+under screen, so that lookup can only return its zero fallback.
+screen.availLeft and screen.availTop come from the panel insets alone.
+No value a page reads changes.
 
 --- a/base/apostate/compose.cc
 +++ b/base/apostate/compose.cc

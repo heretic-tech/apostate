@@ -1,31 +1,13 @@
 Subject: [PATCH] media: decodingInfo powerEfficient from the claimed GPU
 
-MediaCapabilities.decodingInfo() returns powerEfficient straight from
-GpuVideoAcceleratorFactories, which on a software rasteriser answers false for
-every codec. Any profile claiming a GPU with a video engine contradicts itself
-there, and the contradiction is legible rather than merely odd: which codecs a
-GPU decodes in fixed function is a property of its generation, so the answer
-pattern identifies the hardware.
+MediaCapabilities.decodingInfo() reports powerEfficient from the
+profile's media.hw_decode_codecs list. On a software rasterizer every
+codec otherwise reports false, which no desktop GPU with a video engine
+does, and the pattern of true and false codecs identifies the GPU
+generation. An Intel UHD 630 profile, for example, reports true for
+H.264, VP9 and HEVC and false for AV1. The supported field is left
+alone, because a page can check support by playing a file.
 
-The reference Intel UHD 630 reports powerEfficient true for H.264, VP9 and HEVC
-and false for AV1. That is exactly Gen9.5 — it has no AV1 decoder — and our
-build already agreed on the AV1 answer for the wrong reason, by having no
-decoder for anything.
-
-Patched at OnGpuFactoriesSupport, which is the single point where the factories'
-answer enters the callback state and still carries the codec.
-
-Scope is deliberately narrow: powerEfficient only, never `supported`. The two
-are different kinds of claim. Efficiency is a hint with no observable
-consequence — a page cannot measure that a decode was not hardware-assisted.
-Support is a capability, and a page checks it by playing a file. That is why
-HEVC's supported=false stays as it is and stays red in V3: enable_platform_hevc
-is already on in this build, so it is not a build-flag gap but a real missing
-platform decoder, and it belongs with Widevine in the set of capabilities a
-source patch cannot conjure. Claiming it would trade a mismatched boolean for a
-video that does not play.
-
-Ledger: media.power-efficient.
 diff --git a/base/apostate/profile.h b/base/apostate/profile.h
 index 4d594d5..52bd72f 100644
 --- a/base/apostate/profile.h

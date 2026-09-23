@@ -1,4 +1,12 @@
-Subject: [PATCH] audio: select Mac ARM compressor scalar math from the profile
+Subject: [PATCH] audio: Mac ARM compressor math from the profile
+
+Under a macOS ARM profile, DynamicsCompressorNode converts between
+decibels and linear gain with log10 and exp10 routines that round the
+way the Mac ARM math library does. The host's math library rounds these
+slightly differently, and the difference shows up in the compressor's
+output samples, which a page can hash. x86 hosts with AVX and FMA run
+the same arithmetic with hardware fused multiply-add. Other profiles
+keep the default math.
 
 diff --git a/third_party/blink/renderer/platform/audio/dynamics_compressor.cc b/third_party/blink/renderer/platform/audio/dynamics_compressor.cc
 --- a/third_party/blink/renderer/platform/audio/dynamics_compressor.cc

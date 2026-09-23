@@ -1,58 +1,13 @@
-Subject: [PATCH] base: device profile loader, and wire hardwareConcurrency to it
+Subject: [PATCH] profile: device profile loader, with hardwareConcurrency
 
-The spine every spoofed surface depends on. This is the first increment: the
-profile itself, plus one value carried through it end to end to prove the path.
-
-Availability is the design constraint, not secrecy. A value read before the
-profile is parsed is the host's real value, and a process that never receives
-the profile reports the host's real value — both are page-observable and neither
-is visible in the surface the profile was meant to fix. content_main_runner
-initialises field trials before mojo, so a mojo-delivered profile cannot serve a
-read that happens before mojo exists. The command line is the only channel
-present at process start, and switches are not readable by web content, so
-carrying it there discloses nothing to a page.
-
-It lives in base/ because base/ is the first consumer — SysInfo — and base
-cannot depend on content or chrome. That also makes it reachable from every
-process type without a layering violation.
-
-Every getter returns nullopt when the profile is absent or does not carry the
-field, and callers fall through to the real value. A profile that does not
-describe a surface must leave it inherited: an invented default is wrong in a
-way no consumer can detect, which is worse than the host's true value.
-
-hardwareConcurrency is patched at base::SysInfo::NumberOfProcessors rather than
-at NavigatorConcurrentHardware, because thread pools size from this function.
-Overriding only the Blink accessor would report the profile's core count while
-the process kept running with the host's, and a worker scaling curve would
-contradict the claim. Patching the source makes the claim true instead of merely
-reported. The real count is split into NumberOfProcessorsImpl so the clamp can
-ask for it without re-entering the override.
-
-The claim is clamped to the host rather than refused. Claiming fewer cores than
-the host has is achievable; claiming more is contradicted by measurement
-whatever the function returns, and refusing to launch would trade a weak,
-rarely probed signal for a hard usability failure.
-
-Memory is parsed here but consumed by the next patch. Patch 0006 feeds it to
-ApproximatedDeviceMemory::Initialize, which is the input to Chromium's own
-rounding rather than a replacement for its output, so navigator.deviceMemory and
-the Device-Memory request header agree and neither can leave the bucket set
-{2, 4, 8, 16, 32} that Chromium 152 can produce on desktop. Verified through the
-shipped binary: on this 36 GiB host, stock Google Chrome 152.0.7977.83 and a
-composed launch both report 32. This paragraph used to say the rounding was
-"the next increment", and it was: 0006 is that increment.
-
-The profile parses on first Get() rather than from an explicit startup hook.
-The command line is fully populated before anything in base runs, so there is no
-window in which that could be too early — and it removes the ordering hazard
-completely, since there is no call site to place correctly and no process type
-that can be forgotten by omitting one.
-
-Known limit of this increment, recorded rather than glossed: the profile is
-carried inline on the command line, which is fine for scalars and will not hold
-the font lists and WebGL tables a full profile needs. That wants the shared
-memory handle the field trial machinery already uses.
+Adds the loader for the profile, the JSON the browser is launched with.
+It is read from the command line on first use, so every process sees it
+from startup, and each getter falls back to the host's real value when
+the profile leaves a field out. The first value wired through is the
+core count, set at base::SysInfo::NumberOfProcessors so
+navigator.hardwareConcurrency and the browser's own thread pools agree.
+A claim above the host's real core count is clamped to the host, since a
+page can measure it.
 
 diff --git a/base/BUILD.gn b/base/BUILD.gn
 index ddcc03b..87e4cdc 100644

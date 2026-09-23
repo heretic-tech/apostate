@@ -1,0 +1,106 @@
+Subject: [PATCH] keyboard: serve the claimed platform's layout map
+
+When the profile has no keyboard layout, which is always the case for a
+composed profile, navigator.keyboard.getLayoutMap() returns the claimed
+platform's US layout instead of the host's keymap. All three platforms
+share the same 47 keys and differ on IntlBackslash: a backslash on
+Windows, the section sign on macOS and "<" on Linux. A US Windows
+keyboard has no IntlYen key, so a Linux host's keymap would give a
+Windows profile away.
+
+--- a/base/apostate/profile.h
++++ b/base/apostate/profile.h
+@@ -428,7 +428,8 @@
+   // This is a user setting rather than a device property — the same Mac gives a
+   // different map under a German layout — and it is not derivable from anything
+   // else in the profile, so axiom A3 puts it in the replay category rather than
+-  // the derived one. Empty means "leave the host's map alone".
++  // the derived one. Empty means the claimed platform's US layout, which
++  // PageImpl::GetKeyboardLayoutMap serves in place of the host's map.
+   const std::map<std::string, std::string>& keyboard_layout_map() const {
+     return keyboard_layout_map_;
+   }
+--- a/content/browser/renderer_host/page_impl.cc
++++ b/content/browser/renderer_host/page_impl.cc
+@@ -4,6 +4,10 @@
+ 
+ #include "content/browser/renderer_host/page_impl.h"
+ 
++#include <string>
++#include <utility>
++#include <vector>
++
+ #include "base/apostate/profile.h"
+ 
+ #include "base/barrier_closure.h"
+@@ -36,6 +40,52 @@
+ 
+ namespace content {
+ 
++namespace {
++
++// navigator.keyboard.getLayoutMap() for a US English keyboard on the claimed
++// platform, as the references report it. All three platforms give the same 47
++// writing-system keys and differ only on IntlBackslash, the extra key beside
++// the left Shift on an ISO keyboard: every Windows reference maps it to a
++// backslash, the macOS reference to the section sign and the Linux references
++// to "<". None of them reports IntlYen or IntlRo, which only a Japanese layout
++// produces.
++base::flat_map<std::string, std::string> ClaimedPlatformLayoutMap(
++    const std::string& platform) {
++  const char* intl_backslash = nullptr;
++  if (platform == "Windows") {
++    intl_backslash = "\\";
++  } else if (platform == "macOS") {
++    intl_backslash = "\xC2\xA7";
++  } else if (platform == "Linux") {
++    intl_backslash = "<";
++  } else {
++    return {};
++  }
++  static constexpr std::pair<const char*, const char*> kPunctuation[] = {
++      {"Backquote", "`"},    {"Minus", "-"},       {"Equal", "="},
++      {"BracketLeft", "["},  {"BracketRight", "]"}, {"Backslash", "\\"},
++      {"Semicolon", ";"},    {"Quote", "'"},       {"Comma", ","},
++      {"Period", "."},       {"Slash", "/"},
++  };
++  std::vector<std::pair<std::string, std::string>> entries;
++  for (char c = 'a'; c <= 'z'; ++c) {
++    entries.emplace_back(
++        std::string("Key") + static_cast<char>(c - 'a' + 'A'),
++        std::string(1, c));
++  }
++  for (char c = '0'; c <= '9'; ++c) {
++    entries.emplace_back(std::string("Digit") + c, std::string(1, c));
++  }
++  for (const auto& [code, key] : kPunctuation) {
++    entries.emplace_back(code, key);
++  }
++  entries.emplace_back("IntlBackslash", intl_backslash);
++  return base::flat_map<std::string, std::string>(entries.begin(),
++                                                  entries.end());
++}
++
++}  // namespace
++
+ PageImpl::PageImpl(RenderFrameHostImpl& rfh, PageDelegate& delegate)
+     : main_document_(rfh), delegate_(delegate) {
+ 
+@@ -382,6 +432,17 @@
+     if (!map.empty()) {
+       return base::flat_map<std::string, std::string>(map.begin(), map.end());
+     }
++    // No map in the profile is not a reason to show the host's keymap: a
++    // composed profile never carries one, and the host's X keymap is where an
++    // IntlBackslash of "<" and an IntlYen key came from on a Windows persona.
++    // The claimed platform's US layout is served instead.
++    if (const std::optional<std::string>& platform = profile->ua_platform()) {
++      base::flat_map<std::string, std::string> claimed =
++          ClaimedPlatformLayoutMap(*platform);
++      if (!claimed.empty()) {
++        return claimed;
++      }
++    }
+   }
+   return GetMainDocument().GetRenderWidgetHost()->GetKeyboardLayoutMap();
+ }

@@ -1,23 +1,11 @@
-Subject: webrtc: forward the candidate address override to renderers
+Subject: [PATCH] webrtc: forward --fingerprint-webrtc-ip to renderers
 
-Patch 0073 reads --fingerprint-webrtc-ip in the process that serialises a
-candidate, which for the SDP is the renderer. The browser's own command line is
-not inherited by a renderer, so without this the switch was read in the browser
-and nowhere else and the SDP kept the original address.
-
-This forwards it in AppendRendererCommandLine, which runs for every renderer
-including ones spawned later in the session, so the value cannot differ between
-two frames of the same launch.
-
-It carries the same limitation as 0073 and for the same reason: it moves a
-string into the process that writes the SDP, and changes nothing about which
-interface a datagram leaves from. The address a remote peer reads off an
-arriving packet is still whatever the socket was bound to. Patch 0086 is what
-makes the two agree, by relaying WebRTC's UDP through the configured SOCKS5
-proxy or refusing to create the socket at all.
-
-The declaration is indented to match the function it sits in; the original
-version of this patch introduced it at column zero.
+The renderer writes the SDP, and a renderer does not inherit the
+browser's command line. The browser appends --fingerprint-webrtc-ip to
+every renderer it launches, including ones started later in the session,
+so all frames of one launch write the same candidate address. Like patch
+0073, it changes only candidate text and leaves the packets' source
+address alone.
 
 diff --git a/content/browser/renderer_host/render_process_host_impl.cc b/content/browser/renderer_host/render_process_host_impl.cc
 index c905e5535e..b9e3a809fe 100644

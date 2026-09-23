@@ -1,191 +1,12 @@
-Subject: gl: serve the anchor's limits to WebGL on every backend
+Subject: [PATCH] gl: serve claimed GL limits to WebGL on every backend
 
-`scripts/checks/gl-caps-check.mjs` passes for every anchor on the shipped
-linux-x64 artifact. On the macOS one it passes only for the anchor measured
-on Apple silicon, where the claim and the host are the same numbers, and
-fails for every cross-backend anchor. On an Apple M4 Max under
-`--fingerprint-anchor=windows-d3d11-nvidia` the renderer string is the
-anchor's and the capability table is Apple's:
-
-  ALIASED_POINT_SIZE_RANGE           served [1, 511]      anchor [1, 1024]
-  MAX_VIEWPORT_DIMS                  served 16384         anchor 32767
-  MAX_VERTEX_UNIFORM_VECTORS         served 1024          anchor 4095
-  MAX_VERTEX_UNIFORM_COMPONENTS      served 4096          anchor 16380
-  MAX_SAMPLES                        served 4             anchor 8
-  UNIFORM_BUFFER_OFFSET_ALIGNMENT    served 16            anchor 256
-
-A claimed GeForce beside `UNIFORM_BUFFER_OFFSET_ALIGNMENT` 16 is a lookup, not
-a probe: Direct3D 11 mandates 256 and every Windows capture measures 256, so
-one `getParameter` call and a constant decide it. Every row above is one call
-like that.
-
-The serving path is not broken. All six entry points, the whole table and the
-fractional map landed in 0103, 0112 and their predecessors and work as
-written. What sends Metal down the wrong branch is one predicate:
-`RealGLApi::ApostateEnforces()` asks `BackendEnforcesGlLimits()` whether the
-backend honours what it reports, Metal honours everything it reports, so the
-claim is clamped to the host and the whole anchor is discarded.
-
-The predicate answers its own question correctly. The question is wrong, and
-0103 and 0112 both asked it.
-
-What is actually being decided
-
-A numeric GL limit leaves the GPU process through six shared entry points --
-plain and robust `glGetIntegerv`, `glGetFloatv`, `glGetInteger64v` -- and three
-unrelated consumers come through them:
-
-  a WebGL-compatibility context  the numbers reach a page verbatim, and
-                                 nothing else depends on them
-  the compositor and raster      Chromium sizes tiles and resources from them
-  Skia Ganesh                    ui/gl/init/create_gr_gl_interface.cc binds
-                                 Skia's get_integerv straight to gl::GLApi's,
-                                 and GrGLCaps reads MAX_TEXTURE_SIZE,
-                                 MAX_RENDERBUFFER_SIZE and MAX_SAMPLES
-
-Only the first is a fingerprint. That is why deleting the clamp outright is not
-the fix even though it produces the right numbers on the surface anyone
-measures: telling Skia a four-sample Metal device does eight samples is not a
-coherence trade, it is a rendering defect in canvas2D and raster for every
-page, fingerprinted or not, and no page ever reads the number that caused it.
-The blast radius, not the fingerprint, is what decides the shape of this patch.
-
-So the gate becomes the kind of context asking. A WebGL-compatibility context
-is served the composed claim on every backend; everything else keeps the
-intersection of claim and host it has always had, which can lower a cap below
-the host's and never raise it, so Skia cannot be told this machine does more
-than it does. On an M4 Max under any anchor in the catalogue the intersection
-is the host's own value on every row, because an anchor's limits sit at or
-above Apple's.
-
-The marker, and why it is not an inference
-
-`GL_ANGLE_webgl_compatibility` is ANGLE's own definition of the thing. ANGLE
-sets `extensions->webglCompatibilityANGLE = mWebGLContext` in
-`Context::initializeCaps`; `mWebGLContext` is the
-`EGL_CONTEXT_WEBGL_COMPATIBILITY_ANGLE` attribute
-`ui/gl/gl_context_egl.cc` passes when `GLContextAttribs::
-webgl_compatibility_context` is set; and ANGLE's own `State::isWebGL()` is
-defined as exactly that extension bit.
-`gpu/command_buffer/service/feature_info.cc` asks the same question the same
-way, with `gfx::HasExtension(extensions, "GL_ANGLE_webgl_compatibility")`, so
-this patch adopts an existing convention rather than inventing one.
-
-Two properties make reading it safe. It is not a requestable extension --
-`gles_extensions_autogen.cpp` registers it through `esOnlyExtension`, which
-leaves `ExtensionInfo::Requestable` false -- so the
-`EGL_EXTENSIONS_ENABLED_ANGLE = false` that Chromium passes for WebGL contexts
-does not switch it off, which is the trap a naive extension probe would fall
-into. And it is fixed at context creation, so the answer can be cached: one
-`RealGLApi` is constructed per `gl::GLContext` in `GLContext::CreateGLApi`, and
-the passthrough decoder -- the only thing that ever asks for a
-WebGL-compatibility context, in `GenerateGLContextAttribsForDecoder` -- cannot
-be combined with virtualised contexts, which `SharedContextState::InitializeGL`
-DCHECKs. So one real context never serves a WebGL client and a raster client at
-once, and a per-instance flag is a per-context flag.
-
-It is read through `GLApiBase`, not through `RealGLApi::glGetStringFn`, for the
-same reason the old renderer read was: the derived entry point substitutes the
-profile's strings, and asking the claim about the host answers about the wrong
-device.
-
-The validating decoder is the one configuration this leaves behind, and it
-leaves it behind exactly as it found it. `GenerateGLContextAttribsForDecoder`
-sets `webgl_compatibility_context` only under
-`use_passthrough_cmd_decoder()`, so a WebGL context on the validating decoder
-was never marked and is served the host's limits. That decoder is not what
-ships and not what any measurement here was taken on; it is named rather than
-handled.
-
-What is deliberately not changed
-
-ANGLE's `ApplyProfilePointSizeCaps` and `ApplyProfileIntegerCaps` still combine
-a profile value with the native cap by taking the lower of the two, so ANGLE's
-compiler resources, state validation and format table keep describing the
-machine that is really there. That is what keeps the residual honest. Raising
-those caps would not remove a single row from the table below; it would convert
-a refused call into a wrong render, which is strictly worse.
-
-`ApostateServedLimit`'s floor direction is unchanged -- `MIN_PROGRAM_TEXEL_
-OFFSET` is still a floor and an aliased range is still an interval -- and so is
-every entry in the table. The boolean it takes changes sense and name, from
-`enforces` to `serve_composed`, because the old name described a property of
-the backend and the value is now a property of the context.
-
-The per-query `LOG(WARNING)` on the clamp is gone, and this is the second thing
-the old axis got wrong. It fired whenever a claim exceeded the host, which on
-an M4 Max is most rows, on a code path the compositor and raster hit for every
-lookup, to say that "a page that allocates past the real limit would see
-through the claim" -- about a context no page can reach. The replacement logs
-once, on the serving side, where the statement is true.
-
-What it costs, measured
-
-The residual inverts. It used to be a table a page could read; it is now a set
-of operations a page can attempt. Under `windows-d3d11-nvidia` on an M4 Max:
-
-  point size     gl_PointSize above 511 draws a 511-pixel footprint
-  viewport       viewport(0,0,32767,32767) then getParameter(VIEWPORT) reads
-                 [0,0,16384,16384]; SCISSOR_BOX is the control and is not
-                 clamped
-  uniforms       a vertex shader declaring 4095 vectors fails to compile or
-                 link with the driver's own info log
-  samples        renderbufferStorageMultisample at 8 returns
-                 GL_INVALID_OPERATION where the Metal format table has 4
-  UBO alignment  bindBufferRange at offset 16 SUCCEEDS on the passthrough
-                 decoder, because ANGLE validates against its own 16; on the
-                 validating decoder ContextGroup's cached 256 rejects it, which
-                 is what a real 256-byte-aligned device does
-
-Each is a draw, a compile or a small allocation. Each replaces a constant
-lookup. `docs/LIMITATIONS.md` carries the table, the `SCISSOR_BOX` control and
-the withdrawal of the v0.1.0 argument that an honest 16384 was worth serving in
-preference to the anchor's 32767 -- withdrawn because it priced one row and
-ignored that the same gate was discarding six others, and because one honest
-row inside a composed cluster is a shape no machine produces.
-
-`ALIASED_LINE_WIDTH_RANGE` is not in that list and `[1, 64]` is not a mistake.
-The Windows D3D11 anchors and the Apple anchor all measure `[1, 1]`; the
-`linux-vulkan-nvidia` anchor measures `[1, 64]` in all four of its captures,
-which is what a Vulkan NVIDIA machine reports, because Direct3D and Metal cap
-line width at 1 and Vulkan does not. Under that anchor on a Mac it joins the
-list; under a Windows anchor there is nothing to falsify.
-
-MSAA is the row to re-verify after the build, because it is the one that could
-break rendering rather than a fingerprint. `DrawingBuffer` takes
-`min(preference, MAX_SAMPLES)` with a preference of 4, so a WebGL context
-created with `antialias: true` is still allocated at the host's 4 and
-`SAMPLES`, `SAMPLE_BUFFERS` and the rendered coverage still agree -- and the
-anchor itself measured `MAX_SAMPLES` 8 beside `antialiasSamples` 4, so the
-served pair is a pair a real machine reports. Canvas2D goes through Ganesh on a
-non-WebGL context and sees the host's caps unchanged. Neither is asserted here:
-a throwaway page that draws an antialiased 2D canvas and creates an
-`antialias: true` WebGL context, checks both for GL errors and repeats every
-read, is left at `/tmp/w1/MetalGate/verify-0119.mjs` for the build that follows
-this patch.
-
-The expected outcome of `scripts/checks/gl-caps-check.mjs` on the macOS
-artifact after this patch is 5 of 5 -- SERVED and DISTINCT for every anchor,
-IDENTITY unchanged -- which is what §6 of the release battery is waiting on. It
-is 5 of 5 on linux-x64 already and this patch does not change what a page reads
-there: llvmpipe and SwiftShader were already served the claim, and they are
-still served it, now because the context asking is WebGL rather than because
-the backend enforces nothing. What does change on those backends is the part no
-page reads. Skia and the compositor used to get the claim too, since the old
-gate was per-process; they now get the intersection, so on a SwiftShader host
-GrGLCaps stops being told the device does the anchor's 16 samples when
-SwiftShader has 4 and grants 0. That is a rendering correction this patch
-picks up on the way past, not the thing it is for.
-
-`--fingerprint-explain` no longer says a limit the host enforces below the
-claim is served at the host's value, because it no longer is. The count is
-taken from the merged profile as 0112 left it, and it needs no addition for the
-fractional limits: the profile carries one `gl_limits` dictionary and
-`base/apostate/profile.cc` splits integral from fractional at load time, after
-composition, so the count already includes both.
-
-Ledger: webgl.parameters, webgl2.parameters, emit.gl.real-gl-api-get-integerv,
-coh.angle-backend-vs-gpu-claim, coh.msaa-samples-vs-render.
+WebGL contexts receive the profile's claimed limits on every backend,
+Metal included. Other GL contexts, used by the compositor, raster and
+Skia, keep the lower of claim and host so they never size work past the
+real GPU. Otherwise an Apple GPU claiming a Windows NVIDIA device shows
+a page Apple values such as UNIFORM_BUFFER_OFFSET_ALIGNMENT 16, where
+Direct3D 11 requires 256. The GL_ANGLE_webgl_compatibility extension
+marks which contexts are WebGL.
 
 --- a/ui/gl/gl_gl_api_implementation.cc
 +++ b/ui/gl/gl_gl_api_implementation.cc
@@ -376,7 +197,7 @@ coh.angle-backend-vs-gpu-claim, coh.msaa-samples-vs-render.
 +// clamped footprint, a viewport set to the claim reads back clamped, a shader
 +// declared at the claimed uniform count fails to link, an 8x multisample
 +// renderbuffer fails on a 4-sample device. Each one is measured and written
-+// down in docs/LIMITATIONS.md rather than assumed away. They are all probes;
++// down in docs/KNOWN_GAPS.md rather than assumed away. They are all probes;
 +// the contradiction they replace was a lookup.
 +//
 +// Which backends that residual exists on is a measurement, and it is the one
@@ -442,7 +263,7 @@ coh.angle-backend-vs-gpu-claim, coh.msaa-samples-vs-render.
 +                     << claimed << " where this backend reports " << real
 +                     << ". WebGL is served the claim; an operation taken to it "
 +                        "will be refused by the driver. The per-limit residual "
-+                        "table is in docs/LIMITATIONS.md. Logged once.";
++                        "table is in docs/KNOWN_GAPS.md. Logged once.";
 +      }
      }
      return;
@@ -627,7 +448,7 @@ coh.angle-backend-vs-gpu-claim, coh.msaa-samples-vs-render.
 +          " numeric GL capability limits, composed rather than this host's, "
 +          "to every WebGL context on every backend; the backend underneath "
 +          "may still clamp or refuse an operation taken to one of them, and "
-+          "docs/LIMITATIONS.md says which");
++          "docs/KNOWN_GAPS.md says which");
      }
      composition.surfaces.push_back({
          .surface = "anchor",

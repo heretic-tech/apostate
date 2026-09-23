@@ -1,0 +1,49 @@
+Subject: [PATCH] widevine: load a CDM placed next to the executable on Linux
+
+Real Chrome supports com.widevine.alpha, so a browser that rejects it is
+easy to spot. Chromium on Linux loads only a CDM the component updater
+recorded in the profile directory, which a fresh temporary profile never
+has. When no bundled or recorded CDM exists, the browser also registers
+<exe dir>/WidevineCdm, where the launcher copies Google's CDM.
+
+diff --git a/chrome/common/media/cdm_registration.cc b/chrome/common/media/cdm_registration.cc
+index 46293c0..f017f93 100644
+--- a/chrome/common/media/cdm_registration.cc
++++ b/chrome/common/media/cdm_registration.cc
+@@ -8,6 +8,7 @@
+ #include <optional>
+ #include <utility>
+ 
++#include "base/base_paths.h"
+ #include "base/check.h"
+ #include "base/command_line.h"
+ #include "base/feature_list.h"
+@@ -220,7 +221,28 @@ void AddSoftwareSecureWidevine(std::vector<content::CdmInfo>* cdms) {
+             << hinted_widevine->capability->version;
+     cdms->push_back(*hinted_widevine);
+   } else if (!bundled_widevine && !hinted_widevine) {
++#if BUILDFLAG(ENABLE_WIDEVINE_CDM_COMPONENT)
++    // A CDM placed next to the executable (the launcher copies Google's CDM
++    // there) is used for every profile, including a fresh temporary one that
++    // has no component hint yet.
++    base::FilePath exe_dir;
++    std::unique_ptr<content::CdmInfo> local_widevine;
++    if (base::PathService::Get(base::DIR_EXE, &exe_dir) &&
++        base::PathExists(exe_dir.AppendASCII("WidevineCdm")
++                             .AppendASCII("manifest.json"))) {
++      local_widevine =
++          CreateCdmInfoFromWidevineDirectory(exe_dir.AppendASCII("WidevineCdm"));
++    }
++    if (local_widevine) {
++      VLOG(1) << "Registering local Widevine "
++              << local_widevine->capability->version;
++      cdms->push_back(*local_widevine);
++    } else {
++      VLOG(1) << "Widevine enabled but no library found";
++    }
++#else
+     VLOG(1) << "Widevine enabled but no library found";
++#endif
+   } else {
+     // Both a bundled CDM and a hinted CDM found, so choose between them.
+     base::Version bundled_version = bundled_widevine->capability->version;

@@ -1,4 +1,12 @@
-Subject: net: authenticate launch-only proxy credentials
+Subject: [PATCH] net: proxy credentials from the launch payload
+
+The profile switch can carry a two-key wrapper holding the device
+profile and a proxy username and password. The browser answers SOCKS5,
+SOCKS4 and HTTP proxy authentication with those credentials, up to three
+rounds per connection, without prompting the user. HTTP proxy
+credentials go into the auth cache, so later connections authenticate
+without a 407 round trip. The credentials stay out of the profile
+schema, diagnostics and anything written to disk.
 
 diff --git a/base/apostate/profile.h b/base/apostate/profile.h
 --- a/base/apostate/profile.h

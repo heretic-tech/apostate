@@ -1,72 +1,12 @@
-Subject: net: carry QUIC over a SOCKS5 UDP association
+Subject: [PATCH] net: HTTP/3 through a SOCKS5 proxy
 
-Routes a single-hop SOCKS5 chain through the datagram socket added in patch
-0079, so HTTP/3 works through a SOCKS5 proxy. Nothing else gains QUIC: an
-HTTP, HTTPS, SOCKS4 or multi-proxy chain still refuses it with
-ERR_NO_SUPPORTED_PROXIES, because none of them can relay a datagram.
-
-Exactly two rejections are relaxed, both guarded by IsQuicOverSocks5Chain():
-
-  - `DoInitConnectionImpl` rejected every non-direct, non-QUIC chain.
-  - `DoInitConnectionImplQuic` rejected any chain containing a non-QUIC proxy.
-
-The third gate is deliberately left alone: H3 discovery from DNS in
-`http_stream_factory_job_controller.cc` stays `is_direct()`-only, because an
-HTTPS-record lookup for the destination is the DNS query this design exists to
-avoid. Proxied H3 is therefore reached via Alt-Svc on a response that already
-came through the proxy, exactly as it is on a network without HTTPS records.
-
-`QuicSessionPool::RequestSession` sent every non-direct key to ProxyJob, which
-is QUIC-proxy-only. A SOCKS5 datagram chain now takes DirectJob instead; every
-other non-direct chain still takes ProxyJob.
-
-`CreateSocket` takes the session key and wraps the socket for such a chain.
-Every caller is routed through it, including the three migration and multi-port
-probe sites in QuicChromiumClientSession: a probe socket created without the
-key would send straight to the destination and leak past the proxy. Credentials
-are read from the launch envelope at that point and held only by the socket.
-
-DirectJob resolves the *proxy* for such a chain, which is forced rather than
-chosen: the socket needs a TCP control connection to the proxy and
-`ConnectAsync`'s address is the only address it gets. Consequences, all
-deliberate:
-
-  - `peer_address` becomes the proxy's endpoint, which is what the socket
-    reports from `GetPeerAddress()`, so the packet reader and QuicConnection
-    agree and no packet looks like a server address change.
-  - DNS timing measures the proxy's lookup, which is the lookup
-    TransportConnectJob already performs for a proxied stream and the one
-    Resource Timing already reports for it.
-  - Cross-origin IP pooling is skipped, because the resolved addresses are the
-    proxy's and pooling on them would key sessions by proxy identity.
-  - DNS aliases are dropped, because they would be the proxy's canonical names.
-
-Everything that identifies the server is untouched: the alias key's
-destination, `QuicSessionKey::server_id()`, SNI, certificate verification and
-session keying all still name the real destination, and the proxy chain is
-already part of the session key, so a proxied session can never be reused for a
-direct request or for a different proxy.
-
-`QuicSessionAttempt` is forced onto `CreateSessionAsync` for such a chain.
-kAsyncQuicSession is disabled by default off Windows and the synchronous path
-calls the socket's synchronous `Connect`, which cannot run a three-round-trip
-handshake.
-
-`QuicChromiumPacketWriter` consults the socket's encapsulation:
-
-  - `GetMaxPacketSize()` subtracts the per-datagram overhead. Without it an MTU
-    probe at 1452 becomes a 1462-byte payload, 1510 bytes on the wire over
-    IPv6, which the first 1500-MTU hop drops and QUIC reads as a path-MTU black
-    hole -- a far louder signal than the missing ECN below.
-  - `SupportsEcn()` becomes the socket's `preserves_ecn`, which is false
-    through a relay. A relay re-originates the inner packet and can carry the
-    ECN codepoint in neither direction, so advertising it would have QUIC mark
-    packets ECT and then fail its own ECN validation. A path that returns no
-    ECN counts is ordinary on the real Internet; an advertise-then-retract
-    pattern is not.
-
-The one existing `CreateSocket` caller in quic_session_pool_test.cc is updated
-to pass a direct session key, which keeps its behaviour identical.
+With a single-hop SOCKS5 proxy, QUIC runs over a SOCKS5 UDP association,
+so HTTP/3 works through the proxy. HTTP, HTTPS, SOCKS4 and multi-proxy
+chains refuse QUIC, since they cannot carry datagrams. HTTP/3 is reached
+through Alt-Svc only, because an HTTPS DNS record lookup for the
+destination would go around the proxy. Every QUIC socket, including
+migration and port probes, goes through the relay, and packet size and
+ECN account for the relay so QUIC sees no path-MTU black hole.
 
 diff --git a/net/http/http_stream_factory_job.cc b/net/http/http_stream_factory_job.cc
 --- a/net/http/http_stream_factory_job.cc

@@ -1,3 +1,11 @@
+Subject: [PATCH] media: software HEVC decoding on Linux x64
+
+The Linux x64 Chrome build compiles FFmpeg's HEVC decoder and parser and
+uses them for HEVC Main and Main 10 video. A page can play H.265 video
+without a hardware decoder, and canPlayType() and MediaCapabilities
+report HEVC as supported. Other HEVC profiles are rejected. Builds whose
+FFmpeg lacks the decoder keep reporting HEVC as unsupported.
+
 diff --git a/media/base/supported_types.cc b/media/base/supported_types.cc
 --- a/media/base/supported_types.cc
 +++ b/media/base/supported_types.cc

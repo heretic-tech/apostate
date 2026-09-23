@@ -1,26 +1,11 @@
-Subject: [PATCH] headless: use full display bounds for fullscreen windows
+Subject: [PATCH] headless: fullscreen windows use the full display bounds
 
-The headless window helper selected the work area for both maximization and
-fullscreen. Select the full display bounds for fullscreen while retaining
-work-area maximization. Match the display using DIP bounds, as required by
-Screen::GetDisplayMatching, before converting its selected rectangle back to
-platform pixels. Do not infer the requested state from window_state_, which
-is updated only after the bounds callback.
-
-Preserve target-display validation, restored pixel bounds, callback ordering
-and weak-pointer guards. This native geometry correction applies equally to
-profiled and unprofiled headless windows; it adds no profile field or switch.
-
-Add geometry tests for normal/fullscreen restoration and maximized/fullscreen
-restoration on two displays at scale factors 1, 1.25 and 2. Existing callback-
-destruction regression tests remain intact. Unit and browser execution are
-required beyond patch applicability; content insets are separate from the
-outer platform-window geometry.
-
-Primary source: Chromium79460ebecaa5625e57a5fb679a735659e73dc687
-ui/ozone/platform/headless/headless_window.cc:75-127,212-243
-ui/display/screen.h:120
-ui/platform_window/platform_window_delegate.h:224-226
+A headless window in fullscreen fills the whole display, and a maximized
+window fills the work area. Otherwise fullscreen stops at the work area,
+and a page in fullscreen sees a window smaller than the screen, which a
+real browser never shows. This applies to every headless window, with or
+without a profile, and adds tests at several scale factors on two
+displays.
 
 diff --git a/ui/ozone/platform/headless/headless_window.cc b/ui/ozone/platform/headless/headless_window.cc
 --- a/ui/ozone/platform/headless/headless_window.cc

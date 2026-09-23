@@ -1,65 +1,14 @@
-Subject: blink: serve the Network Information API from the profile
+Subject: [PATCH] netinfo: network quality from the profile
 
-navigator.connection.effectiveType, rtt, downlink and saveData report the
-host's real link. On the shipped macos-arm64 binary they read 4g / 1.6 Mbps /
-100 ms, which is this machine's actual broadband estimate and has nothing to do
-with the device the profile claims or with the proxy the traffic leaves by. A
-detector does not need to compare that against anything external to use it: the
-four values are stable per network, which is what makes them a fingerprint axis
-in the first place, and a profile that rotates every other surface while
-leaving these fixed hands the detector a constant.
-
-The values are served into NetworkStateNotifier's stored NetworkState rather
-than at the JS accessor. That struct is the single upstream source for four
-separate emitters: NetworkInformation's four attributes, the deprecated rtt,
-downlink and ect client hints that FrameFetchContext sends when a site opts in
-with Accept-CH, the Save-Data request header, and the prefers-reduced-data
-media feature in MediaValues. Overriding NetworkInformation alone would leave
-the request headers describing the host's link next to a JS answer describing
-someone else's, which is a worse position than not overriding anything.
-
-The state is written, not the emitted value. NetworkStateNotifier::RoundRtt
-multiplies the round trip by a per-host salted 0.90 to 1.10, rounds to the
-nearest 50 ms and caps at 3 s; RoundMbps does the same with 50 kbps buckets and
-a 10 Mbps cap. Those are the numbers in this build, not the 25 ms and 25 kbps
-the Network Information spec text describes. Feeding the estimate into that
-path rather than bypassing it means the observable value is produced by
-Chromium's own arithmetic, so its granularity cannot be got wrong by a profile
-and the per-origin noise a real Chrome applies is still applied.
-
-Two halves of the profile's network section pin each other. HttpRttBandFor
-reads the inclusive round-trip band for a named effective connection type
-straight off net::kHttpRttEffectiveConnectionTypeThresholds, the same table
-SetNetworkConnectionInfoOverride already uses, and the round trip is clamped
-into it: 4g is under 272 ms, 3g is 272 to 1419, 2g is 1420 to 2009, slow-2g is
-2010 and above. A round trip supplied without a type instead selects the type
-Chromium would have derived from it. Downlink is floored at the claimed type's
-own typical throughput from kTypicalDownlinkMbpsEffectiveConnectionType, so 4g
-cannot ship a 2G figure. A profile written by hand with 4g and a 700 ms round
-trip therefore presents 4g at 250 ms, not a contradiction.
-
-ApplyProfileNetworkQuality runs on the stored state at construction and again
-at the end of SetNetworkQuality and SetSaveDataEnabled. Construction matters
-because a renderer that never receives a network-quality update would otherwise
-keep the defaults, and the defaults are observable: an uninitialised state
-reports 4g with rtt 0 and downlink 10. Re-applying after the setters matters
-because a page that installs a change listener stops reading the accessors and
-starts reading the values ConnectionChange delivers, which come from the same
-struct. Both readers are covered by writing the struct once.
-
-The DevTools and web-test override path is untouched: has_override_ still wins
-over the stored state, so network emulation keeps working and keeps reporting
-what the operator asked for. transport_rtt is also left alone. Nothing outside
-this class's own unit tests reads it in this build, so serving it would be a
-change with no observable to verify against.
-
-What remains open: the served link is a property of the composed device, not a
-measurement of the proxy the traffic actually leaves by. A residential exit in
-another country has a round trip this patch does not know, and closing that gap
-needs a measurement the browser does not currently take. The section is also
-absent from a profile unless the dispersion catalogue supplies it, and an
-absent section still means host inheritance, so the surface is only fixed for
-launches whose catalogue carries a network option set.
+navigator.connection effectiveType, rtt, downlink and saveData come from
+the profile's network section, as do the rtt, downlink and ect client
+hints, the Save-Data header and prefers-reduced-data. The values go into
+Blink's stored network state, so Chromium's own rounding and per-host
+noise apply and the headers match JavaScript. The round trip is clamped
+to the band for the claimed connection type, so a profile cannot pair 4g
+with a 2G latency. DevTools network emulation overrides the profile as
+usual, and a profile without a network section leaves the host's link in
+place.
 
 --- a/base/apostate/profile.h
 +++ b/base/apostate/profile.h

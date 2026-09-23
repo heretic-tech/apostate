@@ -1,95 +1,12 @@
-Subject: compose: test the rule 0102 inverted, instead of the one it replaced
+Subject: [PATCH] tests: compose tests follow the platform-selected GPU
 
-Four ApostateComposeTest cases fail against the applied series. The compile gate
-cannot see them, because it compiles a translation unit without linking or
-running one, so these were found by running base_unittests. Three are 0102's
-blast radius and one is 0101's.
+The compositor unit tests assert that the claimed platform picks the GPU
+cluster and that the host's graphics backend does not. A new test checks
+across 24 seeds that the SwiftShader GPU is never drawn, and that
+--fingerprint-anchor can still select it. The fixture gains Windows and
+Linux GPUs so each platform has one to draw. A test that sets
+screen.left is removed, because the profile schema rejects that key.
 
-TheGpuClusterDoesNotFollowThePersona and
-AnAnchorIsRequiredToBeServableByTheHostBackend assert, by name, the rule 0102
-reversed: that --fingerprint-platform leaves the GPU cluster alone, and that an
-anchor must match the host's graphics backend or composition declines.
-docs/METHODOLOGY.md §9 already notes that patch commentary written against that
-rule is still in the tree. These are the tests written against it, which is the
-same problem in a stronger form: prose that contradicts the code is confusing,
-a test that contradicts the code is a failing gate.
-
-Both are rewritten rather than deleted, because the invariant they pin is still
-wanted -- it inverted, it did not disappear. Deleting them would leave 0102's
-central behaviour untested in the only place it can be tested without a browser.
-
-  TheGpuClusterFollowsThePersona asserts a windows persona on a macOS host with
-  a live Metal backend draws the Windows/D3D11 anchor, that the D3D11 cluster
-  arrives with it rather than the id alone, that the §4 mismatch limitation does
-  NOT fire because a drawn anchor always matches the persona, and that a macos
-  persona on the same host draws the Metal anchor -- so the anchor is a function
-  of the persona and not of the host or the seed.
-
-  AnAnchorIsNotRequiredToMatchTheHostBackend asserts the D3D11 cluster is served
-  over Metal, that it is served on a host whose backend is the software
-  rasteriser -- the case that previously selected the software anchor -- and that
-  the cross-backend limitation is still recorded, because the backend continues
-  to decide which extension names the host's GL stack can back.
-
-A third case is added, because 0102's most important rule had no test at all.
-TheSoftwareAnchorIsNeverDrawn pins the exclusion across twenty-four seeds rather
-than one, since it is a property of the candidate set and a single seed could
-pass by luck, and it pins that --fingerprint-anchor still serves the software
-anchor when it names it: un-defaulted, not removed. The fixture weights that
-anchor 1000 against the others' 1, so a draw that considered it at all would
-pick it.
-
-WebGpuComesFromTheResolvedMemberNotTheAnchor was a stale fixture, not a stale
-assertion, and its assertions are kept verbatim. The two members it needs -- one
-that measured a WebGPU adapter and one that measured none -- hang off the
-macOS/Metal anchor, and RequestFor() composes a windows persona, so after 0102
-that anchor is no longer resolved and the gpu_identity axis is skipped
-altogether. The request now names the macos persona. The behaviour it describes
-is still correct and is the structural-coherence property worth keeping
-prominent: WebGPU comes from the resolved member, which is the same member the
-GL cluster comes from, so the two cannot disagree.
-
-WorkAreaOriginFollowsThePanelOrigin is deleted. It sets screen.left=1920 and
-expects avail_left==1920, but config/profile.schema.json declares no screen.left
-and sets additionalProperties false under screen, so no admissible profile can
-carry it -- which is exactly why 0101 removed the lookup. A test asserting an
-input the schema rejects cannot pass, and re-pinning it to zero would pin the
-behaviour of an impossible input instead. The coverage is retained: the sibling
-case WorkAreaIsDerivedFromThePanelAndTheInsets exercises the same derivation on
-an admissible input and passes.
-
-The fixture gains two anchors, because the persona is now what selects among
-them and one macOS anchor cannot serve three personas. Within a platform the
-catalogue holds exactly one backend -- which is the property that let 0102 drop
-the host-backend filter -- so each persona's candidate set here is a single
-anchor and every draw below stays deterministic. RequestFor() also states its
-persona explicitly with a comment, so a later change to DefaultPersonaForHost()
-cannot silently move every test's anchor.
-
-One test was encoding the old rule without naming it, which is why the sweep
-mattered. AddingAnAxisDoesNotShiftAnotherAxisChoice compares
-ChosenId(before, "anchor") with ChosenId(after, "anchor"), and between 0102 and
-this patch both sides were "(absent)": the windows persona had no anchor to
-resolve, so the line compared two absences and passed while testing nothing. The
-new windows anchor restores it, and an EXPECT_NE against "(absent)" now stops it
-going vacuous again quietly -- the same guard the case already had on its new
-axis.
-
-dispersion_table.h's comment on Anchor::backend said the field is "what host
-servability is decided on -- not the platform persona", which is the withdrawn
-rule stated in a header. Corrected to say what the field is still read for: the
-"swiftshader" value that names the one anchor the draw must never choose, and
-the limitation recording a cluster served over a backend that did not produce
-it.
-
-Run, not inferred. Before: base_unittests --gtest_filter='ApostateCompose*'
-reported 26 tests with 4 failures, at compose_unittest.cc:562, :578, :594 and
-:794. After: --gtest_filter='Apostate*' reports 33 tests, SUCCESS, all passed,
-which is the compose suite plus the host-capability suite. The count is
-unchanged at 26 for the compose suite because two were renamed, one added and
-one deleted.
-
-Ledger: webgl.unmasked-renderer, gpu.angle-backend, screen.availLeft.
 --- a/base/apostate/compose_unittest.cc
 +++ b/base/apostate/compose_unittest.cc
 @@ -171,11 +171,33 @@

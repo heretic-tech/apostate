@@ -1,184 +1,15 @@
-Subject: [PATCH] base: the fingerprint compositor
+Subject: [PATCH] compose: build the device profile inside the browser
 
-The deterministic function (seed, tables, host capability, requested platform)
--> profile, in C++ in the browser process, as the only implementation.
-
-It has to be in the binary. The bare binary must produce a fingerprint with no
-arguments, and until now the project had three separate resolvers -- 
-scripts/profile_resolver.py, python/apostate/resolver.py and npm/src/index.ts --
-which measurably disagreed: given no seed they picked, respectively, the seed
-"0", the string "platform-default", and the lexicographically first family.
-Three sources of truth for one deterministic function, drifting silently. The
-packages keep doing what only they can do (CLI ergonomics, schema validation,
-launch orchestration, GeoIP) and stop composing.
-
-The derivation is FINGERPRINTS.md §5 verbatim:
-
-  root = SHA-256("apostate/fp/v1" 0x00 profile_schema_version 0x00
-                 catalogue_version 0x00 chromium_version 0x00
-                 fingerprint_platform 0x00 seed)
-  draw(label, i) = SHA-256(root 0x00 label 0x00 uint32_be(i))
-
-Every axis draws from a substream keyed by its own label, which is the property
-that lets the catalogue grow: adding an axis, or changing one axis's option
-list, cannot shift any other axis's choice, so an old seed keeps producing the
-same profile for everything that did not change. Weighted selection takes the
-high 64 bits of the draw and picks by cumulative weight at
-(u64 * total_weight) >> 64 -- no modulo, no rejection loop, no floating point.
-ScaleToRange computes that 128-bit high half from 32-bit halves because C++ has
-no portable 128-bit multiply.
-
-SHA-256 comes from BoringSSL, not //crypto: base/ cannot depend on //crypto
-because //crypto depends on //base, and base/hash carries only SHA-1 and the
-non-cryptographic hashes. base/DEPS already allows
-third_party/boringssl/src/include and base/hash/sha1.cc takes the same route.
-
-Axes resolve in dependency order, and a dependent axis draws from an option set
-that is a function of its parents' resolved values, so there is no rejection
-sampling and no re-draw: every profile is coherent by construction rather than
-by validation. Option-set matching is exact and total; a miss is a defect in
-the compiled tables, not a runtime condition, so it fails loudly instead of
-falling back to something incoherent. The generator rejects every such defect
-at build time, so those paths are unreachable in a well-generated binary.
-
-Servability selects; it does not correct. The host clamp filters the option
-list before the draw, so the drawn index always lands on something the host can
-serve and the realised distribution is the table's distribution over what is
-servable.
-
-That distinction is the point, and the first version of this patch got it
-wrong. It filtered before the draw and then also clamped the drawn value down
-to the host's own figure as a backstop. A clamp publishes the host: on a
-fourteen-core machine every profile that drew sixteen reported exactly
-fourteen, so the host's true core count becomes the single most likely value
-the binary ever emits and two launches recover the hardware. The same for
-installed memory. So the backstop is now a servability *predicate* rather than
-a substitution -- it uses the same reduction, but a claim the host cannot serve
-leaves that surface host-inherited and is reported, instead of being rewritten
-to the host's number. It exists because a future table could grow a bucket that
-states no requirement for the field it sets, which the pre-draw filter cannot
-see, and a claim above host capability is falsifiable by a parallel-throughput
-probe or an allocation loop while a claim below it is not.
-
-When a capacity axis has nothing servable the surface is left host-inherited
-too, rather than falling back to the table's lowest option -- on a host below
-every bucket the table knows, the lowest option is a claim *above* host
-capability, which is the one thing servability exists to prevent. Host
-inheritance is servable by definition, because it is the host's own value, and
-it is also exactly what an unspoofed Chrome reports, so it is not itself a
-signal.
-
---fingerprint-platform does not move the GPU cluster. Across graphics backends
-nothing transfers: the same NVIDIA silicon produces a different capability
-digest through D3D11 than through Vulkan, and Apple Metal differs from both. So
-the anchor is drawn from anchors the host can actually serve, and a
-persona/cluster mismatch is reported as a limitation rather than hidden. That
-mismatch report is the difference between this and the retired catalogue, whose
-fourteen families were identity-string swaps over one Mac's capability tables.
-
-The host graphics backend is the platform default unless --use-angle names one.
-A real backend probe needs the GPU process, and the GPU process is a child:
-A3 requires the profile to be fully materialised before the first renderer
-starts, so no child exists yet when this runs. The explain report says the
-backend was inferred rather than implying a measurement happened.
-
-Seed lifetime is the launch, not the user-data directory, and there is no seed
-file. A bare launch draws 32 bytes of OS entropy and composes a fresh coherent
-device; the next bare launch composes a different one. That is what someone who
-runs this binary with no arguments expects, and it is the behaviour the product
-is measured against. An identity that has to stay the same across launches is
-asked for by name, with --fingerprint=<seed>, and that is strictly better than
-a file: it reproduces on another machine, in a container and in a colleague's
-shell, none of which a file does. --fingerprint-explain prints the exact
-argument that reproduces the launch it is reporting on.
-
-"A fresh coherent device" is bounded by what the catalogue can serve on this
-host, and that is not always everything. A host with no usable GPU matches no
-anchor, and until patch 0093 that meant no composition at all rather than a
-composition whose GPU cluster is inherited. The guarantee a bare launch makes
-is a fresh identity for every surface this host can serve, not that every
-surface is served; the explain report names the ones that are not.
-
-Persistence is removed rather than repaired. The seed file made the default
-identity depend on whether a directory happened to exist -- random under a
-temporary user-data-dir, sticky under a named one -- which is a consequence of
-switch-resolution ordering and not a decision anyone made. It also wrote the
-whole identity to disk, where a copied profile, a backup or a synced folder
-carries it, and where it outlives the clear-everything a user believes clears
-their identity. The returning-visitor argument for persistence is real, and
---fingerprint=<seed> serves it without state.
-
---fingerprint=off, and false, 0, disable and disabled, are accepted here as
-spellings of --fingerprint=host, case-insensitively. `host` stays the canonical
-one. They are in this patch rather than in the switch-surface patch because
-this is the file that decides what a --fingerprint value means, and because
-composing an identity from the SHA-256 of the word "off" is the wrong answer to
---fingerprint=off -- a user carrying that flag across from another tool would
-otherwise get a silently different device and no error, which is worse than
-either pass-through or a refusal.
-
-An unusable --fingerprint now refuses the launch rather than inheriting the
-host. Empty, longer than 512 bytes, or not printable ASCII used to log a line
-and fall through to the host, which means a typo presented the operator's real
-machine while the browser came up looking fine. That is the failure mode this
-whole codebase exists to prevent, so it exits non-zero with the reason and the
-two ways to fix it.
-
-ResolveSeed is therefore pure: no filesystem, no globals, nothing to undo if
-the process turns out to be a second instance and exits immediately. The only
-remaining use of the user data directory is asking whether a font family was
-provisioned, and the resolved directory is passed in by the caller. base/
-cannot compute Chrome's default one, and the `user-data-dir` switch is present
-only when the launch passed it: on POSIX ChromeMainDelegate appends that switch
-back onto the command line only when the requested directory was invalid, so
-reading it from base/ came up empty on an ordinary launch. The earlier comment
-here claiming otherwise was wrong, and that error is precisely why a bare
-launch was already random -- by accident rather than by intent.
-
-The tables are compiled in by a GN action, not read from disk: FINGERPRINTS.md
-§10. A data directory beside the executable is one more thing to lose, to
-mismatch against the binary, and to diverge per install. The generator is the
-repository's scripts/generate-dispersion-tables.py and the in-tree script is a
-shim that execs it, so there is one implementation of the table format rather
-than two. The SHA-256 of the generator's inputs is compiled in beside the
-tables so --fingerprint-explain can answer whether a binary and a profile came
-from the same catalogue.
-
---fingerprint-explain writes the composition report to stdout and exits: per
-surface, the resolved value, the owning layer, the evidence class and any
-limitation. It is the honest answer to "what does this profile actually claim,
-and what can this host actually serve". It writes to stdout and never to a
-page-visible API, and the switches this adds are not readable by web content,
-so nothing here is a new observable.
-
-Two entry points. ComposeProfileForCurrentProcess returns the composed profile
-already base64-encoded, so the loader's existing parser takes it unchanged.
-InstallComposedProfile composes and puts the result on this process's own
-command line, which is what patch 0005 copies to every child; it is idempotent,
-so a launch that already carries --apostate-profile is left alone. Patch 0083
-calls it from the loader and patch 0084 calls it from a fixed point in Chrome's
-startup.
-
-The ordering claim this patch used to make was half wrong and is corrected
-here. It said seed resolution "must be called exactly once, in the browser
-process, before any child is launched" and that the entry point "enforces both
-conditions". The process condition was enforced; the ordering was not.
-Composition ran lazily, on whichever subsystem first asked the loader for a
-field, and nothing guaranteed that preceded a renderer or the Linux zygote
-fork. The process condition is stated here as the only thing this file
-enforces, and patch 0084 supplies the ordering.
-
-Refusals go to stderr, not to the log. A launch that names an identity this
-binary will not present -- an unusable --fingerprint here, and from patch 0085
-a per-field override the host cannot serve -- exits non-zero with the reason
-instead of quietly inheriting the host. Being shown your own machine while
-believing a field was spoofed is the worst outcome this code can produce, and
-it is indistinguishable from success until a site has already clustered the
-real device. The report writer uses fprintf rather than
-base::WriteFileDescriptor, which is declared only on POSIX and Fuchsia while
-base/BUILD.gn compiles this file on Windows too.
-
-Compile-unverified: this cannot be built in this session.
+The browser composes the device profile itself from a seed, the compiled
+option tables and what the host can serve. Each value is drawn by
+SHA-256 from its own labelled substream, so adding an option to the
+tables does not change any other value an existing seed produces.
+Options the host cannot back, such as more cores or memory than it has,
+are filtered out before the draw, and a value with no option the host
+can back is left to the host. A bare launch draws a fresh seed each
+time, and --fingerprint=<seed> reproduces one device. The GPU cluster
+comes from those the host's graphics backend can serve, and
+--fingerprint-explain prints how it chose each value.
 
 diff --git a/base/BUILD.gn b/base/BUILD.gn
 index 87e4cdc..f29dfe9 100644
@@ -2228,7 +2059,7 @@ index 0000000..b21f617
 +GENERATOR = "scripts/generate-dispersion-tables.py"
 +# Files that together identify the Apostate repository rather than some other
 +# directory that happens to have a scripts/ in it.
-+MARKERS = (GENERATOR, "docs/FINGERPRINTS.md", "build/CHROMIUM_VERSION")
++MARKERS = (GENERATOR, "resources/profiles/catalogue.json", "build/CHROMIUM_VERSION")
 +
 +
 +def looks_like_repository(candidate: pathlib.Path) -> bool:

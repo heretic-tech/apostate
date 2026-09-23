@@ -1,0 +1,96 @@
+Subject: [PATCH] fonts: system-ui and the default font follow the claimed platform
+
+system-ui resolves to Segoe UI for a profile claiming Windows and to
+DejaVu Sans for one claiming Linux, the faces real Chrome uses there.
+Otherwise the host's UI font shows through and text measures a different
+width than on the claimed platform. Text with no font-family uses the
+profile's serif font, because Chrome gives both the same face on every
+desktop platform and FingerprintJS compares their widths. A macOS
+profile keeps the build's own system-ui, because macOS resolves it to a
+face no family name reaches.
+
+diff --git a/third_party/blink/renderer/platform/fonts/font_cache.cc b/third_party/blink/renderer/platform/fonts/font_cache.cc
+--- a/third_party/blink/renderer/platform/fonts/font_cache.cc
++++ b/third_party/blink/renderer/platform/fonts/font_cache.cc
+@@ -71,6 +71,7 @@
+ #include "third_party/blink/renderer/platform/instrumentation/tracing/web_process_memory_dump.h"
+ #include "third_party/blink/renderer/platform/json/json_parser.h"
+ #include "third_party/blink/renderer/platform/json/json_values.h"
++#include "third_party/blink/renderer/platform/wtf/std_lib_extras.h"
+ #include "third_party/blink/renderer/platform/wtf/text/atomic_string_hash.h"
+ #include "third_party/blink/renderer/platform/wtf/text/code_point_iterator.h"
+ #include "third_party/blink/renderer/platform/wtf/text/string_hash.h"
+@@ -118,6 +119,31 @@
+   return false;
+ }
+ 
++// Apostate: the family `system-ui` resolves to on the platform the profile
++// claims, or empty to keep this build's own answer. Windows Chrome takes it
++// from the shell's menu font, Segoe UI, and Linux Chrome from the desktop
++// font, DejaVu Sans on every Linux machine we captured. macOS resolves it
++// through CoreText to a face no family name reaches, so a macOS profile keeps
++// the build's own answer.
++AtomicString PersonaSystemUiFamilyName() {
++  const base::apostate::Profile* profile = base::apostate::Profile::Get();
++  if (profile && profile->ua_platform()) {
++    if (*profile->ua_platform() == "Windows") {
++      return AtomicString("Segoe UI");
++    }
++    if (*profile->ua_platform() == "Linux") {
++      return AtomicString("DejaVu Sans");
++    }
++  }
++  return AtomicString();
++}
++
++const AtomicString& PersonaSystemUiFamily() {
++  DEFINE_THREAD_SAFE_STATIC_LOCAL(const AtomicString, family,
++                                  (PersonaSystemUiFamilyName()));
++  return family;
++}
++
+ }  // namespace
+ 
+ // static
+@@ -246,12 +272,17 @@
+     AlternateFontName alternate_font_name) {
+   TRACE_EVENT0("fonts", "FontCache::GetFontPlatformData");
+ 
+-#if !BUILDFLAG(IS_MAC)
+   if (creation_params.CreationType() == kCreateFontByFamily &&
+       creation_params.Family() == font_family_names::kSystemUi) {
++    if (const AtomicString& family = PersonaSystemUiFamily(); !family.empty()) {
++      return GetFontPlatformData(font_description,
++                                 FontFaceCreationParams(family),
++                                 AlternateFontName::kNoAlternate);
++    }
++#if !BUILDFLAG(IS_MAC)
+     return SystemFontPlatformData(font_description);
+-  }
+ #endif
++  }
+ 
+   return font_platform_data_cache_.GetOrCreateFontPlatformData(
+       this, font_description, creation_params, alternate_font_name);
+diff --git a/chrome/browser/chrome_content_browser_client.cc b/chrome/browser/chrome_content_browser_client.cc
+--- a/chrome/browser/chrome_content_browser_client.cc
++++ b/chrome/browser/chrome_content_browser_client.cc
+@@ -4714,6 +4714,18 @@
+       else if (generic == "math")
+         map = &web_prefs->math_font_family_map;
+       (*map)[blink::web_pref::kCommonScript] = base::UTF8ToUTF16(family);
++    }
++
++    // Text with no font-family uses the standard font, and every desktop
++    // platform Chrome ships defaults it to the same face as serif: Times New
++    // Roman on Windows and Linux, Times on macOS (IDS_STANDARD_FONT_FAMILY and
++    // IDS_SERIF_FONT_FAMILY in locale_settings_*.grd). So it follows the
++    // profile's serif, and a Windows profile on a Mac build no longer gets the
++    // Mac's Times.
++    const auto serif = device->generic_font_family_map().find("serif");
++    if (serif != device->generic_font_family_map().end()) {
++      web_prefs->standard_font_family_map[blink::web_pref::kCommonScript] =
++          base::UTF8ToUTF16(serif->second);
+     }
+   }
+ 

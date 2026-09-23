@@ -1,4 +1,12 @@
-Subject: [PATCH] audio: reproduce Mac ARM complex-product arithmetic by profile
+Subject: [PATCH] audio: Mac ARM FFT complex multiply from the profile
+
+Under a macOS ARM profile on a non-Mac host, the complex multiply in Web
+Audio's FFT rounds the first product and fuses the second into it, as a
+Mac ARM machine does. The host's vector math rounds both products
+separately, so convolution and other FFT-based output differs from a Mac
+in its low bits. NaN results follow the Mac ARM rules too. x86 hosts
+with AVX and FMA run the same arithmetic with hardware fused
+multiply-add, and other profiles keep the existing vector code.
 
 diff --git a/third_party/blink/renderer/platform/audio/fft_frame.cc b/third_party/blink/renderer/platform/audio/fft_frame.cc
 --- a/third_party/blink/renderer/platform/audio/fft_frame.cc

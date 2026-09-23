@@ -1,37 +1,13 @@
-Subject: [PATCH] css: system fonts from the profile
+Subject: [PATCH] css: system font keywords from the profile
 
-The six CSS system font keywords resolve through LayoutThemeFontProvider, and
-Chromium picks the provider at compile time. Windows builds get
-layout_theme_font_provider_win.cc, which routes small-caption, menu and
-status-bar to the shell's non-client metrics; every platform without a native
-provider — Linux included — gets the default one, which answers all six with
-Arial at the default size and ignores the keyword entirely.
+The CSS system font keywords such as menu, small-caption and status-bar
+resolve to the family and size in the profile's theme.system_fonts
+table. On a Linux build all six keywords otherwise give Arial at the
+default size, because the Windows handling is compiled only into Windows
+builds. A Windows profile reports Segoe UI at 12px for menu,
+small-caption and status-bar, as a real Windows machine does. A keyword
+changes only when the profile gives both its family and its size.
 
-So a Linux build claiming Windows cannot reach the right answer by any runtime
-path. The code that would have produced it is not in the binary. This is the
-compile-time platform gate in its plainest form.
-
-Measured against the reference Windows machine, the split is exactly the three
-keywords Chromium's Windows provider special-cases: menu, small-caption and
-status-bar report "Segoe UI" at 12px, while caption, icon and message-box report
-Arial at 16px — the same values our Linux default already produces for those
-three, which is why only three of the six were failing V3.
-
-The values behind the Windows three come from SPI_GETNONCLIENTMETRICS. That is
-the user's Windows theme rather than anything derivable from the platform name,
-so they are replayed from the capture rather than computed, and the profile
-carries all six so a macOS profile can use the same mechanism without another
-per-platform table.
-
-Family and size are all-or-nothing per keyword. A family without a size resolves
-at the host's default size, which is the mismatch this exists to remove.
-
-The AtomicStrings are built once through DEFINE_THREAD_SAFE_STATIC_LOCAL because
-SystemFontFamily returns a reference and the storage has to outlive every
-caller; the profile is immutable for the life of the process, so building the
-table once is sound.
-
-Ledger: css.system-fonts.
 diff --git a/base/apostate/profile.h b/base/apostate/profile.h
 index 35ee265..7760755 100644
 --- a/base/apostate/profile.h

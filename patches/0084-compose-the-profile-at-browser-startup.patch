@@ -1,58 +1,13 @@
-Subject: chrome: compose the device profile at a fixed point in browser startup
+Subject: [PATCH] chrome: compose the profile early in browser startup
 
-Composition ran lazily, on the profile loader's first use. That made the
-identity a function of whichever subsystem happened to ask for a profile field
-first, which is not a decision anybody made, and patch 0081 claimed an ordering
-guarantee it did not have: seed resolution "must be called exactly once, in the
-browser process, before any child is launched", enforced by the entry point.
-The process half was enforced. The ordering half was not enforced by anything.
-
-Two consequences, both real rather than theoretical.
-
-On Linux, content forks the zygote from ContentMainRunnerImpl::Initialize,
-which runs after PreSandboxStartup and before PostEarlyInitialization. The
-zygote's command line is built by LaunchZygoteHelper, which calls
-AppendExtraCommandLineSwitches, which is where patch 0005 copies
---apostate-profile from the browser's command line. A profile installed later
-than the fork never reaches the zygote at all. Worse, Profile::Get caches its
-answer in a function-local static: a zygote that reads a profile field before
-forking caches null, and every renderer forked from it inherits that null and
-reports the host's values. navigator.hardwareConcurrency comes from
-SysInfo::NumberOfProcessors, which consults the profile, so this is a total
-loss of spoofing on the platform this product is most often deployed on.
-
-On every platform, the browser process sizes its own pools from SysInfo. A
-profile installed after that point makes the browser and its renderers disagree
-about the same machine, which is the same class of contradiction patch 0005
-exists to prevent: the Device-Memory request header a server receives against
-the navigator.deviceMemory JavaScript reads.
-
-So the call goes here, at the end of the user-data-dir block in
-ChromeMainDelegate::PreSandboxStartup, in the browser process only. This is the
-earliest point that satisfies both conditions the compositor needs.
-InitializeUserDataDir has just run, so chrome::DIR_USER_DATA is resolved.
-Reading the user-data-dir switch instead would not do: on POSIX
-InitializeUserDataDir appends that switch back onto the command line only when
-the requested directory was invalid, so on an ordinary launch it is absent and
-base/ cannot compute Chrome's default, which is branding-dependent and lives in
-chrome/common/chrome_paths_*.cc. And no child process of any type exists yet:
-content calls PreSandboxStartup before SandboxInitialized, before the zygote
-fork, and long before BrowserMainLoop creates a RenderProcessHost.
-BasicStartupComplete is earlier still, but the user data directory is not
-resolved there, and the directory changes which optional font packs are offered
-and therefore which profile a seed produces.
-
-The ordering is now a property of the code rather than a comment. The switch is
-on the browser's command line before any child command line is built, so there
-is no process type to forget, and Profile::Get's first call parses a switch
-that is already there rather than deciding anything.
-
-Nothing here is page-visible. The only observable change is that the identity a
-page reads is now the same one on every platform and in every process, which is
-strictly fewer contradictions than before. This adds no switch of its own.
-Passing --fingerprint=host still composes nothing, and a second instance that
-loses the process singleton has still written nothing to disk, because seed
-resolution no longer touches the filesystem at all.
+The browser composes its profile at the end of the user-data-dir step in
+ChromeMainDelegate::PreSandboxStartup, before the zygote fork and before
+any child process exists. Every child command line then carries the
+profile switch. On Linux, a later composition would miss the zygote, and
+every renderer forked from it would report host values such as
+navigator.hardwareConcurrency. The fixed point also keeps the browser
+and its renderers in agreement, for example the Device-Memory header and
+navigator.deviceMemory. Nothing is written to disk.
 
 --- a/chrome/app/chrome_main_delegate.cc
 +++ b/chrome/app/chrome_main_delegate.cc

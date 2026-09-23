@@ -1,0 +1,166 @@
+Subject: [PATCH] webgpu: serve the claimed adapter on a host with no GPU
+
+On a Linux machine without a GPU, navigator.gpu.requestAdapter() returns
+the claimed adapter through the bundled SwiftShader. Chrome on Linux
+reaches a real GPU for WebGPU only through Vulkan sharing with GL, so
+SwiftShader stands in whenever that is off, including when WebGL runs on
+Mesa's llvmpipe. A profile that claims an adapter gets one on any
+platform, and one that claims none gets none.
+
+diff --git a/gpu/command_buffer/service/profile_software_webgpu_policy.h b/gpu/command_buffer/service/profile_software_webgpu_policy.h
+--- a/gpu/command_buffer/service/profile_software_webgpu_policy.h
++++ b/gpu/command_buffer/service/profile_software_webgpu_policy.h
+@@ -3,7 +3,6 @@
+ #ifndef GPU_COMMAND_BUFFER_SERVICE_PROFILE_SOFTWARE_WEBGPU_POLICY_H_
+ #define GPU_COMMAND_BUFFER_SERVICE_PROFILE_SOFTWARE_WEBGPU_POLICY_H_
+ 
+-#include <string_view>
+ #include "base/apostate/profile.h"
+ #include "gpu/config/gpu_preferences.h"
+ #include "gpu/config/webgpu_blocklist_impl.h"
+@@ -11,8 +10,6 @@
+ 
+ namespace gpu::webgpu {
+ struct ProfileSoftwareWebGPUContext {
+-  std::string_view platform;
+-  bool angle_is_swiftshader = false;
+   bool shared_context_is_gl = false;
+   bool safe = false;
+   bool has_dawn_overrides = false;
+@@ -30,6 +27,14 @@
+   // Defaults false so that a caller which does not consider the question gets
+   // stock behaviour rather than an adapter by omission.
+   bool profile_declares_webgpu_adapter = false;
++
++  // Whether this GPU process has a route to a hardware WebGPU adapter. On
++  // Linux beside a GL compositor that route is Vulkan-via-GL interop and
++  // nothing else: without it the stock search looks only at the Null backend
++  // and the blocklisted software fallback, so the page gets null whatever
++  // hardware the machine has. Defaults true so that a caller which does not
++  // consider the question keeps the stock search.
++  bool hardware_webgpu_path = true;
+ };
+ 
+ // True when `profile` describes a WebGPU adapter.
+@@ -46,10 +51,12 @@
+          !profile.webgpu_features().empty() || !profile.webgpu_limits().empty();
+ }
+ 
++// True when the bundled SwiftShader should stand in for the claimed adapter:
++// the profile claims one, the host has no hardware route to serve it, and the
++// launch asked for nothing that changes how WebGPU is set up.
+ inline bool CanUseProfileSoftwareWebGPU(const ProfileSoftwareWebGPUContext& context) {
+-  return (context.platform == "Windows" || context.platform == "macOS") &&
+-         context.angle_is_swiftshader && context.shared_context_is_gl && context.safe &&
+-         context.profile_declares_webgpu_adapter && !context.has_dawn_overrides &&
++  return context.profile_declares_webgpu_adapter && !context.hardware_webgpu_path &&
++         context.shared_context_is_gl && context.safe && !context.has_dawn_overrides &&
+          !context.force_compat &&
+          (context.requested_adapter == WebGPUAdapterName::kDefault ||
+           context.requested_adapter == WebGPUAdapterName::kSwiftShader);
+diff --git a/gpu/command_buffer/service/webgpu_decoder_impl.cc b/gpu/command_buffer/service/webgpu_decoder_impl.cc
+--- a/gpu/command_buffer/service/webgpu_decoder_impl.cc
++++ b/gpu/command_buffer/service/webgpu_decoder_impl.cc
+@@ -1152,10 +1152,8 @@
+ 
+   dawn::native::DawnInstanceDescriptor provider_descriptor;
+ #if BUILDFLAG(IS_LINUX)
+-  if (const auto* profile = base::apostate::Profile::Get(); profile && profile->ua_platform()) {
++  if (const auto* profile = base::apostate::Profile::Get()) {
+     profile_software_webgpu_ = CanUseProfileSoftwareWebGPU({
+-        .platform = *profile->ua_platform(),
+-        .angle_is_swiftshader = gl::GetANGLEImplementation() == gl::ANGLEImplementation::kSwiftShader,
+         .shared_context_is_gl = shared_context_state_ && shared_context_state_->GrContextIsGL(),
+         .safe = safety_level_ == SafetyLevel::kSafe,
+         .has_dawn_overrides = !require_enabled_toggles_.empty() ||
+@@ -1163,6 +1161,7 @@
+         .force_compat = force_webgpu_compat_,
+         .requested_adapter = use_webgpu_adapter_,
+         .profile_declares_webgpu_adapter = ProfileDeclaresWebGPUAdapter(*profile),
++        .hardware_webgpu_path = webgpu_on_vk_gl_interop_,
+     });
+   }
+ #endif
+diff --git a/gpu/command_buffer/service/shared_image/gl_texture_image_backing_factory.cc b/gpu/command_buffer/service/shared_image/gl_texture_image_backing_factory.cc
+--- a/gpu/command_buffer/service/shared_image/gl_texture_image_backing_factory.cc
++++ b/gpu/command_buffer/service/shared_image/gl_texture_image_backing_factory.cc
+@@ -58,14 +58,10 @@
+         (void)gpu_preferences;
+ #if BUILDFLAG(IS_LINUX) && BUILDFLAG(USE_DAWN)
+         const auto* profile = base::apostate::Profile::Get();
+-        if (!profile || !profile->ua_platform() ||
+-            gpu_preferences.enable_webgpu_on_vk_via_gl_interop) {
++        if (!profile) {
+           return false;
+         }
+         return webgpu::CanUseProfileSoftwareWebGPU({
+-            .platform = *profile->ua_platform(),
+-            .angle_is_swiftshader =
+-                gl::GetANGLEImplementation() == gl::ANGLEImplementation::kSwiftShader,
+             // IsSupported checks the actual requesting Skia context below.
+             .shared_context_is_gl = true,
+             .safe = !gpu_preferences.enable_unsafe_webgpu &&
+@@ -80,6 +76,8 @@
+             .requested_adapter = gpu_preferences.use_webgpu_adapter,
+             .profile_declares_webgpu_adapter =
+                 webgpu::ProfileDeclaresWebGPUAdapter(*profile),
++            .hardware_webgpu_path =
++                gpu_preferences.enable_webgpu_on_vk_via_gl_interop,
+         });
+ #else
+         return false;
+diff --git a/gpu/config/webgpu_blocklist_unittest.cc b/gpu/config/webgpu_blocklist_unittest.cc
+--- a/gpu/config/webgpu_blocklist_unittest.cc
++++ b/gpu/config/webgpu_blocklist_unittest.cc
+@@ -207,32 +207,25 @@
+ #endif  // BUILDFLAG(IS_ANDROID) else
+ 
+ #if BUILDFLAG(IS_LINUX)
+-TEST(ProfileSoftwareWebGPUPolicyTest, RequiresProfileAndActualSoftwareContext) {
++// The stand-in replaces only a search that could never find hardware. A GL
++// compositor with Vulkan interop still reaches a real adapter, and the default
++// assumes one so that a caller which does not say keeps the stock search.
++TEST(ProfileSoftwareWebGPUPolicyTest, StandsInOnlyWithoutAHardwareRoute) {
+   webgpu::ProfileSoftwareWebGPUContext context;
+-  context.platform = "Windows";
+-  context.angle_is_swiftshader = true;
+   context.shared_context_is_gl = true;
+   context.safe = true;
+   context.profile_declares_webgpu_adapter = true;
++  EXPECT_FALSE(webgpu::CanUseProfileSoftwareWebGPU(context));
++  context.hardware_webgpu_path = false;
+   EXPECT_TRUE(webgpu::CanUseProfileSoftwareWebGPU(context));
+-  context.platform = "macOS";
+-  EXPECT_TRUE(webgpu::CanUseProfileSoftwareWebGPU(context));
+-  for (const char* platform : {"", "Linux", "Android"}) {
+-    context.platform = platform;
+-    EXPECT_FALSE(webgpu::CanUseProfileSoftwareWebGPU(context));
+-  }
+-  context.platform = "Windows";
+-  context.angle_is_swiftshader = false;
+-  EXPECT_FALSE(webgpu::CanUseProfileSoftwareWebGPU(context));
+-  context.angle_is_swiftshader = true;
+   context.shared_context_is_gl = false;
+   EXPECT_FALSE(webgpu::CanUseProfileSoftwareWebGPU(context));
+ }
+ 
+ TEST(ProfileSoftwareWebGPUPolicyTest, RetainsSafetyAndExplicitAdapterChoices) {
+   webgpu::ProfileSoftwareWebGPUContext context;
+-  context.platform = "Windows";
+-  context.angle_is_swiftshader = context.shared_context_is_gl = context.safe = true;
++  context.shared_context_is_gl = context.safe = true;
++  context.hardware_webgpu_path = false;
+   context.profile_declares_webgpu_adapter = true;
+   context.safe = false;
+   EXPECT_FALSE(webgpu::CanUseProfileSoftwareWebGPU(context));
+@@ -258,8 +251,8 @@
+ // adapter. Two of linux-vulkan-nvidia-adf287b8f0ee's members are in this state.
+ TEST(ProfileSoftwareWebGPUPolicyTest, RefusesWhenTheProfileDeclaresNoAdapter) {
+   webgpu::ProfileSoftwareWebGPUContext context;
+-  context.platform = "Windows";
+-  context.angle_is_swiftshader = context.shared_context_is_gl = context.safe = true;
++  context.shared_context_is_gl = context.safe = true;
++  context.hardware_webgpu_path = false;
+   context.profile_declares_webgpu_adapter = false;
+   EXPECT_FALSE(webgpu::CanUseProfileSoftwareWebGPU(context));
+   context.profile_declares_webgpu_adapter = true;

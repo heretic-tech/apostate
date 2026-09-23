@@ -1,3 +1,13 @@
+Subject: [PATCH] webgpu: shared images for software WebGPU under a profile
+
+On Linux, when the profile admits software WebGPU on SwiftShader, the GL
+texture shared image factory accepts WebGPU usages for BGRA8, RGBA8 and
+RGBA16F images. Those images go through the Skia staging copy that CPU
+WebGPU adapters already use for canvas readback and upload. The factory
+makes the same admission check as the rest of the profile's software
+WebGPU path, so unsafe WebGPU flags and Dawn toggle overrides turn it
+off. Other formats and hardware paths keep the upstream interop checks.
+
 diff --git a/gpu/command_buffer/service/shared_image/gl_texture_image_backing_factory.cc b/gpu/command_buffer/service/shared_image/gl_texture_image_backing_factory.cc
 --- a/gpu/command_buffer/service/shared_image/gl_texture_image_backing_factory.cc
 +++ b/gpu/command_buffer/service/shared_image/gl_texture_image_backing_factory.cc

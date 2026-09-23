@@ -1,0 +1,32 @@
+Subject: [PATCH] audio: AudioContext runs at 48 kHz for every profile
+
+A page reads AudioContext.sampleRate, and baseLatency is the buffer size
+divided by it. On a Linux host without a sound card the host rate is
+44100 Hz, which gives a Windows profile a baseLatency of 0.010884 where
+real Windows reads 0.01. When the profile names a platform, the renderer
+uses 48 kHz, and the audio service resamples if the real device runs
+another rate. Host mode and OfflineAudioContext are unchanged.
+
+--- a/content/renderer/media/renderer_webaudiodevice_impl.cc
++++ b/content/renderer/media/renderer_webaudiodevice_impl.cc
+@@ -279,6 +279,20 @@
+           *profile->audio_hardware_buffer_frames());
+       original_sink_params_.set_hardware_capabilities(std::nullopt);
+     }
++
++    // The output rate is the claimed machine's as well. The buffer above is a
++    // frame count at the claimed device's rate, and that rate is 48 kHz: every
++    // Windows and macOS reference measured it, and 48 kHz is the clock
++    // PipeWire, the sound server of current Linux desktops, runs by default.
++    // Left to the host, a machine without a sound card answers 44100 here
++    // (AudioParameters::UnavailableDeviceParams), which turns Windows' 480
++    // frames into a baseLatency of 0.010884 that no Windows machine reports.
++    // The stream still plays on any host, because the audio service resamples
++    // a rate its device does not run, as it already does for a context created
++    // with its own sampleRate.
++    if (profile->ua_platform().has_value()) {
++      original_sink_params_.set_sample_rate(48000);
++    }
+   }
+ 
+   SendLogMessage(base::StringPrintf(

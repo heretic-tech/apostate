@@ -1,22 +1,12 @@
-Subject: [PATCH] webgl: clamp on the 64-bit query path too
+Subject: [PATCH] webgl: clamp limits read through glGetInteger64v
 
-Patch 0032 added the WebGL2 combined uniform component limits to the clamped
-set and they kept reporting the host's value. The reason is that they are read
-through glGetInteger64v, not glGetIntegerv, so nothing consulted the table for
-them — the entries were present and unreachable.
+Limits that WebGL reads through glGetInteger64v go through the same
+gl_limits clamp as the 32-bit path. The WebGL2 combined uniform
+component counts and MAX_ELEMENT_INDEX use this path, so without the
+hook a page sees the host's values for them. The served value is the
+smaller of the profile and the driver, so the wider type cannot report
+more than the GPU supports.
 
-0032's own header names MAX_ELEMENT_INDEX as int64 and misses that the combined
-counts take the same path. This closes both of those, and adds MAX_ELEMENT_INDEX
-to the table for completeness: the reference claims more than SwiftShader
-supports, so min() keeps ours and the row stays red, which is the correct
-outcome rather than an absent entry that looks like an oversight.
-
-The same clamp and the same table. Taking the minimum is what makes it safe to
-apply to a wider integer without rechecking each value: a claim below the
-driver wins, a claim above it does not, so widening the type cannot turn a
-clamp into an over-claim.
-
-Ledger: webgl.limits (extends).
 diff --git a/ui/gl/gl_gl_api_implementation.h b/ui/gl/gl_gl_api_implementation.h
 index 9aa8325..4971a0b 100644
 --- a/ui/gl/gl_gl_api_implementation.h

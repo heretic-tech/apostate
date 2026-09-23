@@ -1,22 +1,12 @@
-Subject: [PATCH] profile: parse gl_limits wider than int32
+Subject: [PATCH] gl: parse gl_limits values wider than int32
 
-MAX_ELEMENT_INDEX never reaches the ANGLE gate 0063 added, and the reason is
-not in ANGLE at all. The profile carries 4294967294, the schema allows it, and
-derive emits it exactly — but Chromium's JSON parser stores integers outside
-the int32 range as doubles, and the gl_limits loader only accepts GetIfInt().
-The entry is dropped silently (wrong subtype logs nothing), the embedder
-callback reports the key absent, and updateCaps keeps the SwiftShader default
-2^30-1. Every other clause of the 0063 gate checks out: the validated index is
-set for the SwiftShader ICD, WebGL contexts require robust behavior without
-robust access, and initCaps copies the whole Caps struct.
+The profile's gl_limits accepts integers outside the int32 range and
+stores them as int64. Chromium's JSON parser keeps such values as
+doubles, and an int-only loader drops them silently, which leaves
+MAX_ELEMENT_INDEX at SwiftShader's 2^30-1 instead of the profile's
+4294967294. Integral doubles are exact up to 2^53, so every value the
+schema allows parses without loss.
 
-The fix mirrors what webgpu.limits already does: accept int or integral
-double, store int64. Doubles represent integers exactly to 2^53, so the
-conversion is lossless for every value the schema admits. No consumer changes:
-the embedder callback and the 64-bit clamp already widen, and the 32-bit and
-float clamp tables never serve this enum.
-
-Ledger: webgl.limits (extends).
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
 --- a/base/apostate/profile.cc
 +++ b/base/apostate/profile.cc

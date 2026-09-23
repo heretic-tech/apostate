@@ -1,3 +1,5 @@
+# Patches applied to the pinned Chromium checkout, in this order.
+# scripts/apply-patches.sh applies them; each patch header says what it changes.
 0001-net-socks5-rfc1929-auth.patch
 0002-embedder-support-no-headless-token.patch
 0003-content-no-automation-controlled-from-switches.patch
@@ -37,33 +39,25 @@
 0037-speech-voices-from-profile.patch
 0038-swiftshader-raise-max-point-size.patch
 0039-angle-profile-caps.patch
-0040-font-metric-platform-policy.patch
 0041-headless-display-layout.patch
 0042-audio-portable-neon-profile.patch
 0043-speech-require-real-provider.patch
 0044-windows-simplified-han-fallback.patch
 0045-angle-point-size-clamp.patch
-0046-mac-font-family-ascent.patch
 0047-generic-font-preferences.patch
 0048-windows-font-stretch-suffix.patch
-0049-mac-freetype-design-space-paths.patch
 0050-headless-fullscreen-bounds.patch
 0051-safe-software-webgpu-check.patch
 0052-swiftshader-parallel-shader-compile.patch
-0053-design-space-paths-gtests.patch
 0055-mac-arm-compressor-math.patch
 0056-profile-software-webgpu-admission.patch
 0057-angle-static-parallel-shader-tests.patch
-0058-fontations-static-design-precision.patch
 0059-mac-arm-oscillator-vector-math.patch
 0060-mac-arm-fft-multiply.patch
 0061-software-hevc-decoder.patch
-0062-fontations-emoji-diagnostics.patch
 0063-validated-software-element-indices.patch
 0064-profile-webgpu-shared-image-staging.patch
 0065-webshare-from-profile.patch
-0066-windows-win-metrics-policy.patch
-0067-windows-line-gap-policy.patch
 0068-webgpu-adapter-from-profile.patch
 0069-webgpu-emitter-override.patch
 0070-gl-limits-int64-parse.patch
@@ -77,10 +71,6 @@
 0081-apostate-profile-compositor.patch
 0082-apostate-compositor-tests.patch
 0083-loader-composes-when-no-profile-given.patch
-
-# Order below is by dependency, not by number. 0093 rewrites the branch of
-# compose.cc that 0091 reaches, so it must follow it; anything later that
-# touches Compose() is authored on top of both.
 0086-webrtc-udp-through-socks5-or-fail-closed.patch
 0087-devtools-no-cdp-attach-tells.patch
 0088-netinfo-network-quality-from-profile.patch
@@ -92,435 +82,42 @@
 0092-synthetic-capture-devices-produce-frames.patch
 0095-windows-script-fallback-table.patch
 0096-socks5-auth-netlog-events.patch
-
-# 0084 and 0085 come last because they are authored on top of the compose.cc
-# chain above: 0085 was verified to apply both before and after 0091 and 0093.
 0084-compose-the-profile-at-browser-startup.patch
 0085-per-field-fingerprint-overrides.patch
-
-# 0097 needs the whole compose.cc chain ahead of it (0091, 0093, 0085); 0099
-# edits three of 0090's files and needs 0090 ahead of it. Neither depends on
-# the other. 0098 is deliberately unused: the capability audit it was reserved
-# for closed without a patch.
 0097-compose-assumes-font-provisioning.patch
 0099-font-enumeration-suffix-aware-matching.patch
-
-# 0100 is independent of everything above it: local_dom_window.cc is touched by
-# no other patch in the series.
 0100-blink-no-empty-root-window-rect.patch
-
-# 0101 needs the whole compose.cc chain ahead of it, because DeriveWorkArea is
-# 0081's and the hunk's context is what 0085 and 0091 left behind.
 0101-compose-drops-the-absent-panel-origin.patch
-
-# 0102 needs the whole compose.cc chain ahead of it. Its anchor-draw hunk's
-# context is what 0091 and 0093 left behind, and its compose.h hunk sits in the
-# switch block 0085 extended.
 0102-compose-serves-a-hardware-gpu-identity.patch
-
-# 0103 and 0104 are the two halves of serving a claimed GPU cluster that 0102's
-# selection change makes reachable, so both come after it. 0103 needs the whole
-# gl_gl_api_implementation.cc chain ahead of it (0026, 0027, 0032, 0035, 0036,
-# 0070); 0104 needs 0028, whose filter it extends. Neither depends on the other.
 0103-gl-serve-the-claimed-limit-on-a-soft-backend.patch
 0104-webgl-serve-claimed-constant-extensions.patch
-
-# 0105 extends 0056's admission predicate and touches 0064's factory call site,
-# so both come ahead of it; it is only reachable because 0102 makes a GPU-less
-# host compose a hardware identity, so that comes ahead of it too.
 0105-webgpu-no-adapter-when-none-was-measured.patch
-
-# 0106 rewrites the early return 0081 introduced and the compose.h comments
-# 0081 wrote, so the whole compose.cc chain comes ahead of it (0081, 0083,
-# 0084, 0085, 0091, 0093, 0097, 0101, 0102); its profile.cc hunks sit in the
-# envelope block 0072 added, so that comes ahead of it too. It is last because
-# nothing else in the series touches base/apostate/profile.{h,cc} or
-# base/apostate/explain.{h,cc} after 0102, not because 0103-0105 are needed.
 0106-compose-credentials-are-not-a-device.patch
-
-# 0107 rewrites the ApostateComposeTest cases 0102 inverted and deletes the one
-# 0101 made unsatisfiable, and its compose_unittest.cc hunks carry the two cases
-# 0106 added as context, so 0101, 0102 and 0106 all come ahead of it.
 0107-compose-tests-follow-the-persona-rule.patch
-
-# 0108 touches two files nothing else in the series touches, so it has no
-# ordering requirement of its own. It is last because it was authored last; in
-# effect it is upstream of 0102, 0103 and 0104, which have no WebGL context to
-# act on without it on a host with no usable GPU driver.
 0108-gl-keep-the-software-webgl-fallback.patch
-
-# 0109 extends 0061's ffmpeg configuration to the targets 0061 enabled nothing
-# on, so 0061 comes ahead of it three times over: its ffmpeg_generated.gni
-# hunks append after 0061's stanza and carry its closing brace as context, its
-# build_ffmpeg.py hunk rewrites the condition 0061 introduced, and the five
-# switches it flips are the ones 0061 established as the set. It touches no
-# file any other patch in the series touches, so nothing else orders it, and it
-# is last because it was authored last.
 0109-software-hevc-on-every-shipped-target.patch
-
-# 0111 removes the locale draw 0081 introduced and the compiled locale policy
-# table 0081 added for it, so 0081 comes ahead of it. It also moves the locale
-# overrides out of the policy lambda 0085 hung them on, carries 0085's
-# FieldOverrides and ComposeRequest members as context, and rewrites the
-# fixture and the two ApostateComposeTest cases 0082 wrote against the drawn
-# policy, so 0082 and 0085 do too. 0102's persona-selects-the-anchor rule and
-# 0107's rewrite of those same test cases are ahead of it for the same reason
-# 0107 lists.
 0111-locale-follows-the-launch-and-the-host.patch
-
-# 0110 lifts the proxy credential off --proxy-server's userinfo and out of the
-# --apostate-profile envelope. Its base/apostate/profile.{h,cc} hunks sit in
-# the credential block 0106 rewrote and in the Get() tail 0083 wrote, so both
-# come ahead of it; its chrome/app/chrome_main_delegate.cc hunk wraps the
-# compose call 0084 installed; its chrome/browser/chrome_content_browser_client.cc
-# hunk lands after the switch-copy list 0005 added and 0073 and 0086 extended;
-# and its base/BUILD.gn hunk appends to the base_unittests list 0082 added
-# apostate/compose_unittest.cc to. chrome/common/crash_keys.cc is touched by
-# nothing else in the series. It is independent of 0111.
 0110-proxy-server-url-credentials.patch
-
-# 0112 serves the anchor's GL capability limits the serving table never named
-# and the clamp direction discarded, and stops --fingerprint-explain claiming
-# they were served when they were not. It touches five files.
-#
-# ui/gl/gl_gl_api_implementation.cc carries most of it, and that file's own
-# history is the ordering: 0026 created kApostateGlLimits and the
-# glGetIntegerv hook, 0032 extended the table, 0035 and 0036 added the 64-bit
-# and float query paths it also edits, and 0103 introduced
-# BackendEnforcesGlLimits(), whose test this corrects and whose three call
-# sites it rewrites. 0103 is the binding constraint there. It also reads the
-# driver's unsubstituted GL_RENDERER through GLApiBase, which 0007 established
-# as the substitution point, so 0007 comes ahead of it too.
-#
-# ui/gl/gl_gl_api_implementation.h is touched for the same reason: the three
-# robust ANGLE query variants have to be declared as overrides before they
-# can be defined, and those are what GLES2DecoderPassthroughImpl, the default
-# decoder, actually calls. No other patch in the series touches that header,
-# so it orders nothing.
-#
-# base/apostate/compose.cc carries the explain change: it rewrites the
-# cross-backend limitation text 0102 wrote, and counts gl_limits on the
-# profile merged by the anchor block 0081 wrote, so both come ahead of it.
-# 0111 is the most recent patch to touch that file, so 0112 sits after it --
-# not because it depends on 0111, but because its context must be the text
-# 0111 left behind. It does not touch ComposeProfileForCurrentProcess, where
-# 0113 works, and its compose.cc hunks are ~580 lines above 0113's earliest
-# context line.
-#
-# base/apostate/profile.cc carries the loader fix: the gl_limits parse 0070
-# wrote refuses any value that is not greater than zero, which silently drops
-# the two measured limits that are not -- MIN_PROGRAM_TEXEL_OFFSET at -8 and
-# MAX_SERVER_WAIT_TIMEOUT at 0. 0070 therefore comes ahead of it, and 0110 is
-# the most recent patch to touch that file, so 0112 must follow 0110 too --
-# for context, not for behaviour. Without this hunk the other two files are
-# still wrong for those two limits, because they never reach gl_limits().
-#
-# base/apostate/profile.h gains the companion map for the few limits a device
-# reports with a genuine fraction, so gl_limits() stays integral. Its only
-# ordering constraint is that 0070 widened that storage to int64 first.
-#
-# It is inert on its own: five of the thirteen limits it serves are emitted
-# only after the anchor_gl_layer filter fix in
-# scripts/generate-dispersion-tables.py, which is not a patch and needs a
-# rebuild rather than a series position.
 0112-gl-serve-the-anchor-capability-limits.patch
-
-# 0113 binds the composed identity to the --user-data-dir a launch names, so a
-# persistent profile keeps one machine instead of drawing a new one every
-# launch. It adds a SeedOrigin value and a filesystem layer to ResolveSeed,
-# which 0081 wrote, and 0081 also wrote the ComposeProfileForCurrentProcess
-# block it hoists the state directory out of and the explain report it extends
-# -- so 0081 comes ahead of it three times over.
-#
-# Its compose.cc hunks carry as context the lines the later compositor patches
-# left in that function: 0085's CollectOverrides and request.overrides, 0106's
-# PayloadDescribesDevice branch and ReportAuthoredProfileBypass, and the
-# request block 0111 left after removing request.locale_policies and
-# request.default_accept_languages. So 0085, 0106 and 0111 come ahead of it
-# too, and its compose_unittest.cc hunk appends after the last case 0107 and
-# 0111 left in the file.
-#
-# It is independent of 0110 and of 0112: 0112's compose.cc edit is inside
-# Compose()'s anchor branch, ~580 lines above 0113's earliest context line and
-# in a different function, and neither touches the other's struct members.
-# It is last because it was authored last.
 0113-a-persistent-profile-keeps-one-identity.patch
-
-# 0114 stops a composed launch inheriting the operator's locale environment,
-# which today's packaging change made a live leak: with 440 locale paks instead
-# of one, the host's LANG and LANGUAGE reach the application locale and a
-# composed Windows persona served Thai navigator.languages, Thai Intl
-# formatting and a Buddhist calendar. It writes the same four variables the
-# Python and Node launchers already write, in the browser process, before the
-# locale is resolved and before the first child is forked.
-#
-# It comes after 0081, which wrote base/apostate/compose.{h,cc},
-# base/apostate/profile.{h,cc} and base/apostate/explain.{h,cc} -- every file
-# it touches -- and after 0084, whose PreSandboxStartup call site is the point
-# it relies on and does not change.
-#
-# After 0111 twice over, and this is the load-bearing one. 0111 made
-# --fingerprint-locale the only thing that writes locale.accept_languages into
-# a composed profile, which is why reading the switch here is complete rather
-# than a shortcut; and 0111 wrote the resolve_locale() lambda, the
-# LocaleInheritanceNote helper and the two "(inherited)" assertions in
-# compose_unittest.cc that this patch rewrites. Its compose.cc hunks carry
-# 0111's exact lines as context in both places.
-#
-# After 0106, which wrote the PayloadDescribesDevice branch and
-# ReportAuthoredProfileBypass that its compose.cc hunks edit, and after 0110,
-# which wrote profile.h's static payload-helper family that
-# AcceptLanguagesInPayload joins and the profile.cc block it is appended after.
-#
-# After 0113, which is the last patch to touch the explain report and the
-# compose_unittest.cc tail this appends past. It is independent of 0112.
 0114-composed-locale-never-the-host-shell.patch
-
-# 0115 makes the composed locale decide the application locale on macOS and
-# Windows too. 0114 pinned the process environment, which is the linux lever
-# and only the linux lever: macOS resolves from NSBundle's
-# preferredLocalizations and Windows from the preferred-UI-language list, and
-# neither reads the environment. On macOS that was not waiting for a build --
-# the artifact ships Chromium.app wholesale and its framework has carried all
-# 220 locale.pak files all along, so a composed persona has been serving its
-# host's system language, measured, with navigator.languages disagreeing.
-#
-# It resolves the composed value in l10n_util::GetApplicationLocaleInternal,
-# ahead of every platform candidate, which is one point instead of three
-# platform slots -- and the only one above windows' pref_locale, where a
-# kApplicationLocale stored in an existing --user-data-dir would otherwise
-# outrank a composed persona through a persisted channel.
-#
-# It comes after 0114 and depends on it three ways. It adds
-# ComposedApplicationLocale() beside the locale block 0114 wrote in
-# base/apostate/compose.{h,cc}; it rewrites both of the
-# InstallComposedLocaleEnvironment call sites 0114 left in
-# InstallComposedProfile so that they read that accessor instead of computing
-# the answer inline, which is what keeps the two pins from disagreeing; and its
-# compose_unittest.cc hunk appends after the locale section 0114 added. It also
-# needs 0114's environment write on macOS specifically: macOS is POSIX, so
-# content adopted the operator's locale into the C library, and pinning only
-# the resolution would leave the C library disagreeing with ICU -- the split
-# ledger row intl.resolved-locale warns against.
-#
-# After 0111, whose resolve_locale() lambda it extends with the --lang
-# limitation, and whose ComposeRequest::accept_languages -- recorded there as
-# dead -- is what that limitation finally reads.
-#
-# It is the first patch in the series to touch ui/base/l10n, so nothing else
-# orders it there. Independent of 0112 and 0113.
 0115-composed-locale-outranks-the-platform.patch
-
-# 0116 makes a page's chrome.runtime a persona instead of the host's. Measured:
-# stock Chrome 153 on a fresh profile exposes window.chrome as exactly
-# loadTimes/csi/app with chrome.runtime undefined, and this fork already
-# matched it field for field -- while a browser with a wallet extension
-# installed exposes chrome.runtime and window.browser on every http/https
-# page, which is the other ordinary real state. So it is an axis: absent
-# weighted 75, present 25, conditioned on nothing, because the same extension
-# is installed on all three platforms. This patch carries the profile half
-# only -- schema key, loader parse and accessor, dispersion table, catalogue
-# slot, explain line, resolver mirror -- and the renderer gate that makes it
-# page-visible is a separate patch, which is what the ledger row says.
-#
-# It comes after 0081, which created base/apostate/profile.{h,cc}, and after
-# 0113, which is the last patch before it to edit the member list those
-# accessors sit beside. Nothing else in the series reads or writes an
-# `extensions` profile section, and the axis draws from its own substream, so
-# no existing seed's other axes move. Independent of 0114 and 0115: they touch
-# the locale surface and this touches none of it.
 0116-profile-extensions-axis.patch
-
-# 0117 makes text rasterisation follow the persona. gfx::FontRenderParams --
-# antialiasing, subpixel order, hinting, autohinter, embedded bitmaps,
-# subpixel positioning, Skia text contrast and gamma -- reaches every renderer
-# as blink::RendererPreferences and decides glyph coverage bytes, text gamma
-# correction and whether advances are fractional. Chromium derives it per
-# platform, and on Linux from the host's fontconfig and desktop settings, so a
-# composed persona was rasterising text the way the host box happened to be
-# configured. The compositor projects the tuple from the persona instead: one
-# answer per platform, no draw, nothing for a seed to move, every value cited
-# to the Chromium source that produces it. Profile half only; writing
-# RendererPreferences from it is a separate patch.
-#
-# It comes after 0116, and only for the same reason 0116 comes after 0113: the
-# two add adjacent hunks to base/apostate/profile.{h,cc}, 0117's inside the
-# `fonts` parse block that 0090 and 0097 built and 0116's immediately after
-# it, so generating them in the other order would not apply. It also edits
-# base/apostate/compose.{h,cc} and base/apostate/compose_unittest.cc, which
-# 0115 last touched, and its compose_unittest.cc hunk appends after the test
-# 0116 added. Otherwise the two are independent: 0116 is an axis in a data
-# table and 0117 is a projection in the compositor, and neither reads the
-# other's key.
-0117-profile-font-render-params.patch
-
-# 0118 makes the address families WebRTC is offered follow the configured
-# proxy's relay instead of this host's interfaces, and makes candidate
-# gathering finish in every case.
-#
-# After 0086, which it corrects on its own terms. 0086 gave WebRTC's UDP
-# sockets a SOCKS5 association and refused the ones the proxy could not carry,
-# and a refused socket orphans its webrtc::UDPPort -- measured stuck at
-# iceGatheringState "gathering" after 50 s behind an IPv4-only exit, and after
-# 25 s with zero candidates under --fingerprint-webrtc-udp=block. It edits
-# 0086's net/socket/socks5_datagram_server_socket.{h,cc} (the listen-family
-# filter that produced the -109 becomes a preference plus a rebind), 0086's
-# ResolveUdpEgress and CreateSocket in services/network/p2p/socket_manager.cc
-# (the egress decision becomes a per-manager snapshot with a family pair), and
-# 0086's refusal comment in services/network/p2p/socket_udp.cc, so it cannot
-# sit anywhere before it.
-#
-# Nothing else in the series touches services/network/public/mojom/p2p.mojom,
-# third_party/blink/renderer/platform/p2p/* or third_party/webrtc/p2p/base/*,
-# so nothing else orders it there. It is the second patch to touch
-# third_party/blink/renderer/modules/peerconnection/peer_connection_dependency_factory.cc
-# after 0092, and it edits a different function -- CreatePortAllocator rather
-# than the capture-device path -- so the two do not interact. Independent of
-# 0116 and 0117, which are the profile axis and the font-render-params
-# projection, and independent of 0119.
 0118-webrtc-udp-families-follow-the-proxy.patch
-
-# 0119 makes the composed capability limits reach WebGL on ANGLE/Metal, which
-# is the backend the macOS artifact runs. It replaces 0103's backend test --
-# clamp the claim where the backend honours what it reports, serve it whole
-# where it does not -- with a test on the kind of GL context asking: a
-# WebGL-compatibility context is served the claim on every backend, and the
-# compositor, raster and Skia Ganesh keep the host's own caps, because all
-# three come through the same six query entry points and only the first is a
-# fingerprint.
-#
-# After 0112, which it rewrites rather than extends. Every line it deletes is
-# 0112's: RendererIsNonEnforcingRasteriser, BackendEnforcesGlLimits and the
-# renderer read behind RealGLApi::ApostateEnforces. It keeps 0112's table, its
-# floor direction, its fractional map and all six of its hooks untouched, and
-# it changes the sense and the name of the one boolean they pass around. Its
-# compose.cc hunk rewrites the --fingerprint-explain sentence 0112 put there,
-# so it cannot sit before it.
-#
-# After 0117, for one reason and not a semantic one: 0117 inserts into
-# base/apostate/compose.cc above and below the GL-limits block this patch
-# edits, so the context of the compose.cc hunk is 0117's file. Nothing else
-# connects them -- 0117 is a font-render-params projection and reads no GL
-# key.
-#
-# ANGLE's ApplyProfilePointSizeCaps and ApplyProfileIntegerCaps, added by
-# 0039, are deliberately not touched, so nothing orders it against that patch
-# either: those min-clamps are what keeps the backend's own enforcement real
-# and the residual honest. Independent of 0116 and 0118, which are a data-table
-# axis and the WebRTC egress families.
 0119-gl-serve-the-anchor-limits-to-webgl-on-every-backend.patch
-
-# 0120 adds --fingerprint-noise, off by default: a profile-seeded, content-keyed
-# step of at most one per colour channel applied at every page-visible canvas
-# and WebGL readback. It sits last because it is the only patch in the series
-# that trades coherence away, and last is where a reader looking for that trade
-# will find it -- not because anything orders it here.
-#
-# It is independent of 0116 through 0119. It declares its own switch in
-# base/base_switches.h, creates
-# third_party/blink/renderer/core/canvas_interventions/apostate_readback_noise.{h,cc}
-# and third_party/blink/renderer/modules/webgl/webgl_readback_noise.{h,cc},
-# and is the first patch in the series to touch core/canvas_interventions,
-# core/imagebitmap, core/offscreencanvas, modules/canvas/canvas2d,
-# platform/graphics/static_bitmap_image.h and modules/webgl/webgl_buffer.{h,cc},
-# so nothing orders it in any of them. Its render_process_host_impl.cc hunk adds
-# one line to the renderer switch list, which 0087 also edits but in a different
-# function; its two BUILD.gn/build.gni hunks append source names no other patch
-# names; and its html_canvas_element.cc, webgl_rendering_context_base.cc and
-# webgl2_rendering_context_base.cc hunks are in the readback functions, not in
-# the parameter-serving paths 0103, 0104, 0112 and 0119 rewrite.
-#
-# The one thing it reads from elsewhere is Profile::source_id(), which 0004
-# parses and 0113 makes persistent -- both long applied. It needs neither
-# 0116's extensions axis nor 0117's font render params, and 0119's context-kind
-# gate for GL limits is a different surface entirely.
 0120-opt-in-profile-seeded-readback-noise.patch
-
-# 0121 is the consumer for 0116. After 0116, and that is the only ordering it
-# has: it reads Profile::extensions_externally_connectable(), which 0116's
-# loader parse and accessor create, and before 0116 the predicate would not
-# compile. It needs nothing from 0117 through 0120 and touches no file any of
-# them touches -- it is the first patch in the series to edit
-# extensions/renderer at all, and its whole diff is one include and one
-# early-return inside CanWebpageContextConnectExternally.
-#
-# The files it deliberately does not touch are the reason it can sit last:
-# extensions/common/api/_api_features.json already grants runtime.connect,
-# runtime.sendMessage and runtime.lastError to web_page over <all_urls>,
-# extensions/renderer/api/runtime_hooks_delegate.cc already installs id and
-# dynamicId as undefined-returning native data properties, and
-# extensions/browser/api/messaging/message_service.cc already answers a
-# web-page channel to any extension id with the identical
-# kReceivingEndDoesntExistError. Nothing in the series edits any of the three,
-# so the gate is the whole change and the browser-side externally_connectable
-# re-check still decides what a real installed extension receives.
 0121-extensions-serve-runtime-to-pages-from-the-profile.patch
-
-# 0122 is the consumer for 0117, and the only patch in the series that has to
-# be after it: it reads Profile::font_render_params(), which 0117 adds.
-#
-# Also after 0013, which is what puts base/apostate/profile.h into
-# chrome/browser/renderer_preferences_util.cc. 0013's hunk is the
-# accept-language block near the end of UpdateFromSystemSettings and this
-# one's is the font-preference refresh at the top, so they do not overlap, but
-# the include has to exist.
-#
-# Nothing else orders it. It is the first patch in the series to touch
-# ui/gfx/font_render_params{,_mac,_linux,_win}.cc, skia/ext/
-# legacy_display_globals.cc, content/public/browser/renderer_preferences_util
-# .cc, third_party/blink/public/mojom/renderer_preferences.mojom, third_party/
-# blink/common/renderer_preferences/renderer_preferences_mojom_traits.cc,
-# third_party/blink/renderer/core/exported/web_view_impl.cc and
-# third_party/blink/renderer/platform/fonts/mac/font_platform_data_mac.mm --
-# every one of them sole-owned here.
-#
-# 0040's Apple font metric policy and 0049's FreeType design-space paths are
-# the neighbours a reader will expect an ordering against, and there is none:
-# those decide glyph BOUNDS and outline source, this one decides the scaler's
-# settings, and they share no file. Independent of 0116 and 0121 (the
-# extensions axis and its consumer), of 0118 and 0119, and of 0120, whose
-# readback policy touches none of these files and whose opt-in switch is a
-# different surface.
-0122-fonts-render-params-follow-the-persona.patch
-0123-fonts-subpixel-positioning-follows-the-platform-rule.patch
-
-# 0124 puts the canvas text origin at the identity's own sub-pixel phase.
-#
-# After 0123, and on it: 0123 is what makes the claim true that all three
-# personas render text with SkFont::setSubpixel(true), which is the whole
-# reason a quarter-pixel shift lands in a neighbouring Skia bin rather than
-# doing nothing. Without it a persona whose text was positioned integrally
-# would absorb the offset and draw the same pixels.
-#
-# Related to 0120 by subject and by nothing else. 0120 transforms bytes on
-# the way out of a canvas behind --fingerprint-noise; this one moves ink
-# before it is drawn and is on wherever a profile is. They share no file:
-# 0120 owns canvas_interventions/, the 2D and WebGL readback sites and the
-# ImageBitmap egress, and this one owns base/apostate/text_phase.{h,cc} and
-# a single hunk in the canvas text draw. Applying either without the other
-# compiles and behaves.
-#
-# Sole owner of base/apostate/text_phase.{h,cc} and of the DrawTextInternal
-# location hunk. Its two base/BUILD.gn hunks append to the apostate source
-# list and the base_unittests list, both of which 0081 created and several
-# patches have extended, so it goes after all of them.
-0124-canvas-text-raster-phase-from-profile.patch
-
-# 0125 serves a persona's own voice list and speaks it through a provider
-# that exists.
-#
-# After 0043, and squarely on it: 0043 is what added the profile filter in
-# TtsControllerImpl::GetVoices and the no-provider failure path in SpeakNow,
-# and this rewrites the first into a composition and threads the second
-# through the substitute. Its unit tests are 0043's file, extended.
-#
-# After 0075 for reading rather than for context: 0075 decided that a keyless
-# build lists no network voices because a voice that cannot speak is worse
-# than a missing one. This changes that calculus rather than that code -- a
-# listed voice now has a provider behind it either way -- and the catalogue
-# change that follows is in resources/, not here.
-#
-# Sole owner of the composition helpers in tts_controller_impl.cc and of the
-# GetProviderVoices declaration in its header. Independent of 0124, which
-# shares no file and no subject.
 0125-speech-persona-voices-spoken-by-a-real-provider.patch
+0126-css-system-colours-follow-the-claimed-platform.patch
+0127-css-system-fonts-follow-the-claimed-platform.patch
+0128-fonts-system-ui-and-default-font-follow-the-claimed-platform.patch
+0129-content-barcodedetector-follows-the-claimed-platform.patch
+0130-audio-context-runs-at-48-khz-on-every-persona.patch
+0131-media-list-the-speakers-the-profile-claims.patch
+0132-media-power-efficient-follows-the-claimed-gpu.patch
+0133-keyboard-serve-the-claimed-platform-layout-map.patch
+0135-webgpu-serve-the-claimed-adapter-on-a-host-with-no-gpu.patch
+0136-webgpu-the-page-sees-the-claimed-adapter.patch
+0138-compose-claims-the-host-cpu-architecture.patch
+0139-widevine-loads-a-cdm-beside-the-executable.patch
+0140-mac-helper-signed-to-load-the-widevine-cdm.patch

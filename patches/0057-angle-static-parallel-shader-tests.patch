@@ -1,13 +1,10 @@
-Subject: [PATCH] tests: statically link the native parallel shader checks
+Subject: [PATCH] tests: static link for ANGLE parallel shader tests
 
-Build the existing parallel compile tests against ANGLE's existing static
-utility and driver targets. This keeps callbacks in one link unit under the
-pinned official build's CFI instrumentation. Retain the original test bodies,
-runner, expectations and production renderer; no sanitizer is disabled.
-
-The shared utility test executable cannot establish this gate in the current
-build: its cross-DSO calls hit CFI type-set traps before the tests execute.
-This test-only target changes no browser configuration or capability.
+Builds the ANGLE parallel shader compile tests as a statically linked
+executable. The shared test executable hits control-flow-integrity traps
+on cross-library calls under the official build settings before any test
+runs. The test bodies and expectations are unchanged, no sanitizer is
+turned off, and nothing changes in the browser.
 
 diff --git a/third_party/angle/src/tests/BUILD.gn b/third_party/angle/src/tests/BUILD.gn
 --- a/third_party/angle/src/tests/BUILD.gn

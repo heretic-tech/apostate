@@ -1,110 +1,13 @@
-Subject: [PATCH] compose: stop assuming a GPU exists
+Subject: [PATCH] compose: detect a Linux host without a GPU
 
-PlatformDefaultBackend() returns "vulkan" on Linux, and the anchor draw filters
-the catalogue by that token. So on a Linux host the compositor selects
-linux-vulkan-nvidia-adf287b8f0ee, a capability cluster measured on a real
-GeForce, and hands its limits, extension list and shader precision to a page.
-Nothing checked whether the host has a GPU. On a server that does not, ANGLE
-falls back to SwiftShader and the page gets an NVIDIA capability table in front
-of a software rasteriser.
+The compositor treats the host graphics backend as SwiftShader when the
+launch passes --disable-gpu, or when a Linux host has no readable and
+writable DRM render node. GPU cluster selection and
+--fingerprint-explain read that answer, and the report names which
+inference it made. The check only moves the answer toward software, and
+--use-angle still names a backend by hand. Windows and macOS keep the
+platform default.
 
-That is the one contradiction in this area a fork can actually close, and it is
-not subtle. Measured on this machine, through the shipped binary, the same
-fragment-shader workload runs at 2516 giga-iterations per second on ANGLE/Metal
-and 9.5 on SwiftShader; small draw calls run at 2.4 million per second against
-65 thousand. A detector does not need a table of reference devices for that, and
-dividing by a CPU baseline does not wash it out, because the CPU baseline was
-identical in both runs. Readback separates them too: the same WebGL scene and
-the same 2D canvas hash differently on the two paths.
-
-Nothing here touches render timing, and nothing should. The only ways to close a
-timing gap are to make software rendering fast or to slow hardware down, and a
-deliberate timing adjustment is a new observable in its own right. What can be
-fixed is the claim, and the fix is to stop making one the host cannot back.
-
-ProbeHostCapability is the right place because it is the only thing that
-establishes the backend, and every consumer reads its answer: the anchor
-servability filter, the explain report, and the limitations the report prints.
-Fixing the caller would leave the next caller wrong.
-
-Three cases, in order of how much they know:
-
---disable-gpu rules out every hardware backend, so the launch has stated the
-software rasteriser. It outranks --use-angle, because naming a hardware backend
-does not bring hardware back.
-
-Failing that, the host is asked whether it has a graphics device at all. On
-Linux that is a DRM render node: /dev/dri/renderD128 and up. A cloud instance
-or container without GPU passthrough has no /dev/dri, and a server with nothing
-but an EFI framebuffer has /dev/dri/card0 and no render node, which is why the
-render node and not the directory is the fact that decides it. One access() on
-the directory answers the common case; a host that has the directory costs at
-most eight more.
-
-The answer is one-way and is meant to be. Absence means ANGLE will fall back to
-software. Presence means only that it probably will not: a render node with no
-usable driver behind it still ends in software. Being wrong in the presence
-direction leaves the behaviour that exists today, while being wrong in the
-absence direction is exactly what puts a discrete GPU claim in front of a
-software rasteriser -- so the check only ever moves the answer towards software,
-and --use-angle remains the way to state the backend by hand. Windows and macOS
-keep the platform default, because there is no equivalent single syscall there;
-answering it would take a D3D11 or Metal device creation, which is the GPU
-process's job.
-
-access() rather than PathExists() because ProbeHostCapability's header promises
-no blocking I/O and runs on the startup path. access() carries no blocking-call
-assertion. R_OK|W_OK because the GPU process opens the node read-write, so a
-node it cannot open is not a device it can use.
-
-What happens next was patch 0081's existing policy: no anchor in the compiled
-catalogue was captured through SwiftShader, so the draw finds nothing servable,
-says so, and returns nothing -- which means host inheritance for the whole
-profile. I judged that a catalogue gap rather than a code one and left it alone.
-Patch 0093, immediately after this one in the series, shows that half of it was
-a code gap after all, and keeps every non-GPU axis instead of discarding the
-profile. The remaining half looked like data: a swiftshader-backend anchor is
-constructible from T0 evidence already in the tree, since
-resources/fingerprints/raw/stock-linux-20260907T150627Z.json is a stock
-Chromium 152 Linux capture through SwiftShader with the full parameter tables,
-extension lists and precision values.
-
-That anchor was then built, and this paragraph used to end "with that anchor
-present this change selects it, and a GPU-less host gets a composed software
-identity rather than an inherited one" -- as though that were the goal reached.
-WITHDRAWN. It was the defect. Selecting it handed a page
-"ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)),
-SwiftShader driver)" on the deployment target's commonest configuration, with no
-per-seed entropy at all because that anchor has one member. Patch 0102 excludes
-it from the drawn candidate set on every host and makes the claimed OS select
-the cluster instead. What this patch contributes after 0102 is the backend FACT
-and its basis string, which the explain report prints and which
---fingerprint=host still acts on; what it no longer does is decide the identity.
-
-The report now says which inference was made rather than asserting the platform
-default, because after this change the platform default is no longer the only
-one. On a Linux host with no render node the explain line becomes "swiftshader
-(no DRM render node on this host, not probed)". Measured before the change, on
-this Mac, it reads "metal (platform default, not probed)"; a Linux server with
-no GPU would have read "vulkan (platform default, not probed)" while rendering
-in software, which is the whole bug.
-
-No new switch and no new page-visible value. Nothing changes on a host with a
-GPU, and that is structural rather than measured: HostHasNoGpuDevice() compiles
-to `return false` off Linux, and on Linux it returns false as soon as one render
-node opens, so a host with a GPU reaches exactly the branch it reached before.
-Measured before the change on this Mac, every default configuration -- headed,
---headless=new, composed, and --fingerprint=host -- selects ANGLE/Metal,
-composes macos-metal-apple-850a91233555, and agrees on the renderer string, the
-limit tables and all four readback digests.
-
-Compile-unverified: this cannot be built in this session. What is established is
-that it applies, that the behaviour it changes was measured on the shipped
-binary before it, and that the branch it adds is unreachable on a host with a
-GPU by inspection. Whether it compiles, and what a Linux server composes under
-it, are V1 and V3 and neither has been run.
-
-Ledger: headless.gpu-stack, gpuinfo.gl-renderer, gpu.angle-backend.
 --- a/base/apostate/host_capability.h
 +++ b/base/apostate/host_capability.h
 @@ -38,16 +38,26 @@

@@ -1,39 +1,12 @@
-Subject: [PATCH] fonts: use Windows candidate families for Simplified Han fallback
+Subject: [PATCH] fonts: Windows Simplified Han fallback for Windows profiles
 
-Windows resolves a missing Han glyph using the Han script selected from
-content/accept/system locale, then probes an ordered list of actual families.
-Linux currently asks Fontconfig with the unmodified locale; for English in the
-supplied Windows set that chooses Malgun Gothic rather than Microsoft YaHei.
+Under a Windows profile, a missing Simplified Chinese glyph falls back
+through the same ordered family list Windows uses, starting with
+Microsoft YaHei. Fontconfig on Linux picks Malgun Gothic for an English
+locale instead, which gives a page different glyph shapes and widths.
+Each candidate must be installed and cover the glyph. Other scripts,
+other profiles and runs without a profile keep the Linux path.
 
-Select the upstream Windows Simplified Han list only for a Windows profile
-and only when the existing locale policy resolves the missing Han glyph to
-Simplified Han. Verify actual family names and glyph coverage. Existing faces
-that already cover the glyph, other scripts, other Han locales, non-Windows
-profiles and no-profile behavior retain their existing paths. Unavailable or
-non-covering candidates fall through. No font metric, numeric glyph bound,
-fontconfig file, profile/schema field or JavaScript API is replaced.
-
-The pinned Windows capture measures Latin strings only --
-resources/fingerprints/raw/windows-chrome-20260910T140813Z.json, fonts.metrics,
-six generic families and 76 named Latin families -- so there is no captured Han
-ink bound to compare a chosen family's raster against, and none of the
-collector's 76 probe names is a Chinese family. The candidate list is therefore
-taken from the Windows source rather than derived from a measurement. That is
-why the code copies the list verbatim and then verifies a real localized family
-name and glyph coverage before using a face, instead of choosing a family from
-numbers.
-
-Primary source at Chromium79460ebecaa5625e57a5fb679a735659e73dc687:
-- platform/fonts/win/font_fallback_win.cc:210-211,539-557 (candidate/script policy)
-- platform/fonts/win/font_cache_skia_win.cc:159-175,284-294 (family then coverage)
-- platform/text/layout_locale.cc:198-216,226-256 (Han locale/default)
-Paths above are under third_party/blink/renderer/. Uses existing loader/IPC.
-
-V1 compilation and V3 conformance remain required. The two policies this patch
-stopped short of are both implemented elsewhere in the series: the DirectWrite
-line-gap policy is patch 0067, and the fallback policy for every script other
-than Simplified Han is patch 0095, which replaces the single-script predicate
-added here with the whole upstream Windows script table.
 diff --git a/third_party/blink/renderer/platform/fonts/linux/font_cache_linux.cc b/third_party/blink/renderer/platform/fonts/linux/font_cache_linux.cc
 --- a/third_party/blink/renderer/platform/fonts/linux/font_cache_linux.cc
 +++ b/third_party/blink/renderer/platform/fonts/linux/font_cache_linux.cc

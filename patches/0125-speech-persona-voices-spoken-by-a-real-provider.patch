@@ -1,72 +1,12 @@
-Subject: speech: a persona's voices are its own, spoken by a provider that exists
+Subject: [PATCH] speech: profile voices spoken by a real local engine
 
-A composed identity had two reachable answers to `speechSynthesis.getVoices()`
-and both said something true about the host.
-
-Measured through the shipped `macos-arm64` binary, seed 42 windows: 180
-voices, `localService` true on all of them, beginning Albert, Alice, Alva,
-Amelie -- byte-identical to the list this Mac returns with no profile at all,
-under a persona whose `navigator.platform` says Win32. Give that profile the
-catalogue's Windows voices instead and the answer becomes 0 voices, because
-patch 0043 filters real registered voices by the profile's names and no
-provider on a Mac is called "Microsoft David - English (United States)".
-
-Neither is a machine. Real Windows Chrome returns 22 voices; this project's
-own Windows capture records them, three local Microsoft en-GB and the
-nineteen "Google <language>" network voices, and the macOS capture records
-the same nineteen. An empty list is not a machine either: no desktop Chrome
-reports one.
-
-WHAT CHANGES
-
-`GetVoices` now serves the profile's list. Where a real provider is that
-voice -- same name, same language, same locality -- the provider's own record
-is used verbatim, so a Windows persona on a Windows host keeps its native
-identifiers, engine ids and event sets exactly as 0043 left them. Where it is
-not, the page is shown the persona's voice and a real provider is chosen to
-speak it: same language first, then the same primary subtag, then the first
-provider the platform offered. A requested voice is dropped when there is no
-provider at all, so a host with no speech at all still enumerates nothing.
-
-`SpeakNow` then speaks through that provider. The page picked a name this
-host has never heard of, and what reaches `TtsPlatform::Speak` is the
-substitute's record, with its own name and native identifier, so synthesis
-runs on a real engine and the start, word, sentence and end events are that
-engine's. 0043's failure path is unchanged for a request that matches
-nothing.
-
-WHAT A PAGE CAN TELL
-
-Not the substitution, by reading. `SpeechSynthesisVoice` exposes name,
-`voiceURI`, `lang`, `localService` and `default`, all of which come from the
-profile; `engine_id` and the native identifier are routing fields Blink never
-surfaces. Not by listening either: a page cannot capture speech synthesis
-output, which does not reach Web Audio or any capture path.
-
-By timing, in principle. A voice the profile marks remote is answered by a
-local engine, so `onstart` arrives without a network round trip. That is the
-one residual, it is bounded to profiles that claim remote voices, and it is
-a better answer than either of the two this replaces.
-
-WHY NOT FABRICATE THE EVENTS INSTEAD
-
-Because that is what patch 0037 did and 0043 removed: start and end invented
-on a character-count timer, with no audio and no provider. The difference
-here is that synthesis is real and only the name is the persona's, so there
-is no timer, no synthetic completion, and nothing to keep in step with an
-engine that is not running.
-
-The catalogue moves with this: every platform's voice options now carry the
-nineteen network voices that both captures record, the Windows en-GB option
-is the capture verbatim, and the option served for an accept-languages list
-the table does not key on is that platform's own set rather than the host's.
-
-Verification: V1 here, with four tests over the composed list and the
-substitution -- a voice with no provider of its own is still listed, the
-host's own names never appear under a profile, speaking reaches the platform
-as the substitute, and the substitute follows the language. 0043's three
-tests are unchanged and still pass, which is what says the verbatim path is
-intact.
+speechSynthesis.getVoices() returns the profile's voice list. A voice
+that matches a host voice uses that voice as is, and any other is spoken
+by a host voice of the same language, then the same primary language,
+then the first available. A page sees the profile's names, languages and
+flags, and speech runs on a real engine with real events. Otherwise a
+Windows profile on a Mac lists the Mac's own voices, or an empty list
+that no desktop Chrome reports.
 
 diff --git a/content/browser/speech/tts_controller_impl.h b/content/browser/speech/tts_controller_impl.h
 --- a/content/browser/speech/tts_controller_impl.h

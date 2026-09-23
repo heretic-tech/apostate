@@ -1,50 +1,12 @@
-Subject: base: compose a profile when the launch did not supply one, and refuse one that cannot be loaded
+Subject: [PATCH] base: compose a profile when none is given
 
-The loader's only source of a profile is --apostate-profile, so a binary run
-with no arguments presents the host. That is the right default for a debug run
-and the wrong one for the product: a user who double-clicks the browser expects
-a device, not their own machine.
-
-This is the one hunk that joins the two halves. The switch still wins, because
-it is the strongest layer in the launch precedence and because patch 0005
-propagates it to every child, so a renderer keeps parsing the switch its
-browser was given and never composes anything itself. Only when the switch is
-absent does the browser ask the compositor, and the compositor returns the same
-base64 JSON the switch would have carried, so there is one parser, one format
-and one profile object no matter which path produced it.
-
-Composition goes through InstallComposedProfile rather than being done here:
-composing and then writing the result back onto this process's command line is
-one operation, patch 0084 needs the same operation from Chrome's startup
-sequence, and two copies of it would be two places for the identity to be
-decided. It is idempotent, so once 0084 has run this call finds the switch
-already present and does nothing.
-
-That is also the correction to this function's own comment. It used to claim
-that initialising on first use "removes the ordering hazard entirely -- there
-is no call site to place correctly, and no process type that can be forgotten".
-The second half was true and the first was not: the identity was decided by
-whichever subsystem first asked the loader for a field, which on Linux can be
-after the zygote fork, and a zygote that caches a null profile hands every
-renderer it forks the host's values. Patch 0084 places the call; this call is
-what happens when nothing did.
-
-The other half of this change is that a supplied profile that cannot be loaded
-now stops the launch. --apostate-profile takes base64-encoded profile JSON, and
-passing a path to a profile file is the obvious mistake to make, because the
-file is right there and the switch names it. Before this, a path, malformed
-base64 and a JSON array all produced byte-identical behaviour: one line on
-stderr and then a composed profile, so the browser came up wearing a different
-device and reported it as if nothing had gone wrong. A caller that built the
-switch wrongly got a plausible wrong answer instead of a failure. An explicitly
-supplied profile is the strongest layer in the precedence chain, so failing to
-honour it is fatal and the message names the encoding the switch actually
-wants. This cannot fire in a child process, where the value is a byte copy of
-one the browser already parsed.
-
-nullopt from the compositor still means host inheritance, and still reaches
-exactly the code path that already existed. A child process, --fingerprint=off
-and a catalogue that cannot serve the launch are all that path.
+A launch without --apostate-profile composes a device profile itself, so
+a browser started with no arguments hides the host. The switch wins when
+present, and the browser writes a composed profile back onto its own
+command line so every child parses the same switch. A supplied profile
+that cannot be decoded stops the launch with an error naming the
+expected encoding. A child process, --fingerprint=off and a catalogue
+that cannot serve the host all leave the host's values in place.
 
 --- a/base/apostate/profile.cc
 +++ b/base/apostate/profile.cc

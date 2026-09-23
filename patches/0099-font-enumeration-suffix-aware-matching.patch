@@ -1,68 +1,14 @@
-Subject: fonts: consult the allowlist for the family the platform will match
+Subject: [PATCH] fonts: match suffixed family names the way the platform does
 
-Patch 0090 tests a page's family name against the profile's enumeration
-allowlist exactly as written. On Windows that is the wrong name to test, because
-Chromium resolves some family names by stripping a recognised suffix and
-matching the base family instead. A host with Arial answers "present" for
-"Arial Narrow" whether or not a narrow face is installed, and the same holds for
-twenty other suffixes: twelve weight names in TypefacesHasWeightSuffix and nine
-stretch names in TypefacesHasStretchSuffix, both in
-win/font_cache_skia_win.cc and both reached from CreateFontPlatformData. So an
-allowlist naming Arial and not Arial Narrow made 0090 hide a family every real
-Windows machine with Arial reports, which is a machine that cannot exist.
-
-The same behaviour exists on Linux and is ours: WindowsStretchSuffix in
-third_party/blink/renderer/platform/fonts/skia/font_cache_skia.cc emulates the
-stretch table for a Windows persona, guarded on the profile's claimed platform.
-There is no weight emulation there, so this mirrors only what is actually
-emulated. macOS does none of it, and that is not an omission: CoreText
-enumerates "Avenir Next" and "Avenir Next Condensed" as separate families, so
-hiding one while showing the other is a claim a Mac can make, and stripping
-there would decline to hide a family the profile legitimately excluded.
-
-Fixing this in the catalogue was considered and rejected. Mirroring twenty-one
-suffixes per family in data multiplies the non-macOS allowlists by twenty-two
-and reopens the hole every time someone adds a family and forgets to add the
-variants. It is a code-shaped problem, and the code-shaped fix is a fixed table
-consulted once.
-
-So the predicate moves to FontCache::ProfileHidesFamily and gains the strip:
-test the name as written, and if that fails, strip one recognised suffix and
-test the base. Weight is tried first and precludes stretch, one level only,
-because that is the order and the depth of the else-if chain being mirrored.
-The suffix strings are duplicated here rather than exported from the platform
-font caches, which keeps the matchers themselves untouched; a suffix added
-upstream and missed here can only make this filter hide a family it should have
-shown, never show one it should have hidden.
-
-Putting it on FontCache also consolidates 0090. The three renderer routes each
-carried their own copy of the profile lookup; now they call one function and the
-profile is reached from one file in Blink. That is not tidiness. A filter
-applied to document.fonts.check() but not to canvas measurement has the two
-contradict each other, and the only way to be sure they agree is for there to be
-one implementation to disagree with.
-
-This stays subtractive, and the suffix strip does not weaken that. Stripping
-decides which allowlist entry to consult; the platform matcher still runs
-afterwards and still has to find a face. A permissive decision here can only
-decline to hide a family, never make an absent one resolve. That is also why it
-cannot introduce a disagreement between routes: both pass the same filter and
-then reach the same matcher.
-
-It satisfies the base-versus-suffix coherence rule by construction rather than
-by catalogue discipline, and in one direction only. A suffixed name can pass
-only by having an allowed base, so an allowed base admits every variant the
-platform resolves by stripping, and a variant can never be allowed while its
-base is hidden.
-
-queryLocalFonts() is unchanged and needs no strip. Its browser-side filter works
-on the platform's enumeration table, whose entries are families that really are
-installed, so there is no suffix-derived request to resolve. A Windows host with
-Arial and no narrow face already reports "Arial Narrow" as matchable while not
-listing it among installed families; that is upstream behaviour and not
-something introduced here.
-
-Compile-unverified: this cannot be built in this session.
+On Windows, Chromium resolves a name like "Arial Narrow" by stripping a
+known weight or stretch suffix and matching the base family. The
+profile's font allowlist follows the same rule: a name passes if it is
+listed, or if one stripped suffix leaves a listed family. Linux strips
+only the stretch suffixes it emulates for a Windows profile, and macOS
+matches names as written. Without this, a profile listing Arial hides
+Arial Narrow, which every real Windows machine with Arial reports. One
+FontCache function serves text rendering, document.fonts.check() and CSS
+local(), so they agree.
 
 --- a/third_party/blink/renderer/platform/fonts/font_cache.h
 +++ b/third_party/blink/renderer/platform/fonts/font_cache.h

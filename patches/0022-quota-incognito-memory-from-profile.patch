@@ -1,50 +1,14 @@
-Subject: [PATCH] quota: incognito storage quota from the profile, not host RAM
+Subject: [PATCH] quota: incognito quota from the profile's memory
 
-Incognito storage quota is a fraction of physical memory, and that fraction
-reaches the page through navigator.storage.estimate().quota. The memory it
-reads is the host's true installed RAM, so an incognito context reports the
-machine Apostate is running on rather than the machine its profile claims.
+In incognito, the storage pool size is a fraction of physical memory,
+and navigator.storage.estimate() can expose it. The memory figure comes
+from the profile's installed memory instead of the host's RAM, so the
+quota matches the claimed machine and agrees with
+navigator.deviceMemory. Playwright and Puppeteer contexts are incognito,
+so every default automation session takes this path. The random ratio
+Chrome applies stays, so the value varies between sessions as in stock
+Chrome.
 
-navigator.deviceMemory does not cover this. Patch 0006 patched
-ApproximatedDeviceMemory in Blink, which is a consumer of the memory fact
-rather than the fact itself, so the quota path was never touched by it. The two
-surfaces then disagree, and a page can read both: deviceMemory says one machine
-and quota says another. A contradiction between two values is worse than either
-value being wrong, because it needs no reference data to rule on.
-
-Measured on the build host. A profile claiming a 32 GiB M4 Max, served from a
-93.4 GiB machine, reported an incognito quota of roughly 4.7 to 6.2 GiB where
-the real Mac reports 1.6 to 2.1 GiB — about three times too large, and
-identifying the host to within the precision of the ratio.
-
-This matters more than "incognito is a corner case", because a non-persistent
-automation context *is* incognito. Target.createBrowserContext, which is what
-Playwright's newContext() and Puppeteer's createBrowserContext() call, goes
-through DevToolsBrowserContextManager::CreateBrowserContext to
-GetOffTheRecordProfile, and StoragePartitionImpl passes
-browser_context_->IsOffTheRecord() straight in as is_incognito. Every default
-automation session takes this path.
-
-The profile carries the real installed figure rather than the bucketed one
-deviceMemory reports, which is what the arithmetic here needs: it multiplies by
-a ratio and divides by three, so a value pre-rounded to a power of two would
-produce a quota no machine of that size reports.
-
-The randomness upstream applies to the ratio is deliberately kept. It looked
-like an axiom A3 violation and it is not: base::RandDouble() is drawn once per
-QuotaManagerImpl, the incognito refresh interval is TimeDelta::Max(), and the
-settings are cached, so the value is stable for the life of the session and
-varies between sessions — which is exactly what real Chrome does. Deriving it
-from the profile instead would make one identity report a single constant quota
-forever where every real Chrome varies, replacing a fixed tell with a new one.
-
-Narrow by construction: the incognito branch of CalculateNominalDynamicSettings
-is the only caller of AmountOfPhysicalMemory in the quota subsystem, so nothing
-outside incognito quota changes. base::SysInfo::AmountOfTotalPhysicalMemory
-itself is left alone on purpose — it sizes V8 heaps, caches and allocator pools,
-and moving it would change timing behaviour to fix a storage number.
-
-Ledger: storage.incognito-quota.
 diff --git a/storage/browser/quota/quota_device_info_helper.cc b/storage/browser/quota/quota_device_info_helper.cc
 index c711fea..0b469f5 100644
 --- a/storage/browser/quota/quota_device_info_helper.cc

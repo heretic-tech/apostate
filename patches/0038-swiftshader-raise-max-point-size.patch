@@ -1,43 +1,12 @@
 Subject: [PATCH] swiftshader: raise the maximum point size to 1024
 
-ALIASED_POINT_SIZE_RANGE ends at 1023 on SwiftShader and 1024 on the Windows
-D3D11 machines measured, and ANGLE passes the Vulkan limit straight through, so
-the odd number is visible to any page that asks.
+SwiftShader caps ALIASED_POINT_SIZE_RANGE at 1023, a value no shipping
+GPU configuration reports. This raises the cap to 1024, which matches
+Windows D3D11 machines. The profile clamp serves the smaller of the
+claim and the driver, so an Apple profile still reports 511. When no GPU
+claim is served, a page sees 1024 where stock Chromium on SwiftShader
+reports 1023.
 
-"Every real GPU" was the original claim here and it is wrong. 1024 is a D3D11
-number, not a hardware one. Measured on an M4 Max through ANGLE/Metal the range
-ends at 511, so a profile claiming an Apple device wants 511 and one claiming a
-Windows device wants 1024. Which of those is right is the profile's decision;
-this patch only stops 1023 — a value no shipping configuration reports — being
-the ceiling the driver imposes on either.
-
-Same class as patch 0027 and found the same way — by measurement, after the
-profile clamp had taken everything it could. It belongs here rather than in the
-clamp because the clamp only ever serves the smaller of the two numbers, and in
-this one case the truth is the smaller number: reporting 1024 while the
-rasteriser refuses anything above 1023 would be falsified by drawing a single
-point.
-
-Checked before changing, because a bare 1023 is exactly the shape of a
-ten-bit field and this fork has been bitten by fixed-point overflow before.
-It is not one. Two places read the constant — the reported limit, and a float
-clamp on the point sprite in Renderer.cpp — and neither packs it.
-
-On the path where no profile serves the GPU this raised value reaches the page
-verbatim, the same way patch 0027's limits do: no compiled anchor was captured
-through a software rasteriser, so patch 0093 leaves the GPU cluster
-host-inherited and the page reads 1024 where stock Chromium's SwiftShader
-reports 1023 — resources/fingerprints/raw/stock-linux-20260907T150627Z.json.
-Serving a claim removes it, because the point-size clamp takes the smaller of
-claim and driver. The remedy is a swiftshader-backend anchor in the catalogue,
-which is a data item and not a change here.
-
-What this patch does not close: nothing about how the software rasteriser draws
-the point, or how long it takes. Patch 0027's prose has the measured throughput
-and pixel-digest gap between the software and hardware paths, and patch 0091 is
-the coherence answer to it.
-
-Ledger: webgl.point-size-range.
 diff --git a/third_party/swiftshader/src/Vulkan/VkConfig.hpp b/third_party/swiftshader/src/Vulkan/VkConfig.hpp
 index cc4e3b9..b96d88a 100644
 --- a/third_party/swiftshader/src/Vulkan/VkConfig.hpp

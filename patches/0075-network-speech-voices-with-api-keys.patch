@@ -1,75 +1,12 @@
-Subject: [PATCH] speech: register the network speech extension when the build has API keys
+Subject: [PATCH] speech: Google network voices when the build has API keys
 
-Every Chrome-branded capture in the corpus reports exactly nineteen
-localService:false voices named "Google <language>"; this build reports none.
-No profile field can close that, because the voices are not a device property —
-they are a capability of the browser build, and patch 0037's `speech.voices`
-filter can only constrain voices a provider already registered.
-
-The nineteen are declared in-tree, not invented here:
-chrome/browser/resources/network_speech_synthesis/mv3/manifest.json and the MV2
-manifest beside it each declare exactly nineteen `"remote": true` voices, and
-both manifests are compiled into every build — browser_resources.grd:181-182
-includes them outside any `<if>`. The bytes ship; only the registration is
-missing.
-
-The registration is gated on branding, at
-chrome/browser/extensions/component_loader.cc:642-645:
-
-    // http://crbug.com/41070702
-    #if BUILDFLAG(GOOGLE_CHROME_BRANDING) && !BUILDFLAG(IS_CHROMEOS)
-      AddNetworkSpeechSynthesisExtension();
-    #endif  // BUILDFLAG(GOOGLE_CHROME_BRANDING) && !BUILDFLAG(IS_CHROMEOS)
-
-But branding is not what makes the voices work. The provider does: the
-extension synthesises by posting to https://www.google.com/speech-api/v2/synthesize
-with the build's Google API key, which it fetches through
-chrome.systemPrivate.getApiKey (network_speech_synthesis/mv3/tts_extension.js:191-192)
-— served by
-chrome/browser/extensions/api/system_private/system_private_api.cc:134-135,
-which returns google_apis::GetAPIKey(). Without a key that is
-DefaultApiKeys::kUnsetApiToken and every request fails.
-
-So this replaces the branding gate with the condition that actually decides
-whether the voices can speak, rather than deleting it. HasAPIKeyConfigured() is
-Chromium's own predicate for "this build has a real key" — literally
-`api_key_ != kUnsetApiToken` (google_apis/api_key_cache.cc:341), reached through
-google_apis/google_api_keys.cc:73-75 — and Chromium already uses it exactly this
-way to decide whether a feature is available at all, in
-components/translate/core/browser/translate_manager.cc:177 and
-chrome/browser/ui/startup/infobar_utils.cc:188.
-
-The consequence for a keyless build is deliberate: the extension is not loaded,
-and the voice list is exactly what it is today. Patch 0043 forbids listing a
-voice that cannot speak, and speak() is a probe a page can actually run, so
-nineteen listed-but-failing voices would be a worse result than nineteen
-missing ones — a wrong answer to a cheap question rather than an honest answer
-to an expensive one.
-
-Keys are supplied at configure time through build/args/common.gni, which reads
-GOOGLE_API_KEY, GOOGLE_DEFAULT_CLIENT_ID and GOOGLE_DEFAULT_CLIENT_SECRET from
-the environment so nothing is ever committed. The operator obtains them under
-docs/api_keys.md and is responsible for the ToS they accepted; the consequences
-of supplying them are written out in build/args/common.gni beside the arg.
-
-Note what is *not* claimed: a configured key proves a key exists, not that it is
-authorised for the speech endpoint. An operator whose key lacks that access
-would list nineteen voices that error on speak. Whoever configures keys must
-verify one utterance actually produces audio before shipping that build; no
-in-binary check can substitute, because the only honest test is a network round
-trip and making one at startup would add an observable of its own.
-
-Loading the extension also removes the "You are missing API keys" infobar
-(chrome/browser/ui/startup/infobar_utils.cc:188-190), which today steals window
-chrome height from every launch — the same surface coh.chrome-inset-vs-infobar-state
-covers.
-
-Remote voices remain subject to the connection type: TtsControllerImpl clears
-them on cellular and offline connections (content/browser/speech/tts_controller_impl.cc:1023-1042).
-That is upstream Chrome behaviour and a real Chrome on the same connection
-behaves identically, so it is inherited rather than patched.
-
-Ledger: speech.voices, coh.platform-resource-sets.
+A build with Google API keys lists the nineteen remote "Google
+<language>" voices in speechSynthesis.getVoices(), as Chrome does. These
+voices synthesize through Google's speech API with the build's key, so
+the key is what makes them work. The network speech component extension
+loads whenever HasAPIKeyConfigured() is true, regardless of branding. A
+build without keys lists no network voices, since a listed voice that
+cannot speak fails a page's speak() call.
 
 diff --git a/chrome/browser/extensions/component_loader.cc b/chrome/browser/extensions/component_loader.cc
 index e047fdc..0ddb088 100644

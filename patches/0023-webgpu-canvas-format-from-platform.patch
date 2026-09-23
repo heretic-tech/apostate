@@ -1,48 +1,11 @@
 Subject: [PATCH] webgpu: preferred canvas format from the claimed platform
 
-navigator.gpu.getPreferredCanvasFormat() is decided by the platform the binary
-was built for:
+navigator.gpu.getPreferredCanvasFormat() returns rgba8unorm on Android
+and Linux and bgra8unorm everywhere else, chosen at build time. The
+choice follows the profile's claimed platform, so a Linux build claiming
+macOS or Windows returns bgra8unorm like the real thing. With no
+profile, the build-time choice stands.
 
-  #if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_LINUX)
-    return wgpu::TextureFormat::RGBA8Unorm;
-  #else
-    return wgpu::TextureFormat::BGRA8Unorm;
-  #endif
-
-There are exactly two legitimate values and they partition the platforms, so
-rgba8unorm means Android or Linux and bgra8unorm means everything else. A Linux
-build serving a macOS or Windows profile therefore contradicts its own user
-agent, navigator.platform and Client Hints on a value a page reads in one call.
-
-That is a worse class of defect than a wrong number. Ruling on it needs no
-reference data and no per-version table — only the platform the client itself
-claims — because there is no configuration in which a macOS Chrome returns
-rgba8unorm.
-
-It is also not an isolated bug but the second instance of a family. The first is
-WebBluetooth in runtime_enabled_features.json5, fixed in patch 0017. Both are
-web-facing values resolved by the preprocessor from the build platform, so no
-amount of work at the JavaScript layer reaches either. The third instance,
-BarcodeDetector, is deliberately left unfixed because its backing service has no
-Linux implementation and exposing it would swap a missing API for a broken one.
-
-The condition here is reproduced rather than replaced: profiles claiming Android
-or Linux still get RGBA8Unorm, exactly as upstream gives them. Only the input
-changes, from the build platform to the claimed one. With no profile loaded the
-original #if is untouched.
-
-On the upstream comment, which attributes the Linux branch to mesa BGRA driver
-bugs under Vulkan/GL interop: that is a property of the host's driver stack, not
-of the device being claimed, and it is a rendering concern rather than an
-identity one. A profile claiming macOS must report bgra8unorm or it is not that
-machine. If the host's driver mishandles BGRA, the answer is a host or ANGLE
-backend that does not, rather than emitting the wrong value.
-
-Does not move the V3 score on its own: the webgpu probe also fails on adapter
-absence, since there is no WebGPU adapter under SwiftShader on the build host.
-That is a separate row and is not addressed here.
-
-Ledger: webgpu.preferred-canvas-format.
 diff --git a/third_party/blink/renderer/modules/webgpu/gpu.cc b/third_party/blink/renderer/modules/webgpu/gpu.cc
 index 2052ca5..8051e2b 100644
 --- a/third_party/blink/renderer/modules/webgpu/gpu.cc

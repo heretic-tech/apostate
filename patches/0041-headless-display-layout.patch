@@ -1,37 +1,13 @@
-Subject: [PATCH] headless: construct native virtual monitors from captured layout
+Subject: [PATCH] headless: virtual monitors from the profile's display layout
 
-Read screen.displays through the existing profile loader and construct real
-Ozone headless Display objects with measured bounds, workarea dimensions,
-DPR, labels, primary status, internal status and color depth. Window matching,
-movement, fullscreen and ScreenDetails consume the existing display manager.
-There is no new switch, IPC interface or renderer accessor override.
+In headless mode the browser creates one virtual monitor per entry in
+the profile's screen.displays, with its bounds, work area, device pixel
+ratio, label, primary and internal flags, and color depth.
+window.screen, getScreenDetails(), window placement and fullscreen all
+read these monitors through the normal display code. Sizes in the
+profile are CSS pixels and are converted once. Headful windows keep the
+real monitors.
 
-The capture measures CSS DIP. The native SetDisplayGeometry helper consumes
-pixel sizes/insets, inverse-scales them, and keeps origin coordinates. Convert
-sizes and insets once, keeping origins in desktop coordinates. Preserve optional
-workarea origins as absent when unmeasured; only their missing coordinates use
-the virtual manager's native origin. Do not infer taskbar placement from a
-workarea size. The first inserted display is primary as DisplayList requires.
-
-Mark native profile-created Display objects internally. DisplayUtil retains
-those objects' geometry, DPR, bit depth and actual display count instead of
-applying legacy single-screen values to every monitor. Headful and other
-unmarked displays keep their previous behavior. Existing gamut/HDR policy is
-retained separately; per-monitor HDR was not measured by these captures.
-
-References:
-resources/fingerprints/raw/m4-max-chrome-20260908T163229Z.json: one1728x1117 DIP
-internal display, DPR2, depth30, top33 and bottom86 DIP workarea insets.
-Windows multi-monitor control evidence is unavailable; two-monitor geometry and the
-VA270A workarea origin remain pending.
-
-Primary source at Chromium79460ebecaa5625e57a5fb679a735659e73dc687:
-ui/ozone/platform/headless/headless_screen.cc:GetScreenInfo/CreateDisplayList
-ui/display/headless/headless_screen_util.cc:SetDisplayGeometry
-ui/display/display_list.cc:AddDisplay
-
-Ledger proposal: screen.display-layout, profile field screen.displays.
-V1, real display movement/fullscreen and V3 checks remain required.
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
 index 86238a3..684bc83 100644
 --- a/base/apostate/profile.cc

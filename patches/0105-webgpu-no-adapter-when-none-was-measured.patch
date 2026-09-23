@@ -1,77 +1,13 @@
-Subject: webgpu: serve no adapter when the resolved identity measured none
+Subject: [PATCH] webgpu: no adapter when the profile describes none
 
-Patch 0102 makes a host with no GPU compose a hardware GPU identity, which
-turns a latent catalogue hole into a reachable one. Two of
-linux-vulkan-nvidia-adf287b8f0ee's four measured members -- the RTX 3090 and
-the RTX PRO 4000 Blackwell -- returned no WebGPU adapter on the machines they
-were captured from. `capability_cluster.webgpu.uniform` is false on that anchor
-for exactly this reason, and Compose merges no webgpu fragment for those
-members, so navigator.gpu was left the host's own.
+Some measured GPUs have no WebGPU adapter in their capture, and their
+profiles carry no WebGPU section. For those profiles
+navigator.gpu.requestAdapter() resolves to null on a GPU-less host, in
+place of a SwiftShader adapter that names itself as software beside a
+GeForce renderer string. Stock Chrome on a GPU-less Linux host also
+returns null. Profiles that describe an adapter keep it, taken from the
+same measured GPU as the WebGL values.
 
-On a host with a real NVIDIA card that is the measurement reproduced. On a host
-with no GPU it is not. Measured through the shipped 152.0.7977.83 macOS
-artifact under --use-gl=angle --use-angle=swiftshader,
-navigator.gpu.requestAdapter() returns an adapter whose info reads
-{vendor: "google", architecture: "swiftshader"}, with 36 limits and 21
-features. So those two identities would present a GeForce renderer string on
-WebGL beside a self-identifying software adapter on WebGPU -- one property
-read, no allocation, no timing. That is cheaper to detect than anything in the
-limit tables.
-
-Three ways out, and only one of them asserts nothing unmeasured.
-
-Claiming the sibling Ada members' nvidia/lovelace adapter is refused for the
-reason the anchor already gives: this silicon is Ampere and Blackwell, so
-lovelace would be a falsifiable claim about a generation these boards are not.
-
-Dropping the two identities from the draw on a software host would cut that
-anchor's pool from eleven to nine, trading a one-property tell for reduced
-per-seed entropy. A smaller pool is the cross-seed linking defect this series
-has been closing, so that trade is backwards.
-
-Serving what the member measured -- no adapter -- is faithful replay, which is
-the model the corpus is built on. It reproduces the capture rather than
-improving on it. It is also the unremarkable answer on that host: stock Chrome
-151 on a GPU-less headless Linux box returns no adapter either, measured, so
-null is what the population does there.
-
-The lever is admission rather than suppression, which is why this patch is
-small. Patch 0056's CanUseProfileSoftwareWebGPU is what opts a launch into the
-SwiftShader-only Dawn provider, and that opt-in is the whole reason
-navigator.gpu answers at all on a GPU-less host. Requiring the profile to
-describe an adapter before opting in means a profile that describes none simply
-does not opt in, and Dawn then enumerates as stock does and finds nothing. No
-new suppression path, no second mechanism to keep in step with the first.
-
-ProfileDeclaresWebGPUAdapter() lives in the policy header beside the predicate
-that consumes it, because there are two call sites -- the WebGPU decoder and
-the GL texture shared-image backing factory -- and two copies of a predicate
-about the same profile would eventually disagree. Any one populated field
-counts: Compose merges a member's WebGPU fragment whole or not at all, so for a
-composed profile this is all-or-nothing, and the any-field form only matters
-for a hand-written --apostate-profile, where refusing on a partial fragment
-would silently drop a claim the user did make. A partial claim is served as far
-as it goes and an absent one is not invented.
-
-The field defaults false, so a caller that has not considered the question gets
-stock behaviour rather than an adapter by omission. That default is what makes
-the existing policy tests fail until they state their intent, which is the
-point of a required field, and the two that were about other things now set it.
-A third case is added for the behaviour itself.
-
-Nothing changes for any identity that measured an adapter, which is all fifteen
-Windows identities, all twelve Apple ones and nine of the eleven Vulkan ones.
-Their vendor, architecture and full 36-limit table all come from the same
-resolved member the WebGL cluster comes from, so WebGL and WebGPU cannot
-disagree -- the coherence is structural rather than maintained, and that is the
-property not to break later by adding an independent WebGPU table.
-
-Needs a build to verify. What is established without one is that it applies,
-that the before-state was measured on the shipped artifact, and that the
-admission predicate it extends is the only thing that admits a software adapter
-on a GPU-less host.
-
-Ledger: webgpu.adapter-info, webgpu.adapter-limits, webgpu.adapter-features.
 --- a/gpu/command_buffer/service/profile_software_webgpu_policy.h
 +++ b/gpu/command_buffer/service/profile_software_webgpu_policy.h
 @@ -4,6 +4,7 @@

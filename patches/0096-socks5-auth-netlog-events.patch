@@ -1,62 +1,13 @@
-Subject: [PATCH] net: dedicated NetLog events for the SOCKS5 authentication phase
+Subject: [PATCH] net: NetLog events for SOCKS5 authentication
 
-Patch 0001 added RFC 1929 authentication and reused the existing SOCKS event
-types for it, because dedicated ones needed a new entry in
-net_log_event_type_list.h. Three of those reuses are wrong in a way that costs
-a real diagnosis:
+NetLog records the SOCKS5 username and password exchange as its own
+phase, SOCKS5_AUTH_WRITE and SOCKS5_AUTH_READ. A rejected credential, a
+bad subnegotiation version and a proxy closing the connection
+mid-authentication each get a dedicated event, so a wrong password reads
+differently from a proxy that offers no supported method. The events
+carry status and version bytes, never credentials. Nothing on the wire
+or visible to a page changes.
 
-  A rejected credential logged SOCKS_UNEXPECTED_AUTH, whose documented meaning
-  in that file is "the SOCKS proxy server asked for an authentication method
-  that we don't support". So a wrong password and a proxy offering only GSSAPI
-  produced the same event, and they need opposite fixes.
-
-  A bad RFC 1929 subnegotiation version logged SOCKS_UNEXPECTED_VERSION, which
-  reads as a bad SOCKS version. The subnegotiation carries its own version
-  octet, fixed at 0x01, which has nothing to do with the 0x05 in the greeting.
-
-  A proxy closing the connection mid-authentication logged
-  SOCKS_UNEXPECTEDLY_CLOSED_DURING_GREETING, naming a phase that had already
-  finished successfully.
-
-There was also no phase event at all for the authentication exchange, so a
-net-export dump went straight from SOCKS5_GREET_READ to
-SOCKS5_HANDSHAKE_WRITE whether or not credentials had been sent, and the
-timing of a slow authenticating proxy was attributed to the CONNECT request.
-
-This adds five event types next to the existing SOCKS5ClientSocket block and
-uses them: SOCKS5_AUTH_WRITE and SOCKS5_AUTH_READ as begin/end phase events
-alongside the greet and handshake pairs, and SOCKS5_AUTH_REJECTED,
-SOCKS5_AUTH_UNEXPECTED_VERSION and SOCKS5_AUTH_UNEXPECTEDLY_CLOSED in place of
-the three misreported failures. The greeting's own method-selection failure
-keeps SOCKS_UNEXPECTED_AUTH, where that event's documented meaning is exactly
-right.
-
-NetLog is a debugging facility. It is not page-visible, no byte on the wire
-changes, and the unauthenticated greeting stays byte-identical to upstream's,
-so nothing a detector can reach moves. The new events carry a status octet and
-a version octet and no credential: the username and password are not put in a
-NetLog parameter here for the same reason patch 0001 kept them off
-ProxyServer.
-
-The datagram relay in patch 0079 is left alone and is not a half-instrumented
-path: it emits no SOCKS events of any kind by its own design, returning the
-underlying UDP socket's NetLog source so a capture gains no field that could
-hold a relay address, and its authentication failures surface as the connect
-result. These types are available to it if that ever changes.
-
-Tests: the existing authenticated-handshake test now asserts that an
-authentication phase appears in the log, and the existing rejected-credential
-test asserts that the rejection reports as SOCKS5_AUTH_REJECTED and not as
-SOCKS_UNEXPECTED_AUTH, which is the distinction the old code lost. Both are
-assertions about what a net-export reader sees. Compile-unverified: this
-cannot be built in this session.
-
-Primary source at Chromium 79460ebecaa5625e57a5fb679a735659e73dc687:
-- net/log/net_log_event_type_list.h: the SOCKS and SOCKS5ClientSocket blocks.
-- net/socket/socks5_client_socket.cc: SOCKS5ClientSocket::DoLoop and
-  SOCKS5ClientSocket::DoAuthReadComplete.
-
-Ledger: proxy.socks5-authentication (diagnostics only; no observable changes).
 diff --git a/net/log/net_log_event_type_list.h b/net/log/net_log_event_type_list.h
 --- a/net/log/net_log_event_type_list.h
 +++ b/net/log/net_log_event_type_list.h

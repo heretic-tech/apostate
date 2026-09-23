@@ -1,15 +1,10 @@
-Subject: [PATCH] display: carry the work area's origin, not only its size
+Subject: [PATCH] display: available screen origin from the profile
 
-The screen geometry patch set the available area's dimensions and left its
-origin at the host's. Conformance caught the consequence: availTop was 0 against
-the reference's 33.
-
-That 33 is the macOS menu bar, and the origin cannot be derived from the sizes.
-Our reference has a 114px total inset which divides into 33 above and 81 below —
-knowing the total says nothing about the split, and the split is what availTop
-reports. On Windows the same field moves when a taskbar is docked top or left.
-
-Ledger: screen.avail-dimensions.
+The profile sets where the available screen area starts as well as its
+size, so screen.availTop and screen.availLeft match the claimed machine.
+The origin cannot be worked out from the sizes, since the macOS menu bar
+and dock, or a Windows taskbar docked top or left, split the inset in
+different ways.
 
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
 index 0c28f3c..2fd4f6f 100644

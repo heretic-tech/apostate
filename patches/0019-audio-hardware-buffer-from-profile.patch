@@ -1,43 +1,13 @@
-Subject: [PATCH] audio: hardware buffer size from the profile
+Subject: [PATCH] audio: output buffer size from the profile
 
-AudioContext.baseLatency is max(framesPerBuffer, renderQuantumSize) / sampleRate
-— the length of the audio pipeline, in seconds, readable from any page with no
-permission. The reference M4 Max reports 0.005333, which is 256 frames at
-48 kHz, the CoreAudio default on Apple hardware. Our build reported 0.042666,
-which is 2048 frames: the Linux backend we build on, and a value no Mac
-produces.
+AudioContext.baseLatency reveals the host's audio buffer size, 2048
+frames on the Linux backend and 256 on a Mac. The profile sets the
+hardware buffer size the renderer uses for Web Audio, so baseLatency
+matches the claimed platform and the audio pipeline really runs at that
+size. The host device's own buffer limits are cleared so they cannot
+clamp the claim back. Any size from 128 to 8192 frames is accepted,
+which covers the 480 frames Windows uses.
 
-It is a host tell rather than a wrong constant. Every field around it already
-matched — sample rate, channel counts, and every analyser and compressor
-default — so a page comparing baseLatency against the platform the rest of the
-capture claims sees a Mac whose audio hardware is a Linux one.
-
-Patched at the hardware parameters rather than at the accessor.
-RendererWebAudioDeviceImpl fetches the output device's parameters and then
-derives everything from them; overriding frames_per_buffer at that point means
-GetOutputBufferSize still scales and clamps per latency hint exactly as
-upstream, and the result feeds both baseLatency and the real render pipeline.
-The browser genuinely runs the buffer it reports. Overriding baseLatency itself
-would have produced a number the audio path contradicts.
-
-The hardware capability limits are cleared alongside it, and that is load
-bearing rather than tidying. min_frames_per_buffer and max_frames_per_buffer
-describe the host's real device, so a backend advertising a 480-frame minimum
-clamps a claimed 256 straight back up and the override silently does nothing.
-Cleared, the code falls through to kMinWebAudioBufferSize and
-kMaxWebAudioBufferSize, which is what a device with unknown limits already gets.
-
-The loader accepts any frame count in [128, 8192], which is exactly
-media::limits::kMinWebAudioBufferSize to kMaxWebAudioBufferSize. An earlier
-version additionally required a power of two. That rule was generalised from a
-single sample — CoreAudio's 256 — and it is wrong: Windows shared-mode WASAPI
-runs a 10 ms period, which is 480 frames at 48 kHz, and the reference Intel
-UHD 630 capture reports exactly that. The check rejected the real value, logged
-an error nothing read, and left the host's 2048 in place, so the patch appeared
-to land and did nothing. Chromium imposes no power-of-two requirement anywhere
-on this path.
-
-Ledger: audio.base-latency.
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
 index 0f66556..cd466fc 100644
 --- a/base/apostate/profile.cc

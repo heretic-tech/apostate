@@ -1,37 +1,12 @@
-Subject: [PATCH] content: Web Share follows the claimed platform, not the build
+Subject: [PATCH] webshare: navigator.share follows the claimed platform
 
-navigator.share/canShare are compiled in on every platform, but chrome/
-only enables the WebShare runtime feature on Android, ChromeOS, Windows
-and macOS (chrome/renderer/chrome_content_renderer_client.cc,
-SetRuntimeFeaturesDefaultsBeforeBlinkInitialization: "to avoid it being
-made available in WebView or Linux"). A Linux build with a profile
-claiming Windows or macOS is therefore missing an interface the claimed
-device has, which the V3 prototype.shape probe reports.
+navigator.share and navigator.canShare exist when the profile claims
+Windows or macOS, the platforms whose Chrome ships Web Share. A Linux
+build otherwise lacks an interface the claimed device has. With no
+profile, the build keeps the upstream default. On Linux no share service
+backs the call, so share() rejects, and patch 0094 makes that rejection
+read as a cancelled share.
 
-Same shape as patch 0025 for WebBluetooth: no json5 flip is needed
-because WebShare ships as status "test" and is reachable through
-EnableFeatureFromString. This decides it from the profile's claimed
-platform in SetCustomizedRuntimeFeaturesFromCombinedArgs. With no profile
-loaded nothing is touched and the build behaves as upstream says.
-
-Only API presence follows the profile here. canShare() evaluates its
-arguments locally in Blink; share() goes through the platform
-ShareService, which chrome/browser/webshare/BUILD.gn builds only for
-is_win, is_chromeos and is_mac, so on Linux nothing binds the interface
-and the call rejects. Nothing is spoofed: the capability the reference
-exposes is the API the reference ships.
-
-That rejection was left alone by this patch and is closed by patch 0094.
-It matters more than "rejects" suggests, because the DOMException name is
-already right — a share the user dismissed maps to AbortError too — and
-the only difference was the message, which read "Internal error: could
-not connect to Web Share interface." That names the Web Share interface,
-a string no Windows or macOS Chrome can emit, and one
-.catch(e => e.message) reads it. 0094 reports a cancelled share instead,
-at the renderer's exception emitter, for exactly the launches this patch
-creates.
-
-Ledger: api.webshare-presence.
 diff --git a/content/child/runtime_features.cc b/content/child/runtime_features.cc
 --- a/content/child/runtime_features.cc
 +++ b/content/child/runtime_features.cc

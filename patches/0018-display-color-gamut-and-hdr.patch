@@ -1,54 +1,12 @@
-Subject: [PATCH] display: colour gamut and HDR from the profile
+Subject: [PATCH] display: color gamut and HDR from the profile
 
-Conformance had css.media failing on two features. The reference M4 Max matches
-(color-gamut: srgb) and (color-gamut: p3), and both (dynamic-range: standard)
-and (dynamic-range: high). Our build matched only the first of each — an sRGB,
-SDR display, which no Apple laptop has been for years.
+The profile sets the display's color gamut and whether it supports HDR,
+and the screen's color spaces are derived from the pair. A page testing
+the color-gamut and dynamic-range media features sees the claimed
+display, for example p3 and high on a recent Mac. An HDR claim uses the
+extended sRGB space macOS reports for HDR displays, and an SDR claim
+pins the HDR headroom to 1.0 so the host monitor never shows through.
 
-Both come from one place. MediaValues::CalculateColorGamut and
-CalculateDeviceSupportsHDR each read ScreenInfo::display_color_spaces and
-nothing else, so this is one emitter, not two accessors — and it is the same
-struct patch 0010 already fills for geometry, so the change lands beside it.
-
-The two profile fields are not independent and are not treated as such. An HDR
-colour space already implies a wide gamut: GetColorSpaceGamut short-circuits to
-P3 for any space whose IsHDR() is true, so a profile claiming HDR with an sRGB
-gamut cannot be expressed and is not accepted as a third state. What the profile
-carries is the gamut name and an HDR boolean, and the patch derives the colour
-space from the pair.
-
-For the HDR case it derives CreateExtendedSRGB10Bit — P3 primaries with the sRGB
-EOTF extended past 1.0. That is not a synthetic choice: it is the space macOS
-reports for an HDR display, so an Apple profile gets what Apple hardware
-produces.
-
-Three deliberate limits:
-
-  kSRGB output is left alone. On a real wide-gamut display sRGB content still
-  goes to an sRGB output space, and overwriting it would describe a display that
-  composites everything as P3 — which no host reports.
-
-  The HDR headroom is set explicitly in both directions, including 1.0 for the
-  SDR case. SupportsHDR() is true when the headroom exceeds 1 regardless of the
-  colour space, so leaving it unset would let an SDR profile inherit whatever
-  the build host's monitor advertised.
-
-  Only GetOutputColorSpace(kHDR, needs_alpha=false) is load-bearing, because
-  GetScreenInfoColorSpace is defined as exactly that. kWideColorGamut is set to
-  match so the two cannot disagree.
-
-Also corrects a comment in profile.h. It claimed screen_color_depth drove the
-dynamic-range and colour-gamut media features as well as screen.colorDepth.
-Conformance disproved it: colorDepth matched the reference Mac while both media
-features failed, which is only possible if they read different state. They do.
-
-This hunk sits immediately above the same upstream cross-process screen-cache
-TODO that patch 0010's prose settles. Both media features were included in that
-probe: a top frame and a cross-origin out-of-process iframe report the same
-(color-gamut) and (dynamic-range) answers, and under a profile claiming p3 and
-HDR both report the profile's answers rather than the host's.
-
-Ledger: css.color-gamut, css.dynamic-range.
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
 index 2fd4f6f..0f66556 100644
 --- a/base/apostate/profile.cc

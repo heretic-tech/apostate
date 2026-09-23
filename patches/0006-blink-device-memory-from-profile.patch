@@ -1,36 +1,12 @@
-Subject: [PATCH] blink: derive deviceMemory from the device profile
+Subject: [PATCH] memory: navigator.deviceMemory from the profile
 
-navigator.deviceMemory is not the profile's memory figure — it is that figure
-rounded to the nearer power of two and clamped to [2, 32] GiB on desktop, so the
-only values a real Chrome can report are 2, 4, 8, 16 and 32.
-
-That makes the bucketing observable, and it decides where the patch goes.
-Writing a chosen value straight into approximated_device_memory_gb_ would let an
-out-of-bucket number ship — a value no Chrome produces, and a worse tell than
-the host's real one. Supplying the *input* and letting Chromium's own arithmetic
-round it cannot fail that way.
-
-The same reasoning puts the patch in Initialize() rather than in the Blink
-accessor. ApproximatedDeviceMemory is a per-process static: the browser computes
-it for the Device-Memory request header and the renderer computes it
-independently for navigator.deviceMemory. Patching the input keeps those two in
-agreement in whichever process runs; a renderer-only override would make the
-header a server receives contradict the value JavaScript reports, which is
-trivially checked server-side and invisible from inside the renderer.
-
-Falls through to the host's real memory when no profile carries the field, per
-the loader's contract: an absent field stays inherited rather than defaulted.
-
-The claim is clamped to the host's installed memory, mirroring the core-count
-clamp in patch 0004. deviceMemory is falsifiable by allocation — a page can
-allocate until it fails — so a figure above the host's is contradicted by
-measurement whatever the accessor reports, while a figure at or below it is
-not. Clamping the input rather than the output keeps the reported value inside
-the bucket set Chromium's own rounding can produce, and never above the bucket
-the host itself would report.
-
-Ledger: navigator.device-memory, http.device-memory-header,
-coh.device-memory-header-vs-js.
+The profile's memory size feeds Chromium's own rounding, so
+navigator.deviceMemory and the Device-Memory header report one of the
+values a real desktop Chrome can produce: 2, 4, 8, 16 or 32. The browser
+and the renderer compute it from the same input, so the header matches
+JavaScript. The claim is clamped to the host's installed memory, since a
+page can test it by allocating. With no memory field in the profile, the
+host's real value is used.
 
 diff --git a/third_party/blink/common/device_memory/approximated_device_memory.cc b/third_party/blink/common/device_memory/approximated_device_memory.cc
 index 7fd53eb..284ab1d 100644

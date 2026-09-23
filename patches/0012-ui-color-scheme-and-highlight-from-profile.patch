@@ -1,33 +1,11 @@
-Subject: [PATCH] ui: preferred colour scheme and system highlight from the profile
+Subject: [PATCH] css: color scheme and Highlight color from the profile
 
-Two findings from the first V3 run against a real machine, one of which was not
-what it looked like.
-
-Thirty-three CSS system colours differed, and I assumed a platform mapping
-problem. They were almost entirely dark mode against light: the reference Mac
-runs dark, the headless Linux subject light. Colour scheme is a user preference
-rather than a device property, but it belongs in the profile precisely because
-one setting moves about thirty observable values at once — a capture taken in
-dark mode and replayed in light differs on every one of them.
-
-CalculatePreferredColorScheme is the single source, and the profile is consulted
-there. An explicit --force-dark-mode still wins, because that is a deliberate
-instruction from whoever launched the browser rather than a property of the
-device being presented.
-
-The genuine platform difference was narrower and sharper: Highlight is
-rgba(179, 215, 255, 0.8) on macOS and rgba(0, 65, 198, 0.8) on Linux. macOS
-overrides exactly two colours, and on platforms without a native mapping
-MapNativeColorsToCssSystemColors is an empty body — so a Linux host claiming
-macOS contradicts its own platform, user agent and Client Hints in a single
-getComputedStyle read. Supplying the two from the profile keeps that one
-function correct for any claimed platform instead of adding another per-platform
-table.
-
-Colours are stored as 0xAARRGGBB so a partly transparent highlight round-trips;
-the captured macOS value has an alpha of 0.8.
-
-Ledger: css.system-colors, css.prefers-color-scheme, coh.platform-resource-sets.
+The profile sets the preferred color scheme and the system Highlight
+color. Dark or light mode changes prefers-color-scheme and about thirty
+CSS system colors at once, so it has to match the claimed machine.
+Highlight differs between macOS and Linux, and a Linux host claiming
+macOS would show the Linux value in getComputedStyle. An explicit
+--force-dark-mode still wins over the profile.
 
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
 index d2727ce..af28053 100644

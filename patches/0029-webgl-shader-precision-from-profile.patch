@@ -1,55 +1,14 @@
 Subject: [PATCH] webgl: shader precision from the profile
 
-getShaderPrecisionFormat() is the third component of the WebGL identity, and
-until now we served the host's. Patch 0026 gave the claimed device's limits and
-0028 its extension list; against the reference Windows Intel UHD 630 that left
-webgl1 with 22 differing fields, of which 18 were precision, and webgl2 with 36,
-of which 20 were precision. One field of the remaining four is a parameter. The
-component nothing else reads is the component that stayed wrong.
+getShaderPrecisionFormat() returns the ranges and precision in the
+profile's gl_precisions table, for WebGL1 and WebGL2 on both GPU
+decoders. Without it, a page sees SwiftShader's reduced lowp and mediump
+values next to limits and extensions that claim a desktop GPU. Desktop
+Chrome on real hardware reports Chromium's own 127/127/23 float values,
+and SwiftShader computes every qualifier at full float precision, so the
+claim is served without a clamp. An entry must carry all three numbers
+or it is ignored.
 
-That is the argument for doing it rather than leaving it: a profile that matches
-two of the three components and misses the third is worse than one that matches
-none, because a mismatched third is a contradiction rather than an unknown. It
-is also the failure mode this surface invites, since no other code path touches
-these twelve triples and nothing complains when they are wrong.
-
-The divergence is not about hardware. Chromium seeds the desktop answer itself
-in QueryShaderPrecisionFormat (gpu/command_buffer/service/gl_utils.cc:88) —
-127/127/23 for every float qualifier, 31/30/0 for every int — and only then
-calls the driver, which overwrites it where the entry point is implemented.
-Desktop GL leaves it a stub, so real Chrome on real hardware reports Chromium's
-own constants. ANGLE implements it and reports what its backend declares, which
-on SwiftShader is 15/15/10 for lowp and mediump. The reference capture's values
-are Chromium's constants, not the Intel GPU's.
-
-Patched at RealGLApi, the same layer as 0026, because it is the single choke
-point for both decoders: the passthrough decoder calls
-api()->glGetShaderPrecisionFormatFn directly, and the validating decoder's
-QueryShaderPrecisionFormat reaches the same binding through the global. One
-override covers WebGL1 and WebGL2 on either decoder.
-
-Served without clamping, and that is the one place this patch departs from 0026,
-so it needs its evidence rather than an assertion. A limit is falsified by using
-it — allocate past the reported size and the over-claim collapses in one call,
-which is why 0026 takes the minimum. A precision claim is falsifiable only if
-the backend actually computes at the lower precision. Measured on our own
-build: the same 2^-16 residual pushed through lowp, mediump and highp on
-ANGLE/SwiftShader returns an identical non-zero result from all three
-qualifiers. SwiftShader declares reduced precision and computes every qualifier
-in float32. Reporting 127/127/23 is therefore truthful about what the shader
-will do, and clamping would force us to keep publishing a declaration the
-backend's own arithmetic contradicts.
-
-The warning still fires when a claim exceeds the host's declaration, because
-that reasoning is specific to backends that compute at float32 throughout. A
-backend that genuinely rounds to its declared precision makes the claim
-falsifiable again, and the log line is where that surfaces instead of V4.
-
-Entries are all-or-nothing and bounded to what IEEE binary32 can describe; a
-partial entry would mix the claim with the host inside a single query, which is
-the incoherence the field exists to remove.
-
-Ledger: webgl.shader-precision.
 diff --git a/base/apostate/profile.h b/base/apostate/profile.h
 index a077b58..35ee265 100644
 --- a/base/apostate/profile.h

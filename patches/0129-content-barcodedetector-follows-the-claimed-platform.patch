@@ -1,0 +1,30 @@
+Subject: [PATCH] content: BarcodeDetector follows the claimed platform
+
+Chrome exposes BarcodeDetector on macOS, Android and ChromeOS only, so a
+page on real Windows or Linux Chrome finds none. The browser decides
+this from the platform the profile claims instead of the machine it runs
+on, and nothing changes without a profile. On a build other than macOS,
+a macOS profile's detector lists no formats and rejects detect(),
+because that host has no barcode service.
+
+diff --git a/content/child/runtime_features.cc b/content/child/runtime_features.cc
+--- a/content/child/runtime_features.cc
++++ b/content/child/runtime_features.cc
+@@ -524,6 +524,17 @@
+     }
+   }
+ 
++  // BarcodeDetector follows the platform the profile claims. The json5 ships
++  // it on macOS, Android and ChromeOS only, so real Windows and Linux Chrome
++  // have no BarcodeDetector while real macOS Chrome does, whatever machine
++  // this build runs on. With no profile loaded nothing is touched.
++  if (const base::apostate::Profile* profile = base::apostate::Profile::Get()) {
++    if (const std::optional<std::string>& claimed = profile->ua_platform()) {
++      blink::WebRuntimeFeatures::EnableFeatureFromString("BarcodeDetector",
++                                                         *claimed == "macOS");
++    }
++  }
++
+ #if BUILDFLAG(IS_ANDROID)
+   if (base::android::android_info::sdk_int() <
+       base::android::android_info::SDK_VERSION_P) {

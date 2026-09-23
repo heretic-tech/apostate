@@ -1,28 +1,13 @@
-Subject: [PATCH] angle: serve the validated index limit under native robustness
+Subject: [PATCH] angle: profile MAX_ELEMENT_INDEX under robust access
 
-0063 gates the raised MAX_ELEMENT_INDEX on frontend buffer-access validation,
-but Chromium's WebGL contexts on SwiftShader never have it: the context
-carries robust access with a backend that supports it, so ANGLE validation is
-off by construction. The gate is dead in production — it fires only in the
-ANGLE harness, where the test disables robust access by hand. V3 keeps reading
-the native 2^30-1 while the unit test next to it asserts 2^32-2.
+ANGLE serves the profile's raised MAX_ELEMENT_INDEX when out-of-bounds
+index reads are contained, either by frontend validation or by native
+robust buffer access. Chromium's WebGL contexts on SwiftShader use
+robust buffer access with validation off, so a validation-only check
+never fires in the browser and a page reads 2^30-1. The served value is
+the smaller of the profile claim and the validated backend limit, and
+the test expectation follows the profile limit.
 
-Observed, not assumed: an out-of-bounds indexed draw (index 0xFFFFFFFE into a
-one-vertex buffer) in the built browser returns NO_ERROR. Frontend validation
-would reject it with INVALID_OPERATION, so validation is off, which on a WebGL
-context implies the robust-buffer-access extension is active, which implies
-native robustness contains every out-of-bounds index read. That is the same
-containment the validation flag provides, through the other mechanism.
-
-So the gate accepts either containment: frontend validation or native robust
-buffer access. The served value is unchanged — min(profile claim, validated
-backend capability) — and the no-error exclusion stays, since that path skips
-error generation rather than containing reads. The RobustTest expectation moves
-to the profile limit with the reason attached; the draw-behavior failures in
-the profile suite are a separate, pre-existing matter (restart-index handling
-under validation) and are untouched by this change.
-
-Ledger: webgl.limits (extends).
 diff --git a/third_party/angle/src/libANGLE/Context.cpp b/third_party/angle/src/libANGLE/Context.cpp
 --- a/third_party/angle/src/libANGLE/Context.cpp
 +++ b/third_party/angle/src/libANGLE/Context.cpp

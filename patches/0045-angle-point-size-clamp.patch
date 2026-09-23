@@ -1,20 +1,11 @@
-Subject: [PATCH] angle: enforce profile point-size range in real shaders
+Subject: [PATCH] angle: enforce the profile's point-size range in shaders
 
-Intersect native aliased point-size caps with losslessly integral captured
-endpoints through the existing0039 callback. Never raise native capability.
-Enable the existing ClampPointSize AST transform before shader-cache lookup,
-and disable passthrough shaders before State/Compiler creation so they cannot
-bypass the transform. No new callback ABI, GL entrypoint or base linkage.
-
-Compiler resources already receive the effective Min/MaxPointSize and shader
-keys hash those resources plus compile options. Add the range to resource
-strings and program keys as well. Native range below the reference stays red.
-
-References: resources/fingerprints/raw/m4-max-chrome-20260908T163229Z.json [1,511].
-The Windows comparison capture is unavailable; ALIASED_POINT_SIZE_RANGE and boundary
-behavior remain pending for that target.
-Ledger proposal: gpu.point-size-conformance. V1 and actual point-pixel boundary
-tests remain required; smaller query values alone are not a conformance pass.
+ANGLE lowers ALIASED_POINT_SIZE_RANGE to the profile's range and clamps
+gl_PointSize in compiled shaders to match. A page that draws a point
+larger than the reported maximum sees it drawn at that maximum.
+Passthrough shaders are turned off so they cannot skip the clamp, and
+the range is part of the shader cache key. The range never rises above
+what the host supports.
 
 diff --git a/third_party/angle/src/libANGLE/Caps.h b/third_party/angle/src/libANGLE/Caps.h
 --- a/third_party/angle/src/libANGLE/Caps.h

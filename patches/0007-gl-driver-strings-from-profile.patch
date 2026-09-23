@@ -1,32 +1,10 @@
-Subject: [PATCH] gl: serve the profile's driver strings from the binding layer
+Subject: [PATCH] gl: GL_RENDERER and GL_VENDOR from the profile
 
-GL_RENDERER and GL_VENDOR have two independent consumers, and patching either
-one alone leaves the other describing the host's real hardware.
-
-GPUInfo reads them with a direct glGetString in the GPU process, which drives
-chrome://gpu and — more importantly — the driver-bug blocklist, whose decisions
-are keyed on exactly these strings. WebGL reads them through the command buffer
-decoder, and that is what UNMASKED_RENDERER_WEBGL returns to a page. A build
-that claims one GPU to JavaScript while making blocklist decisions for another
-is contradicting itself in a way that shows up as a different feature set, not
-just a different string.
-
-RealGLApi::glGetStringFn is the single point both paths pass through, and it
-already does this for GL_EXTENSIONS: the filtered-extension substitution
-immediately above is the same shape. So the two consumers agree by construction
-rather than by keeping two patches in sync.
-
-Deliberately not touched: WebGL's *masked* GL_RENDERER, which Blink answers with
-the constant "WebKit WebGL" whatever the hardware. Conflating the masked and
-unmasked paths would introduce a difference from stock Chrome rather than remove
-one.
-
-The substituted strings live in function-local statics because this returns a
-borrowed pointer that must outlive the call, and the profile is immutable for
-process lifetime.
-
-Ledger: webgl.unmasked-renderer, webgl.unmasked-vendor, gpuinfo.gl-renderer,
-coh.gpu-info-vs-webgl.
+The GL renderer and vendor strings come from the profile, at the one
+function both the GPU process and WebGL read them through. A page using
+WEBGL_debug_renderer_info sees the claimed GPU, and the GPU process
+makes its driver-bug blocklist decisions for that same GPU. The masked
+renderer string stays "WebKit WebGL", as in stock Chrome.
 
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
 index 2d479a8..8a64885 100644

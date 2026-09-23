@@ -1,65 +1,11 @@
-Subject: [PATCH] webshare: a claimed Windows or macOS device reports a cancelled share
+Subject: [PATCH] webshare: a failed share reads as a user cancel
 
-Patch 0065 enables the WebShare runtime feature whenever the profile claims a
-platform whose Chrome ships it, so navigator.share and navigator.canShare exist
-on a Linux build under a Windows or macOS persona. It left the call itself
-alone, and said so: share() still goes through the platform ShareService, which
-has no Linux implementation.
-
-What that actually produces is narrower and sharper than "rejects". Measured by
-reading the emitter rather than inferred: chrome/browser/webshare/BUILD.gn builds
-share_service_impl only for is_win || is_chromeos || is_mac, so on Linux nothing
-binds blink::mojom::ShareService, the pipe closes, and the renderer's disconnect
-handler runs. That handler is NavigatorShare::ShareClientImpl::OnConnectionError,
-and it rejects with
-
-    AbortError, "Internal error: could not connect to Web Share interface."
-
-Upstream already picks the right DOMException name there by accident of design:
-ShareError::CANCELED maps to kAbortError too, in Callback a few lines above, so a
-share the user dismissed on a real Mac and a Linux build with no backend are the
-same name. The message is the entire difference, and the message names the Web
-Share *interface* -- a string no Windows or macOS Chrome can emit, reachable with
-one .catch(e => e.message). A detector does not need to understand Mojo to read
-it.
-
-So this changes the message and nothing else, for the launches 0065 created. The
-condition is deliberately the same test 0065 makes, profile->ua_platform() equal
-to "Windows" or "macOS", so the set of launches that take the new branch is
-exactly the set that has the interface at all. With no profile, or a persona
-whose Chrome ships no share backend, the upstream text is untouched. The
-replacement string is taken from ErrorToString rather than copied, so this and a
-genuine CANCELED cannot drift apart later.
-
-Reporting a cancel was chosen over the two alternatives, and the reasoning is
-what decides it rather than convenience. Resolving would be the lie: the page
-would show a success for a share that never happened, and a user who clicked
-Share would be told their link went somewhere. Withdrawing navigator.share on a
-Linux host would undo 0065 and put back a missing interface the claimed device
-has, which is a stronger signal than any message string. Reporting a cancel is
-true in both directions at once -- nothing was shared, which is what the page is
-being told -- and the cancel branch is the one every site with a share button
-already handles, because people dismiss share sheets constantly. The user's
-outcome is the same as tapping outside the sheet, which is a normal thing to
-have happen.
-
-This is the renderer's exception emitter, not an accessor or a wrapper, and it is
-the only place the string exists. Patching the browser instead would mean
-compiling a Linux ShareService in order to have it report a cancel, which is more
-code in more files for the same observable, and it would leave the message wrong
-on any other platform where the interface fails to bind.
-
-What remains true afterwards, and is a residual rather than a fix: no share sheet
-appears, so the rejection is prompt where a real one waits for the user. That is
-inside the real distribution rather than outside it -- a user can dismiss a sheet
-immediately, and Windows ShareOperation can fail before showing one -- and the
-alternative is worse. A fixed delay is a signature of its own, and a randomised
-one would be per-call variation, which this project does not do because two reads
-of one surface in one launch must agree. Web Share also requires transient user
-activation, so a page that has not been clicked gets NotAllowedError on every
-platform identically and cannot reach this path at all.
-
-Ledger: api.webshare-presence.
+When the profile claims Windows or macOS on a build with no share
+backend, navigator.share() rejects with the AbortError message of a
+share the user dismissed. The upstream message names the Web Share
+interface, which no Windows or macOS Chrome can produce. The text comes
+from the same function as a real cancel, so the two always match. With
+no profile, or another claimed platform, the upstream text stays.
 
 --- a/third_party/blink/renderer/modules/webshare/navigator_share.cc
 +++ b/third_party/blink/renderer/modules/webshare/navigator_share.cc

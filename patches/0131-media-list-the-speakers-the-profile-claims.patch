@@ -1,0 +1,238 @@
+Subject: [PATCH] media: list the speakers the profile claims
+
+enumerateDevices() lists the speakers the profile claims, the same way
+it lists claimed microphones, with the default entry and, for a Windows
+profile, the communications entry Windows adds. Without this, a host
+with no sound card lists no audiooutput, and every real Windows and
+macOS machine lists one. A page without permission sees one entry per
+kind with empty ids and labels, as in stock Chrome. Sound sent to a
+claimed speaker goes to Chrome's own silent output.
+
+--- a/base/apostate/profile.h
++++ b/base/apostate/profile.h
+@@ -390,12 +390,16 @@
+     return audio_hardware_buffer_frames_;
+   }
+ 
+-  // How many capture devices of each kind the claimed machine has. A laptop
+-  // with neither a microphone nor a camera is not a laptop, and a headless
+-  // host has neither, so these cannot be left to the host to answer.
++  // How many devices of each kind the claimed machine has. A laptop with
++  // neither a microphone nor a camera is not a laptop, a desktop with no
++  // speaker is not a desktop, and a headless host has none of them, so these
++  // cannot be left to the host to answer.
+   std::optional<int> media_audioinput_count() const {
+     return media_audioinput_count_;
+   }
++  std::optional<int> media_audiooutput_count() const {
++    return media_audiooutput_count_;
++  }
+   std::optional<int> media_videoinput_count() const {
+     return media_videoinput_count_;
+   }
+@@ -793,6 +797,7 @@
+   std::optional<bool> screen_hdr_;
+   std::optional<int> audio_hardware_buffer_frames_;
+   std::optional<int> media_audioinput_count_;
++  std::optional<int> media_audiooutput_count_;
+   std::optional<int> media_videoinput_count_;
+   std::vector<MediaDevice> media_devices_;
+   std::map<std::string, std::string> keyboard_layout_map_;
+--- a/base/apostate/profile.cc
++++ b/base/apostate/profile.cc
+@@ -949,6 +949,8 @@
+          {std::pair<const char*, std::optional<int>*>{
+               "audioinput_count", &profile->media_audioinput_count_},
+           std::pair<const char*, std::optional<int>*>{
++              "audiooutput_count", &profile->media_audiooutput_count_},
++          std::pair<const char*, std::optional<int>*>{
+               "videoinput_count", &profile->media_videoinput_count_}}) {
+       if (std::optional<int> v = media->FindInt(key)) {
+         if (*v >= 0 && *v <= 16) {
+--- a/base/apostate/media_devices.h
++++ b/base/apostate/media_devices.h
+@@ -16,7 +16,7 @@
+ 
+ namespace base::apostate {
+ 
+-// A capture device the profile claims and the host does not have.
++// A device the profile claims and the host does not have.
+ //
+ // The identifiers are raw: MediaDevicesDispatcherHost replaces both with a
+ // per-origin HMAC before either reaches a renderer, so neither string is
+@@ -40,13 +40,16 @@
+ // capture on a machine that can actually capture.
+ BASE_EXPORT std::vector<SyntheticMediaDevice> SyntheticAudioInputDevices(
+     size_t host_device_count);
++BASE_EXPORT std::vector<SyntheticMediaDevice> SyntheticAudioOutputDevices(
++    size_t host_device_count);
+ BASE_EXPORT std::vector<SyntheticMediaDevice> SyntheticVideoInputDevices(
+     size_t host_device_count);
+ 
+-// Whether an identifier names one of the devices above. Both prefixes are
+-// namespaced so they cannot collide with a platform identifier, and neither is
++// Whether an identifier names one of the devices above. The prefixes are
++// namespaced so they cannot collide with a platform identifier, and none is
+ // "default" or "communications", which are special-cased downstream.
+ BASE_EXPORT bool IsSyntheticAudioInputId(std::string_view id);
++BASE_EXPORT bool IsSyntheticAudioOutputId(std::string_view id);
+ BASE_EXPORT bool IsSyntheticVideoInputId(std::string_view id);
+ 
+ // The format a synthetic microphone reports and delivers.
+--- a/base/apostate/media_devices.cc
++++ b/base/apostate/media_devices.cc
+@@ -16,6 +16,7 @@
+ namespace {
+ 
+ constexpr char kAudioInputPrefix[] = "apostate-audioinput-";
++constexpr char kAudioOutputPrefix[] = "apostate-audiooutput-";
+ constexpr char kVideoInputPrefix[] = "apostate-videoinput-";
+ 
+ // A device the profile claims but does not name gets no label, and a device it
+@@ -94,6 +95,16 @@
+                kAudioInputPrefix, host_device_count);
+ }
+ 
++std::vector<SyntheticMediaDevice> SyntheticAudioOutputDevices(
++    size_t host_device_count) {
++  const Profile* profile = Profile::Get();
++  if (!profile) {
++    return {};
++  }
++  return Build(*profile, profile->media_audiooutput_count(), "audiooutput",
++               kAudioOutputPrefix, host_device_count);
++}
++
+ std::vector<SyntheticMediaDevice> SyntheticVideoInputDevices(
+     size_t host_device_count) {
+   const Profile* profile = Profile::Get();
+@@ -108,6 +119,10 @@
+   return id.starts_with(kAudioInputPrefix);
+ }
+ 
++bool IsSyntheticAudioOutputId(std::string_view id) {
++  return id.starts_with(kAudioOutputPrefix);
++}
++
+ bool IsSyntheticVideoInputId(std::string_view id) {
+   return id.starts_with(kVideoInputPrefix);
+ }
+--- a/media/audio/audio_manager_base.cc
++++ b/media/audio/audio_manager_base.cc
+@@ -9,6 +9,7 @@
+ #include <optional>
+ 
+ #include "base/apostate/media_devices.h"
++#include "base/apostate/profile.h"
+ #include "base/command_line.h"
+ #include "base/functional/bind.h"
+ #include "base/functional/callback_helpers.h"
+@@ -313,7 +314,8 @@
+ 
+ namespace {
+ 
+-// Microphones the profile claims and the host does not have.
++// Devices of one kind the profile claims and the host does not have:
++// microphones, and speakers.
+ //
+ // Here, rather than where enumerateDevices() answers, because this is the list
+ // the audio service itself works from: the same descriptions feed the
+@@ -321,7 +323,9 @@
+ // lookup that runs before a stream is opened. A device added above this layer
+ // is a device the audio service has never heard of, which is how a device can
+ // enumerate and then fail to open.
+-void AppendProfileInputDevices(AudioDeviceDescriptions* descriptions) {
++void AppendProfileDevices(
++    AudioDeviceDescriptions* descriptions,
++    std::vector<base::apostate::SyntheticMediaDevice> (*synthesise)(size_t)) {
+   // The virtual "default" and "communications" entries are not hardware, so
+   // they do not count towards what the host really has.
+   size_t host_devices = 0;
+@@ -333,29 +337,44 @@
+   }
+ 
+   const std::vector<base::apostate::SyntheticMediaDevice> synthetic =
+-      base::apostate::SyntheticAudioInputDevices(host_devices);
++      synthesise(host_devices);
+   if (synthetic.empty()) {
+     return;
+   }
+ 
+-  // A machine with a microphone also enumerates a virtual default entry
+-  // pointing at it; a machine with none enumerates nothing at all. If the host
+-  // is the second kind and the profile claims the first, the default entry has
+-  // to come too, or the claimed machine is one whose microphone the operating
+-  // system does not consider a recording device.
++  // A machine with a device of this kind also enumerates a virtual default
++  // entry pointing at it, and Windows adds a virtual communications entry
++  // beside it (AudioManagerWin::GetAudioDeviceNamesImpl); a machine with none
++  // enumerates nothing at all. If the host is the second kind and the profile
++  // claims the first, the virtual entries have to come too, in the claimed
++  // platform's shape, or the claimed machine is one whose device the
++  // operating system does not consider a device.
+   const bool host_had_devices = !descriptions->empty();
++  const base::apostate::Profile* profile = base::apostate::Profile::Get();
++  const bool claims_windows = profile && profile->ua_platform() == "Windows";
+   if (!host_had_devices) {
+     descriptions->emplace_back(synthetic.front().label,
+                                AudioDeviceDescription::kDefaultDeviceId,
+                                synthetic.front().group_id,
+                                /*is_system_default=*/true,
+                                /*is_communications_device=*/false);
++    if (claims_windows) {
++      descriptions->emplace_back(
++          synthetic.front().label,
++          AudioDeviceDescription::kCommunicationsDeviceId,
++          synthetic.front().group_id,
++          /*is_system_default=*/false,
++          /*is_communications_device=*/true);
++    }
+   }
+   bool first = true;
+   for (const auto& device : synthetic) {
+-    descriptions->emplace_back(device.label, device.id, device.group_id,
+-                               /*is_system_default=*/!host_had_devices && first,
+-                               /*is_communications_device=*/false);
++    // The first device is the one the virtual entries point at.
++    const bool mapped = !host_had_devices && first;
++    descriptions->emplace_back(
++        device.label, device.id, device.group_id,
++        /*is_system_default=*/mapped,
++        /*is_communications_device=*/mapped && claims_windows);
+     first = false;
+   }
+ }
+@@ -370,7 +389,8 @@
+       &AudioManagerBase::GetDefaultInputDeviceID,
+       &AudioManagerBase::GetCommunicationsInputDeviceID,
+       &AudioManagerBase::GetGroupIDInput);
+-  AppendProfileInputDevices(device_descriptions);
++  AppendProfileDevices(device_descriptions,
++                       &base::apostate::SyntheticAudioInputDevices);
+   base::UmaHistogramEnumeration(
+       "Media.Audio.InputDeviceEnumerationOutcome",
+       GetAudioEnumerationOutcome(
+@@ -386,6 +406,8 @@
+       &AudioManagerBase::GetDefaultOutputDeviceID,
+       &AudioManagerBase::GetCommunicationsOutputDeviceID,
+       &AudioManagerBase::GetGroupIDOutput);
++  AppendProfileDevices(device_descriptions,
++                       &base::apostate::SyntheticAudioOutputDevices);
+   base::UmaHistogramEnumeration(
+       "Media.Audio.OutputDeviceEnumerationOutcome",
+       GetAudioEnumerationOutcome(
+@@ -679,6 +701,14 @@
+     output_params.set_format(AudioParameters::AUDIO_FAKE);
+   }
+ 
++  // A speaker the profile claims has no hardware behind it, so no platform
++  // backend can open it. It plays into the browser's own hardware-less output
++  // stream, the one --disable-audio-output selects above, instead of handing
++  // a platform backend an identifier it has never seen.
++  if (base::apostate::IsSyntheticAudioOutputId(device_id)) {
++    output_params.set_format(AudioParameters::AUDIO_FAKE);
++  }
++
+   if (params.format() == AudioParameters::AUDIO_PCM_LOW_LATENCY &&
+       output_params.format() != AudioParameters::AUDIO_FAKE) {
+     output_params =

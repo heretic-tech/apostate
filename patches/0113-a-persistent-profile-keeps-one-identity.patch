@@ -1,118 +1,13 @@
-Subject: compose: a persistent profile keeps one identity
+Subject: [PATCH] compose: a named --user-data-dir keeps one identity
 
-Four sequential launches of the shipped macOS artifact against one
---user-data-dir composed four machines:
-
-  Apple M4 Pro   14 cores  16 GiB  1512x982
-  Apple M1        8 cores  16 GiB  1470x956
-  Apple M2 Pro   10 cores  32 GiB  1728x1117
-  Apple M2 Pro   12 cores  32 GiB  1512x982
-
-That directory holds cookies, localStorage and logged-in sessions. Presenting a
-different GPU, core count, installed memory and panel to the same cookie jar on
-every launch is a stronger signal than any individual fingerprint value: the
-site sees one account whose hardware changes between visits, which no real
-machine does. Coherence is the axiom this violates -- correct means "equal to
-reference device D", and a device that is a different D each Tuesday is not a
-device. The per-launch draw was right for the ephemeral case and wrong for the
-persistent one, and 0081 applied it to both.
-
-So the seed grows a layer. Precedence, strongest first, with the first two
-unchanged:
-
-  --fingerprint=<seed>   the identity that seed names, on any machine
-  the profile identity   stable for the --user-data-dir the launch named
-  fresh OS entropy       the default when no directory was named
-
-A bare launch still draws 32 bytes and keeps nothing. That is deliberate and it
-is the reason the condition is the *switch* rather than the resolved path:
-Chrome always resolves a user data directory, so binding on the resolved path
-would make every launch sticky and take the ephemeral default away. Only a
-launch that named a directory gets an identity that outlives it.
-
-Stored, not derived. Hashing the absolute path would keep the filesystem clean
-and survive a wiped profile, but it makes two unrelated profiles that happen to
-share a path -- two containers each mounting /profile, two users each using
-~/.apostate -- one machine, and it silently changes the machine when a
-directory is renamed or moved. An operator who moves a profile means "take my
-machine with it". A file gives every directory an independent identity and
-keeps it across a move, and 0081 already reads that directory for provisioned
-fonts, so the compositor is not learning to touch the filesystem here; it is
-writing 65 bytes where it already reads.
-
-The file is <user-data-dir>/apostate/identity: one seed, one newline, nothing
-else, so `cat` prints something that can be pasted straight back as
---fingerprint=<seed>. Its rule is exactly --fingerprint's rule, which is why a
-seed chosen by hand in a text editor is honoured rather than treated as damage.
-
-It is not a new observable, and that was checked rather than assumed.
-chrome::DIR_USER_DATA is registered kBlockAllChildren in
-ChromeFileSystemAccessPermissionContext's blocklist -- the only web API that
-can name an absolute path refuses that directory and everything beneath it --
-and GenerateBlockPaths resolves it through PathService, which
-InitializeUserDataDir has already overridden with the --user-data-dir value, so
-the block follows the switch. A web origin cannot fetch a file: URL, a file:
-document is an opaque origin without --allow-file-access-from-files, and
-ChromeNetworkDelegate::IsAccessAllowed gates navigation the same way for this
-file as for the Cookies database beside it. Chrome Sync carries typed models
-out of <user-data-dir>/<Profile>/, never a file at the user-data-dir root;
-Crashpad uploads minidumps and only the attachments it is handed, and Chrome
-hands it none. No process name changes, no command line changes, no timing
-changes: the browser reads the file, composes, and passes the composed profile
-down exactly as before.
-
-The awkward cases, each decided rather than defaulted:
-
-  Unwritable directory. The launch proceeds with an ephemeral identity and a
-  limitation saying so. Refusing to start because an identity could not be
-  filed away is a worse answer than the behaviour this patch replaces, and the
-  operator needs to know the rotation is still happening because a site
-  sharing that cookie jar can see it.
-
-  Corrupt, truncated or unparseable file. Replaced once, reported once, stable
-  afterwards. Ignoring it would restore exactly this defect; refusing the
-  launch would turn one bad byte into a browser that will not start. The
-  terminating newline is what makes truncation detectable at all -- without it
-  a half-written seed reads as a shorter but perfectly valid one, which is an
-  identity change reported nowhere.
-
-  Unreadable file, as opposed to invalid. Left on disk untouched, with an
-  ephemeral identity for this launch. A permission error or a failing disk
-  must cost one launch, never the identity it failed to read. This is the one
-  case that is deliberately not "replace".
-
-  A directory Chromium creates on this launch. Mints and stores, like any
-  other first launch. The identity is minted alongside the cookie jar it will
-  be presented with, which is the pairing that has to hold.
-
-  Incognito and guest over a persistent profile. Unchanged, and deliberately
-  so: they share the browser process, so they share SysInfo, the composed
-  profile and therefore the identity. Rotating per session is not possible
-  without a second browser process, and a window that reported different
-  hardware from its own browser would be incoherent in a way no real machine
-  is.
-
-  A directory copied to a new location. Clones the identity, intentionally. A
-  copy of a profile is a copy of its cookies and its logged-in sessions; an
-  identity that changed under them would reintroduce the defect at the one
-  moment the operator is most likely to be resuming a session. Two clones used
-  at once look like one machine in two places, which is what they are -- and
-  --fingerprint=<seed> remains the way to say "same profile, different
-  machine".
-
-Two instances racing a fresh directory are safe by construction: the write is
-FLAG_CREATE, so the create fails when the file is already there and the loser
-adopts the winner's seed. The directory never ends up with two identities and
-neither process overwrites a seed the other is already presenting. This is also
-why the patch is comfortable running at 0084's PreSandboxStartup hook in a
-process that may turn out to be a second instance -- it either finds an
-identity or files one that a first instance would have filed identically.
-
---fingerprint-explain now distinguishes all three origins in its "seed source"
-line and adds an "identity file" line naming the path and whether this launch
-created it. That is the line an operator reads when debugging exactly this
-behaviour, and "created this launch" on a profile they believed was
-established is the whole diagnosis.
+A launch that names --user-data-dir stores its seed in
+<user-data-dir>/apostate/identity and reuses it on every later launch.
+That directory holds the cookies and logins, and a site that sees one
+account on different hardware each visit has a strong signal.
+--fingerprint=<seed> still wins, and a launch without --user-data-dir
+draws a fresh identity and stores nothing. The file holds one seed and a
+newline, so it can be pasted back as --fingerprint, and a corrupt file
+is replaced once.
 
 --- a/base/apostate/compose.cc
 +++ b/base/apostate/compose.cc

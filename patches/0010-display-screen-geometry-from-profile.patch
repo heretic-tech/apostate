@@ -1,59 +1,11 @@
-Subject: [PATCH] display: screen geometry from the device profile
+Subject: [PATCH] display: screen geometry from the profile
 
-Nothing a page reads about the display originates in the renderer. ScreenInfo is
-assembled in the browser process and shipped over mojo inside VisualProperties,
-and the renderer-side funnel every Blink reader passes through is a waypoint
-rather than a source — so this is the point where one change reaches screen.*,
-the CSS display media features and the DPR client hint together.
-
-That last one matters: the DPR header repeats the deviceMemory pattern, computed
-in the browser for navigations and in the renderer for subresources. Both read
-device_scale_factor from this struct, so patching here keeps them in agreement
-instead of requiring two patches to stay in step.
-
-depth_per_component follows depth rather than being carried separately in the
-profile. Chromium uses depth as an HDR flag with only 24 and 30 valid, and the
-same fact drives CSS color, dynamic-range and color-gamut — a profile that set
-the two independently could describe a display that cannot exist. The parser
-rejects any other colour depth for the same reason.
-
-available_rect is stored rather than derived from the screen size. Its inset is
-the OS window furniture, and we measured it moving between sessions on one
-machine as the macOS dock changed state, so it cannot be computed — only kept
-plausible for the claimed platform.
-
-The function this patch edits carries an upstream TODO naming crbug.com/1194700
-and crbug.com/1182855 -- use cross-process screen info caches, not local-process
-info, for child frames and Mac's shim. That TODO is not a hole in what this
-patch does. The only two fields it governs are is_extended and is_primary, the
-two that read Screen::Get(); every geometry field comes from the Display
-argument the browser process already assembled, and is_extended is overridden
-from the profile a few lines below for exactly the coherence reason the TODO is
-about.
-
-Measured rather than reasoned. A page on http://127.0.0.1 with a cross-origin
-iframe on http://localhost, run under the shipped macOS artifact with
---site-per-process so the child is genuinely out of process, reports identical
-values in both frames for screen.width, height, availWidth, availHeight,
-availLeft, availTop, colorDepth, pixelDepth, isExtended, orientation.type,
-orientation.angle, devicePixelRatio, window.screenX, screenY, outerWidth,
-outerHeight and the (color), (color-gamut) and (dynamic-range) media features.
-That holds with no profile, where both report the host's display, and with a
-profile setting 1234x765, availTop 25, colorDepth 30, gamut p3 and HDR, where
-both report the profile's values and neither reports the host's. On macOS that
-run is the Mac shim path the TODO names. The cache the TODO asks for would
-change where those numbers are read from, not what a page sees, so there is no
-divergence inside a launch to fix here.
-
-One thing that looks like a divergence and is not: until its first
-VisualProperties arrives, an out-of-process child frame reports 0 for
-window.screenX, screenY, outerWidth and outerHeight, because
-LocalDOMWindow::outerWidth reads ChromeClient::RootWindowRect and an OOPIF's
-page has no window rect yet. That is upstream behaviour, it is present in stock
-Chrome, and it settles to the top frame's values.
-
-Ledger: screen.dimensions, screen.avail-dimensions, screen.color-depth,
-screen.device-pixel-ratio, http.dpr-header, css.media display features.
+Screen size, available area, color depth, device pixel ratio and
+isExtended come from the profile. They are set on the ScreenInfo the
+browser process sends to renderers, so screen.*, the CSS display media
+features and the DPR client hint all agree, in top frames and
+out-of-process iframes alike. Color depth accepts only 24 or 30, the two
+values Chromium uses.
 
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
 index 0a74db4..adce0ad 100644

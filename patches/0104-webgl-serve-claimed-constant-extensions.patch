@@ -1,87 +1,15 @@
-Subject: webgl: serve the claimed extensions a host can back without a driver
+Subject: [PATCH] webgl: serve claimed extensions that need no driver support
 
-Patch 0028 closed the removal direction of the extension filter and left the
-addition direction shut, on the grounds that adding a name is unsafe: a page
-calls getExtension() and then calls methods on the object it receives, so one
-claimed but unimplemented fails at first use. That reasoning is correct about
-method-bearing extensions and too strong about the rest, and the rest is most
-of the gap.
+getSupportedExtensions() and getExtension() include five extensions when
+the profile claims them, whatever the driver supports: EXT_render_snorm,
+EXT_texture_norm16, WEBGL_blend_func_extended,
+WEBGL_compressed_texture_pvrtc and WEBGL_render_shared_exponent. Each
+exposes only constants, so getExtension() returns a real object and a
+page that lists and hashes extensions sees the claimed GPU's set.
+Extensions with methods stay off unless the driver supports them, since
+calling one would fail. Extensions the profile does not claim are
+removed.
 
-Measured through the shipped 152.0.7977.83 macOS artifact, calling
-getExtension() for each name on both backends:
-
-  ANGLE/Metal        returns an object for all nine names of interest.
-  ANGLE/SwiftShader  returns an object for EXT_disjoint_timer_query_webgl2 and
-                     WEBGL_clip_cull_distance, and null for EXT_render_snorm,
-                     EXT_texture_norm16, WEBGL_blend_func_extended,
-                     KHR_parallel_shader_compile, WEBGL_provoking_vertex,
-                     WEBGL_render_shared_exponent and
-                     WEBGL_compressed_texture_pvrtc.
-
-So Blink has a complete implementation class for every one of them. The only
-thing refusing on a software backend is the driver-support lookup inside each
-extension's Supported() -- EXTRenderSnorm::Supported asks
-ExtensionsUtil()->SupportsExtension("GL_EXT_render_snorm") and nothing more.
-Serving one therefore yields a real object with its real constants, not a
-promise with nothing behind it, and the constructor's only side effect is an
-EnsureExtensionEnabled() call that fails harmlessly when the GL extension is
-absent.
-
-The gap this closes, measured against the SwiftShader extension set that is the
-deployment target's -- 36 WebGL1 and 30 WebGL2 names, byte-identical between
-this host's SwiftShader and the Linux SwiftShader capture in
-corpus/anchors/linux-swiftshader-google-6922d61bab83.json:
-
-  linux-vulkan-nvidia-adf287b8f0ee   claims 34/29, was short 1 and 3
-  windows-d3d11-intel-79dfeb5b4f99   claims 35/32, was short 2 and 5
-  windows-d3d11-nvidia-0947761dfbe9  claims 35/32, was short 2 and 5
-  macos-metal-apple-850a91233555     claims 39/36, was short 3 and 7
-
-The names are five, and the list in the code is by name rather than a general
-mechanism. Every entry exposes constants, internal formats or blend factors and
-no methods, so a page enumerates the object, reads its constants and hashes the
-list, and all of that succeeds. What does not succeed is a page that renders
-THROUGH one: an R16 texture on a stack without GL_EXT_texture_norm16 raises
-GL_INVALID_ENUM. That residual is narrower than the name being absent, because
-every detector reads the list and almost none renders through a norm16 format.
-
-Four names that could have been added are not, each for a reason worth writing
-down rather than a size limit:
-
-  OVR_multiview2                   framebufferTextureMultiviewOVR() is a
-                                   method. 0028's objection applies exactly.
-  WEBGL_provoking_vertex           the same, provokingVertexWEBGL().
-  EXT_disjoint_timer_query_webgl2  methods, and worse than useless: a working
-                                   GPU timer on a software rasteriser hands a
-                                   page the throughput ratio directly, and
-                                   that ratio is the one GPU contradiction no
-                                   string can cover. Serving this name would
-                                   be building the detector's instrument.
-  KHR_parallel_shader_compile      no methods, but COMPLETION_STATUS_KHR is
-                                   read through getProgramParameter, and a page
-                                   that polls it would never see a program
-                                   finish. It is also unnecessary where it
-                                   matters: patch 0052 enables it natively on
-                                   Linux SwiftShader, so the deployment target
-                                   already has it and the gap above is one name
-                                   smaller there for the three clusters that
-                                   claim it.
-
-The failure mode being avoided is not over-claiming. It is self-contradiction:
-a name in getSupportedExtensions() whose getExtension() returns null is a
-stronger tell than the name being absent, because no device does that. Both
-paths run through ExtensionSupportedAndAllowed, which is why the addition is
-made here and not at getSupportedExtensions(), and why the list and the objects
-obtainable from it cannot disagree.
-
-The removal direction is unchanged and still subtractive: a profile that does
-not claim a name the host has still loses it, which is what keeps
-WEBGL_compressed_texture_astc, _etc and _etc1 off a Windows persona. An empty
-profile list still disables both directions.
-
-Compile-unverified at the time of writing; V1 is the gate this is submitted to.
-
-Ledger: webgl.supported-extensions, webgl2.supported-extensions, gpu.angle-backend.
 --- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
 +++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
 @@ -25,7 +25,9 @@

@@ -1,107 +1,12 @@
-Subject: fonts: serve page-visible font enumeration from the profile
+Subject: [PATCH] fonts: font enumeration follows the profile allowlist
 
-The compositor has selected and merged fonts.enumeration_allowlist since patch
-0081, and until this patch nothing read it. The loader did not parse the field,
-no emitter consulted it, and every route a page has for asking which fonts are
-installed answered from the host. Measured on the shipped macos-arm64 artifact
-with a profile carrying the macOS core font pack as its allowlist: Futura,
-Didot, Baskerville, Apple Chancery, Hoefler Text and Avenir Next are all
-installed on the host, none of them is in the allowlist, and all six were
-reported present by document.fonts.check(), by canvas measureText, by CSS
-layout width and by queryLocalFonts(), which returned all 536 faces and 184
-families the host has. The claim was described in the profile and contradicted
-by the browser.
-
-The filter is subtractive and can only be subtractive. A family the host does
-not have cannot be made to measure correctly, so the allowlist removes families
-this host has and the claimed machine does not; it cannot add. Adding needs the
-font files, which is provisioning, and provisioning is a separate problem that
-this patch does not pretend to solve.
-
-Blink has no single function that every probe passes through, so the work is to
-find the smallest set of places where a family name the page wrote is handed to
-the platform, and to route all of them through one predicate so they cannot
-disagree. A filter on document.fonts.check that does not also apply to canvas
-measurement is worse than none, because the two disagreeing is a signal no real
-machine produces. The predicate is Profile::FontFamilyEnumerable, it lives in
-base next to the parsed profile, and the browser process and every renderer ask
-the same function.
-
-There are four such places.
-
-FontFallbackList::GetFontData holds the two calls that hand a page-written
-family name to FontCache. Everything that measures or renders text by name goes
-through it: canvas measureText, CSS layout, SVG text, and the worker and
-OffscreenCanvas paths, because a Font object owns a FontFallbackList whatever
-created it. A hidden family takes the branch an absent family already takes, so
-the next family in the list is tried and the page is not left without a font.
-
-CSSFontSelectorBase::IsPlatformFamilyMatchAvailable is what
-document.fonts.check() consults. check() is not the blunt instrument it looks
-like: FontFaceSet::check returns true for any family the platform can match,
-whatever the page's own @font-face rules say, so a page that declares an unused
-@font-face for a family name and then calls check() on it reads platform
-availability directly. That probe now reads the same availability the
-measurement path does.
-
-LocalFontFaceSource covers @font-face { src: local(...) }, which matches a
-PostScript or full font name rather than a family name. The allowlist cannot be
-consulted with the string as the page wrote it, because "ArialMT" is Arial and
-no list of families would spell it that way, so the face is resolved and the
-family the platform actually produced is what decides. IsLocalFontAvailable and
-CreateFontData both check, because a rule that reports unavailable and then
-renders is exactly the disagreement a probe is looking for.
-
-FontEnumerationCache::BuildEnumerationCache is the browser-side table behind
-queryLocalFonts(). It is the only place that table is built and it is
-platform-independent, so one removal there covers macOS, Windows and Linux.
-Nothing is ever added to it: an invented entry would carry a postscript name
-with no typeface behind it, and the next thing a page does with a FontData is
-measure it or call blob().
-
-Four things are deliberately left resolving.
-
-Generic families are exempt, and this is load-bearing rather than cautious.
-serif, sans-serif, monospace, cursive, fantasy, system-ui and math are not host
-families; they are a browser setting that the font selector resolves through
-FamilyNameFromSettings into a concrete family, and that concrete family is
-often not in a claimed machine's installed set. Measured on the reference host,
-cursive resolves to Apple Chancery, which the macOS core pack does not list.
-Filtering the resolved name would leave ordinary pages with no cursive font,
-and filtering on a page's own spelling of a generic name would break every page
-on the web.
-
-Character fallback is exempt. FontCache::FallbackFontForCharacter and
-GetLastResortFallbackFont do not take a page-supplied name; they ask the
-platform for something that can draw a codepoint, which on macOS reaches Apple
-Color Emoji for emoji and Times or Lucida Grande for the last resort. Filtering
-there would produce tofu, which breaks pages visibly and is trivially
-detectable.
-
-Web fonts are untouched without doing anything, because a page's @font-face is
-answered from the font face cache before the host is ever asked. The one
-interesting case is a page declaring @font-face for a family name the profile
-hides; the page's own font wins, which is correct, and that is what a real
-machine does too.
-
-The families a claimed platform cannot be without remain present whenever the
-host has them, because the core pack is unioned into the allowlist by the
-compositor. When the host does not have them, this patch cannot help: the
-compositor already reports that as a limitation, and no filter can conjure a
-typeface.
-
-What remains open, and it is not small. The filter faithfully serves whatever
-set the profile states, so the quality of the claim is now the quality of that
-list. The checked-in macOS core pack holds 32 families because the collector
-probed a fixed 76-name list, while the same host enumerates 184 families
-through queryLocalFonts. Enforcing the current pack therefore presents a macOS
-machine with 30 visible families where a real one has 184, and that is its own
-tell under queryLocalFonts, which needs a permission prompt but is not exotic.
-The mechanism is right and the data is a subset; widening the core pack to a
-measured complete family set is a catalogue change, not a code change, and this
-patch should land with it rather than ahead of it.
-
-Compile-unverified: this cannot be built in this session.
+A family the host has but the profile's fonts.enumeration_allowlist
+omits is hidden from every page probe: document.fonts.check(), canvas
+and CSS text measurement, @font-face local() and queryLocalFonts(). All
+of them ask one predicate, Profile::FontFamilyEnumerable, so they always
+agree. The filter only removes fonts, since a family the host lacks
+cannot be made to render. Generic families, character fallback and web
+fonts are left as is, because filtering them would break ordinary pages.
 
 --- a/base/apostate/profile.h
 +++ b/base/apostate/profile.h

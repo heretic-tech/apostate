@@ -1,36 +1,12 @@
-Subject: [PATCH] embedder_support: platform identity from the device profile
+Subject: [PATCH] ua: Client Hints and userAgentData from the profile
 
-The highest-leverage single patch in the map: this one struct feeds every
-Sec-CH-UA header and every navigator.userAgentData value, so overriding it here
-closes twenty-two ledger surfaces at once.
-
-It works because UserAgentMetadata is computed once in the browser process and
-pushed to renderers as a mojo copy — unlike deviceMemory, which each process
-recomputes. Both the browser's navigation headers and the renderer's subresource
-headers read this same struct, and so does userAgentData in window and worker
-scope. There is no second site to keep in step.
-
-The brand list and browser version are deliberately untouched. This binary
-really is the Chromium version it reports, and claiming another would require
-behaving like it — every feature-detection difference would contradict the
-claim. What is presented is a device, not a different browser. That also keeps
-the GREASE entry and brand ordering correct by construction, since both are
-deterministic functions of the real major version.
-
-Separately, this restores the browser brand entry. Upstream supplies it only
-under a Chrome-branded build, so a Chromium build emits a two-entry brand list
-where real Chrome sends three — and that absence is itself the tell. It is one
-suppressed assignment, not a branding requirement: no src-internal and no
-is_chrome_branded involved.
-
-form_factors needs no explicit handling. It is derived from the mobile bit,
-which the low-entropy block corrects before form_factors is computed, so it
-follows the profile without a second assignment.
-
-Ledger: navigator.user-agent-data.platform, navigator.user-agent-data.brands,
-http.sec-ch-ua-platform, http.sec-ch-ua-platform-version, http.sec-ch-ua-arch,
-http.sec-ch-ua-bitness, http.sec-ch-ua-model, http.sec-ch-ua-mobile,
-branding.product-brand-entry, and the rest of the Client Hints family.
+The platform, platform version, architecture, bitness, model and mobile
+fields of UserAgentMetadata come from the profile. That one struct feeds
+every Sec-CH-UA header and navigator.userAgentData in windows and
+workers, so they all agree. The browser version stays real, because the
+binary really is that Chromium version. The brand list always includes
+the "Google Chrome" entry, which real Chrome sends and a stock Chromium
+build leaves out.
 
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
 index 8a64885..ff7be12 100644

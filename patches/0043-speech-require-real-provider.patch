@@ -1,37 +1,12 @@
-Subject: [PATCH] speech: require real providers and remove silent synthetic completion
+Subject: [PATCH] speech: profile voices must come from a real provider
 
-Patch0037 invented start/end events on a character-count timer without audio,
-forced platform readiness, and emitted profile names without providers. Restore
-the native Linux readiness, voice enumeration and speech event path.
+The profile's speech.voices list filters the voices that real providers
+register, by name, language and optional local_service. It never adds a
+voice, and voice IDs, metadata and order come from the provider. If no
+registered voice matches, speak() fails through the normal error
+callback and does not fall back to the default voice. An empty list
+allows no voices, and an absent list keeps the host's voices.
 
-At the TTS controller, filter actual registered voices by profile name, language
-and optional local_service. Preserve native IDs, engine IDs, event support,
-remote/local metadata and provider ordering. Chrome maps voiceURI from name and
-localService from !VoiceData.remote, so the profile constrains that existing
-identity instead of overwriting metadata. Missing local_service stays unknown.
-An absent speech.voices field inherits native behavior; an explicit empty list
-permits no voices.
-
-When no eligible provider matches, prevent the controller's native-default
-fallback and report the existing synthesis failure callback. Also reject a
-selected Linux voice that disappears before speech-dispatcher lookup, rather
-than passing an empty voice object that chooses a different default. Successful
-speech still requires real native/provider callbacks. Autoplay/user activation
-code is untouched.
-
-Reference: resources/fingerprints/raw/m4-max-chrome-20260908T163229Z.json, speech.voices.
-The retained M4 capture records 199 voices: 180 local Apple and 19 remote Google;
-Windows/i3 provider control evidence is unavailable and remains pending. Missing
-provider assets remain capability failures. A shorter empty-list diff is not a conformance fix.
-
-Primary source at Chromium79460ebecaa5625e57a5fb679a735659e73dc687:
-content/browser/speech/speech_synthesis_impl.cc:99-113 maps provider metadata.
-content/browser/speech/tts_controller_impl.cc:GetVoices/SpeakNow/GetMatchingVoice
-content/browser/speech/tts_linux.cc:ProcessSpeech
-third_party/blink/renderer/modules/speech/speech_synthesis.cc:IsAllowedToStartByAutoplay
-
-Adds provider-routing unit tests; V1 and real audio/event conformance remain
-required. Ledger proposal: speech.provider-validation.
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
 index 684bc83..a0babac 100644
 --- a/base/apostate/profile.cc

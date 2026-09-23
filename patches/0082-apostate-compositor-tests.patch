@@ -1,70 +1,11 @@
-Subject: [PATCH] base: compositor unit tests
+Subject: [PATCH] compose: compositor unit tests
 
-Tests for the properties the composition model depends on, not for the data it
-happens to ship today. Every option table here is written in the test file: the
-catalogue is data that changes weekly, and a test that read the shipped tables
-would start asserting today's option list instead of the contract.
-
-What each group defends:
-
-Golden vectors. The root and the per-label substreams for a fixed tuple, as
-bytes. These were produced by an independent implementation of FINGERPRINTS.md
-§5 and agree with scripts/profile_resolver.py's seed_root() for the same tuple.
-If this fails, either the derivation changed or one of the six identity
-components is being fed in differently -- and every seed already in the world
-now means a different machine.
-
-ScaleToRange. The 128-bit high half is computed from 32-bit halves, so the
-cases that matter are the top of the range, the exact half, and a range at the
-32-bit boundary; a naive implementation is wrong at all three. The result is
-always strictly inside the range, which is why no modulo and no rejection loop
-are needed.
-
-WeightedPick boundaries and distribution. The boundary test pins the index at
-each cumulative-weight edge, where an off-by-one lives. The distribution test
-draws 60000 seeds against weights 70/20/10 and requires the realised split
-within one percentage point: a pick that is deterministic but biased is still
-deterministic, so determinism alone does not make a weight mean anything. This
-is §9.4 as a unit test.
-
-Label independence. Composing the same seed over a table set, then over the
-same set with an axis inserted, must leave every other axis's choice identical.
-This is the property that lets the catalogue grow without invalidating shipped
-seeds, and it is the reason each axis keys its own substream.
-
-Servability. A claim never exceeds host capability, over 200 seeds rather than
-one, because the point is that no draw can exceed it. And the measured failure
-that the exhaustion rule exists to prevent: on a host below every bucket a
-table knows, keeping the table's lowest option ships a claim *above* host
-capability, so the surface is left host-inherited and the gap is reported.
-
-The GPU cluster. A Windows persona on a host that can only serve an Apple Metal
-cluster keeps the Metal cluster and reports the mismatch; a host whose backend
-no compiled anchor was captured through composes nothing at all, because
-presenting another backend's cluster is precisely the retired catalogue's
-failure.
-
-Merging. fonts.enumeration_allowlist accumulates and de-duplicates in option
-file order, which is what makes a font pack additive; every other array
-replaces, which is what lets a later axis correct an earlier one instead of
-accumulating contradictions.
-
-Conditioning. Option-set matching is exact and total: a value the table does
-not carry is a miss rather than a nearest match, and so is a tuple of the wrong
-arity. The language projection is computed before the draw, so an unmeasured
-accept-languages list lands on the empty-string set -- whose value carries no
-speech section, leaving the host's real providers in effect rather than listing
-a voice that cannot speak.
-
-Work area. availLeft is panel-relative: the Windows reference capture ran on a
-second monitor at x=1920 and reported availLeft 1920 with a zero inset. And an
-inherited panel with furniture insets drops the screen section rather than
-emitting an empty one, because an empty section is not a claim.
-
-Compile-unverified: these cannot be built or run in this session. The golden
-vectors and every derived expectation in them were computed by an independent
-implementation of the same spec and cross-checked against
-scripts/profile_resolver.py.
+The tests check the compositor's contract using option tables written in
+the test file, so shipped data changes do not break them. They cover
+golden seed-derivation vectors, the weighted pick's range math and
+distribution, per-label independence, host capacity limits, GPU cluster
+selection, array merging and option-set matching. A failure in the
+golden vectors means every existing seed produces a different device.
 
 diff --git a/base/BUILD.gn b/base/BUILD.gn
 index f29dfe9..9f09235 100644

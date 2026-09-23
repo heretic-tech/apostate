@@ -1,38 +1,13 @@
 Subject: [PATCH] net: SOCKS5 username/password authentication (RFC 1929)
 
-Chromium's SOCKS5 client offers only "no authentication" — the greeting is the
-fixed constant {0x05, 0x01, 0x00} and DoGreetReadComplete rejects any method the
-proxy selects other than 0x00. A proxy requiring credentials therefore fails the
-connection outright.
+The SOCKS5 client supports RFC 1929 username and password
+authentication, so the browser can connect through proxies that require
+credentials. With credentials set, the greeting offers both no-auth and
+username/password and the proxy picks. Without credentials, the greeting
+is byte-identical to stock Chromium. Credentials stay out of
+ProxyServer, so they never reach NetLog, net-export dumps or socket pool
+keys.
 
-Adds RFC 1929 username/password authentication. When credentials are supplied
-the greeting offers both 0x00 and 0x02 and the proxy chooses, so behaviour
-against proxies that do not require authentication is unchanged. Without
-credentials the greeting is byte-identical to upstream.
-
-Credentials live in a struct passed to the socket rather than on ProxyServer:
-proxy identity is serialised into NetLog events, net-export dumps, socket pool
-group keys and histograms, and a credential inside it would reach all of them.
-
-Notes:
-  - The subnegotiation carries its own version (0x01), which is not the SOCKS
-    version. Checked separately.
-  - RFC 1929 encodes each field length in one octet, so credentials over 255
-    bytes cannot be encoded; rejected at construction rather than truncated.
-  - Method 0xFF ("no acceptable methods") now reports as an authentication
-    failure, which is what a proxy requiring credentials answers when none were
-    configured.
-  - Reuses the existing SOCKS_UNEXPECTED_AUTH and SOCKS_UNEXPECTED_VERSION
-    NetLog events. Patch 0096 replaces both reuses with dedicated
-    authentication events, because SOCKS_UNEXPECTED_AUTH is documented in
-    net_log_event_type_list.h as an authentication METHOD we do not support
-    rather than a credential the proxy rejected, and the RFC 1929
-    subnegotiation version is not the SOCKS version. Nothing on the wire
-    differs between the two, so this patch's handshake is unaffected.
-  - Tests cover the authenticated handshake, credential rejection, and a proxy
-    answering 0xFF when no credentials were configured. The existing
-    CompleteHandshake test is the regression guard for the unauthenticated
-    greeting staying byte-identical.
 diff --git a/net/socket/socks5_client_socket.cc b/net/socket/socks5_client_socket.cc
 index 3eeeb7e..ca2b9ea 100644
 --- a/net/socket/socks5_client_socket.cc

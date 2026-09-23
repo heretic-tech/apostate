@@ -1,20 +1,9 @@
-Subject: [PATCH] headless: Accept-Languages from the profile
+Subject: [PATCH] headless: navigator.languages from the profile
 
-Conformance caught this: the Accept-Language header was correct while
-navigator.languages still reported the host, which is the signature of a value
-with two producers where only one was patched.
-
-headless/lib/browser sets renderer preferences on its own path, and its own
-comment says the values were *copied from*
-chrome/browser/renderer_preferences_util.cc rather than shared with it. So patch
-0013 fixed the header, which comes from the network service, and the headed
-renderer path — and missed this one entirely.
-
-That makes it the ninth surface found with more than one producer, and the
-easiest to miss so far, because the duplication is a literal copy of the code
-rather than a different mechanism.
-
-Ledger: navigator.languages.
+Headless mode fills renderer preferences on its own code path, a copy of
+the one in chrome/browser. The profile's language list applies there
+too, so navigator.languages in headless mode matches the Accept-Language
+header.
 
 diff --git a/headless/lib/browser/headless_web_contents_impl.cc b/headless/lib/browser/headless_web_contents_impl.cc
 index 6074ce3..4e56c78 100644

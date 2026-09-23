@@ -1,31 +1,11 @@
-Subject: [PATCH] content: do not enable AutomationControlled from launch switches
+Subject: [PATCH] automation: launch switches leave navigator.webdriver false
 
-WebRuntimeFeatures::EnableAutomationControlled is what makes
-navigator.webdriver true, and upstream turns it on from four separate places:
-three switch-table rows (--enable-automation, --headless,
---remote-debugging-pipe) and a block matching --remote-debugging-port=0.
-
-All four describe how the browser was launched rather than the device it
-represents, and two of them are the defaults of the tools our users drive us
-with. Playwright connects over --remote-debugging-pipe; Puppeteer requests
---remote-debugging-port=0. So in both default configurations the browser
-announces itself before any patch of ours is involved, and --headless=new sets
-the flag with no client attached at all.
-
-The commonly cited evasion, --disable-blink-features=AutomationControlled,
-disables the feature by name while leaving every one of these switches still
-setting it. Removing the assignments is the difference between suppressing a
-symptom and removing the cause.
-
-Removing the four call sites leaves no reference to EnableAutomationControlled
-in this file, so the upstream comment explaining the port-zero behaviour is
-replaced rather than left describing code that is gone.
-
-This does not disable the feature itself: a caller that explicitly sends
-Emulation.setAutomationOverride still gets it, which is correct, because that is
-a deliberate request rather than a side effect of a transport choice.
-
-Ledger: automation.navigator-webdriver.
+Stock Chromium sets navigator.webdriver to true when launched with
+--enable-automation, --headless, --remote-debugging-pipe or
+--remote-debugging-port=0. Playwright and Puppeteer pass those switches
+by default, so every page they open reports automation. In this build
+none of those switches turns it on. A client that asks for it through
+Emulation.setAutomationOverride still gets it.
 
 diff --git a/content/child/runtime_features.cc b/content/child/runtime_features.cc
 index 6eb5b8f..98a7971 100644

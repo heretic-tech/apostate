@@ -1,29 +1,10 @@
-Subject: [PATCH] base: set the ICU default timezone from the device profile
+Subject: [PATCH] locale: ICU default timezone from the profile
 
-InitializeICU runs unconditionally in every process type, which is what makes it
-the right place. The browser, every renderer and every worker share one ICU
-default, and a process that missed the override would disagree with the others
-about what time it is — comparing a Date in a worker against one on the main
-thread is a two-line probe.
-
-Only the zone name comes from the profile. ICU's data is compiled into the
-binary and file access is restricted to packages at startup, so the zone list,
-the calendar list and every DST rule already come from our own build and are
-identical on every host. That was measured rather than assumed: the data file
-carries 447 canonical zones, the enumeration excludes 29 region-001 entries, and
-418 is exactly the supportedTimeZonesCount our capture reports.
-
-createTimeZone returns the "unknown" zone rather than null for a name ICU does
-not carry, and adopting that would silently produce UTC — a wrong answer that
-looks like a working one. Unknown names are rejected and the host zone kept.
-
-Deliberately not patched: the Blink-side TimeZoneController, whose only other
-production caller is the CDP emulation agent. Setting the ICU default reaches
-every context through the same path Chromium already uses for a real timezone
-change.
-
-Ledger: intl.resolved-timezone, browser.icu-default, worker.date-timezone,
-coh.timezone-across-contexts.
+The ICU default timezone is set from the profile's zone name at ICU
+startup in every process, so the browser, renderers and workers agree on
+the local time. Date and Intl.DateTimeFormat report the claimed zone. A
+zone name ICU does not know is rejected and the host's zone kept, since
+ICU would otherwise fall back to UTC silently.
 
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
 index adce0ad..d2727ce 100644

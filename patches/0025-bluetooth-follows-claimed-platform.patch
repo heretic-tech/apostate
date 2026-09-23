@@ -1,33 +1,11 @@
-Subject: [PATCH] content: WebBluetooth follows the claimed platform, not the build
+Subject: [PATCH] bluetooth: WebBluetooth follows the claimed platform
 
-Patch 0017 flipped WebBluetooth to stable on Linux so that a profile claiming
-macOS or Windows would not be missing an interface the claimed device has. That
-was right in one direction and wrong in the other: a profile claiming Linux then
-exposed an interface stock Linux Chrome does not have.
+navigator.bluetooth is present when the profile claims macOS, Windows,
+Android or ChromeOS, and absent when it claims Linux, as in stock Chrome
+on each. With no profile, a Linux build hides it, matching stock Linux
+Chrome. The build-time change that makes WebBluetooth available on Linux
+stays, and this decides at startup whether a page sees it.
 
-A capture diff caught it. Running stock Chrome 152 and our build on the same
-machine with the same flags and conforming one against the other, api.surface
-differed on exactly one field — Bluetooth, false on stock, true on ours. That
-diff is worth keeping as a routine check: of its five differences, three were
-our intended headless fix, one was this defect, and one was a Chrome-versus-
-Chromium gap in speech synthesis voices that is still open.
-
-The compile-time flip in runtime_enabled_features.json5 stays, because it is
-what makes the feature reachable on a Linux build at all. This decides it, from
-the profile's claimed platform, in SetCustomizedRuntimeFeaturesFromCombinedArgs
-— the place the file's own comment reserves for logic the other functions cannot
-express.
-
-With no profile loaded nothing is touched and the build behaves exactly as the
-json5 says, so this cannot change stock behaviour.
-
-The same shape as patch 0023 for the WebGPU canvas format, and the same family:
-web-facing values resolved from the build platform, which contradict a profile
-claiming a different one. That family now has three members, two fixed and
-BarcodeDetector deliberately left alone because its backing service has no Linux
-implementation.
-
-Ledger: api.bluetooth-presence.
 diff --git a/content/child/runtime_features.cc b/content/child/runtime_features.cc
 index 98a7971..f039ab1 100644
 --- a/content/child/runtime_features.cc

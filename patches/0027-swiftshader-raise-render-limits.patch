@@ -1,128 +1,14 @@
-Subject: [PATCH] swiftshader: raise the render target limits
+Subject: [PATCH] swiftshader: raise texture and viewport limits
 
-SwiftShader reported MAX_TEXTURE_SIZE and MAX_RENDERBUFFER_SIZE of 8192 and
-MAX_VIEWPORT_DIMS of 8192, where every real Windows machine measured reports
-16384, 16384 and 32767 — an NVIDIA RTX 3070 Ti, an Intel UHD 630 and even
-Microsoft's own software Basic Render Driver all agree on those three, because
-the numbers come from the ANGLE backend rather than the hardware.
+Stock SwiftShader reports 8192 for MAX_TEXTURE_SIZE,
+MAX_RENDERBUFFER_SIZE and MAX_VIEWPORT_DIMS, below what real desktop
+GPUs report. The render target limit is 16384 and the viewport limit
+32767, the D3D11 values, so a profile claiming them is served instead of
+clamped to 8192. Framebuffers at 16384 still fail to complete under
+SwiftShader, so a page that renders at full size can spot the gap. The
+rasterizer's span arrays take up to 128 MiB, twice the stock size, which
+costs resident memory on hosts that render in software.
 
-That last clause cuts both ways, and the first version of this prose did not
-admit it. 16384/16384/32767 is what D3D11 reports; it is not what a GPU is.
-Measured on an M4 Max through ANGLE/Metal, the same three read 16384, 16384 and
-16384x16384, and ALIASED_POINT_SIZE_RANGE ends at 511. A 32767 viewport is a
-Windows value, coherent with a Windows anchor and incoherent with an Apple one.
-Deciding that is the profile's job and enforcing it is the clamp's; this patch
-only has to stop the driver being the thing that refuses.
-
-The gap mattered more than it looks, because SwiftShader is the deployment
-reality rather than a test artefact. An anti-detect browser runs on headless
-Linux servers with no GPU far more often than not, so measuring on a machine
-with a discrete card and declaring the gap closed would be assuming away the
-case that actually ships.
-
-The 8192 was never a hardware limit. It is OUTLINE_RESOLUTION, a constant sizing
-the rasteriser's per-primitive span array, and MAX_FRAMEBUFFER_DIM and
-MAX_VIEWPORT_DIM were both derived from it. Raising it raises a real capability
-rather than reporting a false one, which is the whole distinction: patch 0026
-clamps a profile's claim to what the driver can actually do, so lifting the
-driver is the only honest way to let a claim of 16384 through.
-
-Viewport is decoupled from the framebuffer because D3D11 decouples them —
-32767 viewport against a 16384 framebuffer — and the span array is indexed by
-framebuffer height, not viewport.
-
-Verified, and the falsification test is the important one. A page that binary
-searches the limit now finds what it was told:
-
-  MAX_TEXTURE_SIZE      16384    a 16384x16384 texture allocates
-  MAX_RENDERBUFFER_SIZE 16384    a 16384x16384 renderbuffer allocates
-  MAX_VIEWPORT_DIMS     32767
-  32768x32768                    correctly refused
-
-That last line is wrong and the line above it is only half right, re-measured
-through the shipped 152.0.7977.83 artifact with a probe that allocates and then
-attaches the result to a framebuffer, asks checkFramebufferStatus, clears to
-green and reads a pixel back. SwiftShader refuses nothing: texStorage2D at
-32768 and at 65536 both return no GL error, and a 3D texture eight times the
-reported MAX_3D_TEXTURE_SIZE is accepted too. What fails is the framebuffer --
-GL_FRAMEBUFFER_UNSUPPORTED -- and the readback, which comes back black. It fails
-that way at 16384 as well, the value this patch raised the report TO, while 8192
-is framebuffer-complete and reads back green. The same probe on ANGLE/Metal is
-complete and green at 16384 and errors with GL_INVALID_VALUE at 32768, so on
-hardware the reported number really is the usable one.
-
-So this patch raised the reported ceiling above the usable one. That is recorded
-rather than reverted, because the alternative is reporting 8192 beside a
-discrete-GPU renderer string, which is a lookup-table contradiction and far
-cheaper to detect than an allocation probe -- see patch 0103, which takes the
-same trade deliberately and with the measurement in front of it. The competitor
-failure below is still the right reference point for why the raise was made; it
-is the claim that nothing is left to catch that was too strong.
-
-This is the failure a competitor was caught by: a spoofed
-MAX_VERTEX_UNIFORM_VECTORS of 4095 against a real Mesa limit of 1024, recovered
-by a twelve-step binary search compiling `uniform vec4 u[N]`. Raising the real
-limit moves that search out of the uniform-vector class, which is what this
-patch achieves; it does not make the dimension class unfalsifiable.
-
-Rendering is unchanged, which had to be checked: raising dimensions can silently
-overflow fixed-point coordinate math, and Span packs its endpoints into unsigned
-shorts. On the build host the collector's WebGL readback hashes to
-918f09f66eeb4cf8 and its canvas to e6f9e629fe8af205 both before and after,
-byte-identical.
-
-Those two digests prove this change did not move the raster. They are not
-evidence that software and hardware render alike, and the original wording
-invited that reading. The collector's WebGL scene is an analytic mediump
-gradient that every measured backend agrees on to eight bits, which is why all
-four corpus anchors share 918f09f66eeb4cf8. Scenes chosen to separate them do
-separate them. Rendered on one machine, switching only the backend: a
-mipmapped minified quad hashes 586ce2bd… on ANGLE/Metal against b5831d63… on
-SwiftShader, sliver-triangle coverage under multisampling 46a8dbcd… against
-babc8e16…, a highp transcendental field 0ea5f7ac… against 85b7ec29…, and the
-collector's own 2D canvas de4db56c… against 553b4533… with the same fonts
-either side. Pixel divergence between the two paths is real, and nothing here
-touches it.
-
-Nor does anything here touch throughput, and nothing should. On that same
-machine and binary, a fixed fragment-shader workload runs at 2517
-giga-iterations per second on Metal and 9.5 on SwiftShader, and small draw
-calls at 2703 thousand per second against 65 — roughly 260 and 40 times. That
-gap is what makes a claimed device contradict a measured one. The answer to it
-is coherence, which is patch 0091 refusing to claim a discrete GPU on a host
-that has none, not a timing adjustment: deliberately shaping a render's
-duration would be a new observable in its own right.
-
-So what this patch closes is one thing precisely. The limits a page reads are
-no longer numbers that no shipping configuration reports, so a profile claiming
-16384 can be served instead of clamped back to 8192. It closes nothing about
-how fast or how exactly the software rasteriser draws.
-
-It also has a cost on the path where no profile serves the GPU. No compiled
-anchor was captured through a software rasteriser, so patch 0093 leaves the GPU
-cluster host-inherited — composing every other axis, which is its point — and
-then these raised limits reach the page verbatim. Stock Chromium's SwiftShader
-reports 8192/8192/8192 —
-resources/fingerprints/raw/stock-linux-20260907T150627Z.json — so a software
-launch with no GPU claim is enumerably a modified build. Serving a claim removes
-that, because patch 0026 takes the smaller of claim and driver and
-min(8192, 16384) is 8192. The remedy is therefore a swiftshader-backend anchor
-in the catalogue, which is a data item and not a change to this patch.
-
-The other cost is memory, and this is the number to count before packing a
-server. Span is two unsigned shorts, so 4 bytes per entry; OUTLINE_RESOLUTION
-entries per primitive, MaxBatchSize of 128 primitives per batch and MaxDrawCount
-of 16 pooled draw calls give exactly 128 MiB of span arrays where there were
-64 MiB. The pool is marl::PoolPolicy::Preserve, so they are constructed once and
-never handed back, and RSS climbs towards the full 128 MiB as a page touches
-more of it. GPU process RSS measured 221 MB on the Linux build host on a light
-page; on an M4 Max it measured 357 MB under SwiftShader after a heavy WebGL
-workload against 173 MB for that same page on ANGLE/Metal. None of it is
-readable by a page, so it is a deployment cost rather than a fingerprint:
-budget roughly 128 MB more resident memory per concurrent instance on hosts
-that render in software.
-
-Ledger: webgl.max-limits.
 diff --git a/third_party/swiftshader/src/Device/Config.hpp b/third_party/swiftshader/src/Device/Config.hpp
 index d030354..6303467 100644
 --- a/third_party/swiftshader/src/Device/Config.hpp

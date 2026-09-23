@@ -1,21 +1,11 @@
-Subject: [PATCH] chrome: propagate the device profile to every child process
+Subject: [PATCH] profile: pass the profile to every child process
 
-The profile loader reaches only the browser process without this, which makes it
-useless for almost everything it exists to do.
-
-deviceMemory is the worked example. ApproximatedDeviceMemory is a per-process
-static computed independently in the browser, for the Device-Memory request
-header, and in the renderer, for navigator.deviceMemory. A profile reaching only
-one of them makes the header a server receives contradict the value JavaScript
-reports — a contradiction trivially checked server-side and invisible from
-inside the renderer.
-
-kCommonSwitchNames is copied for every child process type, which is why the
-switch belongs there rather than in a per-type list: the GPU process needs the
-profile for GPUInfo, the network process for proxy configuration, and any
-process type added later gets it without another edit.
-
-Ledger: profile.loader-reach.
+The profile switch is in the list of switches copied to every child
+process, so renderers, the GPU process and the network service all read
+the same profile. Without it only the browser process sees the profile,
+and values computed in more than one process disagree. For example, the
+Device-Memory header comes from the browser and navigator.deviceMemory
+from the renderer.
 
 diff --git a/chrome/browser/chrome_content_browser_client.cc b/chrome/browser/chrome_content_browser_client.cc
 index 8436913..5130820 100644

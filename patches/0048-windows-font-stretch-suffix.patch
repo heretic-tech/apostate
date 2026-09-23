@@ -1,53 +1,13 @@
-Subject: [PATCH] fonts: retry Windows missing-family stretch suffixes on Linux
+Subject: [PATCH] fonts: Windows stretch-suffix retry for missing families
 
-Linux's FCI matching rejects an Arial face returned for Arial Narrow while
-Arial Narrow remains the first post-config family. A Fontconfig accept list
-can therefore look correct under fc-match while Blink advances to the next
-CSS fallback family. Windows instead retries an unavailable family name with
-its recognized stretch suffix removed and the matching stretch requested.
+Under a Windows profile, a missing family such as Arial Narrow is
+retried as Arial with a condensed stretch, the way Windows handles it.
+On a host without a narrow face this returns Arial at normal width,
+which matches a Windows machine with no narrow face. Without the retry,
+Blink moves on to the next fallback family and a width-based font probe
+reports Arial Narrow as missing. No synthetic condensing is added, and
+other profiles keep the Linux path.
 
-Use that existing native policy for Windows profiles on Linux. A matching
-original face wins. The retry copies the requested description and changes
-only the stretch as specified by the suffix. The resulting font remains a
-real matched face; no synthetic horizontal scaling is added. Local unique
-names, explicit file/TTC lookup and last-resort matching bypass this policy.
-Non-Windows profiles and non-suffix family handling remain unchanged.
-
-Primary source at Chromium79460ebecaa5625e57a5fb679a735659e73dc687:
-- platform/fonts/win/font_cache_skia_win.cc:302-329,371-403,427-481
-- platform/fonts/skia/font_cache_skia.cc:262-295,299-355
-Paths above are under third_party/blink/renderer/.
-Skia0873ec164a06966b90ae0d43ef783cfb180084ae:
-- src/ports/SkFontConfigInterface_direct.cpp:552-586,623-672
-
-The Arial Narrow control now exists, and it confirms this branch.
-resources/fingerprints/raw/windows-chrome-20260910T140813Z.json measures
-40px "Arial Narrow" at width 160.05859375 with fontBoundingBox ascent 36 and
-descent 8, which is byte-identical to 40px Arial in the same capture. So the
-reference Windows host has no narrow face, took exactly this retry, and got
-Arial back at its normal width with no synthetic condensing -- which is why this
-patch adds none.
-
-The same capture's detection probe is the sharper half of the control. It
-reports "Arial Narrow" as detected, measuring 720 against all three generic
-baselines, the same triple Arial produces, while families that are genuinely
-absent and carry no stretch suffix -- Menlo and Zapfino -- return the baseline
-triple 587/720/692 and are not detected. Without this retry a Windows persona on
-Linux advances to the next CSS fallback family, returns the baseline triple, and
-is missing from its detected set a family every real Windows machine reports.
-That is the divergence the patch removes, and it is readable by any detector
-that probes font presence by width.
-
-What the control does not settle: on a host that does have a real narrow face
-installed, Fontconfig returns it for the condensed request and the advances
-differ from the reference, where Windows had nothing narrower to hand back. That
-is an outcome of which font files the host carries, not a question about this
-policy, and it resolves the same way every other font question does -- the user
-installs the claimed platform's set.
-
-V1 compilation and V3 checks remain required, including a real narrow family,
-style/stretch requests and src:local() exclusion. No font files, fontconfig,
-profile schema, JavaScript API, or Skia matching allowlist is modified.
 diff --git a/third_party/blink/renderer/platform/fonts/skia/font_cache_skia.cc b/third_party/blink/renderer/platform/fonts/skia/font_cache_skia.cc
 --- a/third_party/blink/renderer/platform/fonts/skia/font_cache_skia.cc
 +++ b/third_party/blink/renderer/platform/fonts/skia/font_cache_skia.cc

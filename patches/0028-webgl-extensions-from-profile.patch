@@ -1,74 +1,13 @@
-Subject: [PATCH] webgl: withhold extensions the claimed device does not expose
+Subject: [PATCH] webgl: hide extensions the claimed device lacks
 
-Measured against a real Windows machine with an Intel UHD 630, our build
-advertises three WebGL extensions it never sees:
+WebGL extensions missing from the profile's list are hidden from both
+getSupportedExtensions() and getExtension(), so the list and the objects
+a page can get always agree. SwiftShader exposes compressed texture
+formats such as ASTC and ETC that a Windows D3D11 machine lacks, and
+scripts commonly hash the extension list. Only removal happens here,
+since an extension the driver lacks would fail when a page uses it. An
+empty list in the profile turns the filter off.
 
-  WEBGL_compressed_texture_astc
-  WEBGL_compressed_texture_etc
-  WEBGL_compressed_texture_etc1
-
-These are mobile and Apple compressed-texture formats. SwiftShader supports them
-and a Windows D3D11 machine does not, so a profile claiming Windows advertised a
-set no Windows Chrome reports. Fingerprinting scripts hash the extension list,
-so three extra entries are enough to match nothing real.
-
-Only removal is implemented, and that asymmetry is the design rather than a
-limitation. Adding an extension cannot be done safely: a page calls
-getExtension() and then calls methods on the object it receives, so one claimed
-but unimplemented fails at first use — the same shape as claiming a WebGL limit
-the driver cannot meet, which patch 0026 exists to prevent. Removal has no such
-failure mode; the page is told no exactly as the real device would tell it.
-
-Served at ExtensionSupportedAndAllowed, which both getSupportedExtensions() and
-getExtension() run through, so the list and the objects obtainable from it
-cannot disagree. Withholding from the list alone would leave getExtension()
-handing out an extension the list denies, which is a worse contradiction than
-the one being fixed.
-
-The profile carries WebGL extension names as getSupportedExtensions() spells
-them, not GL names — the two are different namespaces, and ANGLE's existing
-disabled-extension machinery works on the GL side, so it is the wrong layer for
-a list captured from a browser.
-
-An empty list in the profile disables the filter entirely, so a profile that
-does not describe its extensions does not silently lose all of them.
-
-Note this closes the removable half of the gap. The addition half is opened
-later, by patch 0104, and only for names that carry constants and no methods:
-the objection above is sound about a method-bearing extension and too strong
-about the rest, because Blink holds a complete implementation class for each and
-the only thing refusing is the driver-support lookup in its Supported().
-
-This paragraph originally sized that residual as "two extensions the reference
-has on WebGL1 and five on WebGL2 — KHR_parallel_shader_compile,
-WEBGL_blend_func_extended and friends". That figure came from a Linux
-SwiftShader build host and does not describe a backend-matched launch.
-Re-measured
-through the shipped 152.0.7977.83 macOS binary on an Apple M4 Max running real
-ANGLE/Metal, comparing getSupportedExtensions against each anchor's captured
-lists, and confirmed live by pinning each anchor and counting what the page
-received:
-
-  macos-metal-apple-850a91233555     claims 39/36, delivers 39/36. Nothing
-                                     missing, nothing extra. This is the
-                                     backend-matched case.
-  windows-d3d11-intel-79dfeb5b4f99   claims 35/32, delivers 35/31.
-  windows-d3d11-nvidia-0947761dfbe9  claims 35/32, delivers 35/31.
-  linux-vulkan-nvidia-adf287b8f0ee   claims 34/29, delivers 34/28.
-
-The one missing name in all three cross-backend cases is OVR_multiview2, on
-WebGL2. KHR_parallel_shader_compile is present on this host. So the residual on
-a Metal host is one name wide and zero on a backend-matched anchor.
-
-What this paragraph went on to conclude -- that the anchor axis's backend filter
-is therefore already the extension-servability gate, so no separate gate was
-needed -- was true of the anchor draw as it stood and is not true any more.
-Patch 0102 removes that filter: the claimed OS selects the anchor family and the
-host's backend does not filter at all, so a cross-backend launch is the ordinary
-case on a Linux host rather than only what --fingerprint-anchor produces. The
-gate that remains is this function, which is where it should have been.
-
-Ledger: webgl.extensions.
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
 index 709e5bd..696db16 100644
 --- a/base/apostate/profile.cc

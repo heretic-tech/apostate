@@ -1,19 +1,10 @@
-Subject: [PATCH] content: pointer and hover capability from the profile
+Subject: [PATCH] css: pointer and hover media features from the profile
 
-Headless has no input device, so it reports none — and a page sees
-(any-pointer: none) and (any-hover: none). No desktop machine reports that. It
-is a headless tell that survives every other spoof, because it describes
-hardware the browser genuinely cannot find rather than a value it chose.
-
-Conformance found it: the real Mac reports hover and fine, our build reported
-none for both.
-
-All four values are set together from one profile field, because they are not
-independent. A device with a fine pointer has hover, and reporting a primary
-type absent from the available set would be its own contradiction — so the
-profile carries the capability and the patch derives the four.
-
-Ledger: css.any-pointer, css.any-hover, css.pointer, css.hover.
+Headless mode finds no input device, so a page sees any-pointer: none
+and any-hover: none, which no desktop machine reports. The profile sets
+the pointer type, fine, coarse or none, and whether the device can
+hover. The primary and available values come from the same two fields,
+so pointer agrees with any-pointer and hover with any-hover.
 
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
 index 245a4b5..0c28f3c 100644

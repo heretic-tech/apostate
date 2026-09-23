@@ -1,16 +1,14 @@
-Subject: [PATCH] webgpu: admit an exclusive software provider for selected profiles
+Subject: [PATCH] webgpu: software adapter for Windows and macOS profiles
 
-Candidate conditional on safe Core and browser shared-image validation.
-For Windows/macOS profiles on an actual Linux ANGLE SwiftShader GL context,
-select only the bundled SwiftShader ICD through an exclusive native Dawn
-instance. Missing software cannot load a system ICD. Restrict library lookup
-to the caller's module directory; use existing pinned packaging provenance.
-
-Ignore only the CPUAdapter deployment reason for this verified factory and
-CPU identity. Keep other block reasons, actual identity, native limits,
-validation, robustness, cache isolation and shared-image error paths intact.
-No unsafe-WebGPU switch, new profile field, Mojo interface or accessor rewrite.
-Unprofiled and other runtime contexts retain their existing behavior.
+Under a Windows or macOS profile on a Linux host that renders through
+ANGLE SwiftShader, navigator.gpu.requestAdapter() returns an adapter
+backed by the bundled SwiftShader Vulkan driver. Chrome otherwise blocks
+CPU adapters, so a page finds no WebGPU at all, which a Windows or Mac
+Chrome with a real GPU does not show. Only the CPU-adapter block is
+lifted, only for that verified SwiftShader device, and the driver loads
+only from the browser's own directory, never from the system. Adapter
+identity, limits and validation stay as SwiftShader reports them, and
+other profiles and contexts keep the upstream behavior.
 
 diff --git a/third_party/dawn/include/dawn/native/DawnNative.h b/third_party/dawn/include/dawn/native/DawnNative.h
 --- a/third_party/dawn/include/dawn/native/DawnNative.h

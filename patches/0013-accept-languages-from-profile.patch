@@ -1,22 +1,11 @@
-Subject: [PATCH] Accept-Languages from the profile, in both processes
+Subject: [PATCH] locale: Accept-Language and navigator.languages from profile
 
-navigator.languages and the Accept-Language header derive different shapes from
-a single pref, in different processes: the renderer gets the bare comma list,
-while the network service expands it and adds q-weights. Our own captures show
-both shapes — ["en-US","en"] against "en-US,en;q=0.9" — so a patch that reached
-only one would make the header contradict JavaScript.
-
-Both read sites are patched rather than the pref itself. Overriding the pref
-would be a single point and reach both, but prefs persist: it would write the
-presented identity into the user's profile directory on disk, which is a leak
-that outlives the session and defeats the point of presenting anything.
-
-The header substitution happens before expansion, so the result still goes
-through Chromium's own q-weighting. Writing a finished header would be a second
-implementation of that, and another opportunity for the two processes to
-disagree.
-
-Ledger: navigator.languages, http.accept-language.
+The Accept-Language header and navigator.languages both come from the
+profile's language list, in the renderer and the network service. If
+only one changed, the header would contradict JavaScript. The header
+still goes through Chromium's own q-weighting. The language pref on disk
+is left alone, so the profile's languages never persist into the user's
+data directory.
 
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
 index af28053..245a4b5 100644

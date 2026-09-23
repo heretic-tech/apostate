@@ -1,38 +1,13 @@
-Subject: [PATCH] blink: expose WebBluetooth on Linux so the API surface follows the profile
+Subject: [PATCH] bluetooth: expose WebBluetooth on Linux builds
 
-Upstream gates the Bluetooth interface on the build platform:
-runtime_enabled_features.json5 marks WebBluetooth "stable" on Android,
-ChromeOS, iOS, macOS and Windows, and leaves "default" — which is what Linux
-takes — at "experimental". The interface is therefore absent from the global
-scope on a Linux build and present on every platform we ship profiles for.
+Stock Chromium ships navigator.bluetooth on macOS, Windows, ChromeOS,
+iOS and Android and leaves it experimental on Linux. A Linux build
+claiming macOS would then be missing an API every real Mac Chrome has.
+WebBluetooth is stable on Linux too, backed by the real BlueZ code, and
+getAvailability() returns false on a host with no adapter.
+BarcodeDetector stays off on Linux, because it has no Linux backend and
+would be present but broken.
 
-Conformance found it. The reference M4 Max reports Bluetooth present; our Linux
-build reported it absent, while the same capture claimed macOS in the user
-agent, navigator.platform, and the full Client Hint set. That combination is
-decidable from one page load and needs no reference data: the identity says
-macOS, the API surface says Linux. It is a stronger signal than any single
-wrong value, because it is an internal contradiction rather than a number a
-detector would have to know the right answer for.
-
-Enumerated the rest of the class rather than fixing only what conformance
-happened to probe. Of the runtime-enabled features whose status varies by
-platform, only two are stable on macOS and not on Linux, and one on Windows:
-
-  WebBluetooth      Android/ChromeOS/iOS/Mac/Win stable, default experimental
-  BarcodeDetector   Android/ChromeOS/Mac stable, default test
-
-BarcodeDetector is deliberately left alone. Its own comment points at
-//services/shape_detection, which has no Linux implementation, so exposing the
-interface would replace a missing API with one that is present and broken —
-a worse incoherence than the one it fixes.
-
-WebBluetooth is different: the BlueZ backend exists on Linux, so this exposes a
-real implementation. On a host with no adapter getAvailability() resolves
-false, which is what the claimed device reports with its radio off. That is
-coherent. Driving availability itself from the profile is a separate row and
-is not done here.
-
-Ledger: api.bluetooth-presence.
 diff --git a/third_party/blink/renderer/platform/runtime_enabled_features.json5 b/third_party/blink/renderer/platform/runtime_enabled_features.json5
 index 08261356c8edf..6cd3b54b0cac4 100644
 --- a/third_party/blink/renderer/platform/runtime_enabled_features.json5

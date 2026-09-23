@@ -1,0 +1,51 @@
+Subject: [PATCH] mac: sign the helper so it can load the Widevine CDM
+
+Real Chrome supports com.widevine.alpha. The CDM runs in the plain
+helper process, and macOS library validation lets a process load only
+libraries signed with its own team ID. Google's CDM carries Google's
+team ID, so the helper refuses it and createMediaKeys() fails. The
+helper is signed without library validation so the CDM loads.
+
+diff --git a/chrome/installer/mac/signing/parts.py b/chrome/installer/mac/signing/parts.py
+index d6f110e..cc69bc7 100644
+--- a/chrome/installer/mac/signing/parts.py
++++ b/chrome/installer/mac/signing/parts.py
+@@ -63,7 +63,11 @@ def get_parts(config):
+                 '{0.framework_dir}/Helpers/{0.product} Helper.app'.format(
+                     config),
+                 '{}.helper'.format(uncustomized_bundle_id),
+-                options=CodeSignOptions.FULL_HARDENED_RUNTIME_OPTIONS,
++                # Without library validation, so the Widevine CDM (signed by
++                # Google, not by us) can load in this helper.
++                options=CodeSignOptions.RESTRICT | CodeSignOptions.KILL
++                | CodeSignOptions.HARDENED_RUNTIME,
++                entitlements='helper-entitlements.plist',
+                 verify_options=verify_options),
+         'helper-renderer-app':
+             CodeSignedProduct(
+diff --git a/chrome/installer/mac/BUILD.gn b/chrome/installer/mac/BUILD.gn
+index 802e8ab..1d6ad48 100644
+--- a/chrome/installer/mac/BUILD.gn
++++ b/chrome/installer/mac/BUILD.gn
+@@ -101,6 +101,7 @@ copy("copies") {
+     "$root_gen_dir/chrome/app-entitlements.plist",
+     "$root_out_dir/dmg_tool",
+     "$root_out_dir/hfs_tool",
++    "//chrome/app/helper-entitlements.plist",
+     "//chrome/app/helper-gpu-entitlements.plist",
+     "//chrome/app/helper-renderer-entitlements.plist",
+     "pkg-dmg",
+diff --git a/chrome/app/helper-entitlements.plist b/chrome/app/helper-entitlements.plist
+new file mode 100644
+index 0000000..8cc185a
+--- /dev/null
++++ b/chrome/app/helper-entitlements.plist
+@@ -0,0 +1,8 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
++<plist version="1.0">
++<dict>
++	<key>com.apple.security.cs.disable-library-validation</key>
++	<true/>
++</dict>
++</plist>

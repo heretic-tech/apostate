@@ -1,92 +1,17 @@
-Subject: base: per-field fingerprint overrides on the command line
+Subject: [PATCH] compose: per-field overrides on the command line
 
-A seed gives a coherent device but not a chosen one. An operator who needs a
-specific timezone to match a proxy exit, or a specific renderer string because
-that is what their target expects, has had no way to say so short of writing a
-whole profile by hand and passing --apostate-profile. These eight switches are
-that way: each replaces exactly the field it names, and the seed still fills
-everything else, so the result is one device with a correction rather than two
-partial sources of identity.
-
-  --fingerprint-gpu-vendor              WebGL UNMASKED_VENDOR_WEBGL
-  --fingerprint-gpu-renderer            WebGL UNMASKED_RENDERER_WEBGL
-  --fingerprint-hardware-concurrency    navigator.hardwareConcurrency
-  --fingerprint-device-memory           installed memory, in GiB
-  --fingerprint-screen-width            screen.width
-  --fingerprint-screen-height           screen.height
-  --fingerprint-timezone                the IANA timezone name
-  --fingerprint-locale                  the Accept-Language list
-
-An override restricts the draw where it can and lands on the composed profile
-where it cannot, and which of the two it is determines whether the result stays
-coherent.
-
-The GPU identity is the case that has to restrict. Vendor and renderer are not
-free strings: the GL limits, the extension list, the shader precisions and the
-WebGPU adapter all come from the anchor those strings were measured on, so a
-renderer written over a finished profile sits on a capability table belonging to
-different silicon. HonestyGaps measured the size of that mismatch through the
-shipped binary: a backend-matched anchor delivers exactly what it claims, 39 of
-39 WebGL1 and 36 of 36 WebGL2 extensions, while a cross-backend anchor is short
-by OVR_multiview2. One name is enough. So --fingerprint-gpu-renderer narrows the
-gpu_identity option set before the draw, the chosen option is still a measured
-member of the resolved anchor, and WebGPU still comes from that member. A name
-the resolved anchor never measured is refused, with the servable identities
-listed, because emitting it would be a weaker position than the real renderer.
-
-The scalar fields land on the profile, after the axis loop. Cores and memory are
-refused above host capability, for the reason capacity has always been reduced
-and never raised: a page can measure parallel throughput and can allocate until
-it fails, so a claim above the machine is falsifiable while a claim below it is
-not. The same reduction that backs the drawn values is used as the predicate, so
-there is one rule and one place it lives. Memory is taken in GiB because that is
-the unit navigator.deviceMemory reports in; the profile field is real installed
-bytes, which Chromium rounds to the nearer power of two itself, and after patch
-0087 that figure also sizes V8's heap, so performance.memory.jsHeapSizeLimit
-agrees with the claim instead of contradicting it.
-
-A screen override is applied before the available rectangle is derived, so
-availWidth, availHeight, availLeft and availTop follow from the same desktop
-furniture the seed drew. It is refused when it is smaller than a --window-size
-the launch also asked for, and when the drawn furniture insets do not fit inside
-it. Neither the host's real display size nor its real work area is knowable from
-base/ at composition time -- there is no display yet -- so --window-size is the
-only host bound available here, and that is a residual rather than a check.
-
-The locale overrides are applied where the locale policy resolves rather than
-over the finished profile, because the speech-voice table is keyed on the
-resolved Accept-Language list. Applied later, a launch would claim en-GB while
-offering the voice set measured for whatever the seed drew. The keyboard layout
-map stays as the policy set it, which is correct rather than convenient: all
-four catalogue locale policies carry the same map today, and a locale that does
-not match the physical layout is an ordinary thing on a real machine.
-
-Host pass-through interacts with all of this, and the interaction is settled
-here. The reserved --fingerprint spellings -- host, off, false, 0, disable,
-disabled, case-insensitively -- are decided in seed.cc, which patch 0081 owns;
-this patch adds no host-value handling of its own and its diff touches only
-compose.h and compose.cc. What it adds is the consequence: under any of those
-spellings nothing is composed, so there is no profile for a persona, a pinned
-anchor or a per-field override to land on, and combining them refuses the
-launch instead of half-applying. Refusing rather than ignoring is the whole
-point of this patch. An operator who mistypes a switch and is not told runs an
-entire session believing a field was spoofed when it was their own hardware,
-and that is indistinguishable from success until a site has already clustered
-the real device. --fingerprint-explain still works with host mode, which is why
-it is not in the refused set.
-
-Every refusal writes to stderr and exits non-zero. An override that is honoured
-but is not one of the catalogue's buckets is honoured and reported: the explain
-report names the field, the value, the command line as the layer that decided
-it, and the drawn value it displaced, and says plainly that a hand-chosen value
-has no prevalence data behind it and may be more distinctive than a drawn one.
-
-No new page-visible observable. A page cannot read a command line, and every one
-of these switches writes a value into a field the profile already carried, of a
-kind the catalogue could already have drawn. With no override switch present
-nothing about a launch changes at all: the switches are absent, the draws are
-the same draws, and the composed profile is byte-identical to the one the same
-seed produced before this patch.
+Eight switches set single fields of the composed profile:
+--fingerprint-gpu-vendor, --fingerprint-gpu-renderer,
+--fingerprint-hardware-concurrency, --fingerprint-device-memory,
+--fingerprint-screen-width, --fingerprint-screen-height,
+--fingerprint-timezone and --fingerprint-locale. The seed fills
+everything else. A GPU override narrows the draw to a matching GPU
+option, so WebGL limits and extensions still match the named renderer,
+and a locale override applies before the speech voices are chosen. An
+override the host cannot back, a screen smaller than --window-size, or
+any override combined with --fingerprint=host refuses the launch with an
+error. --fingerprint-explain reports each overridden field and the drawn
+value it displaced.
 
 --- a/base/apostate/compose.h
 +++ b/base/apostate/compose.h

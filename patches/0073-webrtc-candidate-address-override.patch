@@ -1,28 +1,12 @@
-Subject: webrtc: allow deterministic ICE candidate address override
+Subject: [PATCH] webrtc: pin the ICE candidate address from a switch
 
-Expose the caller-provided address at WebRTC's native candidate serializer. The
-wrapper can pass --fingerprint-webrtc-ip as an explicit launch argument; the
-browser forwards it to child processes alongside the existing Apostate profile
-switch. It takes one value, an IP literal, and has no "auto" mode: the check
-below is for a non-empty string, so any other word would be written into the
-SDP verbatim.
-
-This changes only host and server-reflexive SDP candidate text and its related
-address, preventing the original local address from remaining in raddr. It
-changes nothing about where the packets go. It rewrites a string that WebRTC
-computed from a socket, while the socket carries on sending from wherever it
-was bound, so on its own it leaves the SDP naming one address and the datagrams
-arriving at the far end from another. A remote peer, and so any detector
-prepared to answer one connectivity check, reads the real source address off
-the packet and never consults the text at all.
-
-Patch 0086 is what closes that: it relays WebRTC's UDP through the configured
-SOCKS5 proxy so the address is true rather than substituted, and refuses to
-create the socket when the configured proxy cannot carry a datagram. With 0086
-in the series this patch is not the mechanism that hides the host address; it
-remains available for the narrower job of pinning the text of a candidate to a
-chosen literal, which a user who already knows their exit address may want for
-consistency across launches.
+--fingerprint-webrtc-ip takes an IP literal, and host and
+server-reflexive ICE candidates in the SDP carry that address, as does
+their related address. Any non-empty value goes into the SDP as written.
+Packets still leave from the socket's real bound address, so a remote
+peer can read the real source off an arriving packet. Patch 0086 hides
+the host address by relaying WebRTC UDP through SOCKS5, and this switch
+pins the candidate text to a chosen value across launches.
 
 --- a/third_party/webrtc/api/candidate.cc
 +++ b/third_party/webrtc/api/candidate.cc

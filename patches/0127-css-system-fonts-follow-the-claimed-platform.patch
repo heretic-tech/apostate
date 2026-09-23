@@ -1,0 +1,134 @@
+Subject: [PATCH] css: system fonts follow the claimed platform
+
+For a profile that claims Windows, the menu, small-caption and
+status-bar system fonts resolve to "Segoe UI" at 12px, as on real
+Windows. Composed profiles never list these fonts, and without this a
+Windows profile on a Linux or Mac build reports Arial at 16px. caption,
+icon and message-box stay Arial at the default size, which is what macOS
+and Linux report for all six. A Windows build gives a macOS or Linux
+profile the same Arial answer instead of its own shell fonts.
+
+diff --git a/third_party/blink/renderer/core/layout/layout_theme_font_provider_default.cc b/third_party/blink/renderer/core/layout/layout_theme_font_provider_default.cc
+--- a/third_party/blink/renderer/core/layout/layout_theme_font_provider_default.cc
++++ b/third_party/blink/renderer/core/layout/layout_theme_font_provider_default.cc
+@@ -37,7 +37,7 @@
+ 
+ namespace {
+ 
+-// Apostate: CSS system fonts from the profile.
++// Apostate: CSS system fonts from the profile or the claimed platform.
+ //
+ // This file is the default provider, compiled on every platform that has no
+ // native one — Linux included. It answers every system font keyword with
+@@ -47,14 +47,13 @@
+ //
+ // That is a compile-time platform gate, so a Linux build claiming Windows
+ // cannot reach the right answer by any runtime path: the code that would have
+-// produced it is not in the binary. The profile carries the resolved values and
+-// this provider serves them, which keeps one file correct for any claimed
+-// platform instead of compiling in a second per-platform table.
++// produced it is not in the binary. So this provider serves the profile's
++// values when it carries them, and the claimed platform's otherwise.
+ //
+-// Measured against the reference Windows machine: menu, small-caption and
+-// status-bar are "Segoe UI" at 12px while caption, icon and message-box are
+-// Arial at 16px — the same three that Chromium's Windows provider special-cases
+-// and the same three we were getting wrong.
++// On every Windows capture we hold, menu, small-caption and status-bar are
++// "Segoe UI" at 12px while caption, icon and message-box are Arial at 16px,
++// the same three that Chromium's Windows provider special-cases. macOS and
++// Linux report Arial at 16px for all six, which is this provider's own answer.
+ 
+ const char* ApostateFontKey(CSSValueID id) {
+   switch (id) {
+@@ -99,6 +98,21 @@
+   return table;
+ }
+ 
++constexpr char kWindowsNonClientFamily[] = "Segoe UI";
++constexpr float kWindowsNonClientSizePx = 12;
++
++// Whether `id` is one of the three keywords Windows answers from the shell's
++// non-client metrics, for a profile that claims Windows.
++bool IsWindowsNonClientFont(CSSValueID id) {
++  const base::apostate::Profile* profile = base::apostate::Profile::Get();
++  if (!profile || !profile->ua_platform() ||
++      *profile->ua_platform() != "Windows") {
++    return false;
++  }
++  return id == CSSValueID::kMenu || id == CSSValueID::kSmallCaption ||
++         id == CSSValueID::kStatusBar;
++}
++
+ }  // namespace
+ 
+ // static
+@@ -110,6 +124,11 @@
+     if (it != table.family.end()) {
+       return it->value;
+     }
++    if (IsWindowsNonClientFont(system_font_id)) {
++      DEFINE_THREAD_SAFE_STATIC_LOCAL(const AtomicString, family,
++                                      (kWindowsNonClientFamily));
++      return family;
++    }
+   }
+   return DefaultGUIFont();
+ }
+@@ -125,6 +144,9 @@
+         return static_cast<float>(it->second.size_px);
+       }
+     }
++    if (IsWindowsNonClientFont(system_font_id)) {
++      return kWindowsNonClientSizePx;
++    }
+   }
+   switch (system_font_id) {
+     case CSSValueID::kWebkitMiniControl:
+diff --git a/third_party/blink/renderer/core/layout/layout_theme_font_provider_win.cc b/third_party/blink/renderer/core/layout/layout_theme_font_provider_win.cc
+--- a/third_party/blink/renderer/core/layout/layout_theme_font_provider_win.cc
++++ b/third_party/blink/renderer/core/layout/layout_theme_font_provider_win.cc
+@@ -25,6 +25,7 @@
+ 
+ #include "third_party/blink/renderer/core/layout/layout_theme_font_provider.h"
+ 
++#include "base/apostate/profile.h"
+ #include "third_party/blink/renderer/core/css_value_keywords.h"
+ #include "third_party/blink/renderer/platform/fonts/font_cache.h"
+ #include "third_party/blink/renderer/platform/fonts/font_description.h"
+@@ -39,9 +40,22 @@
+   return points / kPointsPerInch * kPixelsPerInch;
+ }
+ 
++// Apostate: the shell's non-client metrics answer menu, small-caption and
++// status-bar only when no profile claims another platform. Real macOS and
++// Linux Chrome report the default GUI font at the default size for all six
++// keywords, so a profile claiming either gets that here too.
++static bool ServesNonClientMetrics() {
++  const base::apostate::Profile* profile = base::apostate::Profile::Get();
++  return !profile || !profile->ua_platform() ||
++         *profile->ua_platform() == "Windows";
++}
++
+ // static
+ const AtomicString& LayoutThemeFontProvider::SystemFontFamily(
+     CSSValueID system_font_id) {
++  if (!ServesNonClientMetrics()) {
++    return DefaultGUIFont();
++  }
+   switch (system_font_id) {
+     case CSSValueID::kSmallCaption:
+       return FontCache::SmallCaptionFontFamily();
+@@ -57,6 +71,12 @@
+ // static
+ float LayoutThemeFontProvider::SystemFontSize(CSSValueID system_font_id,
+                                               const Document* document) {
++  if (!ServesNonClientMetrics() &&
++      (system_font_id == CSSValueID::kSmallCaption ||
++       system_font_id == CSSValueID::kMenu ||
++       system_font_id == CSSValueID::kStatusBar)) {
++    return DefaultFontSize(document);
++  }
+   switch (system_font_id) {
+     case CSSValueID::kSmallCaption:
+       return FontCache::SmallCaptionFontHeight();

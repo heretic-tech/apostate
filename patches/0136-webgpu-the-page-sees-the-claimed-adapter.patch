@@ -1,0 +1,531 @@
+Subject: [PATCH] webgpu: the page sees the claimed adapter, not SwiftShader
+
+When SwiftShader stands in for the claimed adapter, the page reads the
+claimed features and limits, and isFallbackAdapter is false as on the
+real device. A device requested within the claimed limits works within
+what SwiftShader can run, and going past what SwiftShader has fails with
+an error, like a WebGL limit the driver refuses. A request beyond the
+claimed limits fails with the real device's message, and asking for a
+fallback adapter returns none.
+
+diff --git a/gpu/command_buffer/service/webgpu_decoder_impl.cc b/gpu/command_buffer/service/webgpu_decoder_impl.cc
+--- a/gpu/command_buffer/service/webgpu_decoder_impl.cc
++++ b/gpu/command_buffer/service/webgpu_decoder_impl.cc
+@@ -5,6 +5,8 @@
+ #include "gpu/command_buffer/service/webgpu_decoder_impl.h"
+ 
+ #include <algorithm>
++#include <functional>
++#include <limits>
+ #include <map>
+ #include <memory>
+ #include <optional>
+@@ -25,6 +27,8 @@
+ #include "base/notreached.h"
+ #include "base/numerics/checked_math.h"
+ #include "base/power_monitor/power_monitor.h"
++#include "base/strings/strcat.h"
++#include "base/strings/string_number_conversions.h"
+ #include "base/strings/string_split.h"
+ #include "base/task/bind_post_task.h"
+ #include "base/task/single_thread_task_runner.h"
+@@ -119,6 +123,189 @@
+   return {nullptr, 0};
+ }
+ 
++// Every WebGPU limit a page can read or require, spelled the way the IDL and
++// the profile spell them, in the order Dawn validates a device request.
++// X(side, maximum, name): `side` says whether the limit is in wgpu::Limits or
++// in the chained compatibility struct, and `maximum` is false for the two
++// alignments, where the smaller value is the better one.
++#define APOSTATE_WEBGPU_LIMITS(X)                          \
++  X(Core, true, maxComputeWorkgroupStorageSize)            \
++  X(Core, true, maxComputeInvocationsPerWorkgroup)         \
++  X(Core, true, maxComputeWorkgroupSizeX)                  \
++  X(Core, true, maxComputeWorkgroupSizeY)                  \
++  X(Core, true, maxComputeWorkgroupSizeZ)                  \
++  X(Core, true, maxComputeWorkgroupsPerDimension)          \
++  X(Core, true, maxStorageBufferBindingSize)               \
++  X(Core, true, maxBufferSize)                             \
++  X(Core, true, maxDynamicUniformBuffersPerPipelineLayout) \
++  X(Core, true, maxDynamicStorageBuffersPerPipelineLayout) \
++  X(Core, true, maxSampledTexturesPerShaderStage)          \
++  X(Core, true, maxSamplersPerShaderStage)                 \
++  X(Core, true, maxStorageTexturesPerShaderStage)          \
++  X(Compat, true, maxStorageTexturesInFragmentStage)       \
++  X(Compat, true, maxStorageTexturesInVertexStage)         \
++  X(Core, true, maxUniformBuffersPerShaderStage)           \
++  X(Core, true, maxStorageBuffersPerShaderStage)           \
++  X(Compat, true, maxStorageBuffersInFragmentStage)        \
++  X(Compat, true, maxStorageBuffersInVertexStage)          \
++  X(Core, true, maxColorAttachmentBytesPerSample)          \
++  X(Core, true, maxInterStageShaderVariables)              \
++  X(Core, true, maxTextureDimension1D)                     \
++  X(Core, true, maxTextureDimension2D)                     \
++  X(Core, true, maxTextureDimension3D)                     \
++  X(Core, true, maxTextureArrayLayers)                     \
++  X(Core, true, maxImmediateSize)                          \
++  X(Core, true, maxBindGroups)                             \
++  X(Core, true, maxBindGroupsPlusVertexBuffers)            \
++  X(Core, true, maxBindingsPerBindGroup)                   \
++  X(Core, true, maxUniformBufferBindingSize)               \
++  X(Core, false, minUniformBufferOffsetAlignment)          \
++  X(Core, false, minStorageBufferOffsetAlignment)          \
++  X(Core, true, maxVertexBuffers)                          \
++  X(Core, true, maxVertexAttributes)                       \
++  X(Core, true, maxVertexBufferArrayStride)                \
++  X(Core, true, maxColorAttachments)
++
++// The features a page can be told about, in Dawn's own order so a list built
++// from them reads the way the backend's would.
++constexpr wgpu::FeatureName kClaimableFeatures[] = {
++    wgpu::FeatureName::CoreFeaturesAndLimits,
++    wgpu::FeatureName::DepthClipControl,
++    wgpu::FeatureName::Depth32FloatStencil8,
++    wgpu::FeatureName::TextureCompressionBC,
++    wgpu::FeatureName::TextureCompressionBCSliced3D,
++    wgpu::FeatureName::TextureCompressionETC2,
++    wgpu::FeatureName::TextureCompressionASTC,
++    wgpu::FeatureName::TextureCompressionASTCSliced3D,
++    wgpu::FeatureName::TimestampQuery,
++    wgpu::FeatureName::IndirectFirstInstance,
++    wgpu::FeatureName::ShaderF16,
++    wgpu::FeatureName::RG11B10UfloatRenderable,
++    wgpu::FeatureName::BGRA8UnormStorage,
++    wgpu::FeatureName::Float32Filterable,
++    wgpu::FeatureName::Float32Blendable,
++    wgpu::FeatureName::ClipDistances,
++    wgpu::FeatureName::DualSourceBlending,
++    wgpu::FeatureName::Subgroups,
++    wgpu::FeatureName::TextureFormatsTier1,
++    wgpu::FeatureName::TextureFormatsTier2,
++    wgpu::FeatureName::PrimitiveIndex,
++    wgpu::FeatureName::TextureComponentSwizzle,
++    wgpu::FeatureName::SubgroupSizeControl,
++};
++
++bool IsClaimedFeature(const std::set<std::string>& claimed,
++                      wgpu::FeatureName feature) {
++  const dawn::native::FeatureInfo* info = dawn::native::GetFeatureInfo(feature);
++  return info != nullptr && claimed.contains(info->name);
++}
++
++bool IsLimitUndefined(uint32_t value) {
++  return value == wgpu::kLimitU32Undefined;
++}
++bool IsLimitUndefined(uint64_t value) {
++  return value == wgpu::kLimitU64Undefined;
++}
++
++wgpu::CompatibilityModeLimits* FindCompatibilityLimits(
++    const wgpu::Limits& limits) {
++  for (wgpu::ChainedStructOut* chain = limits.nextInChain; chain != nullptr;
++       chain = chain->nextInChain) {
++    if (chain->sType == wgpu::SType::CompatibilityModeLimits) {
++      return static_cast<wgpu::CompatibilityModeLimits*>(chain);
++    }
++  }
++  return nullptr;
++}
++
++// Calls visit(maximum, name, a_value, b_value) for every limit both sides
++// carry, in the order of APOSTATE_WEBGPU_LIMITS.
++template <typename A, typename B, typename Visit>
++void ForEachLimit(A& a, B& b, Visit visit) {
++  wgpu::CompatibilityModeLimits* a_compat = FindCompatibilityLimits(a);
++  wgpu::CompatibilityModeLimits* b_compat = FindCompatibilityLimits(b);
++#define APOSTATE_VISIT_Core(maximum, name) \
++  visit(maximum, #name, a.name, b.name);
++#define APOSTATE_VISIT_Compat(maximum, name)               \
++  if (a_compat != nullptr && b_compat != nullptr) {        \
++    visit(maximum, #name, a_compat->name, b_compat->name); \
++  }
++#define X(side, maximum, name) APOSTATE_VISIT_##side(maximum, name)
++  APOSTATE_WEBGPU_LIMITS(X)
++#undef X
++#undef APOSTATE_VISIT_Compat
++#undef APOSTATE_VISIT_Core
++}
++
++// True when the defined `value` is a better limit than `bound`.
++template <typename T>
++bool IsBetterLimit(bool maximum, T value, T bound) {
++  return !IsLimitUndefined(value) && (maximum ? value > bound : value < bound);
++}
++
++template <typename T>
++void ServeClaimedLimit(const std::map<std::string, uint64_t>& claimed,
++                       const char* name,
++                       T& value) {
++  const auto it = claimed.find(name);
++  if (it != claimed.end() && it->second < std::numeric_limits<T>::max()) {
++    value = static_cast<T>(it->second);
++  }
++}
++
++// Replaces every limit the profile names with the claimed value.
++void ServeClaimedLimits(const std::map<std::string, uint64_t>& claimed,
++                        wgpu::Limits& limits) {
++  ForEachLimit(limits, limits,
++               [&](bool, const char* name, auto&, auto& value) {
++                 ServeClaimedLimit(claimed, name, value);
++               });
++}
++
++// The error a device with `supported` limits gives a request for more, in
++// Dawn's words, or nothing when the request is within them.
++std::optional<std::string> LimitBeyond(const wgpu::Limits& supported,
++                                       const wgpu::Limits& required) {
++  std::optional<std::string> error;
++  ForEachLimit(supported, required,
++               [&](bool maximum, const char* name, const auto& bound,
++                   const auto& value) {
++                 if (error || !IsBetterLimit(maximum, value, bound)) {
++                   return;
++                 }
++                 error = base::StrCat(
++                     {"Required limit (", base::NumberToString(value), ") is ",
++                      maximum ? "greater" : "lower",
++                      " than the supported limit (", base::NumberToString(bound),
++                      ").\n - While validating ", name,
++                      "\n - While validating required limits\n"});
++               });
++  return error;
++}
++
++// Moves each limit the page requires down to what the backend supports, so
++// the real device is created within what the backend can run.
++void FitLimits(const wgpu::Limits& supported, wgpu::Limits& required) {
++  ForEachLimit(supported, required,
++               [](bool maximum, const char*, const auto& bound, auto& value) {
++                 if (IsBetterLimit(maximum, value, bound)) {
++                   value = bound;
++                 }
++               });
++}
++
++// Reports each limit the page required as granted where the device was
++// created with less.
++void ReportRequestedLimits(const wgpu::Limits& requested,
++                           wgpu::Limits& reported) {
++  ForEachLimit(requested, reported,
++               [](bool maximum, const char*, const auto& value, auto& granted) {
++                 if (IsBetterLimit(maximum, value, granted)) {
++                   granted = value;
++                 }
++               });
++}
++
+ // This variable is set to DawnWireServer's parent decoder during execution of
+ // HandleCommands. It is cleared to nullptr after. This enables some of the
+ // overridden procs to be overridden with a WebGPUDecoderImpl member function.
+@@ -368,6 +555,11 @@
+   WGPUBool AdapterHasFeatureImpl(WGPUAdapter adapter, WGPUFeatureName feature);
+   void AdapterGetFeaturesImpl(WGPUAdapter adapter,
+                               WGPUSupportedFeatures* features_out);
++  WGPUStatus AdapterGetInfoImpl(WGPUAdapter adapter, WGPUAdapterInfo* info);
++  WGPUStatus AdapterGetLimitsImpl(WGPUAdapter adapter, WGPULimits* limits);
++  void DeviceGetFeaturesImpl(WGPUDevice device,
++                             WGPUSupportedFeatures* features_out);
++  WGPUStatus DeviceGetLimitsImpl(WGPUDevice device, WGPULimits* limits);
+   template <typename CallbackInfo>
+   WGPUFuture RequestDeviceImpl(WGPUAdapter adapter,
+                                const WGPUDeviceDescriptor* descriptor,
+@@ -414,6 +606,10 @@
+ 
+   bool use_blocklist() const;
+ 
++  // The claimed device's feature names when the software adapter stands in
++  // for it and the profile lists any, else null.
++  const std::set<std::string>* ClaimedFeatures() const;
++
+   bool ClearSharedImageWithSkia(const Mailbox& mailbox);
+ 
+   scoped_refptr<SharedContextState> shared_context_state_;
+@@ -432,6 +628,20 @@
+   bool force_fallback_adapter_ = false;
+   bool webgpu_on_vk_gl_interop_ = false;
+   bool profile_software_webgpu_ = false;
++  // What the page asked of a device on the stand-in adapter, held for the
++  // synchronous request in which the wire server reads the new device's
++  // features and limits. `limits` chains to `compat_limits` when the page sent
++  // them, so it is built in place and never copied.
++  struct ClaimedDeviceRequest {
++    ClaimedDeviceRequest() = default;
++    ClaimedDeviceRequest(const ClaimedDeviceRequest&) = delete;
++    ClaimedDeviceRequest& operator=(const ClaimedDeviceRequest&) = delete;
++
++    std::vector<wgpu::FeatureName> features;
++    wgpu::Limits limits;
++    wgpu::CompatibilityModeLimits compat_limits;
++  };
++  std::optional<ClaimedDeviceRequest> claimed_device_request_;
+   bool force_webgpu_compat_ = false;
+   std::vector<std::string> require_enabled_toggles_;
+   std::vector<std::string> require_disabled_toggles_;
+@@ -1190,8 +1400,28 @@
+   wire_procs.adapterGetFeatures = [](auto... args) {
+     DCHECK(parent_decoder);
+     return parent_decoder->AdapterGetFeaturesImpl(
++        std::forward<decltype(args)>(args)...);
++  };
++  wire_procs.adapterGetInfo = [](auto... args) {
++    DCHECK(parent_decoder);
++    return parent_decoder->AdapterGetInfoImpl(
++        std::forward<decltype(args)>(args)...);
++  };
++  wire_procs.adapterGetLimits = [](auto... args) {
++    DCHECK(parent_decoder);
++    return parent_decoder->AdapterGetLimitsImpl(
++        std::forward<decltype(args)>(args)...);
++  };
++  wire_procs.deviceGetFeatures = [](auto... args) {
++    DCHECK(parent_decoder);
++    return parent_decoder->DeviceGetFeaturesImpl(
+         std::forward<decltype(args)>(args)...);
+   };
++  wire_procs.deviceGetLimits = [](auto... args) {
++    DCHECK(parent_decoder);
++    return parent_decoder->DeviceGetLimitsImpl(
++        std::forward<decltype(args)>(args)...);
++  };
+   wire_procs.supportedFeaturesFreeMembers =
+       [](WGPUSupportedFeatures supported_features) -> void {
+     // We don't need any state so we don't need the parent decoder and can free
+@@ -1356,6 +1586,15 @@
+     options = &default_options;
+   }
+ 
++  // The claimed device has no fallback adapter: asking it for one gets none.
++  // The stand-in is that device, so it is not handed out as one either.
++  if (profile_software_webgpu_ && options->forceFallbackAdapter) {
++    callback_info.callback(WGPURequestAdapterStatus_Unavailable, nullptr,
++                           MakeStringView("No available adapters."),
++                           callback_info.userdata1, callback_info.userdata2);
++    return {};
++  }
++
+   bool force_fallback_adapter = force_fallback_adapter_;
+   if (use_webgpu_adapter_ == WebGPUAdapterName::kSwiftShader) {
+     force_fallback_adapter = true;
+@@ -1423,6 +1662,9 @@
+   if (!IsFeatureExposed(static_cast<wgpu::FeatureName>(feature))) {
+     return false;
+   }
++  if (const std::set<std::string>* claimed = ClaimedFeatures()) {
++    return IsClaimedFeature(*claimed, static_cast<wgpu::FeatureName>(feature));
++  }
+   wgpu::Adapter adapter_obj(adapter);
+   return adapter_obj.HasFeature(static_cast<wgpu::FeatureName>(feature));
+ }
+@@ -1430,16 +1672,23 @@
+ void WebGPUDecoderImpl::AdapterGetFeaturesImpl(
+     WGPUAdapter adapter,
+     WGPUSupportedFeatures* features_out) {
+-  wgpu::Adapter adapter_obj(adapter);
+-  wgpu::SupportedFeatures supported_features;
+-  adapter_obj.GetFeatures(&supported_features);
+-
+   std::vector<wgpu::FeatureName> exposed_features;
+-  for (uint32_t i = 0; i < supported_features.featureCount; ++i) {
+-    wgpu::FeatureName feature = UNSAFE_TODO(supported_features.features[i]);
+-    if (IsFeatureExposed(feature)) {
+-      exposed_features.push_back(feature);
+-    };
++  if (const std::set<std::string>* claimed = ClaimedFeatures()) {
++    for (wgpu::FeatureName feature : kClaimableFeatures) {
++      if (IsFeatureExposed(feature) && IsClaimedFeature(*claimed, feature)) {
++        exposed_features.push_back(feature);
++      }
++    }
++  } else {
++    wgpu::Adapter adapter_obj(adapter);
++    wgpu::SupportedFeatures supported_features;
++    adapter_obj.GetFeatures(&supported_features);
++    for (uint32_t i = 0; i < supported_features.featureCount; ++i) {
++      wgpu::FeatureName feature = UNSAFE_TODO(supported_features.features[i]);
++      if (IsFeatureExposed(feature)) {
++        exposed_features.push_back(feature);
++      };
++    }
+   }
+   const size_t count = exposed_features.size();
+   WGPUFeatureName* features = new WGPUFeatureName[count];
+@@ -1451,6 +1700,90 @@
+   features_out->features = features;
+ }
+ 
++WGPUStatus WebGPUDecoderImpl::AdapterGetInfoImpl(WGPUAdapter adapter,
++                                                 WGPUAdapterInfo* info) {
++  const WGPUStatus status =
++      dawn::native::GetProcs().adapterGetInfo(adapter, info);
++  const auto* profile = base::apostate::Profile::Get();
++  if (status != WGPUStatus_Success || !profile_software_webgpu_ || !profile ||
++      info->adapterType != WGPUAdapterType_CPU) {
++    return status;
++  }
++  // SwiftShader reports itself as a CPU adapter, which a page reads as
++  // isFallbackAdapter. The device it stands in for is a GPU.
++  const std::string& vendor = profile->webgpu_vendor();
++  info->adapterType = vendor == "nvidia" || vendor == "amd"
++                          ? WGPUAdapterType_DiscreteGPU
++                          : WGPUAdapterType_IntegratedGPU;
++  if (profile->webgpu_subgroup_min() > 0) {
++    info->subgroupMinSize = profile->webgpu_subgroup_min();
++  }
++  if (profile->webgpu_subgroup_max() > 0) {
++    info->subgroupMaxSize = profile->webgpu_subgroup_max();
++  }
++  return status;
++}
++
++WGPUStatus WebGPUDecoderImpl::AdapterGetLimitsImpl(WGPUAdapter adapter,
++                                                   WGPULimits* limits) {
++  const WGPUStatus status =
++      dawn::native::GetProcs().adapterGetLimits(adapter, limits);
++  const auto* profile = base::apostate::Profile::Get();
++  if (status == WGPUStatus_Success && profile_software_webgpu_ && profile) {
++    ServeClaimedLimits(profile->webgpu_limits(),
++                       *reinterpret_cast<wgpu::Limits*>(limits));
++  }
++  return status;
++}
++
++void WebGPUDecoderImpl::DeviceGetFeaturesImpl(
++    WGPUDevice device,
++    WGPUSupportedFeatures* features_out) {
++  const DawnProcTable& procs = dawn::native::GetProcs();
++  procs.deviceGetFeatures(device, features_out);
++  if (!claimed_device_request_ || claimed_device_request_->features.empty()) {
++    return;
++  }
++  // The device's own features plus the claimed ones the page required, the
++  // web-visible ones first in Dawn's order as the backend would list them.
++  std::vector<wgpu::FeatureName> granted;
++  for (size_t i = 0; i < features_out->featureCount; ++i) {
++    granted.push_back(
++        static_cast<wgpu::FeatureName>(UNSAFE_TODO(features_out->features[i])));
++  }
++  procs.supportedFeaturesFreeMembers(*features_out);
++  std::vector<wgpu::FeatureName> reported;
++  for (wgpu::FeatureName feature : kClaimableFeatures) {
++    if (std::ranges::contains(granted, feature) ||
++        std::ranges::contains(claimed_device_request_->features, feature)) {
++      reported.push_back(feature);
++    }
++  }
++  for (wgpu::FeatureName feature : granted) {
++    if (!std::ranges::contains(kClaimableFeatures, feature)) {
++      reported.push_back(feature);
++    }
++  }
++  WGPUFeatureName* features = new WGPUFeatureName[reported.size()];
++  uint32_t index = 0;
++  for (wgpu::FeatureName feature : reported) {
++    UNSAFE_TODO(features[index++]) = static_cast<WGPUFeatureName>(feature);
++  }
++  features_out->featureCount = reported.size();
++  features_out->features = features;
++}
++
++WGPUStatus WebGPUDecoderImpl::DeviceGetLimitsImpl(WGPUDevice device,
++                                                  WGPULimits* limits) {
++  const WGPUStatus status =
++      dawn::native::GetProcs().deviceGetLimits(device, limits);
++  if (status == WGPUStatus_Success && claimed_device_request_) {
++    ReportRequestedLimits(claimed_device_request_->limits,
++                          *reinterpret_cast<wgpu::Limits*>(limits));
++  }
++  return status;
++}
++
+ template <typename CallbackInfo>
+ WGPUFuture WebGPUDecoderImpl::RequestDeviceImpl(
+     WGPUAdapter adapter,
+@@ -1494,10 +1827,61 @@
+       if (!IsFeatureExposed(feature)) {
+         callback_info.callback(WGPURequestDeviceStatus_Error, nullptr,
+                                MakeStringView("Disallowed feature requested."),
++                               callback_info.userdata1,
++                               callback_info.userdata2);
++        return {};
++      }
++    }
++  }
++
++  // The stand-in advertises the claimed device, so a page may require a
++  // feature or a limit SwiftShader cannot run. A request within the claim
++  // creates the real device within what the backend has and reports what the
++  // page asked for as granted: using it then fails the way a claimed WebGL
++  // limit is refused by the driver. A request beyond the claim fails the way
++  // the claimed device fails it.
++  wgpu::Limits fitted_limits;
++  wgpu::CompatibilityModeLimits fitted_compat_limits;
++  if (profile_software_webgpu_) {
++    ClaimedDeviceRequest& claimed = claimed_device_request_.emplace();
++    std::erase_if(required_features, [&](wgpu::FeatureName feature) {
++      if (adapter_obj.HasFeature(feature)) {
++        return false;
++      }
++      claimed.features.push_back(feature);
++      return true;
++    });
++    if (desc.requiredLimits != nullptr) {
++      claimed.limits = *desc.requiredLimits;
++      claimed.limits.nextInChain = nullptr;
++      fitted_limits = claimed.limits;
++      if (const wgpu::CompatibilityModeLimits* compat =
++              FindCompatibilityLimits(*desc.requiredLimits)) {
++        claimed.compat_limits = *compat;
++        claimed.compat_limits.nextInChain = nullptr;
++        claimed.limits.nextInChain = &claimed.compat_limits;
++        fitted_compat_limits = claimed.compat_limits;
++        fitted_limits.nextInChain = &fitted_compat_limits;
++      }
++      wgpu::Limits advertised;
++      wgpu::CompatibilityModeLimits advertised_compat;
++      advertised.nextInChain = &advertised_compat;
++      AdapterGetLimitsImpl(adapter, reinterpret_cast<WGPULimits*>(&advertised));
++      if (std::optional<std::string> error =
++              LimitBeyond(advertised, claimed.limits)) {
++        claimed_device_request_.reset();
++        callback_info.callback(WGPURequestDeviceStatus_Error, nullptr,
++                               MakeStringView(error->c_str()),
+                                callback_info.userdata1,
+                                callback_info.userdata2);
+         return {};
+       }
++      wgpu::Limits supported;
++      wgpu::CompatibilityModeLimits supported_compat;
++      supported.nextInChain = &supported_compat;
++      adapter_obj.GetLimits(&supported);
++      FitLimits(supported, fitted_limits);
++      desc.requiredLimits = &fitted_limits;
+     }
+   }
+ 
+@@ -1640,6 +2024,7 @@
+   // The callback must have been called synchronously. We could allow async
+   // here, but it would require careful handling of the decoder lifetime.
+   CHECK(called);
++  claimed_device_request_.reset();
+   return f;
+ }
+ 
+@@ -1650,6 +2035,16 @@
+       safety_level_ == webgpu::SafetyLevel::kUnsafe ||
+       std::ranges::contains(require_disabled_toggles_, "adapter_blocklist"));
+ }
++
++const std::set<std::string>* WebGPUDecoderImpl::ClaimedFeatures() const {
++  const auto* profile = base::apostate::Profile::Get();
++  if (!profile_software_webgpu_ || !profile ||
++      profile->webgpu_features().empty()) {
++    return nullptr;
++  }
++  return &profile->webgpu_features();
++}
++
+ // Intersect the enumerated adapter with the claimed device before the page
+ // can read it. An empty feature set means the profile carries no webgpu
+ // section and the adapter is left exactly as the backend built it.

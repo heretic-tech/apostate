@@ -1,53 +1,13 @@
-Subject: [PATCH] speech: TTS voices from the profile, and utterances that run
+Subject: [PATCH] speech: TTS voices from the profile, with timed utterances
 
-speechSynthesis.getVoices() returns nothing on our build and 22 voices on the
-reference. An empty list is a strong container tell — every real desktop has
-voices, Windows ships around twenty SAPI ones — and the names are
-platform-shaped rather than arbitrary, so they are replayed rather than
-invented: "Microsoft Hazel - English (United Kingdom)" is not a string any
-other OS produces.
+speechSynthesis.getVoices() lists the voices in the profile's
+speech.voices, and these replace the host's voices. On a Linux host
+without speech-dispatcher the list is otherwise empty, which no real
+desktop reports. When no real synthesizer is running, speak() fires
+start and end events after the time real speech would take, about
+fifteen characters a second scaled by the rate, with no audio. Patch
+0043 removes this timer and keeps only voices a real provider registers.
 
-Two things had to be right for this to be worth doing.
-
-First, where. TtsControllerImpl only asks the platform for voices when
-TtsPlatformReady() is true, and that is PlatformImplSupported() &&
-PlatformImplInitialized() — both false on a box without speech-dispatcher. So
-patching GetVoices() alone changes nothing, because nothing calls it. The
-profile makes this platform report supported and initialised, and then supplies
-the list.
-
-Second, speaking. A voice list that cannot speak would be worse than no list at
-all: a page sets utterance.volume = 0, calls speak(), and listens for onend
-against onerror. So the utterance actually runs — TTS_EVENT_START, then
-TTS_EVENT_END after the time real speech would have taken, at roughly fifteen
-characters a second scaled by the requested rate. The only thing absent is
-audio, and nothing can observe that. Timing is load bearing rather than
-decoration: an utterance that ends instantly is as wrong as one that never
-starts. Measured on this build, "Hello" ends after 334ms and a 54-character
-sentence after 3601ms, both with onstart first and speechSynthesis.speaking
-false afterwards.
-
-One correction to the threat as first written here, because the first attempt
-to verify it measured the wrong thing. That probe does not work from a cold
-page: SpeechSynthesis::IsAllowedToStartByAutoplay gates speak() on user
-activation and fires exactly the same not-allowed error on real Chrome, so a
-detector with no click sees no difference either way and never reaches this
-code. The falsification window is real but narrower than "any page" — it needs
-a gesture first, which most detectors have and a headless probe does not.
-Verifying it required launching with --autoplay-policy=no-user-gesture-required
-to get past the gate, and that switch is a property of the test, not of the
-shipped browser.
-
-The host's own voices are replaced rather than merged. speech-dispatcher offers
-espeak voices whose names no Windows or macOS machine produces, and a device
-reporting both is running two synthesisers at once. Where a real synthesiser is
-initialised it keeps it and speaks for real; the synthetic path is only taken
-when there is nothing behind the list.
-
-StopSpeaking is guarded for the same reason: calling into an uninitialised
-speech-dispatcher connection is not safe, and there is nothing there to stop.
-
-Ledger: speech.voices.
 diff --git a/base/apostate/profile.h b/base/apostate/profile.h
 index 52bd72f..82ecce0 100644
 --- a/base/apostate/profile.h

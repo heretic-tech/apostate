@@ -1,31 +1,12 @@
-Subject: [PATCH] media: capture device counts from the profile
+Subject: [PATCH] media: capture device counts in the profile
 
-The reference M4 Max enumerates one audioinput, one videoinput and one
-audiooutput. Our build enumerated an audiooutput and nothing else: a MacBook
-Pro with no microphone and no camera, which is not a MacBook Pro. It is a
-property of the headless host, and it is readable from any page with no
-permission — enumerateDevices() returns the counts before it returns anything
-identifying.
+The profile lists how many microphones, cameras and audio outputs the
+claimed machine has, up to 16 of each. enumerateDevices() shows these
+counts to any page without permission, and a headless host often has no
+microphone or camera at all. The counts set a floor, so real devices on
+the host are kept and only the shortfall is filled. This patch parses
+the counts, and patch 0092 creates the devices.
 
-The profile sets a floor, not an exact count. If the host genuinely has capture
-hardware those devices are real and are kept, and only the shortfall is made
-up. Removing real devices to hit an exact count would break capture on a
-machine that can actually capture, to fix a number.
-
-Counts rather than booleans because a machine can have several cameras, bounded
-at 16 so that a malformed profile cannot make the browser synthesise an
-unbounded device list.
-
-This patch parses the counts. It does not emit the devices: patch 0092 does
-that, at the audio manager and the video capture device factory, because those
-are the two objects the rest of the browser asks both what devices exist and
-open this one. An earlier version of this patch injected the devices into
-MediaDevicesManager instead, which is only the first of those two questions,
-and the result was a device that enumerated and then failed to open with
-NotReadableError. That injection is gone; the reasoning it was based on was
-right and was applied one layer too high.
-
-Ledger: media.device-counts.
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
 index cd466fc..54ca7a3 100644
 --- a/base/apostate/profile.cc

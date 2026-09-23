@@ -1,38 +1,12 @@
-Subject: [PATCH] keyboard: replay the layout map from the profile
+Subject: [PATCH] keyboard: getLayoutMap() from the profile
 
-navigator.keyboard.getLayoutMap() returns what each physical key produces. The
-reference M4 Max reports 48 entries; ours reported 48 too, but two disagreed:
-IntlBackslash was "<" where the Mac says "\u00a7", and we reported an IntlYen
-key the Mac does not have at all.
+navigator.keyboard.getLayoutMap() returns the key map stored in the
+profile instead of the host's X keymap. A layout is a user setting that
+nothing else in the profile implies, so it is copied from a real
+capture. The whole map is replaced, never merged with the host's, so it
+always describes one real keyboard. An empty map in the profile leaves
+the host's map in place.
 
-Both are the build host's X keymap showing through. The section sign on
-IntlBackslash is specific to Apple's ISO layout, and IntlYen exists on Japanese
-keyboards, so the pair together describes a machine that is neither the Mac the
-rest of the capture claims nor any single real keyboard.
-
-Replayed rather than derived, which is the axiom A3 category for this. A layout
-map is a user setting, not a device property — the same Mac produces a
-different map under a German layout — and nothing else in the profile implies
-it, so there is no rule that could generate it. The capture is the only source.
-
-Replaced wholesale rather than merged. A layout is one coherent object, and
-taking most keys from the reference while leaving the rest to the host's keymap
-would describe a keyboard that does not exist. Merging is how the two-field
-version of this bug was produced in the first place.
-
-Patched at PageImpl::GetKeyboardLayoutMap, which is the only path by which a
-layout reaches a renderer: KeyboardLockServiceImpl reads it there and nowhere
-else, so the accessor never needs touching.
-
-Iteration order is not a new observable. The return type is a flat_map on every
-platform, so whatever ordering a page eventually sees is produced downstream
-from the key set, identically for us and for stock Chrome. Fixing the key set
-is therefore sufficient; no ordering work is required or attempted.
-
-An empty map in the profile means "leave the host's map alone", so a profile
-that does not describe a keyboard does not silently blank one.
-
-Ledger: keyboard.layout-map.
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
 index 54ca7a3..d0e6938 100644
 --- a/base/apostate/profile.cc

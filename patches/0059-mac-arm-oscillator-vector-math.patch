@@ -1,4 +1,10 @@
-Subject: [PATCH] audio: match Mac ARM vector wave-table range arithmetic
+Subject: [PATCH] audio: Mac ARM oscillator range math from the profile
+
+Under a macOS ARM profile, the vector code that picks an oscillator's
+wave-table range multiplies by a rounded reciprocal instead of dividing,
+as the NEON code on Mac ARM does. The two methods round differently and
+can pick a different table for the same frequency, which changes output
+samples a page can hash. Other profiles keep plain division.
 
 diff --git a/third_party/blink/renderer/modules/webaudio/periodic_wave.cc b/third_party/blink/renderer/modules/webaudio/periodic_wave.cc
 --- a/third_party/blink/renderer/modules/webaudio/periodic_wave.cc

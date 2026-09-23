@@ -1,10 +1,9 @@
-Subject: [PATCH] tests: validate a pinned software Core provider without unsafe APIs
+Subject: [PATCH] tests: standalone check for the software WebGPU provider
 
-Standalone, test-only Linux diagnostic. No CPU-adapter admission or
-browser packaging change. The non-component executable restricts dlopen
-to a hash-verified SwiftShader library, requests real Core devices,
-checks limits and validation, and runs bounded compute/texture transfers.
-Vulkan layer activation is not inferred from a validation request.
+Adds a Linux test program that loads only a hash-checked SwiftShader
+library, requests real WebGPU Core devices, and checks their limits,
+validation and small compute and texture transfers. It uses no unsafe
+WebGPU switches. It is test-only and changes nothing a page sees.
 
 diff --git a/gpu/BUILD.gn b/gpu/BUILD.gn
 --- a/gpu/BUILD.gn

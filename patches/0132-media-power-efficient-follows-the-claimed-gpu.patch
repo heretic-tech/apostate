@@ -1,0 +1,143 @@
+Subject: [PATCH] media: powerEfficient follows the claimed GPU
+
+decodingInfo() reports powerEfficient from the claimed platform and GPU
+instead of the host's decoders. Windows and macOS decode H.264, VP9 and
+HEVC in hardware, AV1 only on GPU generations with an AV1 decoder, and
+Linux reports false for every video codec. Without this, a Windows
+profile on a Linux host reports false for H.264, where real Windows
+reports true. A profile that lists media.hw_decode_codecs still uses
+that list.
+
+--- a/third_party/blink/renderer/modules/media_capabilities/media_capabilities.cc
++++ b/third_party/blink/renderer/modules/media_capabilities/media_capabilities.cc
+@@ -128,6 +128,95 @@
+       media::kMediaCapabilitiesQueryGpuFactories);
+ }
+ 
++// Whether the claimed machine decodes `codec` in fixed-function hardware, which
++// decodingInfo() reports as powerEfficient. nullopt leaves the host's answer:
++// no profile is configured, or the codec is not one the table covers.
++//
++// A profile can name the decoders outright in media.hw_decode_codecs. A
++// composed profile carries no such list, so the answer comes from the claimed
++// platform and GPU, which is what the references measured:
++//  - Windows answers true for H.264, VP9 and HEVC on every GPU the catalogue
++//    offers. AV1 arrived with a GPU generation: the UHD 630 reference (Intel
++//    gen-9) answers false and the RTX 3070 Ti and RTX A4500 references
++//    (NVIDIA ampere) answer true.
++//  - macOS answers true for all four on the M4 Max reference. M1 and M2 have
++//    no AV1 decoder.
++//  - Linux answers false for every video codec on all five Linux references,
++//    because Chrome on Linux does not use the GPU's decoder by default.
++//  - VP8 is false everywhere: neither Chrome's D3D11 decoder nor VideoToolbox
++//    has a VP8 path.
++std::optional<bool> ClaimedHardwareDecode(media::VideoCodec codec) {
++  const base::apostate::Profile* profile = base::apostate::Profile::Get();
++  if (!profile) {
++    return std::nullopt;
++  }
++  const char* name = nullptr;
++  switch (codec) {
++    case media::VideoCodec::kH264:
++      name = "h264";
++      break;
++    case media::VideoCodec::kVP8:
++      name = "vp8";
++      break;
++    case media::VideoCodec::kVP9:
++      name = "vp9";
++      break;
++    case media::VideoCodec::kHEVC:
++      name = "hevc";
++      break;
++    case media::VideoCodec::kAV1:
++      name = "av1";
++      break;
++    default:
++      return std::nullopt;
++  }
++  if (!profile->hw_decode_codecs().empty()) {
++    return profile->hw_decode_codecs().count(name) > 0;
++  }
++
++  const std::optional<std::string>& platform = profile->ua_platform();
++  if (!platform) {
++    return std::nullopt;
++  }
++  if (*platform == "Linux") {
++    return false;
++  }
++  if (*platform != "Windows" && *platform != "macOS") {
++    return std::nullopt;
++  }
++  if (codec == media::VideoCodec::kVP8) {
++    return false;
++  }
++  if (codec != media::VideoCodec::kAV1) {
++    return true;
++  }
++
++  const std::string& vendor = profile->webgpu_vendor();
++  const std::string& architecture = profile->webgpu_architecture();
++  if (*platform == "macOS") {
++    const std::string renderer =
++        profile->gpu_renderer().value_or(std::string());
++    return vendor == "apple" &&
++           renderer.find("Apple M1") == std::string::npos &&
++           renderer.find("Apple M2") == std::string::npos;
++  }
++  if (vendor == "intel") {
++    // Gen12 was Intel's first AV1 decoder. Dawn names the generations before
++    // it gen-7 to gen-11 and the ones after it xe-*.
++    return !architecture.starts_with("gen-") ||
++           architecture.starts_with("gen-12");
++  }
++  if (vendor == "nvidia") {
++    return architecture == "ampere" || architecture == "lovelace" ||
++           architecture == "blackwell";
++  }
++  if (vendor == "amd") {
++    return architecture == "rdna-2" || architecture == "rdna-3" ||
++           architecture == "rdna-4";
++  }
++  return false;
++}
++
+ // Utility function that will create a MediaCapabilitiesDecodingInfo object with
+ // all the values set to either true or false.
+ MediaCapabilitiesDecodingInfo* CreateDecodingInfoWith(bool value) {
+@@ -1567,32 +1656,8 @@
+   // really do: efficiency is a hint no page can check, while support is a
+   // capability, and claiming a decoder we do not have is falsified by playing
+   // one file.
+-  if (const base::apostate::Profile* profile = base::apostate::Profile::Get()) {
+-    if (!profile->hw_decode_codecs().empty()) {
+-      const char* name = nullptr;
+-      switch (video_codec) {
+-        case media::VideoCodec::kH264:
+-          name = "h264";
+-          break;
+-        case media::VideoCodec::kVP8:
+-          name = "vp8";
+-          break;
+-        case media::VideoCodec::kVP9:
+-          name = "vp9";
+-          break;
+-        case media::VideoCodec::kHEVC:
+-          name = "hevc";
+-          break;
+-        case media::VideoCodec::kAV1:
+-          name = "av1";
+-          break;
+-        default:
+-          break;
+-      }
+-      if (name) {
+-        is_supported = profile->hw_decode_codecs().count(name) > 0;
+-      }
+-    }
++  if (const std::optional<bool> claimed = ClaimedHardwareDecode(video_codec)) {
++    is_supported = *claimed;
+   }
+ 
+   pending_cb->is_gpu_factories_supported = is_supported;

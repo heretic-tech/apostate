@@ -1,24 +1,11 @@
-Subject: [PATCH] webgpu: parse the claimed adapter identity from the profile
+Subject: [PATCH] webgpu: parse the claimed WebGPU adapter from the profile
 
-The profile now carries the reference device's WebGPU adapter identity —
-feature names, vendor and architecture strings, subgroup sizes, and numeric
-limits — derived from the T0 capture by to_profile.derive_webgpu, which
-refuses to derive when the two power preferences disagree. This parses that
-section into the loader. Nothing serves it yet; the Dawn emitter is a
-separate patch, so landing this changes no runtime value.
+The profile loader reads the WebGPU adapter section: feature names,
+vendor and architecture strings, subgroup sizes and numeric limits.
+Nothing consumes it in this patch, so no page-visible value changes. The
+Dawn patch that follows serves these values, intersecting features with
+the backend's and taking the smaller of each limit.
 
-The serving doctrine is already written down twice. Patch 0026 serves the
-smaller of the profile claim and the driver for limits, because a limit is
-falsifiable by use; the extensions accessor next to it removes but never
-adds, because a claimed-but-unimplemented extension fails at first use.
-WebGPU adapter data follows both rules: features intersect (the backend aims
-its set at the profile's, dropping what the claimed device lacks and never
-adding what the backend cannot do), limits take the minimum, and only the
-vendor and architecture strings — pure labels no page can exercise — are
-served verbatim. Subgroup sizes go through the minimum like any executed
-quantity.
-
-Ledger: webgpu.adapter-info, webgpu.adapter-features, webgpu.adapter-limits.
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
 --- a/base/apostate/profile.cc
 +++ b/base/apostate/profile.cc
