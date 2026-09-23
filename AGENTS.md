@@ -40,6 +40,9 @@ It is free and open source. Its job is to pass the detectors real operators meet
 5. **Measure.** A change is done when it is measured on the real target:
    FingerprintJS Pro's suspect score and flags, plus a probe diff against our
    real captures. Report numbers as they are.
+6. **Add no new tell.** A fix must not add something a page or the host can
+   see that stock Chrome does not have: a command-line switch visible to the
+   page, a new mojo interface, an odd process name, a timing change.
 
 ## How the pieces fit
 
@@ -57,6 +60,13 @@ It is free and open source. Its job is to pass the detectors real operators meet
   profiles of a platform get the same set.
 - Display: on a Linux host with no display, the wrapper starts Xvfb sized to the
   persona's screen and cleans it up. The user only needs Xvfb installed.
+
+## Working mode
+
+Run the agreed plan to completion without checking in between steps, and
+parallelise where the work allows. Do not leave work half done. Stop for the
+owner only for a decision that changes scope, architecture or whether the
+product works, and then ask with a recommendation, not a list of options.
 
 ## Evidence
 
@@ -80,5 +90,6 @@ state you found it.
 ## Commits
 
 Small and focused. The message says what changed and why, in plain words. No
-attribution trailers. Never commit `.internal/`; it holds private planning and
-must not be referenced from public files.
+attribution trailers. Never commit `.internal/` and never put its contents
+(plans, positioning, competitor notes) into a public file, comment or commit
+message. Pointing at `.internal/DIRECTIVES.md` as a file to read is fine.
