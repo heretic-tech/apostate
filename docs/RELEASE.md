@@ -27,7 +27,11 @@ packages are published by hand afterwards.
 3. Wait for `release.yml`. Each platform builds on its own machine, all at
    once, and takes hours. If one fails, re-run the failed jobs; the finished
    platforms keep their artifacts and are not rebuilt.
-4. [Publish the packages](#publish-the-packages) with the release's digests.
+4. The release is created as a draft. Download the archives with
+   `gh release download`, launch each on its platform (Linux in a GPU-less
+   container as well), then publish it with
+   `gh release edit vMAJOR.MINOR.PATCH --draft=false`.
+5. [Publish the packages](#publish-the-packages) with the release's digests.
 
 The repository variable `APOSTATE_BUILD_TARGETS` (comma-separated, such as
 `macos-arm64,linux-x64`) limits a release to some platforms; unset means all

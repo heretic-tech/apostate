@@ -249,6 +249,6 @@ jobs:
         run: |
           set -euo pipefail
           version="$(python3 -c 'import json;print(json.load(open(".github/release/artifact-policy.json"))["manifest_contract"]["chromium_version"])')"
-          gh release create "$RELEASE_TAG" release-inputs/* --verify-tag \
+          gh release create "$RELEASE_TAG" release-inputs/* --verify-tag --draft \
             --title "Apostate $RELEASE_TAG" \
             --notes "Apostate artifacts for Chromium $version. Verify provenance with: gh attestation verify <artifact> --repo $REPOSITORY"
