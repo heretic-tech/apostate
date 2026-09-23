@@ -223,6 +223,26 @@ def _sync(target: Path, payload: bytes, check: bool, stale: list[Path]) -> None:
     print(f"wrote {target.relative_to(REPO_ROOT)}")
 
 
+# Every place the package version is written. A release whose sites disagree
+# ships a package that downloads another release's browser.
+VERSION_SITES = (
+    ("python/pyproject.toml", r'^version = "([^"]+)"'),
+    ("python/apostate/config.py", r'^PACKAGE_VERSION = "([^"]+)"'),
+    ("npm/package.json", r'^  "version": "([^"]+)"'),
+    ("npm/src/index.ts", r'^export const PACKAGE_VERSION = "([^"]+)"'),
+    (".github/release/artifact-policy.json", r'"package_version": "([^"]+)"'),
+)
+
+
+def version_disagreements() -> list[str]:
+    found = {}
+    for rel, pattern in VERSION_SITES:
+        match = re.search(pattern, (REPO_ROOT / rel).read_text(encoding="utf-8"), re.M)
+        found[rel] = match.group(1) if match else "missing"
+    if len(set(found.values())) == 1:
+        return []
+    return [f"{rel}: {version}" for rel, version in found.items()]
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -256,6 +276,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"platforms: {', '.join(sorted(manifest['artifacts']))}")
             print(f"tag: {manifest['tag']}  revision: {manifest['source_revision']}")
 
+    mismatched = version_disagreements()
+    if mismatched:
+        print("package version differs between sites:\n  " + "\n  ".join(mismatched), file=sys.stderr)
+        return 1
     if stale:
         for path in stale:
             print(f"out of date: {path.relative_to(REPO_ROOT)}", file=sys.stderr)
