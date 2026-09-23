@@ -71,10 +71,10 @@
     w.textContent = "This browser reports as automated or headless. A capture taken here is not ground truth — open this page in a normal browser window instead.";
   }
 
-  // ?auto=1&label=name runs without interaction. Used by the V3 conformance
-  // runner, which launches Apostate at this page and diffs the result against a
-  // reference capture. Not the path for taking ground truth: a capture worth
-  // trusting is one a person took in a window they can see.
+  // ?auto=1&label=name runs without interaction. capture/take-capture.sh and
+  // capture/collect-unattended.py use it on hosts with no display, and it is
+  // how an Apostate build is pointed at this page to compare it with a
+  // reference capture. It is the same code path a person's click takes.
   var params = new URLSearchParams(location.search);
   if (params.get("label")) labelEl.value = params.get("label");
 

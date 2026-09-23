@@ -67,11 +67,9 @@ MANIFEST_NAME = "release-manifest.json"
 DATA_ASSETS = {
     "profile.schema.json": REPO_ROOT / "config/profile.schema.json",
     "catalogue.json": REPO_ROOT / "resources/profiles/catalogue.json",
-    # The country -> locale policy both launchers infer a locale from. It is
-    # generated (scripts/generate-country-locales.py) rather than hand-kept:
-    # the hand tables it replaces named 45 countries, so a Malaysian exit
-    # resolved no locale at all and the launcher said so instead of serving
-    # ms. An inference that covers a quarter of the world is not one.
+    # The country -> locale table both launchers infer a locale from. It
+    # covers every country, so a Malaysian exit resolves ms rather than no
+    # locale at all.
     "country-locales.json": REPO_ROOT / "config/country-locales.json",
 }
 REPOSITORY = "heretic-tech/apostate"

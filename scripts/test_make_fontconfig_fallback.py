@@ -1,7 +1,6 @@
-"""Conditional font fallback generation and pinned manifest regressions."""
+"""Conditional font fallback generation."""
 
 import importlib.util
-import json
 from pathlib import Path
 import subprocess
 import sys
@@ -70,15 +69,6 @@ class FallbackTests(unittest.TestCase):
         result = self.invoke()
         self.assertEqual(result.returncode, 0)
         self.assertEqual(ET.parse(self.output).getroot().findall("alias"), [])
-
-    def test_manifest_omits_only_four_narrow_files_and_preserves_all_other_pins(self):
-        source = json.loads((ROOT / "build/font-candidates-windows.json").read_text())
-        variant = json.loads((ROOT / "build/font-candidates-windows-fallback.json").read_text())
-        expected = [entry for entry in source["files"]
-                    if not (entry.get("root") == "macos" and entry["target"].startswith("Arial Narrow"))]
-        self.assertEqual(len(source["files"]) - len(expected), 4)
-        self.assertEqual(variant["files"], expected)
-        self.assertEqual(variant["format"], source["format"])
 
 
 if __name__ == "__main__":

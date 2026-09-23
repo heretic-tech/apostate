@@ -8,26 +8,11 @@
   "properties": {
     "id": {
       "type": "string",
-      "description": "Native source identifier consumed by base/apostate/profile.cc; it identifies the selected profile and remains in the runtime payload.",
-      "x-ledger": {
-        "reason": "not-a-surface",
-        "why": "The loader parses it into source_id_ and no emitter reads that field, so nothing a page can measure depends on it. It names the profile rather than describing the device, and a surface row describes an observable a detector reads.",
-        "evidence": "patches/0004-base-device-profile-loader.patch:source_id_"
-      }
+      "description": "Native source identifier consumed by base/apostate/profile.cc; it identifies the selected profile and remains in the runtime payload."
     },
     "source_capture": {
       "type": "string",
-      "description": "Resolver provenance reference for the source capture or composition. It is stripped before native payload emission.",
-      "x-wiring": {
-        "reason": "not-a-browser-surface",
-        "why": "Provenance, not a device claim. Both launchers strip it from the payload before the switch is built, so the native loader can never see it and no C++ read could exist.",
-        "evidence": "python/apostate/launch.py:source_capture"
-      },
-      "x-ledger": {
-        "reason": "not-a-surface",
-        "why": "Provenance for the resolver's own bookkeeping, stripped from the payload before launch, so there is no observable for a surface row to describe and no tier it could be verified at.",
-        "evidence": "python/apostate/launch.py:source_capture"
-      }
+      "description": "Resolver provenance reference for the source capture or composition. It is stripped before native payload emission."
     },
     "cpu": {
       "type": "object",
@@ -80,21 +65,11 @@
         },
         "wow64": {
           "type": "boolean",
-          "description": "Sec-CH-UA-WoW64. blink::UserAgentMetadata::wow64, populated from IsWoW64() in components/embedder_support/user_agent_utils.cc, so it is true only for a 32-bit browser on 64-bit Windows. A profile claiming true on any other platform contradicts its own platform name. Measured false on all four reference hosts. Evidence class: physical-ground-truth when captured, catalogue-value otherwise.",
-          "x-wiring": {
-            "reason": "derived-upstream",
-            "why": "Upstream computes this from the running process, and off Windows it is hard-coded false, which is the only value the tables compose. Reading the profile could therefore only agree with what the page is already shown, or let a macOS persona emit ?1 \u2014 a contradiction no real host can produce. The field records the reference measurement.",
-            "evidence": "ledger/surfaces.jsonl:navigator.user-agent-data.wow64"
-          }
+          "description": "Sec-CH-UA-WoW64. blink::UserAgentMetadata::wow64, populated from IsWoW64() in components/embedder_support/user_agent_utils.cc, so it is true only for a 32-bit browser on 64-bit Windows. A profile claiming true on any other platform contradicts its own platform name. Measured false on all four reference hosts. Evidence class: physical-ground-truth when captured, catalogue-value otherwise."
         },
         "form_factors": {
           "type": "array",
           "description": "Sec-CH-UA-Form-Factors. blink::UserAgentMetadata::form_factors; the accepted names are the spec list in third_party/blink/public/common/user_agent/user_agent_metadata.h and are validated by UserAgentMetadata::IsValidFormFactor. A desktop build emits [\"Desktop\"] and cannot serve \"Mobile\", so an unservable claim is reduced rather than emitted. Measured [\"Desktop\"] on all four reference hosts. Evidence class: physical-ground-truth when captured, catalogue-value otherwise.",
-          "x-wiring": {
-            "reason": "derived-upstream",
-            "why": "Upstream derives the list from the mobile bit, which platform.mobile already wires, and every os_release option composes [\"Desktop\"] beside mobile false. A loader read could only restate what upstream emits.",
-            "evidence": "ledger/surfaces.jsonl:navigator.user-agent-data.form-factors"
-          },
           "items": {
             "type": "string",
             "enum": [
@@ -123,11 +98,6 @@
         "brands": {
           "type": "array",
           "description": "Reference record of the Sec-CH-UA brand list in major-version form. The brand list is a build invariant, not a profile value: user_agent_utils.cc adds the product brand only under #if !BUILDFLAG(CHROMIUM_BRANDING), so a Chromium build emits two brands where Chrome emits three (docs/FINGERPRINTS.md section 8), and patch 0008 restores the third rather than composing a list. The native loader does not read this field and does not rewrite the emitted list. Evidence class: native-derived.",
-          "x-wiring": {
-            "reason": "derived-upstream",
-            "why": "Upstream builds the list from the binary's own version, including the GREASE entry and its ordering, and patch 0008 leaves that path alone because this binary really is the Chromium it reports. No dispersion table composes the field. An earlier description here promised that the loader compared the list and failed closed on a mismatch; no C++ ever did that, and this annotation replaces the promise.",
-            "evidence": "ledger/surfaces.jsonl:navigator.user-agent-data.brands"
-          },
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -154,11 +124,6 @@
         "full_version_list": {
           "type": "array",
           "description": "Reference record of Sec-CH-UA-Full-Version-List. Same build-invariant semantics as brands. The versions are the binary's own, which Apostate does not spoof. Evidence class: native-derived.",
-          "x-wiring": {
-            "reason": "derived-upstream",
-            "why": "The same upstream path as brands with the full-version form selected, so it carries the binary's own version and the identical ordering. Not composed by any dispersion table and not read by the loader.",
-            "evidence": "ledger/surfaces.jsonl:navigator.user-agent-data.full-version-list"
-          },
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -185,11 +150,6 @@
         "full_version": {
           "type": "string",
           "description": "Reference record of Sec-CH-UA-Full-Version and navigator.userAgentData.uaFullVersion. blink::UserAgentMetadata::full_version comes from version_info::GetVersionNumber(), so it must equal the binary's version. Evidence class: native-derived.",
-          "x-wiring": {
-            "reason": "derived-upstream",
-            "why": "version_info::GetVersionNumber() is the binary's own version and the only value that can be emitted without contradicting every feature-detection difference. Nothing composes the field and nothing reads it.",
-            "evidence": "ledger/surfaces.jsonl:navigator.user-agent-data.ua-full-version"
-          },
           "minLength": 1,
           "maxLength": 64
         }
@@ -361,7 +321,7 @@
         },
         "device_pixel_ratio": {
           "type": "number",
-          "description": "THE DEVICE SCALE FACTOR, NOT devicePixelRatio. The name matches ScreenDetailed.devicePixelRatio, the observable it replays, and not the arithmetic: window.devicePixelRatio is DSF x page zoom x CSS zoom (LocalFrame::DevicePixelRatio over LayoutZoomFactor), so a 2x display at 110% zoom reports 2.2 while this field holds 2. base/apostate/profile.cc stores it as device_scale_factor_ and it is served into ScreenInfo::device_scale_factor, which is the input to that product, so Chromium re-forms the ratio exactly as navigator.deviceMemory re-does its bucketing from real RAM. Do NOT pin LocalDOMWindow::devicePixelRatio to this value: the ledger row window.device-pixel-ratio records that it fails three ways at once, because the CSS resolution feature and the DPR client hint keep reading the real product and the ratio stops responding to zoom, which no real browser does. Evidence class: physical-ground-truth when captured, catalogue-value otherwise."
+          "description": "THE DEVICE SCALE FACTOR, NOT devicePixelRatio. The name matches ScreenDetailed.devicePixelRatio, the observable it replays, and not the arithmetic: window.devicePixelRatio is DSF x page zoom x CSS zoom (LocalFrame::DevicePixelRatio over LayoutZoomFactor), so a 2x display at 110% zoom reports 2.2 while this field holds 2. base/apostate/profile.cc stores it as device_scale_factor_ and it is served into ScreenInfo::device_scale_factor, which is the input to that product, so Chromium re-forms the ratio exactly as navigator.deviceMemory re-does its bucketing from real RAM. Do NOT pin LocalDOMWindow::devicePixelRatio to this value: that fails three ways at once, because the CSS resolution feature and the DPR client hint keep reading the real product and the ratio stops responding to zoom, which no real browser does. Evidence class: physical-ground-truth when captured, catalogue-value otherwise."
         },
         "color_depth": {
           "type": "integer",
@@ -509,11 +469,6 @@
         "limits": {
           "type": "object",
           "description": "Numeric limits keyed as the IDL spells them. Served as the minimum of claim and backend, like gl_limits.",
-          "x-ledger": {
-            "reason": "row-names-no-field",
-            "why": "The surface is recorded as webgpu.adapter-limits, and that row is verdict escalate with profile_field null: a T0 capture differential showed a browser claiming a different GPU returning limits byte-identical to the real hardware, and whether a real limit set can be sourced per GPU family is a corpus question rather than a patching one. So the key exists to carry the answer once the row has one.",
-            "evidence": "ledger/surfaces.jsonl:webgpu.adapter-limits"
-          },
           "additionalProperties": {
             "type": "integer",
             "minimum": 0
@@ -663,12 +618,7 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 16,
-          "description": "Audio outputs the claimed machine has. Accepted and inert: unlike audioinput_count it is read by no C++, so enumerateDevices() reports the host's real speakers. Measured 1 on the macOS, Windows and stock Linux reference hosts. Evidence class: physical-ground-truth when captured, catalogue-value otherwise.",
-          "x-wiring": {
-            "reason": "declared-not-implemented",
-            "why": "No emitter synthesises an audio output device. Serving the count would mean enumerating a device a page can also open, because a device that enumerates and then fails to open is a worse signal than a truthful count, and that is a patch nobody has written. The field is composed and carried so the reference measurement is not lost; docs/LIMITATIONS.md states that it does nothing.",
-            "evidence": "docs/LIMITATIONS.md:media.audiooutput_count"
-          }
+          "description": "Audio outputs the claimed machine has. Accepted and inert: unlike audioinput_count it is read by no C++, so enumerateDevices() reports the host's real speakers. Measured 1 on the macOS, Windows and stock Linux reference hosts. Evidence class: physical-ground-truth when captured, catalogue-value otherwise."
         },
         "devices": {
           "type": "array",
@@ -726,7 +676,7 @@
         "generic_family_map": {
           "type": "object",
           "additionalProperties": false,
-          "description": "Common-script generic font preference identities. Derived only when the detected native preferred face matches every captured generic metric. Unmeasured generic and per-script settings remain inherited. Ledger: fonts.generic-families.",
+          "description": "Common-script generic font preference identities. Derived only when the detected native preferred face matches every captured generic metric. Unmeasured generic and per-script settings remain inherited.",
           "properties": {
             "serif": {
               "type": "string",
@@ -770,62 +720,6 @@
           },
           "uniqueItems": true,
           "maxItems": 4096
-        },
-        "render_params": {
-          "type": "object",
-          "additionalProperties": false,
-          "description": "How the claimed machine rasterises text: gfx::FontRenderParams, which the browser pushes to every renderer as blink::RendererPreferences (third_party/blink/public/common/renderer_preferences/renderer_preferences.h:36-44) and which decides glyph coverage bytes, text gamma correction and whether advances are fractional. It is a property of the claimed OS and of nothing else in the profile, so the compositor projects it from the platform persona rather than drawing it: Chromium itself derives these from the OS text engine per platform, and on Linux from the host's fontconfig and desktop settings, which is a host leak into canvas text under any composed persona. All eight fields or none: a tuple mixing two platforms' answers is a machine that does not exist. Ledger: fonts.text-render-params.",
-          "properties": {
-            "antialiasing": {
-              "type": "boolean",
-              "description": "Whether glyphs are antialiased at all: grayscale when subpixel_rendering is none, RGBA otherwise. True on all three personas \u2014 Windows reaches it through SPI_GETFONTSMOOTHING, which is on by default (ui/gfx/font_render_params_win.cc:85-88), macOS states it outright (ui/gfx/font_render_params_mac.cc:18) and a Linux desktop answers it from fontconfig's antialias property (ui/gfx/linux/fontconfig_util.cc:287-291)."
-            },
-            "subpixel_positioning": {
-              "type": "boolean",
-              "description": "Whether glyphs may sit at fractional X positions. This is the field that decides whether text advances are fractional, so it is measurable from measureText and from client rects rather than only from pixels. True on Windows when font smoothing is on (ui/gfx/font_render_params_win.cc:88) and on macOS (ui/gfx/font_render_params_mac.cc:21); false on a Linux desktop at a device scale factor of 1, because ui/gfx/font_render_params_linux.cc:267 sets it to device_scale_factor > 1.0f."
-            },
-            "autohinter": {
-              "type": "boolean",
-              "description": "Whether FreeType's autohinter is used instead of a font's own bytecode instructions. Meaningful only where FreeType rasterises: false on Windows (ui/gfx/font_render_params_win.cc:80) and macOS (ui/gfx/font_render_params_mac.cc:19), true on the FreeType path Chromium calls its system default (ui/gfx/font_render_params_skia.cc:16)."
-            },
-            "use_bitmaps": {
-              "type": "boolean",
-              "description": "Whether embedded bitmap strikes inside a font are used. False on Windows (ui/gfx/font_render_params_win.cc:81), true on macOS (ui/gfx/font_render_params_mac.cc:20) and on the FreeType default (ui/gfx/font_render_params_skia.cc:17); a Linux desktop answers it from fontconfig's embeddedbitmap property (ui/gfx/linux/fontconfig_util.cc:299-303)."
-            },
-            "hinting": {
-              "type": "string",
-              "enum": [
-                "none",
-                "slight",
-                "medium",
-                "full"
-              ],
-              "description": "Hinting level, spelled as the four members of gfx::FontRenderParams::Hinting (ui/gfx/font_render_params.h:32-39) lowercased. medium on Windows (ui/gfx/font_render_params_win.cc:82) and macOS (ui/gfx/font_render_params_mac.cc:23); slight on a Linux desktop, which is what GTK reports for the near-universal hintslight setting (ui/gtk/gtk_ui.cc:130-131) and what fontconfig's FC_HINT_SLIGHT maps to (ui/gfx/linux/fontconfig_util.cc:150-151)."
-            },
-            "subpixel_rendering": {
-              "type": "string",
-              "enum": [
-                "none",
-                "rgb",
-                "bgr",
-                "vrgb",
-                "vbgr"
-              ],
-              "description": "Subpixel order used for LCD text, spelled as the five members of gfx::FontRenderParams::SubpixelRendering (ui/gfx/font_render_params.h:42-50) lowercased. rgb is the ordinary desktop answer on all three: Windows reads it from the ClearType PixelStructure registry value or SPI_GETFONTSMOOTHINGORIENTATION (ui/gfx/font_render_params_win.cc:31-61, reached only when SPI_GETFONTSMOOTHINGTYPE is FE_FONTSMOOTHINGCLEARTYPE at :91-94), macOS states it (ui/gfx/font_render_params_mac.cc:22) and a Linux desktop takes fontconfig's rgba (ui/gfx/linux/fontconfig_util.cc:314-317)."
-            },
-            "text_contrast": {
-              "type": "number",
-              "minimum": 0,
-              "maximum": 1,
-              "description": "Skia's text contrast, the domain being SkSurfaceProps::kMinContrastInclusive..kMaxContrastInclusive (third_party/skia/include/core/SkSurfaceProps.h:81-82), which is what ui/gfx/font_util_win.cc:73-77 clamps a registry value into. Chromium's value is a per-build Skia define rather than an OS query, so it is what a real Chrome on the claimed OS was compiled with: 1.0 for Windows and 0.0 for macOS (skia/BUILD.gn:126-142), 0.2 for Linux (skia/BUILD.gn:113-117). The 0.5 in third_party/skia/include/core/SkTypes.h:88-93 is the fallback for a build that defines nothing and is not any desktop Chrome's value."
-            },
-            "text_gamma": {
-              "type": "number",
-              "minimum": 0,
-              "exclusiveMaximum": 4,
-              "description": "Skia's device gamma for text, in the range SkSurfaceProps::kMinGammaInclusive..kMaxGammaExclusive (third_party/skia/include/core/SkSurfaceProps.h:83-84). Zero means sRGB rather than no gamma, which is what third_party/skia/include/core/SkTypes.h:84-85 defines an undefined SK_GAMMA_EXPONENT to be: so Windows and macOS are 0.0, both being SK_GAMMA_SRGB builds (skia/BUILD.gn:126-142), and Linux is 1.2 (skia/BUILD.gn:113-117)."
-            }
-          }
         }
       }
     },
@@ -833,16 +727,6 @@
       "type": "object",
       "additionalProperties": false,
       "description": "Browser window chrome deltas. outerWidth/outerHeight minus innerWidth/innerHeight is the space the browser's own frame, tabstrip and toolbar occupy; it follows the OS window decoration for the claimed release rather than anything about the page. Accepted and inert: no C++ reads either field, because the delta is the real furniture of the window the host draws. Measured: 87 CSS pixels of height on macOS 26, 121 on Windows 11, and 143 on both Linux reference hosts, with a zero width delta on all four.",
-      "x-wiring": {
-        "reason": "declared-not-implemented",
-        "why": "The ledger records window.outer-dimensions as inherit and coh.window-chrome-inset-matches-os states that the difference is produced by the platform rather than by any value we can set, so a loader read would have to fabricate outerHeight and break coh.window-within-avail-rect against screenY. The designed realisation is sizing the real OS window at launch, which neither launcher does yet; docs/LIMITATIONS.md states that the fields do nothing.",
-        "evidence": "docs/LIMITATIONS.md"
-      },
-      "x-ledger": {
-        "reason": "row-names-no-field",
-        "why": "The surfaces are recorded as window.outer-dimensions and window.inner-dimensions, both verdict inherit with profile_field null, because window size is user state and what must hold is the relation coh.window-chrome-inset-matches-os rather than a value. An inherit row names no field by design, so these keys carry the measurement with no row able to name them.",
-        "evidence": "ledger/surfaces.jsonl:window.outer-dimensions"
-      },
       "properties": {
         "outer_inner_delta_width": {
           "type": "integer",

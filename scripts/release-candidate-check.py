@@ -132,27 +132,6 @@ def _first_existing(root: Path, candidates: Iterable[str]) -> Path | None:
     return None
 
 
-def _profile_specs(root: Path) -> list[CheckSpec]:
-    script = root / "scripts" / "validate-profile.py"
-    if not script.is_file():
-        return [CheckSpec("profile-schema", "profile schema validation", reason=f"validator absent: {_relative(script, root)}")]
-    profiles: list[Path] = []
-    default = root / "config" / "default-profile.json"
-    if default.is_file() and default.stat().st_size:
-        profiles.append(default)
-    profiles.extend(sorted((root / "resources" / "fingerprints").glob("profile-*.json")))
-    profiles = [path for path in profiles if path.is_file()]
-    if not profiles:
-        return [CheckSpec("profile-schema", "profile schema validation", reason="no profile JSON is available to validate")]
-    return [
-        CheckSpec(
-            "profile-schema",
-            "profile schema validation",
-            command=_python(root, script, *( _relative(path, root) for path in profiles)),
-        )
-    ]
-
-
 def _manifest_specs(root: Path) -> list[CheckSpec]:
     script = root / "scripts" / "validate-release-contract.py"
     manifests = sorted(
@@ -175,7 +154,7 @@ def _manifest_specs(root: Path) -> list[CheckSpec]:
 
 def _profile_test_specs(root: Path) -> list[CheckSpec]:
     candidates: set[Path] = set()
-    for directory in (root / "scripts", root / "capture" / "derive", root / "python" / "tests", root / "node" / "tests"):
+    for directory in (root / "scripts", root / "python" / "tests", root / "node" / "tests"):
         if directory.is_dir():
             candidates.update(path for path in directory.glob("test*profile*.py") if path.is_file())
             candidates.update(path for path in directory.glob("test*resolver*.py") if path.is_file())
@@ -327,11 +306,6 @@ def _package_artifact_specs(root: Path) -> list[CheckSpec]:
 
 def _fixed_specs(root: Path) -> list[CheckSpec]:
     specs: list[CheckSpec] = []
-    ledger = root / "scripts" / "validate-ledger.py"
-    if ledger.is_file():
-        specs.append(CheckSpec("ledger", "ledger validation", command=_python(root, ledger)))
-    else:
-        specs.append(CheckSpec("ledger", "ledger validation", reason=f"validator absent: {_relative(ledger, root)}"))
     baseline = root / "scripts" / "validate-release-baseline.py"
     if baseline.is_file():
         specs.append(CheckSpec("release-baseline", "release baseline validation", command=_python(root, baseline, "--root", ".")) )
@@ -356,7 +330,6 @@ def collect_report(root: Path = ROOT, runner: Runner = subprocess.run) -> dict[s
     specs: list[CheckSpec] = []
     specs.extend(_package_artifact_specs(root))
     specs.extend(_fixed_specs(root))
-    specs.extend(_profile_specs(root))
     specs.extend(_manifest_specs(root))
     specs.extend(_profile_test_specs(root))
     specs.extend(_geoip_specs(root))

@@ -39,11 +39,8 @@ base/system/sys_info_posix.cc	windows-*	platform	base/BUILD.gn:1710 adds it unde
 base/system/sys_info_win.cc	linux-*,macos-*	platform	base/BUILD.gn:1834 adds it under `if (is_win)`
 content/browser/speech/tts_linux.cc	windows-*,macos-*	platform	content/browser/BUILD.gn:2563 adds it under `if (is_linux)`
 
-# ------------------------------------------------------------------ gpu, skia
+# ------------------------------------------------------------------------- gpu
 gpu/apostate_dawn_software_check.cc	windows-*,macos-*	platform	patches/0051-safe-software-webgpu-check.patch declares the executable under `if (is_linux && use_dawn && !is_component_build)`
-skia/ext/design_space_paths_unittest.cc	windows-*,macos-*	platform	patches/0053-design-space-paths-gtests.patch adds it to skia_unittests under `if (is_linux)`
-skia/ext/fontations_design_space_unittest.cc	windows-*,macos-*	platform	patches/0058-fontations-static-design-precision.patch adds it to skia_unittests under `if (is_linux)`
-skia/ext/fontations_emoji_control.cc	windows-*,macos-*	platform	patches/0062-fontations-emoji-diagnostics.patch declares the executable under `if (is_linux && use_blink)`
 
 # ----------------------------------------------------------------------- angle
 third_party/angle/src/tests/apostate_large_index_tests_main.cpp	windows-*,macos-*	platform	patches/0063-validated-software-element-indices.patch declares the angle_test under `if (is_linux && angle_enable_vulkan && angle_has_rapidjson)`

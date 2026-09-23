@@ -61,9 +61,9 @@ class ReleaseCandidateCheckTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "scripts").mkdir()
-            # These files make the two canonical validators discoverable; the
-            # fake runner means no source or build is launched by this test.
-            for name in ("validate-ledger.py", "validate-release-baseline.py", "validate-profile.py", "manifest.py"):
+            # These files make the scripts discoverable; the fake runner
+            # means no source or build is launched by this test.
+            for name in ("validate-release-baseline.py", "manifest.py"):
                 (root / "scripts" / name).write_text("", encoding="utf-8")
             runner = FakeRunner()
             first = CHECK.collect_report(root, runner)

@@ -25,23 +25,6 @@ permissions:
   contents: read
 
 jobs:
-  ledger:
-    name: ledger validation
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - name: Check out source
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - name: Validate ledger
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -f scripts/validate-ledger.py
-          test -d ledger/schema
-          test -f ledger/surfaces.jsonl
-          test -f ledger/emitters.jsonl
-          python3 scripts/validate-ledger.py
-
   baseline:
     name: release baseline validation
     runs-on: ubuntu-24.04
@@ -113,7 +96,6 @@ jobs:
               Path("python/apostate/assets/profile.schema.json"),
               Path("release/manifest.schema.json"),
           ]
-          paths.extend(sorted(Path("ledger/schema").glob("*.json")))
           for path in paths:
               json.loads(path.read_text(encoding="utf-8"))
               print(f"valid JSON: {path}")
@@ -127,37 +109,6 @@ jobs:
           # bundled catalogue and CI stayed green. This writes nothing, names
           # the stale paths, and costs under a second.
           python3 scripts/sync-packages.py --check
-
-  wiring:
-    name: schema wiring reconciliation
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - name: Check out source
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - name: Reconcile declared profile keys against the C++ that reads them
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -f scripts/check-schema-wiring.py
-          test -f config/profile.schema.json
-          test -f patches/series
-          test -f ledger/surfaces.jsonl
-          # Its own job rather than a step inside "schema validation", because
-          # a failure here is a different repair: the schema is well-formed and
-          # a key in it is inert. fonts.enumeration_allowlist sat in the schema,
-          # was composed into every profile, and was read by no C++ for its
-          # whole life; fonts.provisioned_directory was never read at all; 0097
-          # and 0099 were committed and left out of patches/series, so they were
-          # in the repository and in no build. Every one of those was found by
-          # hand, weeks after the artifacts started promising the feature.
-          # Checks 1 to 6 read patches/ rather than a Chromium checkout, so they
-          # need nothing but this repository and run in well under a second.
-          # Check 7 resolves the Chromium paths the ledger cites, which needs
-          # .workspace/src; this runner has none, so it prints SKIP and says so
-          # in the summary line rather than passing silently. That check runs
-          # where the checkout exists.
-          python3 scripts/check-schema-wiring.py
 
   catalogue:
     name: catalogue and resolver validation

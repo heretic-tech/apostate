@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Build and run a bounded CPU-only control using the pinned FFmpeg source.
 
-The private source is prepared by prepare-hevc-ffmpeg.py. This diagnostic is not
-packaged in the browser. It enables no encoder, network or hardware backend.
+--work must hold ffmpeg-input/, a git checkout of FFmpeg at the pinned revision,
+and a receipt.json naming that revision. This diagnostic is not packaged in the
+browser. It enables no encoder, network or hardware backend.
 """
 import argparse, base64, hashlib, json, os
 from pathlib import Path

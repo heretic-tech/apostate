@@ -13,14 +13,6 @@
 *.so
 *.dylib
 
-# Corpus oracle is generated from resources/, never committed (size + provenance)
-/corpus/oracle.sqlite
-/corpus/oracle.sqlite-*
-
-# Ledger working state
-/ledger/inbox/*.json
-!/ledger/inbox/.gitkeep
-
 # Private key material. This repository's history is public and permanent, so a
 # key committed once is a key rotated forever. Release provenance is a keyless
 # GitHub artifact attestation, so there is no signing key to hold at all; these

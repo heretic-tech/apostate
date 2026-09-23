@@ -423,9 +423,8 @@ def load_build_stamp(data_root: Path) -> tuple[object, Path]:
     The rule that turns a captured UA string into the one this build may serve
     has to be identical in the compiled tables and in the reference resolver,
     or the binary and the golden vectors disagree about a page-visible string.
-    So there is one implementation and this loads it, the same way
-    `scripts/import-capture.py` loads the admission gate out of
-    `scripts/decompose-capture.py` rather than keeping a second copy.
+    So there is one implementation and this loads it rather than keeping a
+    second copy.
     """
     script = data_root / "scripts/profile_resolver.py"
     if not script.is_file():

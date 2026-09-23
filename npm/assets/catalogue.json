@@ -246,7 +246,7 @@
    "file": "dispersion/font_packs.json",
    "label": "font_packs",
    "option_sets": 7,
-   "options": 54,
+   "options": 17,
    "selection": "core-plus-subset",
    "servability": "none"
   },

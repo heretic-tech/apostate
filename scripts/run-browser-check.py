@@ -32,6 +32,12 @@ from urllib.parse import parse_qs, urlsplit
 ROOT = Path(__file__).resolve().parents[1]
 BACKENDS = ("swiftshader", "default", "gl", "gl-egl", "gles", "gles-egl", "vulkan")
 
+# Profiles are checked by the launcher's own validator, so a profile this
+# accepts is one the launcher would accept.
+sys.path.insert(0, str(ROOT / "python"))
+from apostate.errors import ProfileError  # noqa: E402
+from apostate.profile_validation import validate_profile  # noqa: E402
+
 
 def strict_json(data):
     def invalid(value):
@@ -198,12 +204,10 @@ def run(args):
             profile_bytes = source.read_bytes()
             profile = strict_json(profile_bytes)
             (out / "profile.json").write_bytes(profile_bytes)
-            validation = subprocess.run(
-                [sys.executable, str(ROOT / "scripts/validate-profile.py"), str(out / "profile.json")],
-                text=True, capture_output=True, timeout=30)
-            (out / "profile-validation.log").write_text(validation.stdout + validation.stderr)
-            if validation.returncode:
-                raise ValueError("profile failed validation; see profile-validation.log")
+            try:
+                validate_profile(profile)
+            except ProfileError as error:
+                raise ValueError(f"profile failed validation: {error}") from error
             inputs["profile"] = file_receipt(out / "profile.json")
             inputs["profile"]["source"] = str(source)
             parameters["expected_limits"] = profile.get("gl_limits", {})

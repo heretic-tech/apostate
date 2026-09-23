@@ -28,8 +28,7 @@ Two host facts need handling. Both are recorded rather than papered over.
 
 The renderer that was actually measured is printed at the end. If it names a
 software rasteriser then the capture describes SwiftShader and not the host's
-GPU, and scripts/import-capture.py needs --allow-software-renderer to admit it
-to the corpus.
+GPU.
 """
 
 import argparse
@@ -253,8 +252,7 @@ def main() -> int:
     renderer = renderer_of(capture_path)
     print("renderer  %s" % renderer)
     print("\nIf that renderer is a software rasteriser, this capture describes it")
-    print("and not the host's GPU. scripts/import-capture.py then needs")
-    print("--allow-software-renderer, and no anchor may claim it as hardware.")
+    print("and not the host's GPU, and no anchor may claim it as hardware.")
     return 0
 
 

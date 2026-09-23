@@ -33,7 +33,7 @@ Blocks, and why each seam is real:
              setting, not the device's.
 
 Usage:
-    scripts/decompose-capture.py CAPTURE.json [--out corpus/blocks]
+    scripts/decompose-capture.py CAPTURE.json --out DIR
 """
 
 import argparse
@@ -265,11 +265,10 @@ def persist_admission_decision(out_dir, raw_sha256, decision, reason, context=No
                                capture_path=None, raw=None):
     """Write the admission decision for a capture, or refuse to.
 
-    `accepted` is not a string a caller may assert. Everything downstream reads
-    this record as the decision — scripts/build-anchors.py builds an anchor from
-    any capture whose record says `accepted` and never re-derives it — so a
-    writer that takes the verdict on trust is the whole admission system's
-    single point of failure.
+    `accepted` is not a string a caller may assert. Anything downstream reads
+    this record as the decision and never re-derives it, so a writer that takes
+    the verdict on trust is the whole admission system's single point of
+    failure.
 
     It failed exactly that way. resources/fingerprints/raw/admissions/70fd8f09…
     recorded stock-linux-20260907T150627Z.json as `accepted` with the reason
@@ -399,7 +398,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("capture", type=pathlib.Path)
-    ap.add_argument("--out", type=pathlib.Path, default=pathlib.Path("corpus/blocks"))
+    ap.add_argument("--out", type=pathlib.Path, required=True)
     ap.add_argument("--evidence", choices=EVIDENCE_CLASSES,
                     default="physical-ground-truth",
                     help="evidence class for the emitted blocks; compatibility "
