@@ -45,8 +45,8 @@
     "socks-proxy-agent": "^8.0.5"
   },
   "peerDependencies": {
-    "playwright": "*",
-    "playwright-core": "*",
+    "playwright": ">=1.53",
+    "playwright-core": ">=1.53",
     "puppeteer": "*",
     "puppeteer-core": "*"
   },

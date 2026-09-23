@@ -201,13 +201,17 @@ or a per-field switch.
 
 ## Python and Node options
 
-`launch()` returns a browser. `launch_persistent_context(user_data_dir, ...)`
-(Node: `launchPersistentContext(userDataDir, ...)`) returns a context bound to
-that directory, and is how a machine is kept across runs; `launch()` refuses a
-user data directory. Python also has `launch_context()` and async versions of
-all three (`launch_async()`, `launch_context_async()`,
-`launch_persistent_context_async()`). Node also has `launchContext()`, and
-`launchProcess()`, which starts the browser without a driver.
+`launch()` returns a browser whose `new_page()` opens pages in a normal
+profile, a temporary one deleted when the browser closes. Its `new_context()`
+is off-the-record, as in Playwright, and sites can tell.
+`launch_persistent_context(user_data_dir, ...)` (Node:
+`launchPersistentContext(userDataDir, ...)`) returns a context bound to that
+directory, and is how a machine is kept across runs; `launch()` refuses a user
+data directory. `launch_context()` (Node: `launchContext()`) returns the
+temporary profile's own context. Python also has async versions of all three
+(`launch_async()`, `launch_context_async()`,
+`launch_persistent_context_async()`). Node also has `launchProcess()`, which
+starts the browser without a driver.
 
 | Python | Node | Default | Effect |
 | --- | --- | --- | --- |
@@ -226,8 +230,9 @@ all three (`launch_async()`, `launch_context_async()`,
 | `manifest` | `manifest`, `manifestPath`, `manifestUrl` | the package's own | The release manifest that holds the archive's SHA-256. |
 | `driver` | `driver` | first installed | `patchright` or `playwright`. Node also takes `playwright-core`, `puppeteer` and `puppeteer-core`. |
 
-Python's context entry points take `context_options` for the new context, and
-any other keyword goes to Playwright's launch call. Node passes `env` and
+In Python, any other keyword goes to Playwright's `launch_persistent_context`,
+so its launch options and its context options, such as `viewport`, both work;
+the context entry points also take `context_options`. Node passes `env` and
 `ignoreDefaultArgs` through to the driver.
 
 GeoIP asks `ip-api.com`, `ipinfo.io`, `ipwho.is` and `ifconfig.co` over plain

@@ -158,6 +158,11 @@ Supported hosts: `macos-arm64`, `linux-x64`, `linux-arm64`, `windows-x64`.
 
 `launch()` returns whatever driver you installed: a Playwright `Browser` or a
 Puppeteer `Browser`. An existing script works with only the import changed.
+Under Playwright, `newPage()` opens pages in a normal profile, a temporary one
+deleted when the browser closes, where Playwright's opens each page in an
+off-the-record context that sites can tell apart. `newContext()` is still
+off-the-record, so use `newPage()`. Puppeteer's `newPage()` already uses a
+normal profile.
 
 Verified against the macos-arm64 build for Patchright, Playwright and
 puppeteer-core, including `launchPersistentContext` and `launchContext`.
@@ -195,7 +200,7 @@ directory. `launch()` does not take a user data directory. Three lifetimes:
 
 | You launch with | The identity is | It lasts |
 |---|---|---|
-| `launch()` | drawn fresh from OS entropy | this launch only, recorded nowhere |
+| `launch()` | drawn fresh from OS entropy | this launch only |
 | `launchPersistentContext(DIR)` | bound to `DIR` | until you delete `DIR/apostate/identity`; renaming or moving `DIR` changes nothing |
 | `fingerprint: SEED` | the one that seed selects | forever, on any host |
 
@@ -206,7 +211,8 @@ Viewport geometry is handled for you: the drivers' default viewports report
 impossible values (Playwright: `screen == inner == avail` with
 `devicePixelRatio` flattened to 1; Puppeteer: an inner viewport *larger* than
 its own window), so Apostate lets the real window size through and the composed
-profile's geometry survives. Pass a viewport explicitly and yours wins.
+profile's geometry survives. Set one with `page.setViewportSize()` or
+`newContext({ viewport })` and yours wins.
 
 One case Apostate cannot fix: `fingerprint: "host"` under `headless: true` has no
 display to inherit, so headless Chrome reports its synthetic 800x600 with

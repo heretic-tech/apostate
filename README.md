@@ -68,6 +68,9 @@ await browser.close();
   the proxy exit's locale and timezone and gives them to the persona. Pass
   `locale` and `timezone` to set them yourself. With `geoip=False` and neither
   set, the persona uses `en-US` and the host's timezone.
+- `new_page()` opens pages in a normal profile, a temporary one deleted when
+  the browser closes. A context from `new_context()` is off-the-record, as in
+  Playwright, and sites can tell.
 
 To keep one machine across runs, together with its cookies and logins, use a
 persistent context:

@@ -76,9 +76,10 @@ presents a different machine. Pin the package version to keep one.
 
 ## Sessions and network
 
-**Pages from `launch()` are incognito.** Playwright's `new_page()` and
-`new_context()` open off-the-record contexts, which sites can tell from a
-normal profile. `launch_persistent_context()` gives a normal profile.
+**`new_context()` is incognito.** Pages from `launch()`'s `new_page()` open in
+a normal profile, a temporary one deleted when the browser closes. A context
+from `new_context()` is off-the-record, as in Playwright, and sites can tell.
+Use `new_page()`, or `launch_persistent_context()` to keep a profile.
 
 **WebRTC needs a SOCKS5 proxy with UDP.** Behind an HTTP, HTTPS or SOCKS4
 proxy, or a SOCKS5 proxy without UDP ASSOCIATE, WebRTC gets no UDP at all.

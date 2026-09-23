@@ -670,61 +670,160 @@ def _ignore_default_args(requested: Any, args: Any) -> Any:
     return merged
 
 
-def _coherent_viewport(target: Any) -> Any:
-    """Stop the driver's default viewport overwriting the composed geometry.
+def _persistent_options(plan: LaunchPlan, binary: Path, user_data_dir: str,
+                        options: Mapping[str, Any]) -> dict[str, Any]:
+    """Playwright's ``launch_persistent_context`` options for *plan*.
 
-    Playwright's default context is 1280x720 and reports ``screen == inner ==
-    avail`` with ``devicePixelRatio`` flattened to 1. No real desktop has
-    ``avail == screen``: there is always a menu bar or a taskbar. Puppeteer's
-    default is worse -- outer 756x556 against inner 800x600, an inner viewport
-    larger than the window containing it, which no machine reports.
+    An empty *user_data_dir* asks the driver for a temporary profile, which it
+    deletes when the browser closes or the program exits.
 
-    Measured on the shipped macos-arm64 build with ``--fingerprint=42``:
-
-    =========================  ============================================
-    Playwright default         screen/inner/avail all 1280x720, dpr 1
-    Playwright ``no_viewport`` screen 1710x1112, avail 1710x1079, dpr 2
-    Puppeteer default          outer 756x556, inner 800x600, avail==screen, dpr 1
-    Puppeteer ``null``         outer 756x556, inner 756x469, avail<screen, dpr 2
-    =========================  ============================================
-
-    So the driver default costs three observables and the profile's own
-    geometry; letting the real window size through restores all of them. A
-    caller who asks for a viewport still gets it.
+    The window sets the viewport unless the caller names one. Playwright's
+    default viewport reports ``screen == inner == avail`` at a
+    ``devicePixelRatio`` of 1, which no real desktop does. Measured on
+    macos-arm64 with ``--fingerprint=42``: the default gave 1280x720 for all
+    three at dpr 1; no viewport gave screen 1710x1112, avail 1710x1079, dpr 2.
     """
-    for name in ("new_page", "new_context"):
-        original = getattr(target, name, None)
-        if not callable(original):
-            continue
+    launch_options = dict(options)
+    launch_options.update(executable_path=str(binary), headless=plan.config.headless,
+                          args=_native_args(plan, persistent=True), user_data_dir=user_data_dir)
+    launch_options["ignore_default_args"] = _ignore_default_args(
+        launch_options.get("ignore_default_args"), plan.config.args)
+    # Set, not inherited: only host mode inherits the host's locale
+    # environment. See _locale_environment.
+    launch_options["env"] = _launch_environment(plan, launch_options.get("env"))
+    if "viewport" not in launch_options and "no_viewport" not in launch_options:
+        launch_options["no_viewport"] = True
+    if plan.config.proxy is not None and "proxy" not in launch_options:
+        launch_options["proxy"] = _playwright_proxy(plan.config.proxy)
+    return launch_options
 
-        def wrapper(*args: Any, _original: Any = original, **kwargs: Any) -> Any:
-            if "viewport" not in kwargs and "no_viewport" not in kwargs:
-                kwargs["no_viewport"] = True
-            return _original(*args, **kwargs)
 
+class _TemporaryProfileBrowser:
+    """What ``Browser`` and ``AsyncBrowser`` share."""
+
+    def __init__(self, context: Any, driver: Any, driver_name: str, display: Any) -> None:
+        self._context = context
+        self._display = display
+        self._start_page = True
+        self._closed = False
+        # Hold a reference so the driver is not collected while the browser lives.
+        self.apostate_driver = driver
+        # Which driver started this, so a support conversation is possible.
+        self.apostate_driver_name = driver_name
+
+    def __getattr__(self, name: str) -> Any:
+        # Everything not defined here is Playwright's Browser: version,
+        # is_connected(), browser_type and the rest.
+        context = self.__dict__.get("_context")
+        if context is None:
+            raise AttributeError(name)
+        return getattr(context.browser, name)
+
+    @property
+    def contexts(self) -> list[Any]:
+        """This launch's profile first, then each context from ``new_context()``."""
+        others = [item for item in self._context.browser.contexts if item is not self._context]
+        return [self._context, *others]
+
+    @property
+    def pages(self) -> list[Any]:
+        """The pages open in this launch's profile."""
+        return self._context.pages
+
+    def _blank_start_page(self, options: Mapping[str, Any]) -> Any:
+        """The blank page the browser opened with, on the first call only."""
+        if options:
+            raise ConfigurationError(
+                "new_page() opens a page in the launch's own profile, which takes its "
+                f"options ({', '.join(sorted(options))}) from launch(); pass them there, "
+                "or use new_context(...), which is off-the-record")
+        if not self._start_page:
+            return None
+        self._start_page = False
+        pages = self._context.pages
+        return pages[0] if pages and pages[0].url == "about:blank" else None
+
+    @staticmethod
+    def _context_options(options: dict[str, Any]) -> dict[str, Any]:
+        # The window sets the viewport here too; see _persistent_options.
+        if "viewport" not in options and "no_viewport" not in options:
+            options["no_viewport"] = True
+        return options
+
+
+class Browser(_TemporaryProfileBrowser):
+    """What ``launch()`` returns: Playwright's ``Browser``, with pages in a normal profile.
+
+    Playwright's own ``new_page()`` opens each page in an off-the-record
+    context, and sites can tell that from a normal profile. So the browser runs
+    on a temporary profile, which the driver deletes when the browser closes or
+    the program exits, and ``new_page()`` opens pages in it. ``new_context()``
+    is still off-the-record. Anything else is Playwright's ``Browser``.
+    """
+
+    def new_page(self, **options: Any) -> Any:
+        """A page in this launch's profile. The first is the blank one it opened with."""
+        page = self._blank_start_page(options)
+        return self._context.new_page() if page is None else page
+
+    def new_context(self, **options: Any) -> Any:
+        """A new off-the-record context, which sites can tell from a normal profile."""
+        return self._context.browser.new_context(**self._context_options(options))
+
+    def close(self, **options: Any) -> None:
+        """Close the browser, which deletes its profile, and stop its driver and display."""
+        if self._closed:
+            return
+        self._closed = True
         try:
-            setattr(target, name, wrapper)
-        except (AttributeError, TypeError):
-            pass
-    return target
+            self._context.close(**options)
+        finally:
+            try:
+                self.apostate_driver.stop()
+            except Exception:
+                pass
+            if self._display is not None:
+                self._display.stop()
+
+    def __enter__(self) -> Browser:
+        return self
+
+    def __exit__(self, *exc_info: Any) -> None:
+        self.close()
 
 
-async def _coherent_viewport_async(target: Any) -> Any:
-    for name in ("new_page", "new_context"):
-        original = getattr(target, name, None)
-        if not callable(original):
-            continue
+class AsyncBrowser(_TemporaryProfileBrowser):
+    """What ``launch_async()`` returns: ``Browser`` for the async API."""
 
-        async def wrapper(*args: Any, _original: Any = original, **kwargs: Any) -> Any:
-            if "viewport" not in kwargs and "no_viewport" not in kwargs:
-                kwargs["no_viewport"] = True
-            return await _original(*args, **kwargs)
+    async def new_page(self, **options: Any) -> Any:
+        """A page in this launch's profile. The first is the blank one it opened with."""
+        page = self._blank_start_page(options)
+        return await self._context.new_page() if page is None else page
 
+    async def new_context(self, **options: Any) -> Any:
+        """A new off-the-record context, which sites can tell from a normal profile."""
+        return await self._context.browser.new_context(**self._context_options(options))
+
+    async def close(self, **options: Any) -> None:
+        """Close the browser, which deletes its profile, and stop its driver and display."""
+        if self._closed:
+            return
+        self._closed = True
         try:
-            setattr(target, name, wrapper)
-        except (AttributeError, TypeError):
-            pass
-    return target
+            await self._context.close(**options)
+        finally:
+            try:
+                await self.apostate_driver.stop()
+            except Exception:
+                pass
+            if self._display is not None:
+                self._display.stop()
+
+    async def __aenter__(self) -> AsyncBrowser:
+        return self
+
+    async def __aexit__(self, *exc_info: Any) -> None:
+        await self.close()
 
 
 def _own_driver(target: Any, driver: Any, name: str = "", display: Any = None) -> Any:
@@ -792,6 +891,47 @@ async def _own_driver_async(target: Any, driver: Any, name: str = "", display: A
     return target
 
 
+def _start_persistent(selection: DriverSelection, launch_options: dict[str, Any],
+                      display: Any) -> tuple[Any, Any]:
+    """Start the driver and open a persistent context; stop both on failure."""
+    try:
+        playwright = selection.factory().start()
+    except BaseException:
+        if display is not None:
+            display.stop()
+        raise
+    try:
+        return playwright, playwright.chromium.launch_persistent_context(**launch_options)
+    except Exception as exc:
+        try:
+            playwright.stop()
+        except Exception:
+            pass
+        if display is not None:
+            display.stop()
+        raise _backend_error(exc) from exc
+
+
+async def _start_persistent_async(selection: DriverSelection, launch_options: dict[str, Any],
+                                  display: Any) -> tuple[Any, Any]:
+    try:
+        playwright = await selection.factory().start()
+    except BaseException:
+        if display is not None:
+            display.stop()
+        raise
+    try:
+        return playwright, await playwright.chromium.launch_persistent_context(**launch_options)
+    except Exception as exc:
+        try:
+            await playwright.stop()
+        except Exception:
+            pass
+        if display is not None:
+            display.stop()
+        raise _backend_error(exc) from exc
+
+
 def _resolve_executable(binary_path: Any, *, cache_dir: Any = None, manifest: Any = None,
                         downloader: Any = None, target: str | None = None) -> Path:
     """Return a runnable executable, acquiring the release artifact if needed.
@@ -851,8 +991,12 @@ def launch(*, fingerprint: int | str | None = None, fingerprint_platform: str | 
            downloader: Callable[[str], Any] | None = None, resolver: Any = None,
            catalogue: Any = None, geoip_provider: Any = None, geoip_timeout: float = GEOIP_BUDGET_SECONDS,
            driver: str | None = None,
-           **playwright_options: Any) -> Any:
-    """Launch the native browser through a Patchright-compatible sync API."""
+           **playwright_options: Any) -> Browser:
+    """Launch the browser. Pages from ``new_page()`` open in a temporary profile.
+
+    Other keywords go to Playwright's ``launch_persistent_context``, so its
+    launch options and its context options are both accepted.
+    """
     config = translate_options(fingerprint=fingerprint, fingerprint_platform=fingerprint_platform,
                                profile=profile, locale=locale, timezone=timezone, geoip=geoip,
                                proxy=proxy, headless=headless, user_data_dir=user_data_dir, args=args)
@@ -866,44 +1010,17 @@ def launch(*, fingerprint: int | str | None = None, fingerprint_platform: str | 
     binary = _resolve_executable(binary_path, cache_dir=cache_dir, manifest=manifest,
                                  downloader=downloader)
     ensure_widevine(binary, cache_dir=cache_dir)
-    launch_options = dict(playwright_options)
-    launch_options.update(executable_path=str(binary), headless=config.headless, args=_native_args(plan))
-    launch_options["ignore_default_args"] = _ignore_default_args(
-        launch_options.get("ignore_default_args"), config.args)
-    # Set, not inherited: only host mode inherits the host's locale
-    # environment. See _locale_environment.
-    launch_options["env"] = _launch_environment(plan, launch_options.get("env"))
-    if config.proxy is not None and "proxy" not in launch_options:
-        launch_options["proxy"] = _playwright_proxy(config.proxy)
+    launch_options = _persistent_options(plan, binary, "", playwright_options)
     display = _virtual_display(plan, launch_options["env"])
-    try:
-        playwright = selection.factory().start()
-    except BaseException:
-        if display is not None:
-            display.stop()
-        raise
-    try:
-        return _own_driver(_coherent_viewport(playwright.chromium.launch(**launch_options)),
-                           playwright, selection.name, display)
-    except Exception as exc:
-        try:
-            playwright.stop()
-        except Exception:
-            pass
-        if display is not None:
-            display.stop()
-        raise _backend_error(exc) from exc
+    playwright, context = _start_persistent(selection, launch_options, display)
+    return Browser(context, playwright, selection.name, display)
 
 
 def _context_owns_browser(context: Any, browser: Any) -> Any:
     """Close the browser when the context the caller was handed is closed.
 
     ``launch_context`` returns a context, not the browser it came from, and
-    closing a non-persistent context does not close its browser. Without this
-    the browser and its driver outlive the context, and the driver's installed
-    event loop makes the next sync launch in the same process fail with "Sync
-    API inside the asyncio loop" -- the same leak as an unowned driver, reached
-    through the one entry point that hands back something other than a browser.
+    the browser's driver, display and profile directory go with the browser.
     """
     original = getattr(context, "close", None)
     if not callable(original):
@@ -927,19 +1044,13 @@ def _context_owns_browser(context: Any, browser: Any) -> Any:
 
 
 def launch_context(*, context_options: Mapping[str, Any] | None = None, **options: Any) -> Any:
-    """Launch a browser and create a non-persistent Playwright context."""
-    context_options = dict(context_options or {})
-    # Explicit context options are kept separate so canonical launch options
-    # cannot accidentally become page-visible context configuration.
-    browser = launch(**options)
-    try:
-        return _context_owns_browser(browser.new_context(**context_options), browser)
-    except Exception as exc:
-        try:
-            browser.close()
-        except Exception:
-            pass
-        raise _backend_error(exc) from exc
+    """Launch the browser and return the context of its temporary profile.
+
+    It is a normal profile, not off-the-record. ``context_options`` apply to it
+    at launch. Closing it closes the browser, which deletes the profile.
+    """
+    browser = launch(**{**options, **dict(context_options or {})})
+    return _context_owns_browser(browser._context, browser)
 
 
 def launch_persistent_context(user_data_dir: str | Path, *, context_options: Mapping[str, Any] | None = None,
@@ -972,41 +1083,15 @@ def launch_persistent_context(user_data_dir: str | Path, *, context_options: Map
     options.pop("_async", None)
     if options.get("user_data_dir") is not None:
         raise ConfigurationError("user_data_dir is the positional persistent-context path")
-    launch_options = dict(context_options or {})
-    launch_options.update(options)
-    launch_options.update(executable_path=str(binary), headless=config.headless,
-                          args=_native_args(plan, persistent=True), user_data_dir=str(path))
-    launch_options["ignore_default_args"] = _ignore_default_args(
-        launch_options.get("ignore_default_args"), config.args)
-    # Set, not inherited: only host mode inherits the host's locale
-    # environment. See _locale_environment.
-    launch_options["env"] = _launch_environment(plan, launch_options.get("env"))
-    if "viewport" not in launch_options and "no_viewport" not in launch_options:
-        launch_options["no_viewport"] = True
-    if config.proxy is not None and "proxy" not in launch_options:
-        launch_options["proxy"] = _playwright_proxy(config.proxy)
+    launch_options = _persistent_options(plan, binary, str(path),
+                                         {**(context_options or {}), **options})
     display = _virtual_display(plan, launch_options["env"])
-    try:
-        playwright = selection.factory().start()
-    except BaseException:
-        if display is not None:
-            display.stop()
-        raise
-    try:
-        context = playwright.chromium.launch_persistent_context(**launch_options)
-    except Exception as exc:
-        try:
-            playwright.stop()
-        except Exception:
-            pass
-        if display is not None:
-            display.stop()
-        raise _backend_error(exc) from exc
+    playwright, context = _start_persistent(selection, launch_options, display)
     return _own_driver(context, playwright, selection.name, display)
 
 
-async def launch_async(**options: Any) -> Any:
-    """Launch the native browser through a Patchright-compatible async API."""
+async def launch_async(**options: Any) -> AsyncBrowser:
+    """``launch()`` for the async API."""
     config = translate_options(fingerprint=options.pop("fingerprint", None),
                                fingerprint_platform=options.pop("fingerprint_platform", None),
                                profile=options.pop("profile", None), locale=options.pop("locale", None),
@@ -1026,34 +1111,10 @@ async def launch_async(**options: Any) -> Any:
     binary = _resolve_executable(binary_path, cache_dir=cache_dir, manifest=manifest,
                                  downloader=downloader)
     ensure_widevine(binary, cache_dir=cache_dir)
-    launch_options = dict(options)
-    launch_options.update(executable_path=str(binary), headless=config.headless, args=_native_args(plan))
-    launch_options["ignore_default_args"] = _ignore_default_args(
-        launch_options.get("ignore_default_args"), config.args)
-    # Set, not inherited: only host mode inherits the host's locale
-    # environment. See _locale_environment.
-    launch_options["env"] = _launch_environment(plan, launch_options.get("env"))
-    if config.proxy is not None and "proxy" not in launch_options:
-        launch_options["proxy"] = _playwright_proxy(config.proxy)
+    launch_options = _persistent_options(plan, binary, "", options)
     display = _virtual_display(plan, launch_options["env"])
-    try:
-        playwright = await selection.factory().start()
-    except BaseException:
-        if display is not None:
-            display.stop()
-        raise
-    try:
-        return await _own_driver_async(
-            await _coherent_viewport_async(await playwright.chromium.launch(**launch_options)),
-            playwright, selection.name, display)
-    except Exception as exc:
-        try:
-            await playwright.stop()
-        except Exception:
-            pass
-        if display is not None:
-            display.stop()
-        raise _backend_error(exc) from exc
+    playwright, context = await _start_persistent_async(selection, launch_options, display)
+    return AsyncBrowser(context, playwright, selection.name, display)
 
 
 async def _context_owns_browser_async(context: Any, browser: Any) -> Any:
@@ -1079,16 +1140,9 @@ async def _context_owns_browser_async(context: Any, browser: Any) -> Any:
 
 
 async def launch_context_async(*, context_options: Mapping[str, Any] | None = None, **options: Any) -> Any:
-    browser = await launch_async(**options)
-    try:
-        return await _context_owns_browser_async(
-            await browser.new_context(**dict(context_options or {})), browser)
-    except Exception as exc:
-        try:
-            await browser.close()
-        except Exception:
-            pass
-        raise _backend_error(exc) from exc
+    """``launch_context()`` for the async API."""
+    browser = await launch_async(**{**options, **dict(context_options or {})})
+    return await _context_owns_browser_async(browser._context, browser)
 
 
 async def launch_persistent_context_async(user_data_dir: str | Path, *, context_options: Mapping[str, Any] | None = None,
@@ -1114,38 +1168,11 @@ async def launch_persistent_context_async(user_data_dir: str | Path, *, context_
     binary = _resolve_executable(binary_path, cache_dir=cache_dir, manifest=manifest,
                                  downloader=downloader)
     ensure_widevine(binary, cache_dir=cache_dir, user_data_dir=path)
-    launch_options = dict(context_options or {})
-    launch_options.update(options)
-    launch_options.update(executable_path=str(binary), headless=config.headless,
-                          args=_native_args(plan, persistent=True), user_data_dir=str(path))
-    launch_options["ignore_default_args"] = _ignore_default_args(
-        launch_options.get("ignore_default_args"), config.args)
-    # Set, not inherited: only host mode inherits the host's locale
-    # environment. See _locale_environment.
-    launch_options["env"] = _launch_environment(plan, launch_options.get("env"))
-    if "viewport" not in launch_options and "no_viewport" not in launch_options:
-        launch_options["no_viewport"] = True
-    if config.proxy is not None and "proxy" not in launch_options:
-        launch_options["proxy"] = _playwright_proxy(config.proxy)
+    launch_options = _persistent_options(plan, binary, str(path),
+                                         {**(context_options or {}), **options})
     display = _virtual_display(plan, launch_options["env"])
-    try:
-        playwright = await selection.factory().start()
-    except BaseException:
-        if display is not None:
-            display.stop()
-        raise
-    try:
-        return await _own_driver_async(
-            await playwright.chromium.launch_persistent_context(**launch_options),
-            playwright, selection.name, display)
-    except Exception as exc:
-        try:
-            await playwright.stop()
-        except Exception:
-            pass
-        if display is not None:
-            display.stop()
-        raise _backend_error(exc) from exc
+    playwright, context = await _start_persistent_async(selection, launch_options, display)
+    return await _own_driver_async(context, playwright, selection.name, display)
 
 
 __all__ = [

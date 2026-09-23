@@ -50,6 +50,7 @@ from apostate import (  # noqa: E402
     host_persona,
     launch,
     launch_async,
+    launch_context,
     launch_persistent_context,
     load_catalogue,
     resolve_geoip,
@@ -63,7 +64,7 @@ class _FakeAsyncChromium:
     def __init__(self) -> None:
         self.options: dict[str, Any] | None = None
 
-    async def launch(self, **options: Any) -> object:
+    async def launch_persistent_context(self, **options: Any) -> object:
         self.options = options
         return object()
 
@@ -83,10 +84,6 @@ class _FakeSyncChromium:
     def __init__(self) -> None:
         self.options: dict[str, Any] | None = None
 
-    def launch(self, **options: Any) -> dict[str, Any]:
-        self.options = options
-        return options
-
     def launch_persistent_context(self, **options: Any) -> dict[str, Any]:
         self.options = options
         return options
@@ -101,6 +98,48 @@ class _FakeSyncPlaywright:
 
     def stop(self) -> None:
         return None
+
+
+class _FakePersistentContext:
+    """A persistent context as Playwright 1.53+ returns it: owned by a Browser,
+    open on one blank page."""
+
+    def __init__(self) -> None:
+        self.browser = types.SimpleNamespace(contexts=[self], new_context=self._new_context)
+        self.pages = [types.SimpleNamespace(context=self, url="about:blank")]
+        self.off_the_record: list[dict[str, Any]] = []
+        self.closed = False
+
+    def _new_context(self, **options: Any) -> object:
+        self.off_the_record.append(options)
+        return object()
+
+    def new_page(self) -> Any:
+        page = types.SimpleNamespace(context=self, url="")
+        self.pages.append(page)
+        return page
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _FakePersistentPlaywright:
+    def __init__(self) -> None:
+        self.launches: list[dict[str, Any]] = []
+        self.contexts: list[_FakePersistentContext] = []
+        self.stopped = False
+        self.chromium = types.SimpleNamespace(launch_persistent_context=self._launch)
+
+    def _launch(self, **options: Any) -> _FakePersistentContext:
+        self.launches.append(options)
+        self.contexts.append(_FakePersistentContext())
+        return self.contexts[-1]
+
+    def start(self) -> "_FakePersistentPlaywright":
+        return self
+
+    def stop(self) -> None:
+        self.stopped = True
 
 
 class _FakeResponse:
@@ -1774,45 +1813,56 @@ print(catalogue['browser_build'])
         # size through restored avail 1710x1079 against screen 1710x1112 and a
         # dpr of 2, on both drivers.
         launch_module = importlib.import_module("apostate.launch")
-        recorded: dict[str, Any] = {}
+        fake = _FakePersistentPlaywright()
+        chosen = {"width": 1024, "height": 768}
+        with tempfile.NamedTemporaryFile() as executable:
+            os.chmod(executable.name, 0o755)
+            with mock.patch.object(launch_module, "_load_sync_backend",
+                                   return_value=launch_module.DriverSelection("patchright", lambda: fake)):
+                browser = launch(geoip=False, binary_path=executable.name, fingerprint="host")
+                browser.new_context()
+                browser.new_context(viewport=chosen)
+                browser.close()
+                # An explicit request is the caller's decision and must survive.
+                launch(geoip=False, binary_path=executable.name, fingerprint="host",
+                       viewport=chosen).close()
+        self.assertTrue(fake.launches[0]["no_viewport"])
+        self.assertEqual(fake.contexts[0].off_the_record, [{"no_viewport": True}, {"viewport": chosen}])
+        self.assertNotIn("no_viewport", fake.launches[1])
+        self.assertEqual(fake.launches[1]["viewport"], chosen)
 
-        class _Browser:
-            def new_page(self, **kwargs: Any) -> dict[str, Any]:
-                recorded.update(kwargs)
-                return kwargs
-
-            def close(self) -> None:
-                return None
-
-        wrapped = launch_module._coherent_viewport(_Browser())
-        wrapped.new_page()
-        self.assertTrue(recorded["no_viewport"])
-        # An explicit request is the caller's decision and must survive.
-        recorded.clear()
-        wrapped.new_page(viewport={"width": 1024, "height": 768})
-        self.assertNotIn("no_viewport", recorded)
-        self.assertEqual(recorded["viewport"], {"width": 1024, "height": 768})
-
-    def test_a_context_closes_the_browser_it_was_created_from(self) -> None:
-        # launch_context hands back a context, and closing a non-persistent
-        # context does not close its browser. Without this the browser and its
-        # driver outlive the context, and the driver's installed event loop
-        # makes the next sync launch fail with "Sync API inside the asyncio
-        # loop" -- found by exercising this path for the first time.
+    def test_launch_opens_pages_in_a_temporary_normal_profile(self) -> None:
+        # Playwright's Browser.new_page() opens an off-the-record context, which
+        # FingerprintJS reports as incognito. launch() and launch_context() run
+        # a persistent context on a temporary profile instead: an empty
+        # user_data_dir, which the driver creates and deletes when the browser
+        # closes. Closing either one closes that context and stops the driver.
         launch_module = importlib.import_module("apostate.launch")
-        closed = []
+        fake = _FakePersistentPlaywright()
+        with tempfile.NamedTemporaryFile() as executable:
+            os.chmod(executable.name, 0o755)
+            with mock.patch.object(launch_module, "_load_sync_backend",
+                                   return_value=launch_module.DriverSelection("patchright", lambda: fake)):
+                browser = launch(geoip=False, binary_path=executable.name, fingerprint="host")
+                self.assertEqual(fake.launches[0]["user_data_dir"], "")
+                first, second = browser.new_page(), browser.new_page()
+                self.assertIsNot(first, second)
+                self.assertIs(first.context, fake.contexts[0])
+                self.assertIs(second.context, fake.contexts[0])
+                self.assertIs(browser.contexts[0], fake.contexts[0])
+                browser.close()
+                self.assertTrue(fake.contexts[0].closed)
+                self.assertTrue(fake.stopped)
 
-        class _Browser:
-            def close(self) -> None:
-                closed.append("browser")
-
-        class _Context:
-            def close(self) -> None:
-                closed.append("context")
-
-        context = launch_module._context_owns_browser(_Context(), _Browser())
-        context.close()
-        self.assertEqual(closed, ["context", "browser"])
+                fake.stopped = False
+                context = launch_context(geoip=False, binary_path=executable.name,
+                                         fingerprint="host", context_options={"color_scheme": "dark"})
+                self.assertIs(context, fake.contexts[1])
+                self.assertEqual(fake.launches[1]["user_data_dir"], "")
+                self.assertEqual(fake.launches[1]["color_scheme"], "dark")
+                context.close()
+                self.assertTrue(fake.contexts[1].closed)
+                self.assertTrue(fake.stopped)
 
     def test_async_launch_delegates_to_async_backend(self) -> None:
         launch_module = importlib.import_module("apostate.launch")

@@ -1160,21 +1160,20 @@ test("Widevine provisioning refuses a directory with no library", async () => {
   }
 });
 
-test("drives the Puppeteer branch: launch, userDataDir and createBrowserContext", async () => {
+test("drives the Puppeteer branch: launch, userDataDir and defaultBrowserContext", async () => {
   // The README promises an existing Puppeteer script works by changing only the
   // import. That claim had no coverage: no test reached driver.puppeteer.launch,
-  // the userDataDir option branch, or createBrowserContext. Verified for real
+  // the userDataDir option branch, or launchContext. Verified for real
   // against the local macos-arm64 binary with puppeteer-core 25.x before this
   // fake was written: launch()+newPage() read hardwareConcurrency 14 and
   // version Chrome/152.0.7977.83; launchPersistentContext wrote a 30-entry
-  // profile containing Default; launchContext returned a CdpBrowserContext
-  // whose newPage() worked. This pins the wiring so it cannot silently rot.
+  // profile containing Default. This pins the wiring so it cannot silently rot.
   const calls = [];
   const page = { async setContent() {}, async evaluate() { return 14; } };
   const context = { async newPage() { calls.push("context.newPage"); return page; }, async close() {} };
   const browser = {
     async newPage() { calls.push("browser.newPage"); return page; },
-    async createBrowserContext() { calls.push("createBrowserContext"); return context; },
+    defaultBrowserContext() { calls.push("defaultBrowserContext"); return context; },
     async close() { calls.push("browser.close"); },
   };
   let seen = null;
@@ -1203,6 +1202,7 @@ test("drives the Puppeteer branch: launch, userDataDir and createBrowserContext"
 
     const b = await launch(base);
     assert.equal(b.apostateDriverName, "puppeteer-core", "the selected driver must be visible");
+    assert.equal(seen.userDataDir, undefined, "Puppeteer makes its own throwaway profile");
     await b.newPage();
 
     // Puppeteer takes the profile directory as an option, not a switch.
@@ -1212,12 +1212,87 @@ test("drives the Puppeteer branch: launch, userDataDir and createBrowserContext"
     assert.ok(!seen.args.some((a) => a.startsWith("--user-data-dir=")),
       "the switch must not be duplicated as an argv entry for Puppeteer");
 
-    // launchContext has no Playwright newContext here, so it must fall through.
-    await launchContext(base);
-    assert.ok(calls.includes("createBrowserContext"));
+    // launchContext hands back the default context, which is not
+    // off-the-record, and closing it closes the browser.
+    const kept = await launchContext(base);
+    assert.equal(kept, context);
+    await kept.close();
+    assert.equal(calls.at(-1), "browser.close");
 
     // The component-update switch is stripped for Puppeteer too.
     assert.ok(seen.ignoreDefaultArgs.includes("--disable-component-update"));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// A Playwright driver whose persistent context belongs to a Browser, as from
+// Playwright 1.53, and opens on one blank page.
+function fakePlaywright() {
+  const launches = [];
+  const chromium = {
+    async launch() {
+      throw new Error("launch() opens off-the-record pages");
+    },
+    async launchPersistentContext(userDataDir, options) {
+      const context = {
+        closed: false,
+        offTheRecord: [],
+        open: [],
+        browser: () => browser,
+        pages() { return this.open; },
+        async newPage() {
+          const page = { context: () => context, url: () => "" };
+          this.open.push(page);
+          return page;
+        },
+        async close() { this.closed = true; },
+      };
+      const browser = {
+        contexts: () => [context],
+        async newContext(contextOptions) { context.offTheRecord.push(contextOptions); return {}; },
+      };
+      context.open.push({ context: () => context, url: () => "about:blank" });
+      launches.push({ userDataDir, options, context });
+      return context;
+    },
+  };
+  return { launches, module: { chromium } };
+}
+
+test("launch() under Playwright opens pages in a temporary normal profile", async () => {
+  // Playwright's Browser.newPage() opens an off-the-record context, which
+  // FingerprintJS reports as incognito. launch() and launchContext() run a
+  // persistent context on a temporary profile instead: an empty user data dir,
+  // which the driver creates and deletes when the browser closes.
+  const root = await mkdtemp(join(tmpdir(), "apostate-node-temporary-profile-"));
+  try {
+    const executable = join(root, "browser");
+    await writeFile(executable, "#!/bin/sh\nexit 0\n");
+    await chmod(executable, 0o755);
+    const fake = fakePlaywright();
+    const base = { executablePath: executable, geoip: false, fingerprint: "host", _driverModule: fake.module };
+
+    const browser = await launch(base);
+    const [{ userDataDir, options, context }] = fake.launches;
+    assert.equal(userDataDir, "");
+    assert.equal(options.viewport, null);
+    const first = await browser.newPage();
+    const second = await browser.newPage();
+    assert.notEqual(first, second);
+    assert.equal(first.context(), context);
+    assert.equal(second.context(), context);
+    assert.equal(browser.contexts()[0], context);
+    await browser.newContext();
+    assert.deepEqual(context.offTheRecord, [{ viewport: null }]);
+    await browser.close();
+    assert.ok(context.closed);
+
+    const kept = await launchContext(base);
+    assert.equal(kept, fake.launches[1].context);
+    assert.equal(fake.launches[1].userDataDir, "");
+    await kept.close();
+    assert.ok(kept.closed);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -1424,12 +1499,12 @@ test("an authenticated SOCKS5 proxy reaches the browser through the envelope, no
     const executable = join(root, "browser");
     await writeFile(executable, "#!/bin/sh\nexit 0\n");
     await chmod(executable, 0o755);
-    let seen = null;
-    const fakeDriver = { chromium: { async launch(options) { seen = options; return { async close() {} }; } } };
-    const base = { executablePath: executable, _driverModule: fakeDriver, geoip: false, fingerprint: "host" };
+    const fake = fakePlaywright();
+    const base = { executablePath: executable, _driverModule: fake.module, geoip: false, fingerprint: "host" };
 
     const socks = await launch({ ...base, proxy: "socks5://u:p@proxy.invalid:1080" });
     await socks.close();
+    const seen = fake.launches[0].options;
     assert.deepEqual(seen.proxy, { server: "socks5://proxy.invalid:1080" });
     assert.ok(seen.args.includes("--proxy-server=socks5://proxy.invalid:1080"));
     const envelope = seen.args.find((arg) => arg.startsWith("--apostate-profile="));
@@ -1442,7 +1517,7 @@ test("an authenticated SOCKS5 proxy reaches the browser through the envelope, no
     // 407 itself there, and nothing refuses the launch.
     const http = await launch({ ...base, proxy: "http://u:p@proxy.invalid:8080" });
     await http.close();
-    assert.deepEqual(seen.proxy, { server: "http://proxy.invalid:8080", username: "u", password: "p" });
+    assert.deepEqual(fake.launches[1].options.proxy, { server: "http://proxy.invalid:8080", username: "u", password: "p" });
   } finally {
     await rm(root, { recursive: true, force: true });
   }

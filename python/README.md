@@ -110,7 +110,12 @@ Supported hosts: `macos-arm64`, `linux-x64`, `linux-arm64`, `windows-x64`.
 ## Launch
 
 `launch()` returns a Playwright `Browser`. An existing Playwright script works
-with only the import changed.
+with only the import changed, with one difference: `new_page()` opens pages in
+a normal profile, a temporary one deleted when the browser closes, where
+Playwright's opens each page in an off-the-record context that sites can tell
+apart. `new_context()` is still off-the-record, so use `new_page()`. Page
+options such as `viewport` or `user_agent` go to `launch()`, because every
+page shares the one profile.
 
 ```python
 from apostate import launch
@@ -145,7 +150,7 @@ directory. `launch()` does not take a user data directory. Three lifetimes:
 
 | You launch with | The identity is | It lasts |
 |---|---|---|
-| `launch()` | drawn fresh from OS entropy | this launch only, recorded nowhere |
+| `launch()` | drawn fresh from OS entropy | this launch only |
 | `launch_persistent_context(DIR)` | bound to `DIR` | until you delete `DIR/apostate/identity`; renaming or moving `DIR` changes nothing |
 | `fingerprint=SEED` | the one that seed selects | forever, on any host |
 
@@ -156,7 +161,8 @@ Viewport geometry is handled for you: the drivers' default viewports report
 impossible values (Playwright: `screen == inner == avail` with
 `devicePixelRatio` flattened to 1; Puppeteer: an inner viewport *larger* than
 its own window), so Apostate lets the real window size through and the composed
-profile's geometry survives. Pass a viewport explicitly and yours wins.
+profile's geometry survives. Pass `viewport=` to `launch()` or `new_context()`
+and yours wins.
 
 One case Apostate cannot fix: `fingerprint="host"` under `headless=True` has no
 display to inherit, so headless Chrome reports its synthetic 800x600 with
@@ -261,9 +267,10 @@ The browser assumes you have done this and does not check. What it will not do
 is claim a face that is absent: the font list a page sees is filtered down from
 what the host actually has, never added to.
 
-Also available: `launch_context()`, `launch_persistent_context()`, and
-`launch_async()` / `launch_context_async()` /
-`launch_persistent_context_async()` for the async API.
+Also available: `launch_context()`, which returns the temporary profile's own
+context, `launch_persistent_context()`, and `launch_async()` /
+`launch_context_async()` / `launch_persistent_context_async()` for the async
+API.
 
 ### Checking what you got
 

@@ -3197,50 +3197,78 @@ function playwrightProxy(proxy) {
   return result;
 }
 
-// Stop the driver's default viewport overwriting the composed geometry.
-// Playwright's default context is 1280x720 and reports screen == inner == avail
-// with devicePixelRatio flattened to 1. No real desktop has avail == screen:
-// there is always a menu bar or a taskbar. Puppeteer's default is worse --
-// outer 756x556 against inner 800x600, an inner viewport larger than the window
-// containing it, which no machine reports.
+// The window sets the viewport unless the caller names one. A driver's default
+// viewport reports geometry no machine has: Playwright's gives screen == inner
+// == avail at a devicePixelRatio of 1, and Puppeteer's an inner viewport larger
+// than its own window.
 //
 // Measured on the shipped macos-arm64 build with --fingerprint=42:
 //   Playwright default          screen/inner/avail all 1280x720, dpr 1
 //   Playwright viewport null    screen 1710x1112, avail 1710x1079, dpr 2
 //   Puppeteer default           outer 756x556, inner 800x600, avail==screen, dpr 1
 //   Puppeteer defaultViewport null  outer 756x556, inner 756x469, avail<screen, dpr 2
-//
-// Three observables per driver, plus the profile's own geometry. A caller who
-// asks for a viewport still gets it.
-function coherentViewport(target) {
-  for (const name of ["newPage", "newContext"]) {
-    const original = target?.[name];
-    if (typeof original !== "function") continue;
-    target[name] = async (options = {}, ...rest) => {
-      const merged = isObject(options) && !("viewport" in options)
-        ? { ...options, viewport: null }
-        : options;
-      return original.call(target, merged, ...rest);
-    };
-  }
-  return target;
+function windowViewport(options) {
+  return isObject(options) && !("viewport" in options) ? { ...options, viewport: null } : options;
 }
 
-// launchContext returns a context, not the browser it came from, and closing a
-// non-persistent context does not close its browser. Without this the browser
-// and its driver outlive the context.
-function contextOwnsBrowser(context, browser) {
-  const original = context?.close;
-  if (typeof original !== "function") return context;
-  context.close = async (...args) => {
-    try {
-      return await original.call(context, ...args);
-    } finally {
-      await browser.close().catch(() => {});
-    }
+// --- Temporary profile --------------------------------------------------------
+//
+// Playwright's Browser.newPage() opens each page in an off-the-record context,
+// and sites can tell that from a normal profile. So launch() runs Playwright as
+// a persistent context on an empty user data dir, which makes the driver create
+// a temporary profile and delete it when the browser closes or this process
+// exits, and newPage() opens pages in it. Puppeteer's newPage() already uses
+// the browser's normal profile. Mirrors python/apostate/launch.py.
+//
+// Playwright's Browser, with newPage() in that profile. newContext() is still
+// off-the-record.
+function temporaryProfileBrowser(context, display) {
+  const browser = context.browser();
+  const closeContext = context.close.bind(context);
+  let startPage = true;
+  let closed = false;
+  const own = {
+    // The first page is the blank one the browser opened with.
+    async newPage(options) {
+      if (isObject(options) ? Object.keys(options).length > 0 : options !== undefined) {
+        throw new TypeError("newPage() opens a page in the launch's own profile, which takes its options from launch(); pass them there, or use newContext(options), which is off-the-record.");
+      }
+      if (startPage) {
+        startPage = false;
+        const [first] = context.pages();
+        if (first && first.url() === "about:blank") return first;
+      }
+      return context.newPage();
+    },
+    newContext(options = {}) {
+      return browser.newContext(windowViewport(options));
+    },
+    // This launch's profile first, then each context from newContext().
+    contexts() {
+      return [context, ...browser.contexts().filter((item) => item !== context)];
+    },
+    pages() {
+      return context.pages();
+    },
+    // Closing the browser deletes its profile.
+    async close(options) {
+      if (closed) return;
+      closed = true;
+      try {
+        await closeContext(options);
+      } finally {
+        await display?.stop();
+      }
+    },
   };
-  context.apostateBrowser = browser;
-  return context;
+  own[Symbol.asyncDispose] = own.close;
+  return new Proxy(browser, {
+    get(target, name) {
+      if (Object.hasOwn(own, name)) return own[name];
+      const value = Reflect.get(target, name);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
 }
 
 // --- Virtual display ----------------------------------------------------------
@@ -3472,9 +3500,10 @@ async function assertPublishedOrDiscoverable(options, target) {
   throw localRefusal(local.manifest, target);
 }
 
-// Returns a real browser object from whichever driver is installed: a
-// Playwright `Browser` (newPage, newContext, close) or a Puppeteer `Browser`.
-// An existing Playwright or Puppeteer script works by changing only the import.
+// Returns the installed driver's Browser. Under Playwright, pages from
+// newPage() open in a temporary normal profile (see temporaryProfileBrowser);
+// under Puppeteer they already do. An existing Playwright or Puppeteer script
+// works by changing only the import.
 //
 // A persistent profile is refused here, as the Python package refuses it. A
 // Playwright persistent profile is a BrowserContext, so honouring userDataDir
@@ -3550,28 +3579,28 @@ async function launchWithDriver(options) {
     ignoreDefaultArgs: ignoreDefaultArgsFor(options.ignoreDefaultArgs, prepared.config.args),
   };
   try {
+    let browser;
     if (driver.kind === "playwright") {
       const proxy = playwrightProxy(prepared.config.proxy);
-      const browser = prepared.config.user_data_dir
-        ? await driver.chromium.launchPersistentContext(prepared.config.user_data_dir, { ...common, viewport: null, ...(proxy ? { proxy } : {}) })
-        : coherentViewport(await driver.chromium.launch({ ...common, ...(proxy ? { proxy } : {}) }));
-      browser.apostateDiagnostics = prepared.diagnostics;
-      browser.apostateExecutablePath = binary;
-      browser.apostateDriverName = driver.name;
-      return stopsDisplay(browser, display);
+      // An empty user data dir is a temporary profile; see temporaryProfileBrowser.
+      const context = await driver.chromium.launchPersistentContext(prepared.config.user_data_dir ?? "",
+        { ...common, viewport: null, ...(proxy ? { proxy } : {}) });
+      browser = prepared.config.user_data_dir
+        ? stopsDisplay(context, display)
+        : temporaryProfileBrowser(context, display);
+    } else {
+      browser = stopsDisplay(await driver.puppeteer.launch({
+        ...common,
+        // null rather than Puppeteer's 800x600 default. See windowViewport.
+        defaultViewport: options.defaultViewport ?? null,
+        // Puppeteer takes the user data dir as an option, not a switch.
+        ...(prepared.config.user_data_dir ? { userDataDir: prepared.config.user_data_dir } : {}),
+      }), display);
     }
-    const browser = await driver.puppeteer.launch({
-      ...common,
-      // null rather than Puppeteer's 800x600 default, which reports an inner
-      // viewport larger than its own window. See coherentViewport above.
-      defaultViewport: options.defaultViewport ?? null,
-      // Puppeteer takes the user data dir as an option, not a switch.
-      ...(prepared.config.user_data_dir ? { userDataDir: prepared.config.user_data_dir } : {}),
-    });
     browser.apostateDiagnostics = prepared.diagnostics;
     browser.apostateExecutablePath = binary;
     browser.apostateDriverName = driver.name;
-    return stopsDisplay(browser, display);
+    return browser;
   } catch (error) {
     await display?.stop();
     if (error instanceof ApostateError) throw error;
@@ -3610,21 +3639,17 @@ export async function launchProcess(options = {}) {
   return new ApostateProcess(child, binary, prepared.config, prepared.diagnostics);
 }
 
+// Under Playwright the temporary profile's own context, under Puppeteer the
+// default one: a context from newContext() or createBrowserContext() would be
+// off-the-record. Closing it closes the browser.
 export async function launchContext(options = {}) {
   const browser = await launch(options);
-  try {
-    // A Playwright persistent context is already a context; Puppeteer has none.
-    if (typeof browser.newContext === "function") {
-      return contextOwnsBrowser(await browser.newContext(), browser);
-    }
-    if (typeof browser.createBrowserContext === "function") {
-      return contextOwnsBrowser(await browser.createBrowserContext(), browser);
-    }
-    return browser;
-  } catch (error) {
-    await browser.close();
-    throw error;
-  }
+  const context = typeof browser.defaultBrowserContext === "function"
+    ? browser.defaultBrowserContext()
+    : browser.contexts()[0];
+  context.close = (...args) => browser.close(...args);
+  context.apostateBrowser = browser;
+  return context;
 }
 
 export async function launchPersistentContext(userDataDir, options = {}) {
