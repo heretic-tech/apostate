@@ -1,83 +1,168 @@
-Subject: [PATCH] fonts: OS/2 win ascent and descent under a Windows profile
+Subject: [PATCH] fonts: DirectWrite vertical metrics under a Windows profile
 
-DirectWrite reports a font's ascent and descent from the OS/2
-usWinAscent/usWinDescent fields. FreeType on Linux reads hhea. Where the
-two tables disagree, a Windows persona on Linux reported the wrong CSS
-line boxes, fontBoundingBox and baselines: Consolas 24px is 28px tall on
-Windows and was 24px here, Calibri and Palatino Linotype likewise. Under
-a Windows profile, with no CSS ascent/descent override, this reads the
-OS/2 and head tables and returns the rounded win metrics (the typo
-metrics when the font sets USE_TYPO_METRICS, as Cambria Math does,
-which is what DirectWrite does), skipping the
-FreeType-only VDMX and borrow-one adjustments. Missing or zero tables
-fall through to the existing path. Other profiles are unchanged.
+DirectWrite reports a font's ascent, descent and line gap from the OS/2
+table. FreeType on Linux reads hhea. Where the two disagree, a Windows
+persona on Linux reported the wrong CSS line boxes, fontBoundingBox and
+baselines: Consolas 24px is 28px tall on Windows and was 24px here,
+Calibri, Palatino Linotype and Cambria Math likewise.
+
+FontMetrics::WindowsVerticalMetricsFor reads the OS/2, hhea and head
+tables the way DWRITE_FONT_METRICS is built. With USE_TYPO_METRICS set
+(fsSelection bit 7, which DirectWrite honours on any OS/2 version, as
+Cambria Math's version-3 table shows on real Windows) it takes the typo
+ascender, descender and line gap. Otherwise it takes usWinAscent and
+usWinDescent, and the line gap is the GDI external leading: the hhea line
+spacing minus the win extent, never negative. Under a Windows profile,
+with no CSS ascent/descent override, AscentDescentWithHacks returns its
+rounded ascent and descent and skips the FreeType-only VDMX and
+borrow-one adjustments. Missing tables fall through to the existing
+path. Other profiles are unchanged.
 
 diff --git a/third_party/blink/renderer/platform/fonts/font_metrics.cc b/third_party/blink/renderer/platform/fonts/font_metrics.cc
-index 11f9a7e..3c47e1b 100644
+index 11f9a7e..153f86e 100644
 --- a/third_party/blink/renderer/platform/fonts/font_metrics.cc
 +++ b/third_party/blink/renderer/platform/fonts/font_metrics.cc
-@@ -29,6 +29,7 @@
+@@ -29,6 +29,10 @@
  
  #include "third_party/blink/renderer/platform/fonts/font_metrics.h"
  
++#include <algorithm>
++#include <array>
++
 +#include "base/apostate/profile.h"
  #include "base/compiler_specific.h"
  #include "base/containers/span.h"
  #include "build/build_config.h"
-@@ -66,6 +67,56 @@ void FontMetrics::AscentDescentWithHacks(
+@@ -47,6 +51,78 @@ namespace blink {
+ static const size_t kMaxVDMXTableSize = 1024 * 1024;  // 1 MB
+ #endif
+ 
++// DirectWrite's DWRITE_FONT_METRICS, which Skia's DirectWrite scaler hands to
++// Blink as fAscent, fDescent and fLeading. With fsSelection bit 7
++// (USE_TYPO_METRICS) set they are the typo ascender, descender and line gap.
++// The OpenType spec defines the bit from OS/2 version 4, but DirectWrite
++// honours it on earlier tables too: Cambria Math's OS/2 table is version 3
++// with the bit set, and real Windows reports its typo metrics (31/9 at 40px,
++// measured on an RTX 3070 Ti machine). Otherwise they are
++// usWinAscent and usWinDescent, and the line gap is the GDI external leading:
++// what is left of the hhea line spacing once the win extent is taken out,
++// never negative. So Arial and Times New Roman keep a line gap (67 and 87
++// units of 2048) and Consolas, Calibri and Segoe UI have none.
++//
++// Offsets: OS/2 fsSelection 62, sTypoAscender 68, sTypoDescender
++// 70, sTypoLineGap 72, usWinAscent 74, usWinDescent 76 (present in every
++// version); hhea ascender 4, descender 6, lineGap 8; head unitsPerEm 18.
++// Only those prefixes are read.
++std::optional<FontMetrics::WindowsVerticalMetrics>
++FontMetrics::WindowsVerticalMetricsFor(const SkTypeface& face, float size) {
++  const auto* profile = base::apostate::Profile::Get();
++  if (!profile || profile->ua_platform() != "Windows") {
++    return std::nullopt;
++  }
++  static constexpr SkFontTableTag kOs2Tag = SkSetFourByteTag('O', 'S', '/', '2');
++  static constexpr SkFontTableTag kHheaTag =
++      SkSetFourByteTag('h', 'h', 'e', 'a');
++  static constexpr SkFontTableTag kHeadTag =
++      SkSetFourByteTag('h', 'e', 'a', 'd');
++  std::array<uint8_t, 78> os2;
++  std::array<uint8_t, 10> hhea;
++  std::array<uint8_t, 20> head;
++  if (face.getTableData(kOs2Tag, 0, os2.size(), os2.data()) != os2.size() ||
++      face.getTableData(kHheaTag, 0, hhea.size(), hhea.data()) !=
++          hhea.size() ||
++      face.getTableData(kHeadTag, 0, head.size(), head.data()) !=
++          head.size()) {
++    return std::nullopt;
++  }
++  const auto u16 = [](base::span<const uint8_t> table, size_t offset) {
++    return (table[offset] << 8) | table[offset + 1];
++  };
++  const auto s16 = [&u16](base::span<const uint8_t> table, size_t offset) {
++    return static_cast<int>(static_cast<int16_t>(u16(table, offset)));
++  };
++  const int upm = u16(head, 18);
++  const bool use_typo = u16(os2, 62) & 0x80;
++  const int typo_ascent = s16(os2, 68);
++  const int typo_descent = -s16(os2, 70);
++  const int typo_line_gap = s16(os2, 72);
++  const int win_ascent = u16(os2, 74);
++  const int win_descent = u16(os2, 76);
++
++  int design_ascent;
++  int design_descent;
++  int design_line_gap;
++  if (use_typo && typo_ascent > 0) {
++    design_ascent = typo_ascent;
++    design_descent = typo_descent;
++    design_line_gap = std::max(typo_line_gap, 0);
++  } else {
++    design_ascent = win_ascent;
++    design_descent = win_descent;
++    const int hhea_spacing = s16(hhea, 4) - s16(hhea, 6) + s16(hhea, 8);
++    design_line_gap = std::max(hhea_spacing - (win_ascent + win_descent), 0);
++  }
++  if (upm <= 0 || design_ascent <= 0 || design_descent <= 0) {
++    return std::nullopt;
++  }
++  const float scale = size / upm;
++  return WindowsVerticalMetrics{design_ascent * scale, design_descent * scale,
++                                design_line_gap * scale};
++}
++
+ void FontMetrics::AscentDescentWithHacks(
+     float& ascent,
+     float& descent,
+@@ -66,6 +142,22 @@ void FontMetrics::AscentDescentWithHacks(
    if (descent_override)
      metrics.fDescent = platform_data.size() * descent_override.value();
  
-+  // A profile claiming Windows uses the OS/2 win metrics, which is what the
-+  // DirectWrite-backed path reports on Windows. The shared Linux path below
-+  // reads hhea-based SkFont metrics, so families whose win and hhea metrics
-+  // differ (Consolas, Calibri, Palatino Linotype) report the wrong
-+  // fontBoundingBox, hanging/ideographic baselines and CSS line boxes.
-+  // With no Windows profile, or when CSS ascent/descent overrides are set,
-+  // or when the tables are absent, nothing is touched.
++  // A profile claiming Windows uses the metrics DirectWrite reports, from the
++  // OS/2 table. The shared Linux path below reads hhea-based SkFont metrics,
++  // so families whose OS/2 and hhea metrics differ (Consolas, Calibri,
++  // Palatino Linotype, Cambria Math) report the wrong fontBoundingBox,
++  // hanging/ideographic baselines and CSS line boxes. With no Windows
++  // profile, or when CSS ascent/descent overrides are set, or when the tables
++  // are absent, nothing is touched.
 +  if (!ascent_override && !descent_override) {
-+    bool use_windows_metrics = false;
-+    if (const auto* profile = base::apostate::Profile::Get()) {
-+      if (const auto& platform = profile->ua_platform()) {
-+        use_windows_metrics = (*platform == "Windows");
-+      }
-+    }
-+    if (use_windows_metrics) {
-+      // usWinAscent/usWinDescent live at OS/2 offsets 74/76 in all table
-+      // versions, fsSelection at 62 and sTypoAscender/sTypoDescender at
-+      // 68/70; unitsPerEm at head offset 18. Read only the prefixes.
-+      // DirectWrite prefers the typo metrics when fsSelection bit 7
-+      // (USE_TYPO_METRICS) is set, as Cambria Math does.
-+      static const uint32_t kOs2Tag = SkSetFourByteTag('O', 'S', '/', '2');
-+      static const uint32_t kHeadTag = SkSetFourByteTag('h', 'e', 'a', 'd');
-+      uint8_t os2[78];
-+      uint8_t head[20];
-+      if (face->getTableSize(kOs2Tag) >= sizeof(os2) &&
-+          face->getTableSize(kHeadTag) >= sizeof(head) &&
-+          face->getTableData(kOs2Tag, 0, sizeof(os2), os2) == sizeof(os2) &&
-+          face->getTableData(kHeadTag, 0, sizeof(head), head) == sizeof(head)) {
-+        const unsigned upm = (head[18] << 8) | head[19];
-+        const bool use_typo = os2[63] & 0x80;
-+        const int typo_ascent =
-+            static_cast<int16_t>((os2[68] << 8) | os2[69]);
-+        const int typo_descent =
-+            -static_cast<int16_t>((os2[70] << 8) | os2[71]);
-+        const int win_ascent = (os2[74] << 8) | os2[75];
-+        const int win_descent = (os2[76] << 8) | os2[77];
-+        const int design_ascent =
-+            use_typo && typo_ascent > 0 ? typo_ascent : win_ascent;
-+        const int design_descent =
-+            use_typo && typo_ascent > 0 ? typo_descent : win_descent;
-+        if (upm != 0 && design_ascent != 0 && design_descent != 0) {
-+          const float size = platform_data.size();
-+          ascent = SkScalarRoundToScalar(design_ascent * size / upm);
-+          descent = SkScalarRoundToScalar(design_descent * size / upm);
-+          return;
-+        }
-+      }
++    if (const std::optional<WindowsVerticalMetrics> windows =
++            WindowsVerticalMetricsFor(*face, platform_data.size())) {
++      ascent = SkScalarRoundToScalar(windows->ascent);
++      descent = SkScalarRoundToScalar(windows->descent);
++      return;
 +    }
 +  }
 +
    int vdmx_ascent = 0, vdmx_descent = 0;
    bool is_vdmx_valid = false;
+ 
+diff --git a/third_party/blink/renderer/platform/fonts/font_metrics.h b/third_party/blink/renderer/platform/fonts/font_metrics.h
+index a757532..56ce3b7 100644
+--- a/third_party/blink/renderer/platform/fonts/font_metrics.h
++++ b/third_party/blink/renderer/platform/fonts/font_metrics.h
+@@ -31,6 +31,7 @@
+ #include "third_party/blink/renderer/platform/wtf/math_extras.h"
+ 
+ class SkFont;
++class SkTypeface;
+ 
+ namespace blink {
+ 
+@@ -225,6 +226,18 @@ class PLATFORM_EXPORT FontMetrics {
+       std::optional<float> ascent_override = std::nullopt,
+       std::optional<float> descent_override = std::nullopt);
+ 
++  // Apostate: the vertical metrics DirectWrite reports for `face` at `size`,
++  // in pixels and unrounded, when the profile claims Windows. std::nullopt
++  // with no Windows profile or without usable OS/2, hhea and head tables.
++  struct WindowsVerticalMetrics {
++    float ascent;
++    float descent;
++    float line_gap;
++  };
++  static std::optional<WindowsVerticalMetrics> WindowsVerticalMetricsFor(
++      const SkTypeface& face,
++      float size);
++
+  private:
+   friend class SimpleFontData;
  

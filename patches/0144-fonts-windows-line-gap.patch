@@ -1,0 +1,30 @@
+Subject: [PATCH] fonts: DirectWrite line gap under a Windows profile
+
+The line gap feeds line-height: normal. FreeType reports hhea's lineGap,
+which Windows folds into the win extent for Consolas, Calibri and Segoe
+UI (so they have none) and keeps in part for Arial and Times New Roman
+(67 and 87 units of 2048). Under a Windows profile the line gap is the
+one FontMetrics::WindowsVerticalMetricsFor derives from the tables, as
+DirectWrite reports it. Author line-height overrides are unaffected.
+
+diff --git a/third_party/blink/renderer/platform/fonts/simple_font_data.cc b/third_party/blink/renderer/platform/fonts/simple_font_data.cc
+index 2fa1abf..d9d31f4 100644
+--- a/third_party/blink/renderer/platform/fonts/simple_font_data.cc
++++ b/third_party/blink/renderer/platform/fonts/simple_font_data.cc
+@@ -170,6 +170,16 @@ void SimpleFontData::PlatformInit(bool subpixel_ascent_descent,
+     line_gap = *metrics_override.line_gap_override * platform_data_->size();
+   } else {
+     line_gap = metrics.fLeading;
++    // Apostate: under a Windows profile the line gap is the one DirectWrite
++    // reports (FontMetrics::WindowsVerticalMetricsFor), not FreeType's hhea
++    // lineGap: none for Consolas or Calibri, whose hhea gap Windows folds
++    // into the win extent, and the leftover external leading for Arial and
++    // Times New Roman. Author line-height overrides take the branch above.
++    if (const std::optional<FontMetrics::WindowsVerticalMetrics> windows =
++            FontMetrics::WindowsVerticalMetricsFor(*font_.getTypeface(),
++                                                   platform_data_->size())) {
++      line_gap = windows->line_gap;
++    }
+   }
+   font_metrics_.SetLineGap(line_gap);
+   font_metrics_.SetLineSpacing(lroundf(ascent) + lroundf(descent) +
