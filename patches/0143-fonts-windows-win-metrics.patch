@@ -13,13 +13,15 @@ Cambria Math's version-3 table shows on real Windows) it takes the typo
 ascender, descender and line gap. Otherwise it takes usWinAscent and
 usWinDescent, and the line gap is the GDI external leading: the hhea line
 spacing minus the win extent, never negative. Under a Windows profile,
-with no CSS ascent/descent override, AscentDescentWithHacks returns its
-rounded ascent and descent and skips the FreeType-only VDMX and
-borrow-one adjustments. Missing tables fall through to the existing
-path. Other profiles are unchanged.
+with no CSS ascent/descent override, AscentDescentWithHacks feeds its
+ascent and descent through the branches Windows takes (the tiny-font
+unrounded case and plain rounding) and skips the FreeType-only VDMX and
+borrow-one adjustments and the macOS Times/Helvetica/Courier ascent
+hack. Missing tables fall through to the existing path. Other profiles
+are unchanged.
 
 diff --git a/third_party/blink/renderer/platform/fonts/font_metrics.cc b/third_party/blink/renderer/platform/fonts/font_metrics.cc
-index 11f9a7e..153f86e 100644
+index 11f9a7e..b5e508c 100644
 --- a/third_party/blink/renderer/platform/fonts/font_metrics.cc
 +++ b/third_party/blink/renderer/platform/fonts/font_metrics.cc
 @@ -29,6 +29,10 @@
@@ -112,7 +114,7 @@ index 11f9a7e..153f86e 100644
  void FontMetrics::AscentDescentWithHacks(
      float& ascent,
      float& descent,
-@@ -66,6 +142,22 @@ void FontMetrics::AscentDescentWithHacks(
+@@ -66,6 +142,25 @@ void FontMetrics::AscentDescentWithHacks(
    if (descent_override)
      metrics.fDescent = platform_data.size() * descent_override.value();
  
@@ -120,21 +122,56 @@ index 11f9a7e..153f86e 100644
 +  // OS/2 table. The shared Linux path below reads hhea-based SkFont metrics,
 +  // so families whose OS/2 and hhea metrics differ (Consolas, Calibri,
 +  // Palatino Linotype, Cambria Math) report the wrong fontBoundingBox,
-+  // hanging/ideographic baselines and CSS line boxes. With no Windows
-+  // profile, or when CSS ascent/descent overrides are set, or when the tables
-+  // are absent, nothing is touched.
++  // hanging/ideographic baselines and CSS line boxes. The values then take
++  // the same branches Windows does: the tiny-font unrounded case and plain
++  // rounding, without the Linux-only VDMX and borrow-one adjustments. With no
++  // Windows profile, or when CSS ascent/descent overrides are set, or when the
++  // tables are absent, nothing is touched.
++  [[maybe_unused]] bool windows_metrics = false;
 +  if (!ascent_override && !descent_override) {
 +    if (const std::optional<WindowsVerticalMetrics> windows =
 +            WindowsVerticalMetricsFor(*face, platform_data.size())) {
-+      ascent = SkScalarRoundToScalar(windows->ascent);
-+      descent = SkScalarRoundToScalar(windows->descent);
-+      return;
++      metrics.fAscent = -windows->ascent;
++      metrics.fDescent = windows->descent;
++      windows_metrics = true;
 +    }
 +  }
 +
    int vdmx_ascent = 0, vdmx_descent = 0;
    bool is_vdmx_valid = false;
  
+@@ -77,7 +172,8 @@ void FontMetrics::AscentDescentWithHacks(
+   static const uint32_t kVdmxTag = SkSetFourByteTag('V', 'D', 'M', 'X');
+   int pixel_size = ClampTo<int>(platform_data.size() + 0.5);
+   // TODO(xiaochengh): How do we support ascent/descent override with VDMX?
+-  if (!ascent_override && !descent_override && !font.isForceAutoHinting() &&
++  if (!windows_metrics && !ascent_override && !descent_override &&
++      !font.isForceAutoHinting() &&
+       (font.getHinting() == SkFontHinting::kFull ||
+        font.getHinting() == SkFontHinting::kNormal)) {
+     size_t vdmx_size = face->getTableSize(kVdmxTag);
+@@ -123,7 +219,7 @@ void FontMetrics::AscentDescentWithHacks(
+     // the descent part of the glyph may be truncated when displayed in a
+     // 'overflow: hidden' container.  To avoid that, borrow 1 unit from the
+     // ascent when possible.
+-    if (descent < metrics.fDescent &&
++    if (!windows_metrics && descent < metrics.fDescent &&
+         platform_data.GetFontRenderStyle().use_subpixel_positioning &&
+         ascent >= 1) {
+       ++descent;
+@@ -141,9 +237,9 @@ void FontMetrics::AscentDescentWithHacks(
+   // incorrectly added to line spacing, so we use a 15% adjustment instead
+   // and add it to the ascent.
+   String family_name = platform_data.FontFamilyName();
+-  if (family_name == font_family_names::kTimes ||
+-      family_name == font_family_names::kHelvetica ||
+-      family_name == font_family_names::kCourier)
++  if (!windows_metrics && (family_name == font_family_names::kTimes ||
++                           family_name == font_family_names::kHelvetica ||
++                           family_name == font_family_names::kCourier))
+     ascent += floorf(((ascent + descent) * 0.15f) + 0.5f);
+ #endif
+ }
 diff --git a/third_party/blink/renderer/platform/fonts/font_metrics.h b/third_party/blink/renderer/platform/fonts/font_metrics.h
 index a757532..56ce3b7 100644
 --- a/third_party/blink/renderer/platform/fonts/font_metrics.h
