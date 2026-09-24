@@ -1,6 +1,6 @@
 {
   "name": "@heretic-tech/apostate",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Native Apostate Chromium launcher for Node.js",
   "type": "module",
   "main": "./dist/index.js",
