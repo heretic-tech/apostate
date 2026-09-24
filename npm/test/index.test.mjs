@@ -3,10 +3,11 @@ import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { createServer, request as httpRequest } from "node:http";
 import { createServer as createSocket } from "node:net";
-import { chmod, lstat, mkdir, readFile, readdir, readlink, writeFile } from "node:fs/promises";
+import { chmod, copyFile, cp, lstat, mkdir, readFile, readdir, readlink, symlink, writeFile } from "node:fs/promises";
 import { mkdtemp, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import * as zlib from "node:zlib";
 import test from "node:test";
 import {
@@ -830,12 +831,54 @@ test("binaryInfo reports where the browser was found", async () => {
   }
 });
 
-// The manifest baked into this package describes nothing -- a launcher
-// release installs binaries published under an older tag, so it cannot carry
-// their digest. These four tests cover the route that replaced the dead end.
+// A launcher release installs binaries published under an older tag, so the
+// manifest baked into it can describe nothing. These four tests cover the
+// route that replaced that dead end, on a package staged to ship exactly that.
 
 const TAG_MANIFEST_URL = `https://github.com/heretic-tech/apostate/releases/download/v${PACKAGE_VERSION}/${artifactNameFor(target)}.manifest.json`;
 const LATEST_MANIFEST_URL = `https://github.com/heretic-tech/apostate/releases/latest/download/${artifactNameFor(target)}.manifest.json`;
+
+// Variables that point the package at a binary, a mirror or a cache of the
+// operator's choosing. A test of its own acquisition path must not see them.
+const ACQUISITION_ENVIRONMENT = ["APOSTATE_BINARY", "APOSTATE_CACHE_DIR", "APOSTATE_DOWNLOAD_BASE_URL", "APOSTATE_KEEP_ARCHIVE"];
+
+// This package as it ships before its binaries are released. The baked
+// assets/release-manifest.json is whatever the last release wrote, and once a
+// release bakes its digests the shipped asset no longer takes the route these
+// tests are about. So the built package is staged with an unpublished manifest
+// in its place and imported from there: the code under test is the same
+// dist/index.js, reading the same asset path; only that asset differs.
+// A test destructures the staged module's exports over the top-level imports,
+// so nothing it calls reaches the package that ships the real manifest.
+async function withUnpublishedPackage(body) {
+  const packageRoot = fileURLToPath(new URL("..", import.meta.url));
+  const staged = await mkdtemp(join(tmpdir(), "apostate-node-unpublished-"));
+  const saved = ACQUISITION_ENVIRONMENT.map((name) => [name, process.env[name]]);
+  try {
+    await copyFile(join(packageRoot, "package.json"), join(staged, "package.json"));
+    await cp(join(packageRoot, "assets"), join(staged, "assets"), { recursive: true });
+    await writeFile(join(staged, "assets", "release-manifest.json"), JSON.stringify({
+      package_version: PACKAGE_VERSION,
+      chromium_version: CHROMIUM_VERSION,
+      catalogue_version: CATALOGUE_VERSION,
+      status: "unpublished",
+      artifacts: {},
+    }));
+    await mkdir(join(staged, "dist"));
+    await copyFile(join(packageRoot, "dist", "index.js"), join(staged, "dist", "index.js"));
+    // Its dependencies resolve from the real install.
+    await symlink(join(packageRoot, "node_modules"), join(staged, "node_modules"),
+      process.platform === "win32" ? "junction" : "dir");
+    for (const name of ACQUISITION_ENVIRONMENT) delete process.env[name];
+    return await body(await import(pathToFileURL(join(staged, "dist", "index.js")).href));
+  } finally {
+    for (const [name, value] of saved) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    await rm(staged, { recursive: true, force: true });
+  }
+}
 
 // The per-asset manifest the release publishes beside each archive.
 function assetManifest(archive, platform = target, overrides = {}) {
@@ -856,7 +899,7 @@ function assetManifest(archive, platform = target, overrides = {}) {
   };
 }
 
-test("falls back from the tagged release manifest to latest and installs against it", async () => {
+test("falls back from the tagged release manifest to latest and installs against it", () => withUnpublishedPackage(async ({ ensureBinary }) => {
   const cacheDir = await mkdtemp(join(tmpdir(), "apostate-node-release-manifest-"));
   try {
     const archive = Buffer.from("real archive bytes");
@@ -903,9 +946,9 @@ test("falls back from the tagged release manifest to latest and installs against
   } finally {
     await rm(cacheDir, { recursive: true, force: true });
   }
-});
+}));
 
-test("a fetched manifest that describes something else is refused, and latest is still tried", async () => {
+test("a fetched manifest that describes something else is refused, and latest is still tried", () => withUnpublishedPackage(async ({ ensureBinary }) => {
   const cacheDir = await mkdtemp(join(tmpdir(), "apostate-node-release-manifest-wrong-"));
   try {
     const archive = Buffer.from("real archive bytes");
@@ -931,9 +974,9 @@ test("a fetched manifest that describes something else is refused, and latest is
   } finally {
     await rm(cacheDir, { recursive: true, force: true });
   }
-});
+}));
 
-test("a digest that does not match the archive aborts before extraction", async () => {
+test("a digest that does not match the archive aborts before extraction", () => withUnpublishedPackage(async ({ ensureBinary }) => {
   const cacheDir = await mkdtemp(join(tmpdir(), "apostate-node-release-manifest-digest-"));
   try {
     let extracts = 0;
@@ -953,9 +996,9 @@ test("a digest that does not match the archive aborts before extraction", async 
   } finally {
     await rm(cacheDir, { recursive: true, force: true });
   }
-});
+}));
 
-test("launch refuses only after both release manifest URLs failed, and names them", async () => {
+test("launch refuses only after both release manifest URLs failed, and names them", () => withUnpublishedPackage(async ({ launch, UnpublishedArtifactError }) => {
   const cacheDir = await mkdtemp(join(tmpdir(), "apostate-node-launch-"));
   try {
     const tried = [];
@@ -984,7 +1027,7 @@ test("launch refuses only after both release manifest URLs failed, and names the
   } finally {
     await rm(cacheDir, { recursive: true, force: true });
   }
-});
+}));
 
 test("a named bundle or payload root resolves to the executable inside it", async () => {
   const root = await mkdtemp(join(tmpdir(), "apostate-node-named-path-"));
@@ -1426,12 +1469,16 @@ test("locale travels as an override, never as a partial profile envelope", async
       ["nothing requested", { geoip: false }, [], false],
       ["seed only", { geoip: false, fingerprint: 12345 }, ["--fingerprint=12345"], false],
       ["explicit locale", { geoip: false, locale: "en-US" }, ["--fingerprint-locale=en-US"], false],
+      // Only the caller's own locale can name a list, and it is passed as given.
+      ["explicit list", { geoip: false, locale: "fr-FR,fr" }, ["--fingerprint-locale=fr-FR,fr"], false],
       ["explicit timezone", { geoip: false, timezone: "Europe/London" },
         ["--fingerprint-timezone=Europe/London"], false],
+      // GeoIP names one tag even when the provider spells a list: it knows the
+      // exit country's locale, never a list anyone chose.
       ["geoip default, the common shape", { geoipResolver },
-        ["--fingerprint-locale=en-US,en", "--fingerprint-timezone=Europe/London"], false],
+        ["--fingerprint-locale=en-US", "--fingerprint-timezone=Europe/London"], false],
       ["geoip default plus a seed", { fingerprint: 12345, geoipResolver },
-        ["--fingerprint=12345", "--fingerprint-locale=en-US,en",
+        ["--fingerprint=12345", "--fingerprint-locale=en-US",
           "--fingerprint-timezone=Europe/London"], false],
       // Host mode composes nothing, so an envelope suppresses nothing there and
       // is the only carrier a locale has. Per-field overrides are refused by the
@@ -1562,7 +1609,7 @@ test("a GeoIP failure sends no override rather than inventing en-US and UTC", as
       // the two fields. This is the site the removed hard fallback re-invented
       // from, independently of the handler above.
       ["a result with no timezone", { geoipResolver: async () => ({ locale: "de-DE,de" }) },
-        ["--fingerprint-locale=de-DE,de"], "resolved no timezone"],
+        ["--fingerprint-locale=de-DE"], "resolved no timezone"],
       ["a result with no country at all", { geoipResolver: async () => ({ timezone: "Europe/Berlin" }) },
         ["--fingerprint-timezone=Europe/Berlin"], "returned no country"],
       // freeipapi answers `timeZone` with a UTC offset, which cannot drive
@@ -1580,8 +1627,7 @@ test("a GeoIP failure sends no override rather than inventing en-US and UTC", as
       ["the Malaysian exit the hand table missed",
         { geoipResolver: async () => ({ country_code: "MY", timezone: "Asia/Kuala_Lumpur" }) },
         ["--fingerprint-locale=ms", "--fingerprint-timezone=Asia/Kuala_Lumpur"], null],
-      // es-419 is Latin American Spanish: a regional tag whose base language
-      // still trails it in accept_languages.
+      // es-419 is Latin American Spanish: a regional tag, passed as it is.
       ["a Latin American exit",
         { geoipResolver: async () => ({ countryCode: "GT", timezone: "America/Guatemala" }) },
         ["--fingerprint-locale=es-419", "--fingerprint-timezone=America/Guatemala"], null],
@@ -1613,26 +1659,26 @@ test("a GeoIP failure sends no override rather than inventing en-US and UTC", as
   }
 });
 
-test("a country derives its locale and its accept-language list for every territory", async () => {
+test("a country derives its locale for every territory, and the tag names no list", async () => {
   // The country -> locale table is assets/country-locales.json, generated
   // from CLDR territoryInfo and Chromium's own kAcceptLanguageList and
   // shipped byte-identical to the Python package. What is asserted here is
-  // the shape it is turned into: the tag drives --fingerprint-locale, and
-  // accept_languages carries the tag with its base language behind it -- or
-  // just the tag, when the tag has no region to strip.
-  for (const [country, locale, acceptLanguages] of [
-    ["MY", "ms", "ms"],
-    ["GT", "es-419", "es-419,es"],
-    ["IN", "en-IN", "en-IN,en"],
-    ["CZ", "cs", "cs"],
-    ["HK", "zh-HK", "zh-HK,zh"],
+  // the shape it is turned into: the tag drives --fingerprint-locale, and in
+  // an envelope it is carried as locale.application with no list, so the
+  // browser serves the list that locale's own resource bundle declares.
+  for (const [country, locale] of [
+    ["MY", "ms"],
+    ["GT", "es-419"],
+    ["IN", "en-IN"],
+    ["CZ", "cs"],
+    ["HK", "zh-HK"],
   ]) {
     const config = await resolveLaunchConfig({
       fingerprint: "host",
       geoipResolver: async () => ({ country_code: country, timezone: "Etc/UTC" }),
     });
     assert.equal(config.locale, locale, country);
-    assert.equal(config.profile.locale.accept_languages, acceptLanguages, country);
+    assert.deepEqual(config.profile.locale, { application: locale, timezone: "Etc/UTC" }, country);
   }
 
   // No country means no derivation, and the message says so: "resolved no

@@ -185,6 +185,46 @@ def _release(assets: dict[str, bytes] | None = None) -> Any:
         yield requested
 
 
+#: Variables that point a manager at a binary, a mirror or a cache of the
+#: operator's choosing. A test of the package's own acquisition path must not
+#: see them.
+_ACQUISITION_ENVIRONMENT = ("APOSTATE_BINARY", "APOSTATE_CACHE_DIR",
+                            "APOSTATE_DOWNLOAD_BASE_URL", "APOSTATE_KEEP_ARCHIVE")
+
+
+@contextlib.contextmanager
+def _unpublished_package() -> Any:
+    """This package as it ships before its binaries are released.
+
+    The baked ``release-manifest.json`` is whatever the last release wrote,
+    so once a release publishes its digests the shipped asset no longer
+    exercises the route taken when it publishes nothing. That route is what
+    these tests are about, so they bake an unpublished manifest themselves
+    instead of depending on the state of the release. The real reader and
+    validator still parse it; only the bytes of the package asset change.
+    """
+    binary_module = importlib.import_module("apostate.binary")
+    real_read_resource = binary_module._read_resource
+    unpublished = json.dumps({
+        "package_version": config_module.PACKAGE_VERSION,
+        "chromium_version": CHROMIUM_VERSION,
+        "catalogue_version": CATALOGUE_VERSION,
+        "status": "unpublished",
+        "artifacts": {},
+    }).encode("utf-8")
+
+    def read_resource(name: str) -> bytes:
+        if name == binary_module._MANIFEST_RESOURCE:
+            return unpublished
+        return real_read_resource(name)
+
+    with mock.patch.dict(os.environ), \
+            mock.patch.object(binary_module, "_read_resource", read_resource):
+        for name in _ACQUISITION_ENVIRONMENT:
+            os.environ.pop(name, None)
+        yield
+
+
 class _FakeSocks5Server:
     """One connection, one RFC 1928 handshake, one HTTP response.
 
@@ -642,6 +682,11 @@ print(catalogue['browser_build'])
             localized.profile,
             {"locale": {"accept_languages": "en-GB,en", "timezone": "Europe/London"}},
         )
+        # A single tag in the envelope names only the application locale, as
+        # it does on the composing path, so no list is written for it.
+        tagged = launch_module._resolve_plan(
+            translate_options(fingerprint="host", locale="en-GB", geoip=False))
+        self.assertEqual(tagged.profile, {"locale": {"application": "en-GB"}})
         argument = next(item for item in launch_module._native_args(localized)
                         if item.startswith("--apostate-profile="))
         self.assertEqual(
@@ -671,12 +716,18 @@ print(catalogue['browser_build'])
             ("seed only", {"fingerprint": 12345, "geoip": False}, ["--fingerprint=12345"], False),
             ("explicit locale", {"locale": "en-US", "geoip": False},
              ["--fingerprint-locale=en-US"], False),
+            # Only the caller's own locale can name a list, and it is passed as
+            # given.
+            ("explicit list", {"locale": "fr-FR,fr", "geoip": False},
+             ["--fingerprint-locale=fr-FR,fr"], False),
             ("explicit timezone", {"timezone": "Europe/London", "geoip": False},
              ["--fingerprint-timezone=Europe/London"], False),
+            # GeoIP names one tag even when the provider spells a list: it
+            # knows the exit country's locale, never a list anyone chose.
             ("geoip default, the common shape", {},
-             ["--fingerprint-locale=en-US,en", "--fingerprint-timezone=Europe/London"], False),
+             ["--fingerprint-locale=en-US", "--fingerprint-timezone=Europe/London"], False),
             ("geoip default plus a seed", {"fingerprint": 12345},
-             ["--fingerprint=12345", "--fingerprint-locale=en-US,en",
+             ["--fingerprint=12345", "--fingerprint-locale=en-US",
               "--fingerprint-timezone=Europe/London"], False),
             # Host mode composes nothing, so an envelope suppresses nothing
             # there and is the only carrier a locale has. Per-field overrides
@@ -740,7 +791,7 @@ print(catalogue['browser_build'])
             # from a second site independent of its failure handler, and this
             # package discarded the field it did get by raising.
             ("a result with no timezone", lambda proxy, timeout: {"locale": "de-DE,de"},
-             ["--fingerprint-locale=de-DE,de"], "resolved no timezone"),
+             ["--fingerprint-locale=de-DE"], "resolved no timezone"),
             # A lookup never returns a locale: the launcher infers one from
             # the country. So "no locale" is only ever "no country", and that
             # is what the line says.
@@ -879,6 +930,7 @@ print(catalogue['browser_build'])
         tag for this package's own version first, then ``latest``.
         """
         binary_module = importlib.import_module("apostate.binary")
+        self._as_unpublished_package()
         archive_bytes = self._zip_archive({
             "apostate-152.0.7977.83-macos-arm64/Chromium.app/Contents/MacOS/Chromium": b"native binary",
         })
@@ -945,6 +997,7 @@ print(catalogue['browser_build'])
 
     def test_an_unreachable_release_manifest_names_both_urls_it_tried(self) -> None:
         binary_module = importlib.import_module("apostate.binary")
+        self._as_unpublished_package()
         calls: list[str] = []
         urls = [url for _source, url in binary_module.release_manifest_urls("macos-arm64")]
         with tempfile.TemporaryDirectory() as temporary:
@@ -967,6 +1020,7 @@ print(catalogue['browser_build'])
         # one. Every field that says which bytes these are is checked --
         # except package_version, which is the whole point of fetching.
         binary_module = importlib.import_module("apostate.binary")
+        self._as_unpublished_package()
         urls = dict(binary_module.release_manifest_urls("macos-arm64"))
         latest = urls["release-latest"]
         archive_bytes = b"not really an archive"
@@ -1007,6 +1061,7 @@ print(catalogue['browser_build'])
         """
         launch_module = importlib.import_module("apostate.launch")
         binary_module = importlib.import_module("apostate.binary")
+        self._as_unpublished_package()
         with tempfile.TemporaryDirectory() as temporary:
             # launch() has no search_roots parameter, so the documented
             # locations are emptied for the duration: see the note above.
@@ -1182,6 +1237,12 @@ print(catalogue['browser_build'])
             executable = manager.ensure(target="linux-x64")
             self.assertEqual(executable.read_bytes(), b"native binary")
 
+    def _as_unpublished_package(self) -> None:
+        """Run the rest of this test inside :func:`_unpublished_package`."""
+        stack = contextlib.ExitStack()
+        self.addCleanup(stack.close)
+        stack.enter_context(_unpublished_package())
+
     def _zip_archive(self, files: dict[str, bytes],
                      links: dict[str, str] | None = None) -> bytes:
         buffer = io.BytesIO()
@@ -1273,6 +1334,7 @@ print(catalogue['browser_build'])
         all and nothing on screen to say so.
         """
         binary_module = importlib.import_module("apostate.binary")
+        self._as_unpublished_package()
         with tempfile.TemporaryDirectory() as temporary:
             roots = Path(temporary) / "roots"
             cache = Path(temporary) / "cache"

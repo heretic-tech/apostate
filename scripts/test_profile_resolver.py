@@ -35,7 +35,8 @@ BASE_CONFIG = {
 
 # The English family names in w11-fonts/ of
 # https://github.com/MauCariApa-com/windows-11-fonts, read from the fonts' name
-# tables. It is what `apostate fonts install windows` installs.
+# tables. `apostate fonts install windows` installs the files of the Windows
+# core pack's families from it.
 WINDOWS_11_FONTS_REPO = frozenset({
     "Arial", "Arial Black", "Arial Narrow", "Bahnschrift", "Bodoni Bd BT", "Bodoni Bk BT",
     "Book Antiqua", "Bookman Old Style", "Bookshelf Symbol 7", "Calibri", "Calibri Light",
@@ -624,15 +625,18 @@ class CompositionTests(unittest.TestCase):
         claiming a 4090 while `adapter.info` says `ampere` is a contradiction
         a page reads in two calls.
 
-        `member.webgpu_architecture` overrides exactly that one field and
-        nothing else -- vendor, features and the measured limits still come
-        from the donor, because those are what the donor measured. Composed
+        `member.webgpu_architecture` overrides exactly that field, and
+        `member.webgpu_subgroup_min_size` the smallest subgroup size, which
+        Dawn lowers to 8 on Intel Gen12LP under D3D12. Vendor, features, the
+        largest subgroup size and the measured limits still come from the
+        donor, because those are what the donor measured. Composed
         rather than computed here: the branch under test lives in the
         resolution loop, and recomputing the rule would test the test.
         """
         _, tables, records = resolver._load_catalogue()
         stated: dict[str, str | None] = {}
         donor_of: dict[str, str] = {}
+        stated_min: dict[str, int | None] = {}
         for option_set in tables["gpu_identity"]["option_sets"]:
             for option in option_set["options"]:
                 block = option.get("member") or {}
@@ -640,6 +644,7 @@ class CompositionTests(unittest.TestCase):
                     continue
                 stated[option["id"]] = block.get("webgpu_architecture")
                 donor_of[option["id"]] = block["webgpu_measured_on"]
+                stated_min[option["id"]] = block.get("webgpu_subgroup_min_size")
         self.assertTrue(any(value for value in stated.values()),
                         "no identity states its own architecture, so this asserts nothing")
 
@@ -670,6 +675,10 @@ class CompositionTests(unittest.TestCase):
                 self.assertEqual(override or donor["info"]["architecture"],
                                  served["info"]["architecture"], identity)
                 self.assertEqual(donor["info"]["vendor"], served["info"]["vendor"], identity)
+                self.assertEqual(stated_min[identity] or donor["info"]["subgroup_min_size"],
+                                 served["info"]["subgroup_min_size"], identity)
+                self.assertEqual(donor["info"]["subgroup_max_size"],
+                                 served["info"]["subgroup_max_size"], identity)
                 for field in ("features", "limits"):
                     self.assertEqual(donor.get(field), served.get(field), identity)
                 if len(covered) == 2:
@@ -781,12 +790,21 @@ class CompositionTests(unittest.TestCase):
             resolver._option_set("furniture", tables["furniture"],
                                  {"platform": "windows", "os_release": "windows-7"})
 
-    def test_language_key_is_a_total_projection_computed_before_the_draw(self) -> None:
+    def test_voices_are_keyed_on_the_named_application_locale(self) -> None:
         table = resolver.load_dispersion()["voices"]
-        self.assertEqual("en-US,en", resolver._language_key("en-US,en", table))
-        self.assertEqual("", resolver._language_key("fr-FR,fr", table))
+        self.assertEqual("en-US", resolver._language_key("en-US", table))
+        self.assertEqual("", resolver._language_key("fr-FR", table))
         self.assertEqual("", resolver._language_key(None, table))
-        # A list the table does not key on is served that platform's own voices.
+        # A single tag keys on itself and a list on its first tag. The table
+        # used to be keyed on whole lists, so the bare tag the launchers pass
+        # matched no key and the persona lost its own voice set.
+        for locale, voices in (("en-US", "windows-en-us"), ("en-GB", "windows-en-gb"),
+                               ("en-GB,en-US,en", "windows-en-gb")):
+            envelope = resolver.resolve_with_diagnostics(
+                dict(BASE_CONFIG, fingerprint_locale=locale))
+            self.assertEqual([voices], envelope["diagnostics"]["axes"]["voices"]["options"],
+                             locale)
+        # A locale the table does not key on is served that platform's own voices.
         # It used to be served the host's, which under a foreign persona is the
         # one answer that cannot be a machine.
         resolved = resolver.resolve_profile(dict(BASE_CONFIG, locale_policy="en-au"))
@@ -806,51 +824,73 @@ class CompositionTests(unittest.TestCase):
         """
         host = {"host_timezone": "Asia/Bangkok", "host_languages": "th-TH,th"}
         # No layer names a locale: the surface is absent, which is what leaves
-        # the host's real zone in ICU and its real list in the pref. Every
-        # seed, because the defect was a per-seed draw.
+        # the host's real zone in ICU. Every seed, because the defect was a
+        # per-seed draw.
         for seed in range(40):
             envelope = resolver.resolve_with_diagnostics(
                 dict(BASE_CONFIG, **host, fingerprint=seed))
             self.assertNotIn("locale", envelope["profile"], seed)
             sources = envelope["diagnostics"]["locale"]
             self.assertEqual(("host", "host"),
-                             (sources["accept_languages"]["source"],
+                             (sources["locale"]["source"],
                               sources["timezone"]["source"]), seed)
             self.assertEqual("Asia/Bangkok", sources["timezone"]["host_value"], seed)
 
-        # Each named layer owns both fields it supplies, and the stronger one
-        # wins field by field. A locale policy supplies the pair as a unit.
+        # Each named layer owns the fields it supplies, and the stronger one
+        # wins field by field. A locale policy supplies the pair as a unit. A
+        # single tag names only the application locale and writes no list; a
+        # list is stored as given.
         geoip = {"locale": "de-DE", "timezone": "Europe/Berlin"}
-        for config, expected in (
+        for config, expected, carried in (
             ({"geoip": geoip},
-             {"accept_languages": ("de-DE,de", "geoip"), "timezone": ("Europe/Berlin", "geoip")}),
+             {"locale": ("de-DE", "geoip"), "timezone": ("Europe/Berlin", "geoip")},
+             {"application": "de-DE", "timezone": "Europe/Berlin"}),
             ({"geoip": geoip, "fingerprint_timezone": "Europe/Tirane"},
-             {"accept_languages": ("de-DE,de", "geoip"),
-              "timezone": ("Europe/Tirane", "command-line")}),
+             {"locale": ("de-DE", "geoip"), "timezone": ("Europe/Tirane", "command-line")},
+             {"application": "de-DE", "timezone": "Europe/Tirane"}),
+            # GeoIP knows the exit country's locale, never a list anyone chose,
+            # so a result that spells one still names a single tag.
+            ({"geoip": {"accept_languages": "de-DE,de", "timezone": "Europe/Berlin"}},
+             {"locale": ("de-DE", "geoip"), "timezone": ("Europe/Berlin", "geoip")},
+             {"application": "de-DE", "timezone": "Europe/Berlin"}),
             ({"locale_policy": "en-gb"},
-             {"accept_languages": ("en-GB,en", "command-line"),
-              "timezone": ("Europe/London", "command-line")}),
+             {"locale": ("en-GB,en", "command-line"),
+              "timezone": ("Europe/London", "command-line")},
+             {"accept_languages": "en-GB,en", "timezone": "Europe/London"}),
+            ({"fingerprint_locale": "en-US"},
+             {"locale": ("en-US", "command-line"), "timezone": (None, "host")},
+             {"application": "en-US"}),
+            ({"fingerprint_locale": "fr-FR,fr"},
+             {"locale": ("fr-FR,fr", "command-line"), "timezone": (None, "host")},
+             {"accept_languages": "fr-FR,fr"}),
             # A partial GeoIP answer contributes the field it resolved and
             # leaves the other to the host. scripts/geoip.py names no locale
             # for a country its policy table does not carry, and inventing one
             # is what this precedence refuses.
             ({"geoip": {"timezone": "Europe/Tirane"}},
-             {"accept_languages": (None, "host"), "timezone": ("Europe/Tirane", "geoip")}),
+             {"locale": (None, "host"), "timezone": ("Europe/Tirane", "geoip")},
+             {"timezone": "Europe/Tirane"}),
         ):
             envelope = resolver.resolve_with_diagnostics(dict(BASE_CONFIG, **host, **config))
             sources = envelope["diagnostics"]["locale"]
-            carried = envelope["profile"].get("locale") or {}
-            for field, (value, source) in expected.items():
-                self.assertEqual(value, sources[field]["value"], (config, field))
-                self.assertEqual(source, sources[field]["source"], (config, field))
-                self.assertEqual(value, carried.get(field), (config, field))
+            for key, (value, source) in expected.items():
+                self.assertEqual(value, sources[key]["value"], (config, key))
+                self.assertEqual(source, sources[key]["source"], (config, key))
+            self.assertEqual(carried, envelope["profile"].get("locale") or {}, config)
 
         # And the guard: a value in the section whose source is the host is the
         # shape a draw produced, so it raises instead of shipping.
         with self.assertRaises(resolver.ResolverError):
             resolver._locale_provenance_check(
                 {"locale": {"timezone": "Australia/Sydney"}},
-                {"accept_languages": {"value": None, "source": "host"},
+                {"locale": {"value": None, "source": "host"},
+                 "timezone": {"value": None, "source": "host"}})
+        # A single tag carried as a list is the old expansion, not what the
+        # launch named.
+        with self.assertRaises(resolver.ResolverError):
+            resolver._locale_provenance_check(
+                {"locale": {"accept_languages": "en-US,en"}},
+                {"locale": {"value": "en-US", "source": "geoip"},
                  "timezone": {"value": None, "source": "host"}})
 
     def test_explicit_profile_file_is_validated_and_marked_as_a_bypass(self) -> None:
@@ -886,11 +926,11 @@ class CompositionTests(unittest.TestCase):
     })
     GOLDEN_PROFILES = {
         "windows": ("fp-b0b97b3a3531b65ee50f45fc", GOLDEN_SECTIONS,
-                    "8fbd46a1364544901fd3b5007df26f09c76b65a4476caa3ff77976c8400cef48"),
+                    "d4a306fb17acea237786ad4e04244c9e1df33a2a0bd652ce54931cb6f2bcc9ce"),
         "macos": ("fp-60eab51485a4a8465ce3c24a", GOLDEN_SECTIONS,
-                  "3998c36c39d79110eca7b568dcf86a12b4a89af5a750eb97d0695910145f281e"),
+                  "3738d7b64c6b52da997aac166ad6343f365821075562e66bfa860c56f4ff4b5e"),
         "linux": ("fp-8c5f63da9ef88ea749549a91", GOLDEN_SECTIONS,
-                  "c72916e001326d920585597d2f9ce4957cad2aa2aa743dd8325863ed5f0976d3"),
+                  "c9e3ec82335b73416c15513464a28925cea2255ff35190f3a4c3ad48909287db"),
     }
 
     def _check_golden(self, persona: str, profile: dict, digest: str,
