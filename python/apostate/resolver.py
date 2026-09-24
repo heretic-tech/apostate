@@ -225,13 +225,16 @@ def _profile_platform(profile: Mapping[str, Any]) -> str | None:
 
 
 def _nested_locale(profile: Mapping[str, Any]) -> tuple[str | None, str | None]:
+    """The locale and timezone a profile names: its `application` tag, else its list."""
     value = profile.get("locale")
     if not isinstance(value, Mapping):
         return None, None
+    application = value.get("application")
     languages = value.get("accept_languages")
+    locale = application if isinstance(application, str) and application else languages
     timezone = value.get("timezone")
     return (
-        languages if isinstance(languages, str) and languages else None,
+        locale if isinstance(locale, str) and locale else None,
         timezone if isinstance(timezone, str) and timezone else None,
     )
 
@@ -422,7 +425,14 @@ class DeterministicResolver:
         if not isinstance(geo_locale, str) and isinstance(geoip, Mapping):
             languages = geoip.get("languages")
             if isinstance(languages, (list, tuple)) and languages:
-                geo_locale = ",".join(str(item) for item in languages)
+                geo_locale = str(languages[0])
+        # GeoIP knows the exit country's locale and nothing about a list anyone
+        # chose, so it travels as one tag. A single --fingerprint-locale tag
+        # names only the application locale, and the browser then serves that
+        # locale's own Accept-Language list, which is what a real user of it
+        # sends. Only a caller's own `locale` may name a list.
+        if isinstance(geo_locale, str):
+            geo_locale = geo_locale.split(",", 1)[0].strip()
         geo_timezone = geoip.get("timezone") if isinstance(geoip, Mapping) else None
         if config.locale is not None:
             locale = config.locale
@@ -458,8 +468,14 @@ class DeterministicResolver:
         if (locale or timezone) and profile_id != "native-composed":
             value = selected.get("locale")
             locale_block = dict(value) if isinstance(value, Mapping) else {}
-            if locale:
-                locale_block["accept_languages"] = locale
+            if locale and locale_source != "profile-selected":
+                # The shape --fingerprint-locale has on the composing path: a
+                # list is the Accept-Language list itself, and a single tag
+                # names only the application locale and leaves the list to that
+                # locale's own default. Either replaces what the profile named.
+                locale_block.pop("application", None)
+                locale_block.pop("accept_languages", None)
+                locale_block["accept_languages" if "," in locale else "application"] = locale
             if timezone:
                 locale_block["timezone"] = timezone
             selected["locale"] = locale_block

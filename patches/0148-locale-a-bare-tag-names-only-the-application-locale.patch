@@ -1,0 +1,590 @@
+Subject: [PATCH] locale: a bare tag names only the application locale
+
+--fingerprint-locale=en-US was stored as the Accept-Language list, so
+navigator.languages said ["en-US"] while the header said "en-US,en;q=0.9".
+A value without a comma now names only the UI locale: it is kept as
+locale.application (a child process gets the profile, not the switch) and
+no list is written, so a page sees Chrome's own default list for that
+locale, as a real user of it does. A comma list is still stored as given.
+The voices table is keyed on the locale tag, so a bare en-US gets its
+measured voices. Also closes a test body 0116 left open in compose_unittest.cc.
+
+diff --git a/base/apostate/compose.cc b/base/apostate/compose.cc
+index 3f481be..4f74ecd 100644
+--- a/base/apostate/compose.cc
++++ b/base/apostate/compose.cc
+@@ -168,20 +168,24 @@ ClaimedIdentity IdentityFromProfile(const DictValue& profile) {
+   return identity;
+ }
+ 
+-// The projection of a resolved accept-languages list onto the voices table's
+-// own keys.
++// The projection of the application locale a launch named onto the voices
++// table's own keys: `en-GB` for a launch that named en-GB, whether as a single
++// tag or as the first tag of a list.
++//
++// Keyed on the locale rather than on the Accept-Language list, because a single
++// tag writes no list, and the voices a machine has installed follow the
++// language it was set up in rather than the list its browser sends.
+ //
+ // This is computed *before* the draw, so it is a key projection and never a
+ // fallback after a failed match: option-set matching stays exact and total, and
+-// there is never a miss to recover from. The empty-string set carries no
+-// `speech` section, which leaves the host's real providers in effect -- the
+-// only honest answer for a language set nobody measured.
++// there is never a miss to recover from. A locale nobody measured, and a launch
++// that named none, project onto the empty-string set.
+ std::string ProjectLanguages(const DispersionAxis& axis,
+-                             std::string_view accept_languages) {
++                             std::string_view locale_tag) {
+   for (const DispersionOptionSet& option_set : axis.option_sets) {
+     for (const ConditionKey& entry : option_set.key) {
+-      if (entry.name == "languages" && entry.value == accept_languages) {
+-        return std::string(accept_languages);
++      if (entry.name == "languages" && entry.value == locale_tag) {
++        return std::string(locale_tag);
+       }
+     }
+   }
+@@ -457,14 +461,15 @@ std::string TimezoneInheritanceNote() {
+ // how a Bangkok host served Thai under a Windows persona with
+ // --fingerprint-explain reporting nothing wrong.
+ std::string AcceptLanguagesDefaultNote(const std::string& tag) {
+-  return "no launch layer named locale.accept_languages, so no override is "
+-         "composed for it and the list a page reads is the one the " +
++  return "no launch layer named a list, so no override is composed for "
++         "locale.accept_languages and the list a page reads is the one the " +
+          tag +
+-         " resource bundle declares -- not the host's, because the "
+-         "application locale is pinned (see locale.application). Pass "
+-         "--fingerprint-locale to name the list, or launch through the Python "
+-         "or Node package, which resolves it from GeoIP of the effective "
+-         "egress and passes that same switch";
++         " resource bundle declares, which is the list a real user of that "
++         "locale has -- not the host's, because the application locale is "
++         "pinned (see locale.application). A single --fingerprint-locale "
++         "tag, which is what the Python and Node packages pass from GeoIP of "
++         "the effective egress, names only the application locale; pass a "
++         "comma-separated list to name the list itself";
+ }
+ 
+ // The note the application locale carries, whichever layer owns it.
+@@ -698,7 +703,7 @@ bool CollectOverrides(const CommandLine& command_line,
+          ParseTextOverride(command_line, switches::kFingerprintTimezone,
+                            &overrides->timezone, rejection) &&
+          ParseTextOverride(command_line, switches::kFingerprintLocale,
+-                           &overrides->accept_languages, rejection) &&
++                           &overrides->locale, rejection) &&
+          ParseIntOverride(command_line,
+                           switches::kFingerprintHardwareConcurrency,
+                           kMaxOverrideCores, &overrides->logical_cores,
+@@ -769,7 +774,7 @@ void ReportAuthoredProfileBypass(const CommandLine& command_line,
+ 
+   if (explain) {
+     WriteAuthoredProfileReport(
+-        inert, ComposedLocaleTag(Profile::AcceptLanguagesInPayload(payload)));
++        inert, ComposedLocaleTag(Profile::LocaleInPayload(payload)));
+     Process::TerminateCurrentProcessImmediately(0);
+   }
+ }
+@@ -1287,7 +1292,8 @@ std::optional<Composition> Compose(const ComposeRequest& request,
+   //   the host, expressed as *absence*. A field nobody named is not written,
+   //   so `locale` carries only what a launch layer supplied and may be absent
+   //   altogether. That is what leaves the host's real zone in ICU (patch 0011)
+-  //   and the host's real list in the Accept-Language pref (patch 0013).
++  //   and, when no list is named, the application locale's own default list in
++  //   the Accept-Language pref (patch 0013).
+   //
+   // Absence is the whole mechanism, and it is why the two fields cannot drift
+   // apart: neither is ever filled in from a source that cannot also answer for
+@@ -1295,9 +1301,9 @@ std::optional<Composition> Compose(const ComposeRequest& request,
+   // defect in a smaller form.
+   //
+   // Applied before the voices axis resolves rather than merged over the
+-  // finished profile, because the voices table is keyed on the resolved
+-  // Accept-Language list: applying it later would leave a launch claiming
+-  // en-GB while offering the voice set measured for another list. That is
++  // finished profile, because the voices table is keyed on the application
++  // locale the launch named: applying it later would leave a launch claiming
++  // en-GB while offering the voice set measured for another locale. That is
+   // patch 0085's reason and it is unchanged.
+   auto resolve_locale = [&]() {
+     const FieldOverrides& named = request.overrides;
+@@ -1308,28 +1314,37 @@ std::optional<Composition> Compose(const ComposeRequest& request,
+     // installed by InstallComposedProfile, because Compose() is a pure
+     // function of its request and writing an environment variable from inside
+     // it would make a unit test change the process it runs in.
+-    const std::string application_locale =
+-        ComposedLocaleTag(named.accept_languages);
++    const std::string application_locale = ComposedLocaleTag(named.locale);
+     composition.surfaces.push_back({
+         .surface = "locale.application",
+         .value = application_locale,
+-        .layer = std::string(named.accept_languages.empty()
+-                                 ? kLayerComposedDefault
+-                                 : kLayerOverride),
++        .layer = std::string(named.locale.empty() ? kLayerComposedDefault
++                                                  : kLayerOverride),
+         // `native-derived` rather than a second copy of the layer: the value
+         // is a constant this build emits from its own source, which is what
+         // docs/PROFILE_SPEC.md's vocabulary already has a word for.
+-        .evidence = named.accept_languages.empty() ? "native-derived"
+-                                                   : "operator",
+-        .limitation =
+-            ApplicationLocaleNote(!named.accept_languages.empty()),
++        .evidence = named.locale.empty() ? "native-derived" : "operator",
++        .limitation = ApplicationLocaleNote(!named.locale.empty()),
+     });
+-    if (!named.accept_languages.empty()) {
++    // A value with a comma is a list: the Accept-Language list itself, stored
++    // whole. A single tag names only the application locale. No list is
++    // written for it, so the list is the one that locale's resource bundle
++    // declares (en-US,en for en-US, en-GB,en-US,en for en-GB, de-DE,de,en-US,en
++    // for de-DE), which is what a real user of that locale sends. The tag is
++    // kept as `locale.application` because a child process is given the
++    // profile and not the switch. Storing the bare tag as the list served
++    // navigator.languages ["en-US"] beside an Accept-Language header of
++    // "en-US,en;q=0.9", a pair no real browser produces.
++    if (named.locale.find(',') != std::string::npos) {
+       composition.profile.EnsureDict("locale")->Set("accept_languages",
+-                                                    named.accept_languages);
+-      RecordOverride(composition, "locale.accept_languages",
+-                     named.accept_languages, LocaleNote("accept_languages"));
++                                                    named.locale);
++      RecordOverride(composition, "locale.accept_languages", named.locale,
++                     LocaleNote("accept_languages"));
+     } else {
++      if (!named.locale.empty()) {
++        composition.profile.EnsureDict("locale")->Set("application",
++                                                      application_locale);
++      }
+       composition.surfaces.push_back({
+           .surface = "locale.accept_languages",
+           .value = "(the " + application_locale + " bundle's default)",
+@@ -1385,28 +1400,28 @@ std::optional<Composition> Compose(const ComposeRequest& request,
+   bool panel_resolved = false;
+ 
+   for (const DispersionAxis& axis : request.axes) {
+-    // The voices table is keyed on the resolved accept-languages list, so the
+-    // locale surface has to be settled before it. It is settled as late as
++    // The voices table is keyed on the application locale the launch named, so
++    // the locale surface has to be settled before it. It is settled as late as
+     // possible otherwise, because the §5 order puts locale last.
+     if (axis.axis == "voices" && !locale_resolved) {
+       resolve_locale();
+       locale_resolved = true;
+     }
+     if (axis.axis == "voices") {
+-      // The composed list or nothing. There is no catalogue default to fall
+-      // back to any more: with the locale surface inherited, the honest key is
+-      // the empty one, whose option set carries no `speech` section and so
+-      // leaves the host's real providers in effect. Substituting a default
+-      // list here would claim the voice set measured for a language the launch
+-      // never asked for, under a locale the host owns.
+-      std::string accept_languages;
++      // The locale the launch named, or nothing: `locale.application` for a
++      // single tag, the first tag of `locale.accept_languages` for a list. A
++      // launch that named none keys on the empty set, the same as a locale
++      // nobody measured.
++      std::string locale_tag;
+       if (const DictValue* locale = composition.profile.FindDict("locale")) {
+-        if (const std::string* declared =
+-                locale->FindString("accept_languages")) {
+-          accept_languages = *declared;
++        if (const std::string* tag = locale->FindString("application")) {
++          locale_tag = *tag;
++        } else if (const std::string* list =
++                       locale->FindString("accept_languages")) {
++          locale_tag = ComposedLocaleTag(*list);
+         }
+       }
+-      resolved["languages"] = ProjectLanguages(axis, accept_languages);
++      resolved["languages"] = ProjectLanguages(axis, locale_tag);
+     }
+ 
+     // An axis that hangs off the anchor has nothing to hang off when the GPU
+@@ -1984,9 +1999,8 @@ std::optional<std::string> ComposeProfileForCurrentProcess(
+   return Base64EncodeEarlyStartup(as_byte_span(*json));
+ }
+ 
+-std::string ComposedLocaleTag(std::string_view accept_languages) {
+-  const std::string_view first =
+-      accept_languages.substr(0, accept_languages.find(','));
++std::string ComposedLocaleTag(std::string_view locale) {
++  const std::string_view first = locale.substr(0, locale.find(','));
+   const std::string_view tag = TrimWhitespaceASCII(first, TRIM_ALL);
+   return tag.empty() ? std::string(kComposedDefaultLocale) : std::string(tag);
+ }
+@@ -2073,16 +2087,18 @@ std::string ComposedApplicationLocale() {
+     return std::string();
+   }
+ 
+-  // --fingerprint-locale first, then the profile's own list. For a composed
+-  // launch those are the same answer, because patch 0111 left the switch as
+-  // the only thing that writes locale.accept_languages into a composed
+-  // profile. For an authored --apostate-profile they are not: the switch is
+-  // inert there (ReportAuthoredProfileBypass says so) and the payload's list
+-  // is what the operator wrote, so the payload has to be read.
++  // --fingerprint-locale first, then the payload's own locale. For a composed
++  // launch those are the same answer: composition writes the switch's value
++  // into the payload, as `locale.application` for a single tag and as
++  // `locale.accept_languages` for a list, so the browser, which has the switch,
++  // and a child, which is given only the payload, resolve the same tag. For an
++  // authored --apostate-profile they are not: the switch is inert there
++  // (ReportAuthoredProfileBypass says so) and the payload's locale is what the
++  // operator wrote, so the payload has to be read.
+   std::string named =
+       command_line.GetSwitchValueASCII(switches::kFingerprintLocale);
+   if (named.empty()) {
+-    named = Profile::AcceptLanguagesInPayload(payload);
++    named = Profile::LocaleInPayload(payload);
+   }
+   return ComposedLocaleTag(named);
+ }
+diff --git a/base/apostate/compose.h b/base/apostate/compose.h
+index 059d54f..9b64a47 100644
+--- a/base/apostate/compose.h
++++ b/base/apostate/compose.h
+@@ -241,10 +241,12 @@ struct BASE_EXPORT FieldOverrides {
+   std::optional<int> screen_height;
+ 
+   std::string timezone;
+-  // The Accept-Language list, e.g. "en-US,en". Re-keys the voices table too,
+-  // which is why it is applied before that axis resolves rather than merged
+-  // over the finished profile.
+-  std::string accept_languages;
++  // --fingerprint-locale as given. A single tag, e.g. "de-DE", names only the
++  // application locale; a comma list, e.g. "en-US,en", is also the
++  // Accept-Language list. Its first tag re-keys the voices table, which is why
++  // it is applied before that axis resolves rather than merged over the
++  // finished profile.
++  std::string locale;
+ };
+ 
+ struct BASE_EXPORT ComposeRequest {
+@@ -254,9 +256,9 @@ struct BASE_EXPORT ComposeRequest {
+   std::string platform;
+   // --fingerprint-anchor. Empty means draw one.
+   std::string pinned_anchor;
+-  // The launch's language list, e.g. "en-US,en". Empty means the catalogue's
+-  // default. The voices table is keyed on the resolved list, projected onto
+-  // the keys the table actually has.
++  // --lang as given. Inert under a composed profile, because the composed
++  // application locale resolves ahead of it; the composition only reports it
++  // when it disagrees with that locale.
+   std::string accept_languages;
+   // <user-data-dir>/apostate: where font provisioning is looked for. Empty
+   // when the launch named no user data directory and none was resolved for
+@@ -400,9 +402,10 @@ BASE_EXPORT void InstallComposedProfile(const FilePath& user_data_dir);
+ // either package must present the same locale for the same resolution.
+ inline constexpr char kComposedDefaultLocale[] = "en-US";
+ 
+-// The first tag of an Accept-Language list: `de-DE,de` -> `de-DE`. An empty or
+-// blank list yields kComposedDefaultLocale.
+-BASE_EXPORT std::string ComposedLocaleTag(std::string_view accept_languages);
++// The first tag of a --fingerprint-locale value or an Accept-Language list:
++// `de-DE,de` -> `de-DE`, and a single tag is itself. An empty or blank value
++// yields kComposedDefaultLocale.
++BASE_EXPORT std::string ComposedLocaleTag(std::string_view locale);
+ 
+ // `de-DE` -> `de_DE.UTF-8`, the form the three LC_* variables expect.
+ //
+@@ -450,8 +453,8 @@ BASE_EXPORT void InstallComposedLocaleEnvironment(std::string_view tag);
+ //   `--fingerprint-locale`, which is where an operator's own choice and the
+ //   launchers' prelaunch GeoIP answer both arrive;
+ //
+-//   the installed profile's own `locale.accept_languages`, which is what an
+-//   authored `--apostate-profile` carries and what composition writes;
++//   the installed profile's own locale (Profile::LocaleInPayload), which is
++//   what an authored `--apostate-profile` carries and what composition writes;
+ //
+ //   kComposedDefaultLocale, because absence of a resolved locale has to mean a
+ //   defined value or the served locale becomes a property of the operator's
+diff --git a/base/apostate/compose_unittest.cc b/base/apostate/compose_unittest.cc
+index 5135a3b..2fcabf1 100644
+--- a/base/apostate/compose_unittest.cc
++++ b/base/apostate/compose_unittest.cc
+@@ -167,8 +167,8 @@ constexpr DispersionAxis kExtensionsAxis = {
+     span<const DispersionOptionSet>(kExtensionsSets),
+ };
+ 
+-// ---- voices: single / none, conditioned on languages ----
+-constexpr ConditionKey kVoicesEnUsKey[] = {{"languages", "en-US,en"}};
++// ---- voices: single / none, keyed on the named locale ----
++constexpr ConditionKey kVoicesEnUsKey[] = {{"languages", "en-US"}};
+ constexpr ConditionKey kVoicesAnyKey[] = {{"languages", ""}};
+ constexpr DispersionOption kVoicesEnUsOptions[] = {
+     {"en-us", 100, "catalogue-value", "", PackKind::kNotAPack, nullptr,
+@@ -555,6 +555,7 @@ TEST(ApostateComposeTest, AddingAnAxisDoesNotShiftAnotherAxisChoice) {
+   // persona selects the anchor now, so a fixture with no anchor for the
+   // persona makes that line compare "(absent)" with itself and pass.
+   EXPECT_NE("(absent)", ChosenId(*after, "anchor"));
++}
+ 
+ // The chrome.runtime persona. Absence is the common state and it is a CLAIM,
+ // not a silence: fresh Chrome has no chrome.runtime on a web page, so a
+@@ -614,7 +615,6 @@ TEST(ApostateComposeTest, TheExtensionsAxisComposesABooleanAndOnlyWhenOffered) {
+   EXPECT_GT(present, 0)
+       << "no seed in 24 drew the minority state, so the weights are not live";
+ }
+-}
+ 
+ // ---------------------------------------------------------------------------
+ // Servability
+@@ -938,29 +938,34 @@ TEST(ApostateComposeTest, OptionSetMatchingIsExactAndTotal) {
+   EXPECT_FALSE(kOsReleaseAxis.FindOptionSet(kTooMany));
+ }
+ 
+-// The projection is computed before the draw, so option-set matching stays
+-// exact and total and there is never a failed match to recover from.
+-TEST(ApostateComposeTest, AnUnmeasuredLanguageListProjectsOntoTheEmptyKey) {
++// The voices table is keyed on the application locale the launch named. The
++// projection is computed before the draw, so option-set matching stays exact
++// and total and there is never a failed match to recover from.
++TEST(ApostateComposeTest, TheVoicesTableIsKeyedOnTheNamedLocale) {
+   constexpr DispersionAxis kAxes[] = {kVoicesAxis};
+ 
+-  // --fingerprint-locale names en-US,en, which the table has measured. That
+-  // switch is the only way a language list enters composition now that the
+-  // locale surface is not drawn, which is also why it has to re-key this axis
+-  // rather than land on the finished profile.
+-  ComposeRequest measured_request =
+-      RequestFor("lang-seed", kAxes, CapableHost());
+-  measured_request.overrides.accept_languages = "en-US,en";
+-  const std::optional<Composition> measured = Compose(measured_request);
+-  ASSERT_TRUE(measured.has_value());
+-  EXPECT_EQ("en-us", ChosenId(*measured, "voices"));
+-  EXPECT_TRUE(measured->profile.contains("speech"));
+-
+-  // A list nobody measured projects onto "", whose value carries no speech
+-  // section, so the host's real providers stay in effect. A listed voice that
+-  // cannot speak is the alternative.
++  // A single tag, which is what the launchers pass from GeoIP. The table used
++  // to be keyed on the whole list, so a bare en-US matched no key and the
++  // persona was served the empty set's voices instead of its own.
++  ComposeRequest tag_request = RequestFor("lang-seed", kAxes, CapableHost());
++  tag_request.overrides.locale = "en-US";
++  const std::optional<Composition> tag = Compose(tag_request);
++  ASSERT_TRUE(tag.has_value());
++  EXPECT_EQ("en-us", ChosenId(*tag, "voices"));
++  EXPECT_TRUE(tag->profile.contains("speech"));
++
++  // A list keys on its first tag, which is the application locale it names.
++  ComposeRequest list_request = RequestFor("lang-seed", kAxes, CapableHost());
++  list_request.overrides.locale = "en-US,en";
++  const std::optional<Composition> list = Compose(list_request);
++  ASSERT_TRUE(list.has_value());
++  EXPECT_EQ("en-us", ChosenId(*list, "voices"));
++
++  // A locale nobody measured projects onto "", whose value here carries no
++  // speech section.
+   ComposeRequest unmeasured_request =
+       RequestFor("lang-seed", kAxes, CapableHost());
+-  unmeasured_request.overrides.accept_languages = "sw-KE,sw";
++  unmeasured_request.overrides.locale = "sw-KE,sw";
+   const std::optional<Composition> unmeasured = Compose(unmeasured_request);
+   ASSERT_TRUE(unmeasured.has_value());
+   EXPECT_EQ("unmeasured", ChosenId(*unmeasured, "voices"));
+@@ -1456,7 +1461,7 @@ TEST(ApostateComposeTest, AnUnnamedLocaleResolvesToTheComposedDefault) {
+ TEST(ApostateComposeTest, AnExplicitLocaleDecidesTheApplicationLocale) {
+   constexpr DispersionAxis kAxes[] = {kOsReleaseAxis};
+   ComposeRequest request = RequestFor("locale-seed", kAxes, CapableHost());
+-  request.overrides.accept_languages = "de-DE,de,en-US,en";
++  request.overrides.locale = "de-DE,de,en-US,en";
+   const std::optional<Composition> composition = Compose(request);
+   ASSERT_TRUE(composition.has_value());
+ 
+@@ -1476,11 +1481,38 @@ TEST(ApostateComposeTest, AnExplicitLocaleDecidesTheApplicationLocale) {
+   EXPECT_EQ("de-DE,de,en-US,en", *locale->FindString("accept_languages"));
+ }
+ 
++// A single tag names only the application locale. It writes no list, so the
++// Accept-Language list is the one that locale's resource bundle declares and
++// navigator.languages agrees with the header. The tag is carried in the
++// profile because a child process is given the profile and not the switch.
++TEST(ApostateComposeTest, ASingleLocaleTagNamesOnlyTheApplicationLocale) {
++  constexpr DispersionAxis kAxes[] = {kOsReleaseAxis};
++  ComposeRequest request = RequestFor("locale-seed", kAxes, CapableHost());
++  request.overrides.locale = "de-DE";
++  const std::optional<Composition> composition = Compose(request);
++  ASSERT_TRUE(composition.has_value());
++
++  const SurfaceRecord* application =
++      Record(*composition, "locale.application");
++  ASSERT_TRUE(application);
++  EXPECT_EQ("de-DE", application->value);
++  EXPECT_EQ("command-line", application->layer);
++  EXPECT_EQ("(the de-DE bundle's default)",
++            ChosenId(*composition, "locale.accept_languages"));
++
++  const DictValue* locale = composition->profile.FindDict("locale");
++  ASSERT_TRUE(locale);
++  EXPECT_FALSE(locale->contains("accept_languages"));
++  ASSERT_TRUE(locale->FindString("application"));
++  EXPECT_EQ("de-DE", *locale->FindString("application"));
++}
++
+ // The two pure conversions, because the launchers implement the same two and a
+ // disagreement between them is a launch that presents one locale through the
+ // package and another through the binary.
+ TEST(ApostateComposeTest, TheLocaleTagAndItsPosixFormMatchTheLaunchers) {
+   EXPECT_EQ("de-DE", ComposedLocaleTag("de-DE,de,en-US,en"));
++  EXPECT_EQ("de-DE", ComposedLocaleTag("de-DE"));
+   EXPECT_EQ("de-DE", ComposedLocaleTag("  de-DE , de "));
+   EXPECT_EQ("en-US", ComposedLocaleTag(""));
+   EXPECT_EQ("en-US", ComposedLocaleTag("   ,fr-FR"));
+@@ -1496,33 +1528,40 @@ TEST(ApostateComposeTest, TheLocaleTagAndItsPosixFormMatchTheLaunchers) {
+ }
+ 
+ // The authored-payload branch. --fingerprint-locale is inert there, so the
+-// payload's own list is the only thing that can name the locale, and reading
+-// it out of the wrong form would silently stomp an authored locale with the
+-// default.
++// payload's own locale is the only thing that can name it, and reading it out
++// of the wrong form would silently stomp an authored locale with the default.
+ TEST(ApostateComposeTest, AnAuthoredPayloadsLocaleIsReadFromEitherForm) {
+   const auto encode = [](std::string_view json) {
+     return Base64Encode(as_byte_span(json));
+   };
+ 
+   EXPECT_EQ("fr-FR,fr",
+-            Profile::AcceptLanguagesInPayload(encode(
++            Profile::LocaleInPayload(encode(
+                 R"({"locale":{"accept_languages":"fr-FR,fr"}})")));
+   EXPECT_EQ("fr-FR,fr",
+-            Profile::AcceptLanguagesInPayload(encode(
++            Profile::LocaleInPayload(encode(
+                 R"({"device_profile":{"locale":{"accept_languages":)"
+                 R"("fr-FR,fr"}},"proxy_credentials":{"username":"u",)"
+                 R"("password":"p"}})")));
++  // A single tag is carried as locale.application, and it names the UI locale
++  // ahead of a list when a payload carries both.
++  EXPECT_EQ("de-DE", Profile::LocaleInPayload(
++                         encode(R"({"locale":{"application":"de-DE"}})")));
++  EXPECT_EQ("de-DE",
++            Profile::LocaleInPayload(encode(
++                R"({"locale":{"application":"de-DE",)"
++                R"("accept_languages":"fr-FR,fr"}})")));
+ 
+   // Absent, wrong-typed and undecodable all answer "nothing named one", which
+   // ComposedLocaleTag turns into the composed default. A payload that cannot
+   // be decoded is refused separately and loudly by Profile::Get(); answering
+   // anything else here would be a second opinion on the same bytes.
+-  EXPECT_EQ("", Profile::AcceptLanguagesInPayload(
++  EXPECT_EQ("", Profile::LocaleInPayload(
+                     encode(R"({"cpu":{"logical_cores":8}})")));
+-  EXPECT_EQ("", Profile::AcceptLanguagesInPayload(
++  EXPECT_EQ("", Profile::LocaleInPayload(
+                     encode(R"({"locale":{"accept_languages":7}})")));
+-  EXPECT_EQ("", Profile::AcceptLanguagesInPayload("not base64 at all!!"));
+-  EXPECT_EQ("en-US", ComposedLocaleTag(Profile::AcceptLanguagesInPayload(
++  EXPECT_EQ("", Profile::LocaleInPayload("not base64 at all!!"));
++  EXPECT_EQ("en-US", ComposedLocaleTag(Profile::LocaleInPayload(
+                          encode(R"({"cpu":{"logical_cores":8}})"))));
+ }
+ 
+@@ -1643,6 +1682,20 @@ TEST(ApostateComposeTest, TheApplicationLocaleFollowsTheLaunchPrecedence) {
+     EXPECT_EQ("ja-JP", ComposedApplicationLocale());
+   }
+ 
++  // What a child process of a launch that named a single tag sees: the
++  // composed profile, which carries the tag as locale.application and no
++  // list, and no --fingerprint-locale, which children are not given. Reading
++  // only the list here would hand every renderer the default instead.
++  {
++    test::ScopedCommandLine scoped;
++    CommandLine* command_line = scoped.GetProcessCommandLine();
++    command_line->RemoveSwitch(switches::kFingerprintLocale);
++    command_line->AppendSwitchASCII(
++        ::switches::kApostateProfile,
++        payload(R"({"locale":{"application":"de-DE"}})"));
++    EXPECT_EQ("de-DE", ComposedApplicationLocale());
++  }
++
+   // --fingerprint-locale outranks the payload. Both are present here and they
+   // disagree, which is the only arrangement that tells them apart.
+   {
+diff --git a/base/apostate/explain.cc b/base/apostate/explain.cc
+index 3f8f5fa..00bedef 100644
+--- a/base/apostate/explain.cc
++++ b/base/apostate/explain.cc
+@@ -203,11 +203,12 @@ std::string FormatAuthoredProfileReport(span<const std::string> inert,
+       "describe a surface leaves it inherited rather than have a value invented\n"
+       "for it here.\n"
+       "\nThe application locale above is the exception, and the only one. It is\n"
+-      "taken from the payload's locale.accept_languages and defaulted when the\n"
+-      "payload names none, never inherited: LANGUAGE, LC_ALL, LC_MESSAGES and\n"
+-      "LANG are written to it before the locale is resolved, because a host's\n"
+-      "shell reaching the application locale of a launch that presents someone\n"
+-      "else's machine is not inheritance, it is a leak.\n";
++      "taken from the payload's locale.application, else from the first tag of\n"
++      "its locale.accept_languages, and defaulted when the payload names neither,\n"
++      "never inherited: LANGUAGE, LC_ALL, LC_MESSAGES and LANG are written to it\n"
++      "before the locale is resolved, because a host's shell reaching the\n"
++      "application locale of a launch that presents someone else's machine is\n"
++      "not inheritance, it is a leak.\n";
+ 
+   std::vector<std::string> limitations;
+   for (const std::string& name : inert) {
+diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
+index 4e4ed48..0350166 100644
+--- a/base/apostate/profile.cc
++++ b/base/apostate/profile.cc
+@@ -328,7 +328,7 @@ bool Profile::PayloadDescribesDevice(const std::string& encoded) {
+ }
+ 
+ // static
+-std::string Profile::AcceptLanguagesInPayload(const std::string& encoded) {
++std::string Profile::LocaleInPayload(const std::string& encoded) {
+   std::string json;
+   if (!Base64Decode(encoded, &json)) {
+     return std::string();
+@@ -350,6 +350,9 @@ std::string Profile::AcceptLanguagesInPayload(const std::string& encoded) {
+   }
+ 
+   if (const DictValue* locale = dict->FindDict("locale")) {
++    if (const std::string* tag = locale->FindString("application")) {
++      return *tag;
++    }
+     if (const std::string* list = locale->FindString("accept_languages")) {
+       return *list;
+     }
+diff --git a/base/apostate/profile.h b/base/apostate/profile.h
+index 28abd28..670a07c 100644
+--- a/base/apostate/profile.h
++++ b/base/apostate/profile.h
+@@ -103,8 +103,15 @@ class BASE_EXPORT Profile {
+   // exists to prevent.
+   static bool PayloadDescribesDevice(const std::string& encoded);
+ 
+-  // The `locale.accept_languages` list a payload carries, or the empty string
+-  // when it carries none.
++  // The locale a payload names, in the form it names it: `locale.application`
++  // when present, else the `locale.accept_languages` list, else the empty
++  // string. ComposedLocaleTag() reduces either form to the application locale.
++  //
++  // `locale.application` is what a single tag writes. It names the UI locale
++  // and leaves the list to that locale's own resource-bundle default, so a
++  // payload can name the locale without naming a list, and a child process,
++  // which gets the payload and not --fingerprint-locale, still resolves the
++  // locale the browser did.
+   //
+   // A static on the payload rather than a getter on the parsed singleton, and
+   // that is the whole reason it exists. `InstallComposedProfile` needs this to
+@@ -116,11 +123,11 @@ class BASE_EXPORT Profile {
+   //
+   // Envelope-aware, like every other payload static here: `device_profile` is
+   // unwrapped when present, because the launchers send that form. An
+-  // undecodable payload, or one whose `locale.accept_languages` is not a
+-  // string, yields the empty string -- the same answer as a payload that
+-  // names no locale, which is correct because both mean "nothing named one"
+-  // and `Get()` refuses the malformed case separately and loudly.
+-  static std::string AcceptLanguagesInPayload(const std::string& encoded);
++  // undecodable payload, or one whose locale fields are not strings, yields
++  // the empty string -- the same answer as a payload that names no locale,
++  // which is correct because both mean "nothing named one" and `Get()`
++  // refuses the malformed case separately and loudly.
++  static std::string LocaleInPayload(const std::string& encoded);
+ 
+   // `composed` re-enveloped so that it carries the `proxy_credentials` block
+   // `supplied` carried.

@@ -888,16 +888,35 @@ def _option_set(axis: str, table: Mapping[str, Any], parents: Mapping[str, Any])
     return list(matches[0]["options"])
 
 
-def _language_key(accept_languages: Any, table: Mapping[str, Any]) -> str:
-    """Total projection of an accept-languages list onto the voices table's keys.
+def _language_key(locale_tag: Any, table: Mapping[str, Any]) -> str:
+    """Total projection of the named application locale onto the voices table's keys.
 
-    This is computed before the draw, so it is a key projection and never a
-    fallback after a failed match.
+    The key is the locale's tag, never the Accept-Language list: a single
+    `--fingerprint-locale` tag writes no list, and the voices a machine has
+    installed follow the language it was set up in. Computed before the draw,
+    so it is a key projection and never a fallback after a failed match.
     """
     available = {entry["key"]["languages"] for entry in table["option_sets"]}
-    if isinstance(accept_languages, str) and accept_languages in available:
-        return accept_languages
+    if isinstance(locale_tag, str) and locale_tag in available:
+        return locale_tag
     return ""
+
+
+def _named_locale_tag(section: Any) -> str | None:
+    """The application locale a profile's `locale` section names, or None.
+
+    `application` when a single tag was named, else the first tag of the
+    `accept_languages` list, which is how base/apostate/compose.cc reads it.
+    """
+    if not isinstance(section, Mapping):
+        return None
+    tag = section.get("application")
+    if isinstance(tag, str):
+        return tag
+    languages = section.get("accept_languages")
+    if isinstance(languages, str):
+        return languages.split(",", 1)[0].strip()
+    return None
 
 
 def _choose_anchor(catalogue: Mapping[str, Any], platform: str,
@@ -947,18 +966,18 @@ def _choose_anchor(catalogue: Mapping[str, Any], platform: str,
 _LOCALE_SOURCES = ("command-line", "geoip", "host")
 
 
-def _accept_languages_for(locale: str) -> str:
-    """A bare tag becomes a list; a list is already one and is kept as given.
+def _locale_fields(locale: str) -> dict[str, str]:
+    """The profile field one named locale writes, as base/apostate/compose.cc does.
 
-    `en-GB` becomes `en-GB,en` because that is the shape the pref stores and
-    the shape the voices table is keyed on, and `scripts/geoip.py` derives the
-    same list from a country's locale the same way. A value that already
-    carries a comma is the caller's list and is passed through untouched.
+    A value with a comma is the Accept-Language list itself and is stored as
+    given. A single tag names only the application locale: it is stored as
+    `application` and no list is written, so the list a page reads is the one
+    that locale's resource bundle declares, which is what a real user of that
+    locale sends (en-US,en for en-US, en-GB,en-US,en for en-GB). This used to
+    expand a tag to `<tag>,<language>` while the browser stored the bare tag,
+    so the two implementations disagreed and neither matched Chrome.
     """
-    if "," in locale:
-        return locale
-    fallback = locale.split("-", 1)[0]
-    return locale if fallback.lower() == locale.lower() else f"{locale},{fallback}"
+    return {"accept_languages": locale} if "," in locale else {"application": locale}
 
 
 def _geoip_fields(value: Any) -> tuple[str | None, str | None]:
@@ -972,6 +991,10 @@ def _geoip_fields(value: Any) -> tuple[str | None, str | None]:
     `config/country-locales.json`, so a result with no country carries no
     locale, and the standing decision on a failed or partial lookup is to
     proceed with no override, warn, and invent nothing.
+
+    The locale is one tag, the first the result names: GeoIP knows the exit
+    country's locale and nothing about the list a user chose, so it names the
+    application locale only, as the launchers pass it.
     """
     if not isinstance(value, Mapping):
         return None, None
@@ -979,20 +1002,20 @@ def _geoip_fields(value: Any) -> tuple[str | None, str | None]:
     if not isinstance(locale, str) or not locale.strip():
         languages = value.get("languages")
         if isinstance(languages, (list, tuple)) and languages:
-            locale = ",".join(str(item) for item in languages)
+            locale = str(languages[0])
         else:
             locale = None
     timezone = value.get("timezone")
     if not isinstance(timezone, str) or not timezone.strip():
         timezone = None
-    return (locale.strip() if isinstance(locale, str) else None,
+    return (locale.split(",", 1)[0].strip() if isinstance(locale, str) else None,
             timezone.strip() if isinstance(timezone, str) else None)
 
 
 def _resolve_locale_surface(profile: dict[str, Any], config: Mapping[str, Any],
                             host: Mapping[str, Any],
                             policy: Mapping[str, Any] | None) -> dict[str, dict[str, Any]]:
-    """Settle locale.accept_languages and locale.timezone, and name each source.
+    """Settle the named locale and locale.timezone, and name each source.
 
     docs/HOW_IT_WORKS.md conditions this surface on "launch precedence, GeoIP"
     and gives it no option table. It is not a dispersion axis and a seed must
@@ -1017,17 +1040,20 @@ def _resolve_locale_surface(profile: dict[str, Any], config: Mapping[str, Any],
        the direct IP otherwise -- passed in as a result mapping rather than
        looked up here, so composition stays a pure function of its inputs;
     3. the host, expressed as *absence*. No `locale` section is written, which
-       leaves the host's real zone in ICU and the host's real list in the
-       Accept-Language pref. Absence is why the two fields cannot drift apart:
-       a field nobody named is not written, so the host serves it rather than a
-       second source that happens to agree today.
+       leaves the host's real zone in ICU and the browser's composed default
+       locale with that locale's own list. Absence is why the two fields cannot
+       drift apart: a field nobody named is not written, so a second source
+       that happens to agree today never fills it in.
 
     The seed is not on that list at any position. It is the whole point.
 
+    A named locale is written as `_locale_fields` says: a list as
+    `accept_languages`, a single tag as `application` and no list.
+
     Called before the voices axis resolves rather than merged over the finished
-    profile, because the voices table is keyed on the resolved accept-languages
-    list: applying it later would leave a launch claiming en-GB while offering
-    the voice set measured for another list. That is patch 0085's reason, and
+    profile, because the voices table is keyed on the named application locale:
+    applying it later would leave a launch claiming en-GB while offering the
+    voice set measured for another locale. That is patch 0085's reason, and
     the reference path has to share it for the two implementations to agree.
 
     Sole writer of the profile's `locale` section, so there is one place a
@@ -1042,16 +1068,16 @@ def _resolve_locale_surface(profile: dict[str, Any], config: Mapping[str, Any],
     if locale is not None:
         if not isinstance(locale, str) or _LOCALE_RE.fullmatch(locale.split(",", 1)[0]) is None:
             raise ResolverError(f"invalid locale {locale!r}")
-        languages = {"value": _accept_languages_for(locale.strip()), "source": "command-line"}
+        named_locale = {"value": locale.strip(), "source": "command-line"}
     elif isinstance(named.get("accept_languages"), str):
-        languages = {"value": named["accept_languages"], "source": "command-line",
-                     "policy": policy_id}
+        named_locale = {"value": named["accept_languages"], "source": "command-line",
+                        "policy": policy_id}
     elif geo_locale is not None:
-        if _LOCALE_RE.fullmatch(geo_locale.split(",", 1)[0]) is None:
+        if _LOCALE_RE.fullmatch(geo_locale) is None:
             raise ResolverError(f"GeoIP returned an invalid locale {geo_locale!r}")
-        languages = {"value": _accept_languages_for(geo_locale), "source": "geoip"}
+        named_locale = {"value": geo_locale, "source": "geoip"}
     else:
-        languages = {"value": None, "source": "host", "host_value": host.get("languages")}
+        named_locale = {"value": None, "source": "host", "host_value": host.get("languages")}
 
     timezone = config.get("fingerprint_timezone")
     if timezone is not None:
@@ -1067,14 +1093,15 @@ def _resolve_locale_surface(profile: dict[str, Any], config: Mapping[str, Any],
     else:
         zone = {"value": None, "source": "host", "host_value": host.get("timezone")}
 
-    section = {name: field["value"]
-               for name, field in (("accept_languages", languages), ("timezone", zone))
-               if field["value"] is not None}
+    section = (_locale_fields(named_locale["value"])
+               if named_locale["value"] is not None else {})
+    if zone["value"] is not None:
+        section["timezone"] = zone["value"]
     if section:
         profile["locale"] = section
     else:
         profile.pop("locale", None)
-    return {"accept_languages": languages, "timezone": zone}
+    return {"locale": named_locale, "timezone": zone}
 
 
 def _locale_provenance_check(profile: Mapping[str, Any],
@@ -1093,26 +1120,32 @@ def _locale_provenance_check(profile: Mapping[str, Any],
     # here instead of shipping.
     """
     carried = profile.get("locale") or {}
-    if set(carried) - {"accept_languages", "timezone"}:
+    fields = {"application", "accept_languages", "timezone"}
+    if set(carried) - fields:
         raise ResolverError(
-            f"profile locale section carries unknown fields {sorted(set(carried) - {'accept_languages', 'timezone'})}"
+            f"profile locale section carries unknown fields {sorted(set(carried) - fields)}"
         )
-    for field in ("accept_languages", "timezone"):
-        source = sources[field]["source"]
+    for key in ("locale", "timezone"):
+        source = sources[key]["source"]
         if source not in _LOCALE_SOURCES:
             raise ResolverError(
-                f"locale.{field} names source {source!r}, which is not one of {list(_LOCALE_SOURCES)}"
+                f"{key} names source {source!r}, which is not one of {list(_LOCALE_SOURCES)}"
             )
-        named = source != "host"
-        if named != (field in carried):
-            raise ResolverError(
-                f"locale.{field} is {'present in' if field in carried else 'absent from'} the "
-                f"composed profile while its source is {source!r}: a locale field is carried "
-                "exactly when the command line or a GeoIP result supplied it, and is absent "
-                "exactly when the host serves it. Any other combination means a value reached "
-                "this surface from a layer that cannot know where the connection comes out, "
-                "which is the seeded pool draw this precedence exists to remove"
-            )
+    value = sources["locale"]["value"]
+    expected = set(_locale_fields(value)) if (
+        sources["locale"]["source"] != "host" and isinstance(value, str)) else set()
+    if sources["timezone"]["source"] != "host":
+        expected.add("timezone")
+    if set(carried) != expected:
+        raise ResolverError(
+            f"the composed profile's locale section carries {sorted(carried)} where its "
+            f"sources call for {sorted(expected)}: a locale field is carried exactly when the "
+            "command line or a GeoIP result supplied it, a single tag as `application` and a "
+            "list as `accept_languages`, and is absent exactly when the host serves it. Any "
+            "other combination means a value reached this surface from a layer that cannot "
+            "know where the connection comes out, which is the seeded pool draw this "
+            "precedence exists to remove"
+        )
 
 
 def _integral(value: Any) -> int | None:
@@ -1700,13 +1733,13 @@ def _resolve_internal(config: Mapping[str, Any] | None = None, **overrides: Any)
         table = tables[axis]
         if axis == "voices":
             # The locale surface is settled first, because this key is a
-            # projection of the resolved accept-languages list. It is settled
+            # projection of the named application locale. It is settled
             # from launch precedence, GeoIP and the host -- never from the
             # seed -- so unlike every axis below it, nothing about its value
             # depends on where in this loop it happens.
             locale_sources = _resolve_locale_surface(profile, cfg, host, locale_entry)
             parents["languages"] = _language_key(
-                (profile.get("locale") or {}).get("accept_languages"), table)
+                _named_locale_tag(profile.get("locale")), table)
         options = _option_set(axis, table, parents)
         options = _servable(axis, table["servability"], options, host_for_axes, dropped)
         if not options:
@@ -1889,15 +1922,17 @@ def _resolve_internal(config: Mapping[str, Any] | None = None, **overrides: Any)
             "axes": chosen,
             "host": {key: host[key] for key in ("platform", "backend", "logical_cores",
                                                 "total_bytes", "timezone", "languages")},
-            # Per field, the value the profile carries and the layer that
-            # decided it: "command-line", "geoip" or "host". A null value with
+            # Per field, the value the launch named and the layer that decided
+            # it: "command-line", "geoip" or "host". The locale is the named
+            # value, a single tag or a list, and the profile field it wrote
+            # follows from that shape (`_locale_fields`). A null value with
             # source "host" is the surface staying host-inherited, which is
             # what an absent `locale` section means. An operator debugging a
             # timezone that does not match their exit IP needs to know whether
             # GeoIP answered or was never consulted, and this is where that is
             # written down.
             "locale": locale_sources,
-            "locale_source": locale_sources["accept_languages"]["source"],
+            "locale_source": locale_sources["locale"]["source"],
             "timezone_source": locale_sources["timezone"]["source"],
             "timezone": (profile.get("locale") or {}).get("timezone"),
             "warnings": warnings,

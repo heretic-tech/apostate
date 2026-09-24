@@ -448,7 +448,7 @@ export function validateProfile(profile) {
     throw new ProfileResolutionError("profile.id must be a non-empty string.");
   }
   if (profile.locale) {
-    for (const key of ["timezone", "accept_languages"]) {
+    for (const key of ["timezone", "accept_languages", "application"]) {
       if (profile.locale[key] !== undefined && typeof profile.locale[key] !== "string") {
         throw new ProfileResolutionError(`profile.locale.${key} must be a string.`);
       }
@@ -1003,25 +1003,30 @@ function sanitizeErrorMessage(message, proxy) {
   return text.replace(/(https?:\/\/)[^\s/@:]+:[^\s/@]+@/gi, "$1<redacted>@");
 }
 
-function localeLanguages(locale) {
-  const value = String(locale).trim();
-  if (value.includes(",")) return value;
-  const base = value.split("-")[0];
-  return base && base.toLowerCase() !== value.toLowerCase() ? `${value},${base}` : value;
-}
-
+// The locale a profile names: its `application` tag, else its list.
 function profileLocale(profile) {
+  const section = isObject(profile?.locale) ? profile.locale : {};
   return {
-    locale: profile?.locale?.accept_languages?.split(",")[0]?.trim() || null,
-    timezone: profile?.locale?.timezone || null,
+    locale: section.application || section.accept_languages || null,
+    timezone: section.timezone || null,
   };
 }
 
+// The shape --fingerprint-locale has on the composing path: a list is the
+// Accept-Language list itself, and a single tag names only the application
+// locale and leaves the list to that locale's own default, which is what a
+// real user of that locale sends. Either replaces what the profile named; a
+// null locale leaves the profile's own untouched.
 function withLocale(profile, locale, timezone) {
   if (!profile && locale === null && timezone === null) return null;
   const output = profile ? cloneJson(profile) : {};
   const section = isObject(output.locale) ? output.locale : {};
-  if (locale !== null && locale !== undefined) section.accept_languages = localeLanguages(locale);
+  if (locale !== null && locale !== undefined) {
+    const value = String(locale).trim();
+    delete section.application;
+    delete section.accept_languages;
+    section[value.includes(",") ? "accept_languages" : "application"] = value;
+  }
   if (timezone !== null && timezone !== undefined) section.timezone = String(timezone);
   output.locale = section;
   return validateProfile(output);
@@ -1390,9 +1395,13 @@ function geoipTimezone(value) {
   return GEOIP_TIMEZONE_PATTERN.test(trimmed) ? trimmed : null;
 }
 
+// One tag, never a list: GeoIP knows the exit country's locale and nothing
+// about a list anyone chose. A single --fingerprint-locale tag names only the
+// application locale, and the browser then serves that locale's own
+// Accept-Language list, which is what a real user of it sends.
 function geoipLocale(result) {
   const direct = result.locale ?? result.language;
-  if (typeof direct === "string" && direct.trim()) return direct.trim();
+  if (typeof direct === "string" && direct.trim()) return direct.split(",")[0].trim() || null;
   const languages = Array.isArray(result.languages) ? result.languages[0] : result.languages;
   if (typeof languages === "string" && languages.trim()) {
     const first = languages.split(",")[0].trim();
@@ -1533,7 +1542,10 @@ async function prepareLaunch(options = {}) {
     }
   }
 
-  canonical.locale = canonical.locale ?? geoipResult?.locale ?? inheritedLocale.locale ?? null;
+  // Explicit or GeoIP: the locale this launch asked for, as opposed to one the
+  // profile itself names, which an envelope keeps exactly as authored.
+  const requestedLocale = canonical.locale ?? geoipResult?.locale ?? null;
+  canonical.locale = requestedLocale ?? inheritedLocale.locale ?? null;
   canonical.timezone = canonical.timezone ?? geoipResult?.timezone ?? inheritedLocale.timezone ?? null;
   canonical.webrtc_ip = canonical.proxy !== null && !hasSwitch(canonical.args, "--fingerprint-webrtc-ip")
     ? geoipResult?.ip ?? null
@@ -1579,7 +1591,7 @@ async function prepareLaunch(options = {}) {
   // buildLaunchArguments. The other paths compose nothing either way, so there
   // an envelope suppresses nothing and is the only carrier available.
   const composesNatively = resolution.profileId === "native-composed";
-  profile = composesNatively ? profile : withLocale(profile, canonical.locale, canonical.timezone);
+  profile = composesNatively ? profile : withLocale(profile, requestedLocale, canonical.timezone);
   canonical.profile = profile;
   // A warning for the credentials-only envelope stood here, telling the caller
   // that authenticating to a proxy cost them the composed fingerprint on every

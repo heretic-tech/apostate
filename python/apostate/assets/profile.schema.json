@@ -498,7 +498,11 @@
         },
         "accept_languages": {
           "type": "string",
-          "description": "Comma list as the pref stores it, e.g. en-US,en."
+          "description": "Comma list as the pref stores it, e.g. en-US,en. Read by navigator.languages and the Accept-Language header. Absent, the list is the one the application locale's resource bundle declares (en-US,en for en-US, en-GB,en-US,en for en-GB)."
+        },
+        "application": {
+          "type": "string",
+          "description": "The application (UI) locale as one tag, e.g. de-DE, when no list is named. It decides Intl's default locale and, with no accept_languages, the default list. Written for a single --fingerprint-locale tag; with only accept_languages present, its first tag is the application locale, and when both are present this one wins."
         }
       }
     },

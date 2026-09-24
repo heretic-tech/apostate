@@ -71,7 +71,7 @@ Each switch sets one value. The seed still draws everything else.
 | `--fingerprint-screen-width` | 1 to 65535, CSS pixels | `screen.width` |
 | `--fingerprint-screen-height` | 1 to 65535, CSS pixels | `screen.height` |
 | `--fingerprint-timezone` | IANA name, such as `Europe/Berlin` | the timezone |
-| `--fingerprint-locale` | Accept-Language list, such as `de-DE,de` | languages, UI locale and voices |
+| `--fingerprint-locale` | One locale tag, such as `de-DE`, or an Accept-Language list, such as `de-DE,de` | UI locale, languages and voices |
 
 - The GPU strings must name a model in the GPU family the launch uses. Any
   other string is refused, and the error lists the models that family has.
@@ -82,9 +82,12 @@ Each switch sets one value. The seed still draws everything else.
   `availHeight`) is worked out from the size you set.
 - An unknown timezone is logged and the host's timezone stays.
 - The first tag of `--fingerprint-locale` becomes the browser's UI locale, so
-  `Intl`, date formats and `navigator.language` follow it. Without the switch
-  a persona uses `en-US`, never the host's language. `--lang` has no effect on
-  a persona.
+  `Intl`, date formats and `navigator.language` follow it. A single tag sets
+  only that: `navigator.languages` and the `Accept-Language` header then carry
+  Chrome's own default list for that UI locale (`de-DE,de,en-US,en` for
+  German), as on a real machine. A comma list sets the list exactly. The
+  voices follow the first tag. Without the switch a persona uses `en-US`,
+  never the host's language. `--lang` has no effect on a persona.
 - Without `--fingerprint-timezone` the host's timezone is used. The Python and
   Node packages fill in both switches from GeoIP.
 
@@ -220,7 +223,7 @@ starts the browser without a driver.
 | `proxy` | `proxy` | none | Proxy URL. The endpoint goes to `--proxy-server` and the credential inside `--apostate-profile`. |
 | `geoip` | `geoip` | on | Look up the exit's locale and timezone before launch. |
 | `geoip_timeout` | `geoipTimeoutMs` | 20 s | Time limit for the whole lookup. |
-| `locale` | `locale` | from GeoIP | `--fingerprint-locale`. |
+| `locale` | `locale` | from GeoIP | `--fingerprint-locale`. GeoIP gives the exit country's locale tag; pass a list to set the language list yourself. |
 | `timezone` | `timezone` | from GeoIP | `--fingerprint-timezone`. |
 | `headless` | `headless` | on | `--headless=new`. When off on a Linux machine with no display, the package starts Xvfb. |
 | `args` | `args` | none | Extra switches. An unknown or misspelt `--fingerprint*` switch is refused. |

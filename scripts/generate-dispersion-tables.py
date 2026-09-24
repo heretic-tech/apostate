@@ -304,7 +304,7 @@ def parse_axis(path: Path) -> dict:
             )
         for name, value in key.items():
             # An empty value is legal and load-bearing: the voices table ships
-            # a set keyed on "" that every unmeasured language list projects
+            # a set keyed on "" that every unmeasured locale projects
             # onto, which is what keeps matching exact and total.
             if not isinstance(value, str):
                 die(path, f"option_sets[{set_index}].key.{name} must be a string")
@@ -1032,8 +1032,8 @@ def emit_header(meta: dict) -> str:
         f"inline constexpr std::string_view kCatalogueDigest = {cpp_string(meta['catalogue_digest'])};"
     )
     out.append("")
-    out.append("// The accept-languages lists the voices table has measured option sets")
-    out.append("// for. A resolved list that is not one of these projects onto the")
+    out.append("// The application locales the voices table has measured option sets")
+    out.append("// for. A named locale that is not one of these projects onto the")
     out.append("// empty-string set before the draw, which keeps option-set matching exact")
     out.append("// and total instead of recovering from a failed match.")
     out.append("BASE_EXPORT span<const std::string_view> LanguageSets();")
@@ -1413,7 +1413,7 @@ def parse_catalogue(path: Path, pinned_version: str) -> dict:
         die(
             path,
             "`language_sets` must contain the empty-string key: it is what "
-            "every unmeasured accept-languages list projects onto, and without "
+            "every unmeasured locale projects onto, and without "
             "it option-set matching stops being total",
         )
 
