@@ -1,0 +1,113 @@
+Subject: [PATCH] fonts: Windows emoji and symbol fallback under a Windows profile
+
+Windows settles emoji and several symbol blocks before its script table
+(win/font_fallback_win.cc, GetFallbackFamily): an emoji-presentation
+run takes the first of Segoe UI Emoji and Segoe UI Symbol that exists,
+a text-presentation run Segoe UI Symbol first, the symbol blocks Segoe
+UI Symbol and the mathematical blocks Cambria Math. The Linux path had
+only the script table, so a Windows persona drew emoji from the host's
+Noto Color Emoji: "Apostate 🔒 mLj" measured 103.07px at 14px Arial
+against 104.82px on real Windows. The same lists now run first, under
+the enumeration allowlist like the script table.
+
+diff --git a/third_party/blink/renderer/platform/fonts/linux/font_cache_linux.cc b/third_party/blink/renderer/platform/fonts/linux/font_cache_linux.cc
+--- a/third_party/blink/renderer/platform/fonts/linux/font_cache_linux.cc
++++ b/third_party/blink/renderer/platform/fonts/linux/font_cache_linux.cc
+@@ -24,6 +24,7 @@
+ 
+ #include "third_party/blink/renderer/platform/fonts/font_cache.h"
+ 
++#include <unicode/uchar.h>
+ #include <unicode/uscript.h>
+ 
+ #include "base/apostate/profile.h"
+@@ -54,6 +55,53 @@
+   base::span<const char* const> families;
+ };
+ 
++// Before the script table, Windows settles emoji and a set of symbol blocks on
++// their own (win/font_fallback_win.cc, GetFallbackFamily and
++// GetFontBasedOnUnicodeBlock): an emoji-presentation run goes to the first of
++// Segoe UI Emoji and Segoe UI Symbol that exists, a text-presentation one to
++// Symbol first, the symbol blocks to Segoe UI Symbol and the mathematical
++// blocks to Cambria Math. Without this a Windows persona drew emoji from the
++// host's Noto Color Emoji, whose advances differ from Segoe UI Emoji's.
++constexpr const char* const kColorEmojiFonts[] = {"Segoe UI Emoji",
++                                                  "Segoe UI Symbol"};
++constexpr const char* const kMonoEmojiFonts[] = {"Segoe UI Symbol",
++                                                 "Segoe UI Emoji"};
++constexpr const char* const kSymbolBlockFonts[] = {"Segoe UI Symbol"};
++constexpr const char* const kMathBlockFonts[] = {"Cambria Math",
++                                                 "Segoe UI Symbol", "Code2000"};
++
++base::span<const char* const> WindowsBlockFallbackFamilies(UChar32 character) {
++  switch (ublock_getCode(character)) {
++    case UBLOCK_EMOTICONS:
++    case UBLOCK_ENCLOSED_ALPHANUMERIC_SUPPLEMENT:
++      return kMonoEmojiFonts;
++    case UBLOCK_PLAYING_CARDS:
++    case UBLOCK_MISCELLANEOUS_SYMBOLS:
++    case UBLOCK_MISCELLANEOUS_SYMBOLS_AND_ARROWS:
++    case UBLOCK_MISCELLANEOUS_SYMBOLS_AND_PICTOGRAPHS:
++    case UBLOCK_TRANSPORT_AND_MAP_SYMBOLS:
++    case UBLOCK_ALCHEMICAL_SYMBOLS:
++    case UBLOCK_DINGBATS:
++    case UBLOCK_GOTHIC:
++      return kSymbolBlockFonts;
++    case UBLOCK_ARROWS:
++    case UBLOCK_MATHEMATICAL_OPERATORS:
++    case UBLOCK_MISCELLANEOUS_TECHNICAL:
++    case UBLOCK_GEOMETRIC_SHAPES:
++    case UBLOCK_MISCELLANEOUS_MATHEMATICAL_SYMBOLS_A:
++    case UBLOCK_SUPPLEMENTAL_ARROWS_A:
++    case UBLOCK_SUPPLEMENTAL_ARROWS_B:
++    case UBLOCK_MISCELLANEOUS_MATHEMATICAL_SYMBOLS_B:
++    case UBLOCK_SUPPLEMENTAL_MATHEMATICAL_OPERATORS:
++    case UBLOCK_MATHEMATICAL_ALPHANUMERIC_SYMBOLS:
++    case UBLOCK_ARABIC_MATHEMATICAL_ALPHABETIC_SYMBOLS:
++    case UBLOCK_GEOMETRIC_SHAPES_EXTENDED:
++      return kMathBlockFonts;
++    default:
++      return {};
++  }
++}
++
+ constexpr const char* const kArabicFonts[] = {"Tahoma", "Segoe UI"};
+ constexpr const char* const kArmenianFonts[] = {"Segoe UI", "Sylfaen"};
+ constexpr const char* const kBengaliFonts[] = {"Nirmala UI", "Vrinda"};
+@@ -267,12 +315,24 @@
+ 
+ base::span<const char* const> WindowsFallbackFamilies(
+     const FontDescription& description,
+-    UChar32 character) {
++    UChar32 character,
++    FontFallbackPriority fallback_priority) {
+   const auto* profile = base::apostate::Profile::Get();
+   if (!profile || !profile->ua_platform() ||
+       *profile->ua_platform() != "Windows") {
+     return {};
+   }
++  if (IsEmojiPresentationEmoji(fallback_priority)) {
++    return kColorEmojiFonts;
++  }
++  if (IsTextPresentationEmoji(fallback_priority)) {
++    return kMonoEmojiFonts;
++  }
++  if (const base::span<const char* const> block =
++          WindowsBlockFallbackFamilies(character);
++      !block.empty()) {
++    return block;
++  }
+   UErrorCode error = U_ZERO_ERROR;
+   UScriptCode script = uscript_getScript(character, &error);
+   if (U_FAILURE(error)) {
+@@ -385,7 +445,8 @@
+   // both failed to cover the character, which is the same point at which
+   // Windows consults its script table.
+   const auto* fallback_profile = base::apostate::Profile::Get();
+-  for (const char* family : WindowsFallbackFamilies(font_description, c)) {
++  for (const char* family :
++       WindowsFallbackFamilies(font_description, c, fallback_priority)) {
+     if (!FamilyIsEnumerable(fallback_profile, family)) {
+       continue;
+     }
