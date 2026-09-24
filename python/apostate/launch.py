@@ -268,8 +268,8 @@ def _claimed_screen(plan: LaunchPlan) -> tuple[int, int]:
     """The screen a launch claims, which its virtual display is made to match.
 
     An explicit profile names it, and so do the per-field switches. A seed
-    composes it inside the browser, out of the package's sight, so 1920x1080,
-    the commonest desktop panel, stands in.
+    composes it inside the browser, out of the package's sight, so the display
+    is made the size of the largest screen a seed can claim.
     """
     screen = plan.profile.get("screen") if isinstance(plan.profile, Mapping) else None
     if isinstance(screen, Mapping):
@@ -283,7 +283,8 @@ def _claimed_screen(plan: LaunchPlan) -> tuple[int, int]:
             switches[name] = int(value)
     width = switches.get("--fingerprint-screen-width")
     height = switches.get("--fingerprint-screen-height")
-    return (width, height) if width and height else (1920, 1080)
+    # The largest CSS screen a seed claims; the claimed pixel ratio is reported, not rendered.
+    return (width, height) if width and height else (3840, 2160)
 
 
 def _virtual_display(plan: LaunchPlan, env: dict[str, str]) -> xvfb.VirtualDisplay | None:

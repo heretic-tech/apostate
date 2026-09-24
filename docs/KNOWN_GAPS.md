@@ -39,11 +39,13 @@ renderers on a server without a GPU, refused no size in testing.
 with SwiftShader underneath. Features and limits the software device cannot
 back fail when a page calls `requestDevice()`.
 
-**The browser window is the host's.** The persona sets `screen`, but the
-window's size, position and frame (`outerWidth`, `screenX` and so on) come
-from the real window. Keep the window inside the persona's screen, for example
-with `--window-size`. With `headless=False` on a server, Xvfb is 1920x1080
+**The window is placed from the persona, not measured.** A new window goes on
+the persona's work area: a Windows persona opens maximized, as Windows Chrome
+does, and macOS and Linux personas get their platform's default placement.
+The host display has to be at least that large, or the window manager may
+shrink it. With `headless=False` on a server, the package's Xvfb is 3840x2160
 unless you set `--fingerprint-screen-width` and `--fingerprint-screen-height`.
+`--window-size` and `--window-position` override the placement.
 
 ## Fonts and text
 

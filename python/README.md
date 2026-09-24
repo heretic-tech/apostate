@@ -220,7 +220,7 @@ For the most aggressive targets, the suites that score behaviour as well as the
 fingerprint, run headed instead. Still no GPU is needed. On a Linux host with
 no display, a headed launch starts its own virtual display with Xvfb, gives it
 to the browser, and stops it when the browser closes. The display is the size
-of the screen the launch sets, or 1920x1080 when the seed picks the screen.
+of the screen the launch sets, or 3840x2160 when the seed picks the screen.
 Only Xvfb has to be installed:
 
 ```sh

@@ -3433,8 +3433,8 @@ async function startVirtualDisplay(width, height) {
 
 // The screen a launch claims, which its virtual display is made to match. An
 // explicit profile names it, and so do the per-field switches. A seed composes
-// it inside the browser, out of the package's sight, so 1920x1080, the
-// commonest desktop panel, stands in.
+// it inside the browser, out of the package's sight, so the display is made
+// the size of the largest screen a seed can claim.
 function claimedScreen(config) {
   const screen = isObject(config.profile) ? config.profile.screen : null;
   if (isObject(screen) && Number.isInteger(screen.width) && Number.isInteger(screen.height)
@@ -3448,7 +3448,8 @@ function claimedScreen(config) {
   }
   const width = switches["--fingerprint-screen-width"];
   const height = switches["--fingerprint-screen-height"];
-  return width && height ? [width, height] : [1920, 1080];
+  // The largest CSS screen a seed claims; the claimed pixel ratio is reported, not rendered.
+  return width && height ? [width, height] : [3840, 2160];
 }
 
 // Start Xvfb for a headed Linux launch with no display, and name it in `env`,

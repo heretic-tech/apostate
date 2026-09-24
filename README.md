@@ -152,8 +152,9 @@ sudo apt install xvfb
 
 The virtual screen matches the persona when you set the screen size with
 `--fingerprint-screen-width` and `--fingerprint-screen-height`, and is
-1920x1080 otherwise. The bare binary does not start Xvfb; run it under
-`xvfb-run` instead.
+3840x2160 otherwise, large enough for any screen a seed picks. The bare
+binary does not start Xvfb; run it under
+`xvfb-run -s "-screen 0 3840x2160x24"` instead.
 
 ## Widevine
 

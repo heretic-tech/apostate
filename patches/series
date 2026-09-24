@@ -125,4 +125,5 @@
 0142-webgpu-serve-the-two-float32-features-the-profile-claims.patch
 0143-fonts-windows-win-metrics.patch
 0144-fonts-windows-zero-line-gap.patch
+0145-window-first-window-fills-the-claimed-work-area.patch
 0146-fonts-windows-family-aliases.patch

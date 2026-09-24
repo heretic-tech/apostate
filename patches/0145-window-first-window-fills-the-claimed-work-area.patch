@@ -1,0 +1,323 @@
+Subject: [PATCH] window: first window fills the claimed work area
+
+A new browser window was placed by the host display: 945x1060 at
+(10,10) on the wrapper's 1920x1080 Xvfb and 780x580 on the 800x600
+headless display, for every persona, which is taller than a claimed
+1536x864 screen in the first case. A new tabbed window now goes on the
+work area the page reads from the profile. A Windows persona fills it,
+as real Windows Chrome runs maximized: outerWidth and outerHeight equal
+availWidth and availHeight, screenX and screenY equal availLeft and
+availTop, for every new tabbed window. macOS and Linux personas get their
+platform's default placement on it. Explicit bounds, --window-size,
+--window-position, --start-maximized and saved placement stay upstream.
+
+diff --git a/chrome/browser/ui/window_sizer/window_sizer.cc b/chrome/browser/ui/window_sizer/window_sizer.cc
+index 68d73fb..8152bb5 100644
+--- a/chrome/browser/ui/window_sizer/window_sizer.cc
++++ b/chrome/browser/ui/window_sizer/window_sizer.cc
+@@ -5,8 +5,11 @@
+ #include "chrome/browser/ui/window_sizer/window_sizer.h"
+ 
+ #include <algorithm>
++#include <optional>
++#include <string>
+ #include <utility>
+ 
++#include "base/apostate/profile.h"
+ #include "base/command_line.h"
+ #include "base/functional/function_ref.h"
+ #include "base/memory/raw_ptr.h"
+@@ -205,6 +208,97 @@ class DefaultStateProvider : public WindowSizer::StateProvider {
+   const raw_ptr<Browser> browser_;
+ };
+ 
++// Apostate: where a new tabbed window goes on the screen the profile claims,
++// or nullopt to place it as upstream does.
++//
++// Pages read the screen from the profile (ScreenInfo, display_util.cc), not
++// from the host display the window sits on. Placed by the host display, every
++// persona got 945x1060 at (10,10) on a 1920x1080 Xvfb, taller than a claimed
++// 1536x864 screen. So the work area here is the one ScreenInfo reports, taken
++// the same way: the profile's, or the display's own when headless built it
++// from the profile's screen.displays. A Windows persona gets all of it, as
++// real Windows Chrome runs maximized: outerWidth and outerHeight equal
++// availWidth and availHeight, screenX and screenY equal availLeft and
++// availTop. macOS and Linux get their own default placement on it, which is
++// GetDefaultWindowBounds() with the constants of window_sizer_mac.mm and
++// window_sizer_aura.cc.
++//
++// A null browser is a caller asking for a new window's bounds before there is
++// a Browser. Other window types, and the switches that decide where a window
++// goes, keep upstream placement.
++std::optional<gfx::Rect> ClaimedWindowBounds(const Browser* browser,
++                                             const display::Display& display,
++                                             bool* fills_work_area) {
++  const base::apostate::Profile* profile = base::apostate::Profile::Get();
++  if (!profile || (browser && !browser->is_type_normal())) {
++    return std::nullopt;
++  }
++  const base::CommandLine& command_line =
++      *base::CommandLine::ForCurrentProcess();
++  if (command_line.HasSwitch(switches::kWindowSize) ||
++      command_line.HasSwitch(switches::kWindowPosition) ||
++      command_line.HasSwitch(switches::kStartMaximized)) {
++    return std::nullopt;
++  }
++
++  const bool from_profile = !display.has_profile_geometry();
++  gfx::Rect work_area = display.work_area();
++  if (from_profile) {
++    if (!profile->screen_avail_width() || !profile->screen_avail_height()) {
++      return std::nullopt;
++    }
++    work_area = gfx::Rect(profile->screen_avail_left().value_or(work_area.x()),
++                          profile->screen_avail_top().value_or(work_area.y()),
++                          *profile->screen_avail_width(),
++                          *profile->screen_avail_height());
++  }
++  if (work_area.IsEmpty()) {
++    return std::nullopt;
++  }
++
++  const std::string platform = profile->ua_platform().value_or(std::string());
++  *fills_work_area = platform == "Windows";
++  if (*fills_work_area) {
++    return work_area;
++  }
++
++  // GetDefaultWindowBounds() also reads the primary display's size and the
++  // display's orientation, which the profile's screen replaces as well.
++  gfx::Size screen_size = display::Screen::Get()->GetPrimaryDisplay().size();
++  bool landscape = display.is_landscape();
++  if (from_profile && profile->screen_width() && profile->screen_height()) {
++    screen_size =
++        gfx::Size(*profile->screen_width(), *profile->screen_height());
++    landscape = screen_size.width() >= screen_size.height();
++  }
++
++  // A profile that claims no platform gets this build's own placement.
++  int tile = WindowSizer::kWindowTilePixels;
++  int max_width = WindowSizer::kWindowMaxDefaultWidth;
++  bool halve_wide_screen = !BUILDFLAG(IS_MAC);
++  if (platform == "macOS") {
++    tile = 22;
++    max_width = 1200;
++    halve_wide_screen = false;
++  } else if (platform == "Linux") {
++    tile = 10;
++    max_width = 1050;
++    halve_wide_screen = true;
++  }
++  int width = std::min(work_area.width() - 2 * tile, max_width);
++  int height = work_area.height() - 2 * tile;
++  if (halve_wide_screen &&
++      static_cast<double>(screen_size.width()) / screen_size.height() * 10 >=
++          16 &&
++      work_area.width() > 1600) {
++    width = static_cast<int>(work_area.width() / 2. - 1.5 * tile);
++  }
++  if (!landscape && height > width) {
++    height = (width / 4) * 3;
++  }
++  return gfx::Rect(work_area.x() + tile, work_area.y() + tile, width, height);
++}
++
+ }  // namespace
+ 
+ WindowSizer::WindowSizer(std::unique_ptr<StateProvider> state_provider,
+@@ -252,8 +346,18 @@ void WindowSizer::DetermineWindowBoundsAndShowState(
+     gfx::Rect* bounds,
+     ui::mojom::WindowShowState* show_state) {
+   if (bounds->IsEmpty()) {
++    // Apostate: a new tabbed window goes on the screen the profile claims.
++    const display::Display display = GetDisplayForNewWindow();
++    bool fills_work_area = false;
++    const std::optional<gfx::Rect> claimed =
++        ClaimedWindowBounds(browser(), display, &fills_work_area);
+     // See if there's last active window's placement information.
+     if (GetLastActiveWindowBounds(bounds, show_state)) {
++      // Windows opens a window maximized from a maximized one, so a Windows
++      // persona fills the work area with every new window, not only the first.
++      if (claimed && fills_work_area) {
++        *bounds = *claimed;
++      }
+       return;
+     }
+     // See if there's saved placement information.
+@@ -263,7 +367,7 @@ void WindowSizer::DetermineWindowBoundsAndShowState(
+ 
+     // No saved placement, figure out some sensible default size based on
+     // the user's screen size.
+-    *bounds = GetDefaultWindowBounds(GetDisplayForNewWindow());
++    *bounds = claimed ? *claimed : GetDefaultWindowBounds(display);
+     return;
+   }
+ 
+diff --git a/chrome/browser/ui/window_sizer/window_sizer_common_unittest.cc b/chrome/browser/ui/window_sizer/window_sizer_common_unittest.cc
+index 1ccd8db..ecf4605 100644
+--- a/chrome/browser/ui/window_sizer/window_sizer_common_unittest.cc
++++ b/chrome/browser/ui/window_sizer/window_sizer_common_unittest.cc
+@@ -6,8 +6,12 @@
+ 
+ #include <stddef.h>
+ 
++#include <memory>
+ #include <utility>
+ 
++#include "base/apostate/profile.h"
++#include "base/base64.h"
++#include "base/check.h"
+ #include "base/compiler_specific.h"
+ #include "base/memory/raw_ptr.h"
+ #include "build/build_config.h"
+@@ -24,6 +28,16 @@
+ #include "ui/aura/window.h"
+ #endif
+ 
++namespace base::apostate {
++class ProfileTestPeer {
++ public:
++  static std::unique_ptr<Profile> Parse(std::string_view json) {
++    return std::unique_ptr<Profile>(
++        Profile::ParseOrNull(base::Base64Encode(json)));
++  }
++};
++}  // namespace base::apostate
++
+ namespace {
+ 
+ class TestScreen : public display::ScreenBase {
+@@ -100,6 +114,10 @@ bool TestStateProvider::GetLastActiveWindowState(
+   return has_last_active_data_;
+ }
+ 
++WindowSizerTestUtil::WindowSizerTestUtil() = default;
++
++WindowSizerTestUtil::~WindowSizerTestUtil() = default;
++
+ WindowSizerTestUtil& WindowSizerTestUtil::WithMonitorBounds(
+     const gfx::Rect& monitor1_bounds,
+     const gfx::Rect& monitor2_bounds) {
+@@ -138,6 +156,11 @@ WindowSizerTestUtil& WindowSizerTestUtil::WithSpecifiedBounds(
+   return *this;
+ }
+ 
++WindowSizerTestUtil& WindowSizerTestUtil::WithProfile(std::string_view json) {
++  profile_json_ = json;
++  return *this;
++}
++
+ gfx::Rect WindowSizerTestUtil::GetWindowBounds() {
+   DCHECK(!monitor1_bounds_.IsEmpty());
+   TestScreen test_screen;
+@@ -158,11 +181,17 @@ gfx::Rect WindowSizerTestUtil::GetWindowBounds() {
+                                  ui::mojom::WindowShowState::kDefault);
+   }
+ 
++  const std::unique_ptr<base::apostate::Profile> profile =
++      base::apostate::ProfileTestPeer::Parse(profile_json_);
++  CHECK(profile);
++  base::apostate::Profile::SetForTesting(profile.get());
++
+   ui::mojom::WindowShowState ignored;
+   gfx::Rect out_bounds;
+   WindowSizer::GetBrowserWindowBoundsAndShowState(
+       std::move(provider), specified_bounds_, /*browser=*/nullptr, &out_bounds,
+       &ignored);
++  base::apostate::Profile::SetForTesting(nullptr);
+   return out_bounds;
+ }
+ 
+diff --git a/chrome/browser/ui/window_sizer/window_sizer_common_unittest.h b/chrome/browser/ui/window_sizer/window_sizer_common_unittest.h
+index a35193f..d43baec 100644
+--- a/chrome/browser/ui/window_sizer/window_sizer_common_unittest.h
++++ b/chrome/browser/ui/window_sizer/window_sizer_common_unittest.h
+@@ -5,6 +5,9 @@
+ #ifndef CHROME_BROWSER_UI_WINDOW_SIZER_WINDOW_SIZER_COMMON_UNITTEST_H_
+ #define CHROME_BROWSER_UI_WINDOW_SIZER_WINDOW_SIZER_COMMON_UNITTEST_H_
+ 
++#include <string>
++#include <string_view>
++
+ #include "chrome/browser/ui/window_sizer/window_sizer.h"
+ #include "chrome/test/base/test_browser_window.h"
+ #include "ui/base/mojom/window_show_state.mojom-forward.h"
+@@ -84,9 +87,10 @@ class TestStateProvider : public WindowSizer::StateProvider {
+ // Builder class for setting up window sizer test state with a single statement.
+ class WindowSizerTestUtil {
+  public:
+-  WindowSizerTestUtil() = default;
++  WindowSizerTestUtil();
+   WindowSizerTestUtil(const WindowSizerTestUtil&) = delete;
+   WindowSizerTestUtil& operator=(const WindowSizerTestUtil&) = delete;
++  ~WindowSizerTestUtil();
+ 
+   // Set up monitor bounds. Tests have to always call this method with bounds
+   // for at least one monitor.
+@@ -103,6 +107,11 @@ class WindowSizerTestUtil {
+ 
+   WindowSizerTestUtil& WithSpecifiedBounds(const gfx::Rect& bounds);
+ 
++  // The apostate profile the sizer reads, as JSON. The default claims nothing,
++  // so a test does not run under the persona a test binary composes for itself
++  // when no profile is set.
++  WindowSizerTestUtil& WithProfile(std::string_view json);
++
+   gfx::Rect GetWindowBounds();
+ 
+  private:
+@@ -113,6 +122,7 @@ class WindowSizerTestUtil {
+   gfx::Rect persisted_bounds_;
+   gfx::Rect persisted_work_area_;
+   gfx::Rect specified_bounds_;
++  std::string profile_json_ = "{}";
+ };
+ 
+ #endif  // CHROME_BROWSER_UI_WINDOW_SIZER_WINDOW_SIZER_COMMON_UNITTEST_H_
+diff --git a/chrome/browser/ui/window_sizer/window_sizer_unittest.cc b/chrome/browser/ui/window_sizer/window_sizer_unittest.cc
+index 5fae75f..9329875 100644
+--- a/chrome/browser/ui/window_sizer/window_sizer_unittest.cc
++++ b/chrome/browser/ui/window_sizer/window_sizer_unittest.cc
+@@ -188,6 +188,42 @@ TEST(WindowSizerTest, LastWindowBoundsCase) {
+   }
+ }
+ 
++#if !BUILDFLAG(IS_CHROMEOS)
++// Apostate: a Windows persona's window fills the work area the profile claims,
++// as a maximized window does on real Windows, whatever the host display. So
++// does the next window; a saved placement is kept.
++TEST(WindowSizerTest, WindowsPersonaFillsTheClaimedWorkArea) {
++  constexpr char kWindows[] =
++      R"({"platform":{"name":"Windows"},"screen":{"width":1536,"height":864,)"
++      R"("avail_left":0,"avail_top":48,"avail_width":1536,"avail_height":816}})";
++  const gfx::Rect claimed(0, 48, 1536, 816);
++
++  {  // The first window.
++    EXPECT_EQ(claimed, WindowSizerTestUtil()
++                           .WithMonitorBounds(p1920x1200)
++                           .WithProfile(kWindows)
++                           .GetWindowBounds());
++  }
++
++  {  // A new window beside one already open.
++    EXPECT_EQ(claimed, WindowSizerTestUtil()
++                           .WithMonitorBounds(p1920x1200)
++                           .WithLastActiveBounds(claimed)
++                           .WithProfile(kWindows)
++                           .GetWindowBounds());
++  }
++
++  {  // A saved placement.
++    const gfx::Rect saved(50, 60, 700, 500);
++    EXPECT_EQ(saved, WindowSizerTestUtil()
++                         .WithMonitorBounds(p1920x1200)
++                         .WithPersistedBounds(saved)
++                         .WithProfile(kWindows)
++                         .GetWindowBounds());
++  }
++}
++#endif  // !BUILDFLAG(IS_CHROMEOS)
++
+ // Test that the window opened is sized appropriately given persisted sizes.
+ TEST(WindowSizerTest, MAYBE_PersistedBoundsCase) {
+   {  // normal, in the middle of the screen somewhere.
