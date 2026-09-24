@@ -4,14 +4,15 @@ A page can tell the CPU family from arithmetic, such as the sign bit of
 a computed NaN or Web Audio output. A Windows profile claiming x86 while
 running on ARM looks like x86 Windows emulated on ARM, which
 FingerprintJS flags as a virtual machine. Windows and Linux profiles
-take platform.architecture from the build's CPU, and a Linux profile on
-ARM reports navigator.platform "Linux aarch64". macOS profiles keep arm.
+take platform.architecture from the build's CPU. navigator.platform is
+not touched: Chrome reports "Linux x86_64" on every Linux CPU, so ARM
+Linux shows only in the architecture. macOS profiles keep arm.
 
 diff --git a/base/apostate/compose.cc b/base/apostate/compose.cc
 index 406d4df..cbd34a6 100644
 --- a/base/apostate/compose.cc
 +++ b/base/apostate/compose.cc
-@@ -1637,6 +1637,26 @@ std::optional<Composition> Compose(const ComposeRequest& request,
+@@ -1637,6 +1637,23 @@ std::optional<Composition> Compose(const ComposeRequest& request,
    DeriveWorkArea(composition.profile, panel_resolved,
                   &composition.limitations);
  
@@ -26,9 +27,6 @@ index 406d4df..cbd34a6 100644
 +    if (name && (*name == "Windows" || *name == "Linux")) {
 +#if defined(ARCH_CPU_ARM_FAMILY)
 +      platform->Set("architecture", "arm");
-+      if (*name == "Linux") {
-+        platform->Set("navigator_platform", "Linux aarch64");
-+      }
 +#else
 +      platform->Set("architecture", "x86");
 +#endif

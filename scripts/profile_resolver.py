@@ -1878,8 +1878,6 @@ def _resolve_internal(config: Mapping[str, Any] | None = None, **overrides: Any)
     composed_platform = profile.get("platform")
     if isinstance(composed_platform, dict) and composed_platform.get("name") in ("Windows", "Linux"):
         composed_platform["architecture"] = host["architecture"]
-        if host["architecture"] == "arm" and composed_platform["name"] == "Linux":
-            composed_platform["navigator_platform"] = "Linux aarch64"
     # Last, so that nothing merged after the locale surface was settled can
     # leave a value in it whose source nobody can name. That is the state the
     # seeded draw produced, and it is the one this precedence exists to make

@@ -930,7 +930,7 @@ class CompositionTests(unittest.TestCase):
         "macos": ("fp-60eab51485a4a8465ce3c24a", GOLDEN_SECTIONS,
                   "3738d7b64c6b52da997aac166ad6343f365821075562e66bfa860c56f4ff4b5e"),
         "linux": ("fp-8c5f63da9ef88ea749549a91", GOLDEN_SECTIONS,
-                  "c9e3ec82335b73416c15513464a28925cea2255ff35190f3a4c3ad48909287db"),
+                  "9172c6dc5887087376e019f0ccb495301817d8723722c57f14213687d9b3c2bf"),
     }
 
     def _check_golden(self, persona: str, profile: dict, digest: str,

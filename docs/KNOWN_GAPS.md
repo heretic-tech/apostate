@@ -6,13 +6,14 @@ What Apostate does not do yet or cannot hide, and what you can do about each.
 ## The host shows through
 
 **ARM hosts give Windows and Linux personas an ARM CPU.** On Apple silicon and
-Linux arm64, a Windows or Linux persona reports the `arm` architecture
-(`Linux aarch64` on Linux), because a page can tell the CPU family from
+Linux arm64, a Windows or Linux persona reports the `arm` architecture in
+User-Agent Client Hints, because a page can tell the CPU family from
 arithmetic, such as the sign of a computed NaN, and from Web Audio output,
-which is rendered by the host CPU. The GPU stays a desktop Intel or NVIDIA
-one, and FingerprintJS scores that pair as a rare device. Run Windows personas
-on an x86 Linux server or a Windows machine. A macOS persona always reports
-Apple silicon, so run it on a Mac.
+which is rendered by the host CPU. `navigator.platform` stays `Linux x86_64`,
+which is what Chrome reports on every Linux CPU. The GPU stays a desktop Intel
+or NVIDIA one, and FingerprintJS scores that pair as a rare device. Run Windows
+personas on an x86 Linux server or a Windows machine. A macOS persona always
+reports Apple silicon, so run it on a Mac.
 
 **Cores and memory are capped at the host's.** A persona never claims more
 than the host has, so on a small server every persona reports the server's
