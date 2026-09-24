@@ -1,0 +1,450 @@
+Subject: [PATCH] fonts: a Windows persona answers the names Windows aliases
+
+Stock Windows Chrome reports Courier, Helvetica, Times, MS Sans Serif, MS
+Serif, Franklin Gothic and Arial Narrow as present, measuring as Courier New,
+Arial, Times New Roman, Microsoft Sans Serif, Times New Roman, Franklin
+Gothic Medium and Arial. A Windows persona hid them all. It now runs the
+Windows name mapping on any host, and on Linux also answers Helvetica with
+Arial, a name without its weight word with the listed family (Franklin Gothic
+Medium), and a width name whose narrow face is not listed with the base family
+at normal width. Each name shows exactly when its target is listed, no lookup
+returns a host face under the name itself, and src:local() checks names as
+listed.
+
+diff --git a/third_party/blink/renderer/platform/fonts/alternate_font_family.h b/third_party/blink/renderer/platform/fonts/alternate_font_family.h
+index ab909958f6..3b77755639 100644
+--- a/third_party/blink/renderer/platform/fonts/alternate_font_family.h
++++ b/third_party/blink/renderer/platform/fonts/alternate_font_family.h
+@@ -31,6 +31,7 @@
+ #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_FONTS_ALTERNATE_FONT_FAMILY_H_
+ #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_FONTS_ALTERNATE_FONT_FAMILY_H_
+ 
++#include "base/apostate/profile.h"
+ #include "build/build_config.h"
+ #include "third_party/blink/renderer/platform/font_family_names.h"
+ #include "third_party/blink/renderer/platform/fonts/font_description.h"
+@@ -43,7 +44,17 @@ namespace blink {
+ // path map certain common bitmap fonts to their truetype equivalent up front.
+ inline const AtomicString& AdjustFamilyNameToAvoidUnsupportedFonts(
+     const AtomicString& family_name) {
+-#if BUILDFLAG(IS_WIN)
++#if !BUILDFLAG(IS_WIN)
++  // Apostate: a Windows persona answers these names the way Windows does, on
++  // any host. A page that asks for Courier gets Courier New, as on Windows,
++  // and never a face of the host's that happens to be called Courier.
++  const base::apostate::Profile* profile = base::apostate::Profile::Get();
++  if (!profile || !profile->ua_platform() ||
++      *profile->ua_platform() != "Windows") {
++    return family_name;
++  }
++#endif
++
+   // On Windows, 'Courier New' (truetype font) is always present and
+   // 'Courier' is a bitmap font. On Mac on the other hand 'Courier' is
+   // a truetype font. Thus pages asking for Courier are better of
+@@ -65,7 +76,6 @@ inline const AtomicString& AdjustFamilyNameToAvoidUnsupportedFonts(
+       EqualIgnoringAsciiCase(family_name, font_family_names::kTimes)) {
+     return font_family_names::kTimesNewRoman;
+   }
+-#endif
+ 
+   return family_name;
+ }
+diff --git a/third_party/blink/renderer/platform/fonts/font_cache.h b/third_party/blink/renderer/platform/fonts/font_cache.h
+index 2b3c1593c6..8b325a00b6 100644
+--- a/third_party/blink/renderer/platform/fonts/font_cache.h
++++ b/third_party/blink/renderer/platform/fonts/font_cache.h
+@@ -72,6 +72,7 @@ class FontFaceCreationParams;
+ class FontFallbackMap;
+ class FontGlobalContext;
+ class FontPlatformData;
++class FontSelectionValue;
+ class SimpleFontData;
+ class WebFontPrewarmer;
+ 
+@@ -133,11 +134,13 @@ class PLATFORM_EXPORT FontCache final {
+   // Whether the profile's font enumeration allowlist hides `family` from the
+   // families a page is allowed to observe.
+   //
+-  // The single predicate every page-visible enumeration route consults, so
++  // The single predicate every route that matches a family name consults, so
+   // that they cannot disagree: a filter applied to document.fonts.check() but
+   // not to canvas measurement would have the two contradict each other, which
+-  // is a signal no real machine produces. Lives here because the suffix rules
+-  // it has to mirror are the platform font caches' own.
++  // is a signal no real machine produces. Lives here because the alias and
++  // suffix rules it has to mirror are the platform font caches' own: a name
++  // the platform answers with another family shows exactly when that family
++  // does.
+   //
+   // Subtractive only. A true answer declines to look a family up; it never
+   // makes an absent family resolve, because the platform matcher still has to
+@@ -145,6 +148,20 @@ class PLATFORM_EXPORT FontCache final {
+   // not recognised here.
+   static bool ProfileHidesFamily(const AtomicString& family);
+ 
++  // Whether the allowlist names `family` itself, as opposed to showing it only
++  // because the claimed platform answers the name with another family. True
++  // when there is no allowlist. A face found under a name that is not listed
++  // is the host's, never the claimed machine's.
++  static bool ProfileListsFamily(const AtomicString& family);
++
++  // For a Windows persona, the listed family "<family> <weight word>" that
++  // Windows answers `family` with when `family` itself is not listed: Windows
++  // files Franklin Gothic Medium under Franklin Gothic as well, and fontconfig
++  // knows only the longer name. Of several, the one whose weight is nearest
++  // `weight`. Null when there is none or the persona is not Windows.
++  static AtomicString ProfileWeightNamedFamily(const AtomicString& family,
++                                               FontSelectionValue weight);
++
+   static String FirstAvailableOrFirst(const String&);
+ 
+   void AddClient(FontCacheClient*);
+@@ -300,6 +317,14 @@ class PLATFORM_EXPORT FontCache final {
+                                    const FontFaceCreationParams&,
+                                    std::string& name);
+ 
++#if BUILDFLAG(IS_LINUX)
++  // Apostate: CreateTypeface for a family name under a Windows persona,
++  // resolving the name the way Windows does. See font_cache_skia.cc.
++  sk_sp<SkTypeface> CreateWindowsPersonaTypeface(const FontDescription&,
++                                                 const AtomicString& family,
++                                                 std::string& name);
++#endif
++
+ #if BUILDFLAG(IS_ANDROID) || BUILDFLAG(IS_WIN)
+   // SkFontMgr_FCI::onMatchFamilyStyleCharacter always crashes.
+   static const FontPlatformData* CreateFontPlatformDataForCharacter(
+diff --git a/third_party/blink/renderer/platform/fonts/font_cache.cc b/third_party/blink/renderer/platform/fonts/font_cache.cc
+index 6e497989cd..b533111b15 100644
+--- a/third_party/blink/renderer/platform/fonts/font_cache.cc
++++ b/third_party/blink/renderer/platform/fonts/font_cache.cc
+@@ -31,6 +31,7 @@
+ 
+ #include <unicode/uscript.h>
+ 
++#include <cmath>
+ #include <limits>
+ #include <memory>
+ #include <string>
+@@ -44,6 +45,7 @@
+ #include "base/notreached.h"
+ #include "base/numerics/safe_conversions.h"
+ #include "base/strings/escape.h"
++#include "base/strings/strcat.h"
+ #include "base/strings/string_util.h"
+ #include "base/system/sys_info.h"
+ #include "base/timer/elapsed_timer.h"
+@@ -102,6 +104,10 @@ constexpr std::string_view kWeightSuffixes[] = {
+     " thin",      " extralight", " ultralight", " light",
+     " regular",   " medium",     " demibold",   " semibold",
+     " extrabold", " ultrabold",  " black",      " heavy"};
++// The weight each entry of kWeightSuffixes names, in the same order.
++constexpr float kWeightSuffixWeights[] = {100, 200, 200, 300, 400, 500,
++                                          600, 600, 800, 800, 900, 900};
++static_assert(std::size(kWeightSuffixWeights) == std::size(kWeightSuffixes));
+ constexpr std::string_view kStretchSuffixes[] = {
+     " ultracondensed", " extracondensed", " condensed",
+     " narrow",         " semicondensed",  " semiexpanded",
+@@ -119,6 +125,10 @@ bool StripOneSuffix(std::string_view& name,
+   return false;
+ }
+ 
++bool ClaimsWindows(const base::apostate::Profile& profile) {
++  return profile.ua_platform() && *profile.ua_platform() == "Windows";
++}
++
+ // Apostate: the family `system-ui` resolves to on the platform the profile
+ // claims, or empty to keep this build's own answer. Windows Chrome takes it
+ // from the shell's menu font, Segoe UI, and Linux Chrome from the desktop
+@@ -153,12 +163,47 @@ bool FontCache::ProfileHidesFamily(const AtomicString& family) {
+     return false;
+   }
+ 
++  // A Windows persona never looks up Courier, MS Sans Serif, MS Serif or Times
++  // as written: AdjustFamilyNameToAvoidUnsupportedFonts turns them into
++  // Courier New, Microsoft Sans Serif and Times New Roman first, on Windows
++  // and on any other host. Such a name shows exactly when that family does.
++  if (ClaimsWindows(*profile)) {
++    const AtomicString& adjusted =
++        AdjustFamilyNameToAvoidUnsupportedFonts(family);
++    if (adjusted != family) {
++      return !profile->FontFamilyEnumerable(adjusted.Utf8());
++    }
++  }
++
+   const std::string lowered = base::ToLowerASCII(family.Utf8());
+   std::string_view name(lowered);
+   if (profile->FontFamilyEnumerable(name)) {
+     return false;
+   }
+ 
++  // For a Windows persona the Linux lookup answers two more kinds of name the
++  // way Windows does (CreateWindowsPersonaTypeface in skia/font_cache_skia.cc):
++  // a name no face answers to falls back to its alternate family (Helvetica
++  // is Arial), and a name Windows files a listed family under finds that
++  // family (Franklin Gothic is Franklin Gothic Medium). Other builds keep
++  // these names hidden, because their lookup would reach the host's own
++  // Helvetica.
++#if BUILDFLAG(IS_LINUX)
++  const bool windows_names = ClaimsWindows(*profile);
++#else
++  const bool windows_names = false;
++#endif
++  if (windows_names) {
++    const AtomicString& alternate = AlternateFamilyName(family);
++    if (!alternate.empty() &&
++        profile->FontFamilyEnumerable(alternate.Utf8())) {
++      return false;
++    }
++    if (!ProfileWeightNamedFamily(family, kNormalWeightValue).IsNull()) {
++      return false;
++    }
++  }
++
+   // Some family names are resolved by stripping a recognised suffix and
+   // matching the base family instead, so the allowlist has to be consulted
+   // for the name the platform will actually look up. On Windows a host with
+@@ -196,6 +241,51 @@ bool FontCache::ProfileHidesFamily(const AtomicString& family) {
+   return true;
+ }
+ 
++// static
++bool FontCache::ProfileListsFamily(const AtomicString& family) {
++  const base::apostate::Profile* profile = base::apostate::Profile::Get();
++  return !profile || profile->FontFamilyEnumerable(family.Utf8());
++}
++
++// static
++AtomicString FontCache::ProfileWeightNamedFamily(const AtomicString& family,
++                                                 FontSelectionValue weight) {
++  const base::apostate::Profile* profile = base::apostate::Profile::Get();
++  if (!profile || !profile->filters_font_enumeration() ||
++      !ClaimsWindows(*profile)) {
++    return AtomicString();
++  }
++  const std::string written = family.Utf8();
++  const std::string lowered = base::ToLowerASCII(written);
++  if (profile->FontFamilyEnumerable(lowered)) {
++    return AtomicString();
++  }
++
++  // The suffixes run from light to heavy. A tie goes to the heavier family
++  // from normal weight up and to the lighter one below it, as CSS font
++  // matching does.
++  const bool ties_go_heavier = weight >= kNormalWeightValue;
++  const base::span<const std::string_view> suffixes(kWeightSuffixes);
++  const base::span<const float> weights(kWeightSuffixWeights);
++  std::string_view nearest;
++  float nearest_distance = 0;
++  for (size_t i = 0; i < suffixes.size(); ++i) {
++    if (!profile->FontFamilyEnumerable(base::StrCat({lowered, suffixes[i]}))) {
++      continue;
++    }
++    const float distance = std::abs(weights[i] - static_cast<float>(weight));
++    if (nearest.empty() || distance < nearest_distance ||
++        (ties_go_heavier && distance == nearest_distance)) {
++      nearest = suffixes[i];
++      nearest_distance = distance;
++    }
++  }
++  if (nearest.empty()) {
++    return AtomicString();
++  }
++  return AtomicString::FromUtf8(base::StrCat({written, nearest}));
++}
++
+ #if BUILDFLAG(IS_ANDROID)
+ extern const char kNotoColorEmojiCompat[] = "Noto Color Emoji Compat";
+ #endif
+diff --git a/third_party/blink/renderer/platform/fonts/skia/font_cache_skia.cc b/third_party/blink/renderer/platform/fonts/skia/font_cache_skia.cc
+index 8206f8cbf4..5b10868e97 100644
+--- a/third_party/blink/renderer/platform/fonts/skia/font_cache_skia.cc
++++ b/third_party/blink/renderer/platform/fonts/skia/font_cache_skia.cc
+@@ -122,6 +122,19 @@ bool WindowsStretchSuffix(const AtomicString& family,
+   }
+   return false;
+ }
++
++// Whether a lookup answers family names the way Windows does: a family name,
++// not a unique face name, for a Windows persona, and not the last-resort
++// search, which has to find some face.
++bool UsesWindowsFamilyNames(const FontFaceCreationParams& creation_params,
++                            AlternateFontName alternate_name) {
++  const auto* profile = base::apostate::Profile::Get();
++  return profile && profile->ua_platform() &&
++         *profile->ua_platform() == "Windows" &&
++         creation_params.CreationType() == kCreateFontByFamily &&
++         alternate_name != AlternateFontName::kLocalUniqueFace &&
++         alternate_name != AlternateFontName::kLastResort;
++}
+ #endif  // BUILDFLAG(IS_LINUX)
+ 
+ const FontPlatformData* CreateFontPlatformDataForTypeface(
+@@ -349,6 +362,81 @@ sk_sp<SkTypeface> FontCache::CreateTypeface(
+   return typeface;
+ }
+ 
++#if BUILDFLAG(IS_LINUX)
++// Windows answers a family name through DirectWrite, which also files a face
++// under its family name without the weight word, and then retries a name with
++// a width word as the base family at that width (win/font_cache_skia_win.cc).
++// fontconfig knows only the names written in each file. A name the persona
++// lists, or does not show at all, is looked up as written, with the width
++// retry. A name the persona shows only because Windows answers it with a
++// listed family is answered with that family and never looked up as written,
++// so no host face of that name comes back.
++sk_sp<SkTypeface> FontCache::CreateWindowsPersonaTypeface(
++    const FontDescription& font_description,
++    const AtomicString& family,
++    std::string& name) {
++  AtomicString base_family;
++  FontSelectionValue stretch;
++  const bool has_stretch_suffix =
++      WindowsStretchSuffix(family, base_family, stretch);
++
++  if (ProfileListsFamily(family) || ProfileHidesFamily(family)) {
++    sk_sp<SkTypeface> typeface =
++        CreateTypeface(font_description, FontFaceCreationParams(family), name);
++    if (!has_stretch_suffix ||
++        (typeface && MatchesWindowsFamily(typeface.get(), family))) {
++      return typeface;
++    }
++    FontDescription stretched = font_description;
++    stretched.SetStretch(stretch);
++    typeface =
++        CreateTypeface(stretched, FontFaceCreationParams(base_family), name);
++    if (!typeface || !MatchesWindowsFamily(typeface.get(), base_family)) {
++      return nullptr;
++    }
++    return typeface;
++  }
++
++  // Franklin Gothic is the listed Franklin Gothic Medium.
++  const AtomicString weight_family =
++      ProfileWeightNamedFamily(family, font_description.Weight());
++  if (!weight_family.IsNull()) {
++    sk_sp<SkTypeface> typeface = CreateTypeface(
++        font_description, FontFaceCreationParams(weight_family), name);
++    if (!typeface || !MatchesWindowsFamily(typeface.get(), weight_family)) {
++      return nullptr;
++    }
++    return typeface;
++  }
++
++  // Arial Narrow, when only Arial is listed, is Arial at the narrow width. A
++  // face that answers to Arial Narrow itself is the host's, since the persona
++  // lists none, so it is Arial at its normal width, as on a Windows machine
++  // without a narrow face.
++  if (has_stretch_suffix) {
++    FontDescription stretched = font_description;
++    stretched.SetStretch(stretch);
++    sk_sp<SkTypeface> typeface =
++        CreateTypeface(stretched, FontFaceCreationParams(base_family), name);
++    if (typeface && MatchesWindowsFamily(typeface.get(), family)) {
++      stretched.SetStretch(kNormalWidthValue);
++      typeface =
++          CreateTypeface(stretched, FontFaceCreationParams(base_family), name);
++    }
++    if (!typeface || !MatchesWindowsFamily(typeface.get(), base_family) ||
++        MatchesWindowsFamily(typeface.get(), family)) {
++      return nullptr;
++    }
++    return typeface;
++  }
++
++  // Helvetica, or Courier asked for without going through
++  // AdjustFamilyNameToAvoidUnsupportedFonts. No Windows face answers to the
++  // name; the caller tries its alternate family.
++  return nullptr;
++}
++#endif  // BUILDFLAG(IS_LINUX)
++
+ #if !BUILDFLAG(IS_WIN)
+ const FontPlatformData* FontCache::CreateFontPlatformData(
+     const FontDescription& font_description,
+@@ -374,6 +462,11 @@ const FontPlatformData* FontCache::CreateFontPlatformData(
+   if (alternate_name == AlternateFontName::kLocalUniqueFace ||
+       noto_color_emoji_from_gmscore) {
+     typeface = CreateTypefaceFromUniqueName(creation_params);
++#if BUILDFLAG(IS_LINUX)
++  } else if (UsesWindowsFamilyNames(creation_params, alternate_name)) {
++    typeface = CreateWindowsPersonaTypeface(font_description,
++                                            creation_params.Family(), name);
++#endif
+   } else {
+     typeface = CreateTypeface(font_description, creation_params, name);
+   }
+@@ -381,29 +474,6 @@ const FontPlatformData* FontCache::CreateFontPlatformData(
+   typeface = CreateTypeface(font_description, creation_params, name);
+ #endif
+ 
+-#if BUILDFLAG(IS_LINUX)
+-  const auto* profile = base::apostate::Profile::Get();
+-  if (profile && profile->ua_platform() &&
+-      *profile->ua_platform() == "Windows" &&
+-      creation_params.CreationType() == kCreateFontByFamily &&
+-      alternate_name != AlternateFontName::kLocalUniqueFace &&
+-      alternate_name != AlternateFontName::kLastResort &&
+-      (!typeface ||
+-       !MatchesWindowsFamily(typeface.get(), creation_params.Family()))) {
+-    AtomicString adjusted_name;
+-    FontSelectionValue stretch;
+-    if (WindowsStretchSuffix(creation_params.Family(), adjusted_name, stretch)) {
+-      FontDescription adjusted_description = font_description;
+-      adjusted_description.SetStretch(stretch);
+-      typeface = CreateTypeface(adjusted_description,
+-                                FontFaceCreationParams(adjusted_name), name);
+-      if (!typeface || !MatchesWindowsFamily(typeface.get(), adjusted_name)) {
+-        return nullptr;
+-      }
+-    }
+-  }
+-#endif  // BUILDFLAG(IS_LINUX)
+-
+   if (!typeface)
+     return nullptr;
+ 
+diff --git a/third_party/blink/renderer/core/css/local_font_face_source.cc b/third_party/blink/renderer/core/css/local_font_face_source.cc
+index df122249d3..d26d3406c1 100644
+--- a/third_party/blink/renderer/core/css/local_font_face_source.cc
++++ b/third_party/blink/renderer/core/css/local_font_face_source.cc
+@@ -11,6 +11,7 @@
+ #include "third_party/blink/renderer/core/css/css_custom_font_data.h"
+ #include "third_party/blink/renderer/core/css/css_font_face.h"
+ #include "third_party/blink/renderer/core/probe/core_probes.h"
++#include "third_party/blink/renderer/platform/fonts/alternate_font_family.h"
+ #include "third_party/blink/renderer/platform/fonts/bitmap_glyphs_block_list.h"
+ #include "third_party/blink/renderer/platform/fonts/font_cache.h"
+ #include "third_party/blink/renderer/platform/fonts/font_custom_platform_data.h"
+@@ -35,17 +36,28 @@ namespace {
+ // is resolved first and the family the platform actually produced is what
+ // decides, so a page that asks for an allowlisted family by its PostScript
+ // name still gets it, and a face belonging to a hidden family does not.
++//
++// Both names are checked against the list as written. The rules that show a
++// family name through another family (Helvetica as Arial, Franklin Gothic as
++// Franklin Gothic Medium) belong to family matching; Windows answers local()
++// only with a face of that very name, so under those rules a host's own
++// Helvetica would get through here. For the same reason a name the lookup
++// turns into another before it starts, such as Courier into Courier New,
++// names no face Windows has.
+ bool ProfileHidesResolvedFace(const AtomicString& font_name,
+                               const SkTypeface* typeface) {
+-  if (!FontCache::ProfileHidesFamily(font_name)) {
++  if (FontCache::ProfileListsFamily(font_name)) {
+     return false;
+   }
++  if (AdjustFamilyNameToAvoidUnsupportedFonts(font_name) != font_name) {
++    return true;
++  }
+   if (!typeface) {
+     return false;
+   }
+   SkString family;
+   typeface->getFamilyName(&family);
+-  return FontCache::ProfileHidesFamily(
++  return !FontCache::ProfileListsFamily(
+       AtomicString::FromUtf8(std::string_view(family.c_str(), family.size())));
+ }
+ 
