@@ -71,6 +71,9 @@ DATA_ASSETS = {
     # covers every country, so a Malaysian exit resolves ms rather than no
     # locale at all.
     "country-locales.json": REPO_ROOT / "config/country-locales.json",
+    # The font packs. `apostate fonts install windows` installs the files of
+    # the Windows core pack's families and names the ones still missing.
+    "font_packs.json": REPO_ROOT / "resources/profiles/dispersion/font_packs.json",
 }
 REPOSITORY = "heretic-tech/apostate"
 #: Fields copied from a per-artifact manifest into the package manifest. The

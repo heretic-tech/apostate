@@ -259,8 +259,9 @@ Windows persona missing Windows faces is measurable in text metrics.
 npx apostate fonts install windows
 ```
 
-That clones the font set with `git`, copies it into
-`~/.local/share/fonts/apostate-windows` and runs `fc-cache -f`. Passing
+That clones the font set with `git`, copies the files of the Windows core
+families into `~/.local/share/fonts/apostate-windows`, runs `fc-cache -f` and
+names any core family the host still lacks. Passing
 `fingerprintPlatform: "linux"` composes the host's own OS instead and needs
 nothing installed. Windows-on-Linux is the default because it is the least bad
 cross-OS pairing, not because it is free; `fingerprintPlatform: "macos"` on a
@@ -306,7 +307,9 @@ npx apostate fonts export-macos ~/mac-fonts           # on a Mac
 npx apostate fonts install macos --from ~/mac-fonts   # on the Linux host
 ```
 
-`fonts install windows` clones the font set with `git`. `fonts export-macos`
+`fonts install windows` clones the font set with `git` and installs the files
+of the Windows core families; `--from DIR` takes them from a Windows Fonts
+folder instead, which is how to add Marlett. `fonts export-macos`
 copies a Mac's system fonts into a directory; copy that directory to the Linux
 host and install it from there. Fonts go into `~/.local/share/fonts/apostate-*`
 on Linux, followed by `fc-cache -f`, and `~/Library/Fonts/apostate-*` on
@@ -329,7 +332,7 @@ npx apostate path           # print the executable path
 npx apostate info           # install and manifest state as JSON
 npx apostate run -- --version
 npx apostate clear          # delete the cache
-npx apostate fonts install windows
+npx apostate fonts install windows [--from DIR]
 npx apostate fonts install macos --from DIR
 npx apostate fonts export-macos DIR
 ```
