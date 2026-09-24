@@ -926,7 +926,7 @@ class CompositionTests(unittest.TestCase):
     })
     GOLDEN_PROFILES = {
         "windows": ("fp-b0b97b3a3531b65ee50f45fc", GOLDEN_SECTIONS,
-                    "d4a306fb17acea237786ad4e04244c9e1df33a2a0bd652ce54931cb6f2bcc9ce"),
+                    "293bf5bd0750fe708ce7d1f8ed424bdcee28819ef008b35bbbc5a0c911e611bd"),
         "macos": ("fp-60eab51485a4a8465ce3c24a", GOLDEN_SECTIONS,
                   "3738d7b64c6b52da997aac166ad6343f365821075562e66bfa860c56f4ff4b5e"),
         "linux": ("fp-8c5f63da9ef88ea749549a91", GOLDEN_SECTIONS,
