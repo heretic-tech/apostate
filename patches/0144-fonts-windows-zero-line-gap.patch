@@ -1,0 +1,41 @@
+Subject: [PATCH] fonts: zero line gap for line-height normal under a Windows profile
+
+DirectWrite reports no leading for fonts whose hhea line gap FreeType
+folds into the used line height of `line-height: normal`. Consolas 24px
+is 28px on Windows and 32px on unpatched Linux. Under a Windows profile
+the line gap is zero. An author line-gap-override still wins.
+
+diff --git a/third_party/blink/renderer/platform/fonts/simple_font_data.cc b/third_party/blink/renderer/platform/fonts/simple_font_data.cc
+--- a/third_party/blink/renderer/platform/fonts/simple_font_data.cc
++++ b/third_party/blink/renderer/platform/fonts/simple_font_data.cc
+@@ -37,5 +37,6 @@
+ #include <utility>
+ 
++#include "base/apostate/profile.h"
+ #include "base/compiler_specific.h"
+ #include "base/memory/ptr_util.h"
+ #include "build/build_config.h"
+@@ -87,8 +88,23 @@
+   if (metrics_override.line_gap_override) {
+     line_gap = *metrics_override.line_gap_override * platform_data_->size();
+   } else {
+     line_gap = metrics.fLeading;
++    // APOSTATE(win-line-gap): the reference Windows stack derives line
++    // spacing without a FreeType line gap (DirectWrite reports fLeading 0
++    // for these families), so when emulating Windows ignore the
++    // FreeType-derived gap. Author line-height overrides take the branch
++    // above and are unaffected. Windows detection matches 0066
++    // (profile ua_platform).
++    bool zero_line_gap = false;
++    if (const auto* profile = base::apostate::Profile::Get()) {
++      if (const auto& platform = profile->ua_platform()) {
++        zero_line_gap = (*platform == "Windows");
++      }
++    }
++    if (zero_line_gap) {
++      line_gap = 0.0f;
++    }
+   }
+   font_metrics_.SetLineGap(line_gap);
+   font_metrics_.SetLineSpacing(lroundf(ascent) + lroundf(descent) +
+                                lroundf(line_gap));

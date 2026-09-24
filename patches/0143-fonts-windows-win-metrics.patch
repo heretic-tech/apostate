@@ -1,0 +1,83 @@
+Subject: [PATCH] fonts: OS/2 win ascent and descent under a Windows profile
+
+DirectWrite reports a font's ascent and descent from the OS/2
+usWinAscent/usWinDescent fields. FreeType on Linux reads hhea. Where the
+two tables disagree, a Windows persona on Linux reported the wrong CSS
+line boxes, fontBoundingBox and baselines: Consolas 24px is 28px tall on
+Windows and was 24px here, Calibri and Palatino Linotype likewise. Under
+a Windows profile, with no CSS ascent/descent override, this reads the
+OS/2 and head tables and returns the rounded win metrics (the typo
+metrics when the font sets USE_TYPO_METRICS, as Cambria Math does,
+which is what DirectWrite does), skipping the
+FreeType-only VDMX and borrow-one adjustments. Missing or zero tables
+fall through to the existing path. Other profiles are unchanged.
+
+diff --git a/third_party/blink/renderer/platform/fonts/font_metrics.cc b/third_party/blink/renderer/platform/fonts/font_metrics.cc
+index 11f9a7e..3c47e1b 100644
+--- a/third_party/blink/renderer/platform/fonts/font_metrics.cc
++++ b/third_party/blink/renderer/platform/fonts/font_metrics.cc
+@@ -29,6 +29,7 @@
+ 
+ #include "third_party/blink/renderer/platform/fonts/font_metrics.h"
+ 
++#include "base/apostate/profile.h"
+ #include "base/compiler_specific.h"
+ #include "base/containers/span.h"
+ #include "build/build_config.h"
+@@ -66,6 +67,56 @@ void FontMetrics::AscentDescentWithHacks(
+   if (descent_override)
+     metrics.fDescent = platform_data.size() * descent_override.value();
+ 
++  // A profile claiming Windows uses the OS/2 win metrics, which is what the
++  // DirectWrite-backed path reports on Windows. The shared Linux path below
++  // reads hhea-based SkFont metrics, so families whose win and hhea metrics
++  // differ (Consolas, Calibri, Palatino Linotype) report the wrong
++  // fontBoundingBox, hanging/ideographic baselines and CSS line boxes.
++  // With no Windows profile, or when CSS ascent/descent overrides are set,
++  // or when the tables are absent, nothing is touched.
++  if (!ascent_override && !descent_override) {
++    bool use_windows_metrics = false;
++    if (const auto* profile = base::apostate::Profile::Get()) {
++      if (const auto& platform = profile->ua_platform()) {
++        use_windows_metrics = (*platform == "Windows");
++      }
++    }
++    if (use_windows_metrics) {
++      // usWinAscent/usWinDescent live at OS/2 offsets 74/76 in all table
++      // versions, fsSelection at 62 and sTypoAscender/sTypoDescender at
++      // 68/70; unitsPerEm at head offset 18. Read only the prefixes.
++      // DirectWrite prefers the typo metrics when fsSelection bit 7
++      // (USE_TYPO_METRICS) is set, as Cambria Math does.
++      static const uint32_t kOs2Tag = SkSetFourByteTag('O', 'S', '/', '2');
++      static const uint32_t kHeadTag = SkSetFourByteTag('h', 'e', 'a', 'd');
++      uint8_t os2[78];
++      uint8_t head[20];
++      if (face->getTableSize(kOs2Tag) >= sizeof(os2) &&
++          face->getTableSize(kHeadTag) >= sizeof(head) &&
++          face->getTableData(kOs2Tag, 0, sizeof(os2), os2) == sizeof(os2) &&
++          face->getTableData(kHeadTag, 0, sizeof(head), head) == sizeof(head)) {
++        const unsigned upm = (head[18] << 8) | head[19];
++        const bool use_typo = os2[63] & 0x80;
++        const int typo_ascent =
++            static_cast<int16_t>((os2[68] << 8) | os2[69]);
++        const int typo_descent =
++            -static_cast<int16_t>((os2[70] << 8) | os2[71]);
++        const int win_ascent = (os2[74] << 8) | os2[75];
++        const int win_descent = (os2[76] << 8) | os2[77];
++        const int design_ascent =
++            use_typo && typo_ascent > 0 ? typo_ascent : win_ascent;
++        const int design_descent =
++            use_typo && typo_ascent > 0 ? typo_descent : win_descent;
++        if (upm != 0 && design_ascent != 0 && design_descent != 0) {
++          const float size = platform_data.size();
++          ascent = SkScalarRoundToScalar(design_ascent * size / upm);
++          descent = SkScalarRoundToScalar(design_descent * size / upm);
++          return;
++        }
++      }
++    }
++  }
++
+   int vdmx_ascent = 0, vdmx_descent = 0;
+   bool is_vdmx_valid = false;
+ 
