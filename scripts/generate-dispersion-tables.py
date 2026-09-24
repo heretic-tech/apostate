@@ -79,6 +79,7 @@ EVIDENCE_CLASSES = {
     "physical-ground-truth",
     "compatibility-capture",
     "catalogue-value",
+    "public-corpus",
     "native-derived",
     "proxy-derived",
     "host-inherited",

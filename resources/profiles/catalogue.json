@@ -196,7 +196,7 @@
    "file": "dispersion/cpu.json",
    "label": "cpu",
    "option_sets": 81,
-   "options": 351,
+   "options": 382,
    "selection": "single",
    "servability": "clamp-down"
   },
@@ -220,7 +220,7 @@
    "file": "dispersion/panel.json",
    "label": "panel",
    "option_sets": 14,
-   "options": 28,
+   "options": 34,
    "selection": "single",
    "servability": "window-bounds"
   },
@@ -233,7 +233,7 @@
    "file": "dispersion/furniture.json",
    "label": "furniture",
    "option_sets": 7,
-   "options": 25,
+   "options": 19,
    "selection": "single",
    "servability": "none"
   },
@@ -246,7 +246,7 @@
    "file": "dispersion/font_packs.json",
    "label": "font_packs",
    "option_sets": 7,
-   "options": 17,
+   "options": 8,
    "selection": "core-plus-subset",
    "servability": "none"
   },
@@ -280,7 +280,7 @@
    "file": "dispersion/network.json",
    "label": "network",
    "option_sets": 1,
-   "options": 6,
+   "options": 3,
    "selection": "single",
    "servability": "none"
   },
@@ -357,8 +357,8 @@
   "owner": "the build"
  },
  "language_sets": [
-  "en-US,en",
-  "en-GB,en",
+  "en-US",
+  "en-GB",
   ""
  ],
  "model": "anchors+dispersion",
@@ -495,7 +495,7 @@
    }
   ]
  },
- "policy_notes": "locale and theme are catalogue policies rather than dispersion axes. locale is launch precedence, then GeoIP of the effective egress, then the host (docs/FINGERPRINTS.md section 6) and theme is not one of the nine axes. The display and hardware policies of catalogue version 1 are gone: panel, furniture, cpu and memory replace them. The voices axis has measured option sets for the en-US and en-GB language lists; any other accept-languages value projects onto the empty language key, which leaves the speech section absent so the host's real providers stay in effect, and so does a launch that names no locale at all. The locale policy stays at four options on purpose, and since patch 0111 none of them is drawn: they are the set an explicit selection resolves through, which on the reference path is scripts/profile_resolver.py's --locale-policy, and each is an internally consistent pair rather than a language list beside another country's timezone. Widening the set by seed was never the answer and drawing from it at all was the defect. Two counts, both of which outweigh locale diversity. First, the voices axis is keyed on the resolved accept-languages list and only en-US,en and en-GB,en have measured option sets; every other list projects onto the empty-string set, which leaves speechSynthesis host-inherited. Measured: 2 of 4 locale options carry a measured voice list today, and 2 of 14 would after widening, so ten of fourteen seeds would have traded a measured voice list for the host's. Second, and decisively, the correct value of this surface is a function of the exit IP and not of the seed: a German timezone behind a US egress is a stronger and more commonly checked signal than a narrow timezone pool is, and a seeded draw does not merely risk that mismatch, it guarantees one, because the draw cannot see the egress. A drawn timezone is therefore worse than the host's own, which at least matches a direct connection. GeoIP-derived selection is what landed instead: the Python and Node packages resolve the exit IP before launch and pass --fingerprint-locale and --fingerprint-timezone, the compositor honours those and otherwise writes no locale section, and a failed or partial lookup invents nothing and leaves the host to serve the fields it could not answer for. Candidates for the selection set, each internally consistent (country matches timezone, keyboard layout matches the locale's standard layout): en-CA/America/Toronto, en-NZ/Pacific/Auckland, en-IE/Europe/Dublin, en-ZA/Africa/Johannesburg, de-DE/Europe/Berlin (QWERTZ), fr-FR/Europe/Paris (AZERTY), es-ES/Europe/Madrid, it-IT/Europe/Rome, nl-NL/Europe/Amsterdam, pt-BR/America/Sao_Paulo.",
+ "policy_notes": "locale and theme are catalogue policies rather than dispersion axes. locale is launch precedence, then GeoIP of the effective egress, then the host (docs/FINGERPRINTS.md section 6) and theme is not one of the nine axes. The display and hardware policies of catalogue version 1 are gone: panel, furniture, cpu and memory replace them. The voices axis has measured option sets for the en-US and en-GB locales and is keyed on the application locale a launch names, a single --fingerprint-locale tag or the first tag of a list; any other locale projects onto the empty language key, and so does a launch that names no locale at all. The locale policy stays at four options on purpose, and since patch 0111 none of them is drawn: they are the set an explicit selection resolves through, which on the reference path is scripts/profile_resolver.py's --locale-policy, and each is an internally consistent pair rather than a language list beside another country's timezone. Widening the set by seed was never the answer and drawing from it at all was the defect. Two counts, both of which outweigh locale diversity. First, the voices axis is keyed on the named application locale and only en-US and en-GB have measured option sets; every other locale projects onto the empty-string set, which at the time left speechSynthesis host-inherited. Measured: 2 of 4 locale options carry a measured voice list today, and 2 of 14 would after widening, so ten of fourteen seeds would have traded a measured voice list for the host's. Second, and decisively, the correct value of this surface is a function of the exit IP and not of the seed: a German timezone behind a US egress is a stronger and more commonly checked signal than a narrow timezone pool is, and a seeded draw does not merely risk that mismatch, it guarantees one, because the draw cannot see the egress. A drawn timezone is therefore worse than the host's own, which at least matches a direct connection. GeoIP-derived selection is what landed instead: the Python and Node packages resolve the exit IP before launch and pass --fingerprint-locale and --fingerprint-timezone, the compositor honours those and otherwise writes no locale section, and a failed or partial lookup invents nothing and leaves the host to serve the fields it could not answer for. Candidates for the selection set, each internally consistent (country matches timezone, keyboard layout matches the locale's standard layout): en-CA/America/Toronto, en-NZ/Pacific/Auckland, en-IE/Europe/Dublin, en-ZA/Africa/Johannesburg, de-DE/Europe/Berlin (QWERTZ), fr-FR/Europe/Paris (AZERTY), es-ES/Europe/Madrid, it-IT/Europe/Rome, nl-NL/Europe/Amsterdam, pt-BR/America/Sao_Paulo.",
  "profile_schema_version": 3,
  "provenance_policy": {
   "catalogue-value": "An Apostate-owned normalized value constrained by platform and Chromium rules. Authored, not measured, and labelled as such in the option's note.",
@@ -503,7 +503,8 @@
   "host-inherited": "Omitted from the profile so the native host value remains in effect.",
   "native-derived": "Emitted by the current Apostate/Chromium build from source inputs; assert-only in a profile.",
   "physical-ground-truth": "A per-file verified, consented capture from a physical device held by this project.",
-  "proxy-derived": "Resolved at launch from the actual network exit and never stored in this catalogue."
+  "proxy-derived": "Resolved at launch from the actual network exit and never stored in this catalogue.",
+  "public-corpus": "Weighted from a public corpus of real browser sessions that is not stored in this repository. The option's source names the corpus and the counts behind its weight; no corpus rows are copied here."
  },
  "retired_model": {
   "catalogue_version": 1,

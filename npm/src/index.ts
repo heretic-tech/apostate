@@ -51,6 +51,7 @@ const SUPPORTED_EVIDENCE = {
   "physical-ground-truth": true,
   "compatibility-capture": true,
   "catalogue-value": true,
+  "public-corpus": true,
   "native-derived": true,
   "proxy-derived": true,
   "host-inherited": true,
