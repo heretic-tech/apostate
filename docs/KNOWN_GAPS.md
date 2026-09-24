@@ -28,6 +28,18 @@ differ. WebGL extensions with methods, such as `WEBGL_provoking_vertex`, are
 missing when the host GPU lacks them. A WebGPU compute shader runs at the host
 GPU's subgroup size, whatever sizes `adapter.info` reports for the persona.
 
+**Hardware video encoders are the host's.** WebRTC's send codecs come from
+the encoders the host has. Real Windows machines with an Intel or NVIDIA GPU
+also offer H.264 High and H.265, which a persona on a server without those
+encoders does not list.
+
+**FingerprintJS Pro flags GPU-less Linux servers.** On a bare-metal Linux
+server with no usable GPU, under Xvfb, FingerprintJS Pro reports tampering
+(`anomaly_score` 1, `anti_detect_browser` true) for every Apostate persona and
+for an unmodified Google Chrome alike. The cause has not been isolated: it is
+not canvas pixels, fonts, the claimed hardware, the network layer or any
+profile section.
+
 **WebGL limits above an Apple GPU's.** WebGL reports the persona's limits on
 every host, and a Windows or Linux persona claims more than Metal allows. On
 Apple silicon, 8x multisampling fails (the GPU has 4), a shader with more than
