@@ -518,22 +518,18 @@ def _refuse_user_data_dir(config: Any, *, entry: str) -> None:
         "context bound to that directory. The identity is stable there with no flag."
     )
 
-#: Driver preference order, Patchright first. The reasoning, stated at the
-#: strength it has been measured to: the browser owns what a page can observe
-#: about the browser, and a driver's remaining job is to avoid CREATING
+#: Driver preference order, Patchright first. The browser owns what a page can
+#: observe about the browser, and a driver's remaining job is to avoid CREATING
 #: artifacts -- main-world ``addInitScript``/``exposeFunction`` bindings,
 #: ``Runtime.addBinding``, evaluation-script names in stack traces, its
 #: automation argv. Patchright is the hardened fork of that family.
 #:
-#: What is NOT claimed: that Patchright beats Playwright here. Nobody has
-#: measured it on this project, and plain Playwright measured clean on both
-#: artifacts expected to separate them -- the classic sentinels were absent
-#: under every driver tried, and ``window`` key sets were byte-identical
-#: between a bare launch and a driven page. Nor is patch 0087's neutralisation
-#: of ``Runtime.enable`` settled: it has compiled and never run, so that is
-#: design intent until the throw-cost ratio is re-measured on a built binary.
-#: Choosing the default is still the package's job; asserting an unmeasured
-#: advantage is not.
+#: Measured on FingerprintJS Pro (152.0.7977.83, Linux x64 host, same seed and
+#: proxy pool): under Playwright ``developer_tools`` is true on every run, under
+#: Patchright it is false, as it is with no driver attached at all. The flag is
+#: what was measured; the likely cause, not isolated, is ``Runtime.enable``,
+#: which Playwright sends on attach and Patchright does not. Page-visible
+#: surfaces in the main world are identical under both drivers.
 DRIVERS = ("patchright", "playwright")
 
 #: What to do when no driver is importable. Patchright is a required

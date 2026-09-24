@@ -24,13 +24,14 @@ its own — main-world `addInitScript` and `exposeFunction` bindings,
 automation argv. Patchright is the hardened fork of that family, which is why it
 is the default.
 
-Be aware of what has and has not been measured here. The classic sentinels
-(`$cdc_`, `__webdriver_evaluate`, `__playwright` and eight others) were **absent
-under every driver tested**, and the `window` key set was byte-identical between
-a bare launch and a driven page — so the folklore checks are not what
-distinguishes these drivers. Patchright's advantage over Playwright has not been
-measured on this project, and the default reflects the fork's intent rather than
-a result. Treat any claim otherwise, including ours, as unverified.
+The classic sentinels (`$cdc_`, `__webdriver_evaluate`, `__playwright` and eight
+others) were **absent under every driver tested**, and the `window` key set was
+byte-identical between a bare launch and a driven page, so the folklore checks
+are not what distinguishes these drivers. What does: FingerprintJS Pro reports
+`developer_tools: true` on every run under Playwright and `false` under
+Patchright, the same as with no driver attached. That is why Patchright is the
+default. The likely cause, not isolated, is `Runtime.enable`, which Playwright
+sends and Patchright does not.
 
 Two things about Puppeteer *are* measured, and are why it sits last in the order.
 Stack traces from driver-evaluated code carry your **absolute filesystem path**
