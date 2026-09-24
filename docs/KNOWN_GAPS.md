@@ -25,7 +25,8 @@ there is none. A page that times rendering or compares images with real
 hardware can see this. Personas of one platform on one host draw the same
 canvas image unless their fonts differ; `--fingerprint-noise` makes the hashes
 differ. WebGL extensions with methods, such as `WEBGL_provoking_vertex`, are
-missing when the host GPU lacks them.
+missing when the host GPU lacks them. A WebGPU compute shader runs at the host
+GPU's subgroup size, whatever sizes `adapter.info` reports for the persona.
 
 **WebGL limits above an Apple GPU's.** WebGL reports the persona's limits on
 every host, and a Windows or Linux persona claims more than Metal allows. On

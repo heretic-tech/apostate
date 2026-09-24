@@ -432,7 +432,7 @@
     },
     "webgpu": {
       "type": "object",
-      "description": "Measured WebGPU adapter identity: the feature set, vendor and architecture strings, subgroup sizes, and numeric limits. Served the way the GL components are: features intersect (the emitter drops backend features the claimed device lacks and never adds ones the backend cannot execute), limits take the minimum, and only the vendor and architecture strings are served verbatim. An absent section leaves the host adapter untouched.",
+      "description": "Measured WebGPU adapter identity: the feature set, vendor and architecture strings, subgroup sizes, and numeric limits. Served the way the GL components are: features intersect (the emitter drops backend features the claimed device lacks and never adds ones the backend cannot execute), limits take the minimum, and the vendor and architecture strings and the subgroup sizes are served as claimed. An absent section leaves the host adapter untouched.",
       "additionalProperties": false,
       "properties": {
         "features": {
@@ -458,11 +458,13 @@
             },
             "subgroup_min_size": {
               "type": "integer",
-              "minimum": 1
+              "minimum": 1,
+              "description": "GPUAdapterInfo.subgroupMinSize of the claimed device. Served as claimed on any host; a value that is not a power of two is ignored. Absent: the host adapter's value."
             },
             "subgroup_max_size": {
               "type": "integer",
-              "minimum": 1
+              "minimum": 1,
+              "description": "GPUAdapterInfo.subgroupMaxSize of the claimed device. Served as claimed on any host; a value that is not a power of two is ignored. Absent: the host adapter's value."
             }
           }
         },

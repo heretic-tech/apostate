@@ -1,0 +1,102 @@
+Subject: [PATCH] webgpu: subgroup sizes from the profile
+
+GPUAdapterInfo.subgroupMinSize and subgroupMaxSize are now the claimed
+device's on every host, like its vendor and architecture. They took the
+smaller of the claim and the host GPU's, so an Intel claim of 16 read 8
+on a host whose GPU goes down to 8, and Dawn's adjustment for Intel
+Gen12 under D3D12 lowered any claimed minimum to 8 on such a Windows
+host. Shaders still run at the host's own sizes; these values only
+describe the device. The GPU-less path takes them from the same place,
+and a profile without them keeps the host's values.
+
+diff --git a/base/apostate/profile.h b/base/apostate/profile.h
+--- a/base/apostate/profile.h
++++ b/base/apostate/profile.h
+@@ -496,9 +496,9 @@ class BASE_EXPORT Profile {
+   // emitter drops backend features the claimed device lacks and never adds
+   // ones the backend cannot execute, because a claimed-but-broken feature
+   // fails at first use. Limits take the minimum for the same reason a page
+-  // can falsify a limit by allocating up to it. Only the vendor and
+-  // architecture strings are served verbatim — pure labels no page can
+-  // exercise. An absent section leaves the host's adapter untouched.
++  // can falsify a limit by allocating up to it. The vendor and architecture
++  // strings and the subgroup sizes are served as claimed: they only describe
++  // the device. An absent section leaves the host's adapter untouched.
+   const std::set<std::string>& webgpu_features() const {
+     return webgpu_features_;
+   }
+diff --git a/gpu/command_buffer/service/webgpu_decoder_impl.cc b/gpu/command_buffer/service/webgpu_decoder_impl.cc
+--- a/gpu/command_buffer/service/webgpu_decoder_impl.cc
++++ b/gpu/command_buffer/service/webgpu_decoder_impl.cc
+@@ -1727,12 +1727,6 @@ WGPUStatus WebGPUDecoderImpl::AdapterGetInfoImpl(WGPUAdapter adapter,
+   info->adapterType = vendor == "nvidia" || vendor == "amd"
+                           ? WGPUAdapterType_DiscreteGPU
+                           : WGPUAdapterType_IntegratedGPU;
+-  if (profile->webgpu_subgroup_min() > 0) {
+-    info->subgroupMinSize = profile->webgpu_subgroup_min();
+-  }
+-  if (profile->webgpu_subgroup_max() > 0) {
+-    info->subgroupMaxSize = profile->webgpu_subgroup_max();
+-  }
+   return status;
+ }
+ 
+diff --git a/third_party/dawn/include/dawn/native/DawnNative.h b/third_party/dawn/include/dawn/native/DawnNative.h
+--- a/third_party/dawn/include/dawn/native/DawnNative.h
++++ b/third_party/dawn/include/dawn/native/DawnNative.h
+@@ -96,10 +96,10 @@ class DAWN_NATIVE_EXPORT Adapter {
+     // Claimed-device adapter identity, measured from the reference device.
+     // Features intersect: backend capabilities the claimed device lacks are
+     // dropped, and nothing the backend cannot execute is ever added. Limits
+-    // take the minimum with saturation. Vendor and architecture are pure
+-    // labels and are served verbatim; subgroup sizes go through the minimum
+-    // with a power-of-two guard. An empty feature set means no profile
+-    // section and leaves the adapter untouched.
++    // take the minimum with saturation. Vendor, architecture and subgroup
++    // sizes only describe the device and are served as claimed; a subgroup
++    // size that is not a power of two is ignored. An empty feature set means
++    // no profile section and leaves the adapter untouched.
+     struct ProfileAdapterCaps {
+         std::set<std::string> features;
+         std::string vendor;
+diff --git a/third_party/dawn/src/dawn/native/Adapter.cpp b/third_party/dawn/src/dawn/native/Adapter.cpp
+--- a/third_party/dawn/src/dawn/native/Adapter.cpp
++++ b/third_party/dawn/src/dawn/native/Adapter.cpp
+@@ -317,24 +317,25 @@ wgpu::Status AdapterBase::APIGetInfo(AdapterInfo* info) const {
+     info->deviceID = mPhysicalDevice->GetDeviceId();
+     info->subgroupMinSize = mPhysicalDevice->GetSubgroupMinSize();
+     info->subgroupMaxSize = mPhysicalDevice->GetSubgroupMaxSize();
+-    if (mProfileSubgroupMin > 0) {
+-        uint32_t claimed = std::min(info->subgroupMinSize, mProfileSubgroupMin);
+-        if (claimed == 0 || IsPowerOfTwo(claimed)) {
+-            info->subgroupMinSize = claimed;
+-        }
+-    }
+-    if (mProfileSubgroupMax > 0) {
+-        uint32_t claimed = std::min(info->subgroupMaxSize, mProfileSubgroupMax);
+-        if (claimed == 0 || IsPowerOfTwo(claimed)) {
+-            info->subgroupMaxSize = claimed;
+-        }
+-    }
+ 
+     if (mPhysicalDevice->GetBackendType() == wgpu::BackendType::D3D12 &&
+         mTogglesState.IsEnabled(Toggle::D3D12RelaxMinSubgroupSizeTo8)) {
+         info->subgroupMinSize = std::min(info->subgroupMinSize, 8u);
+     }
+ 
++    // The claimed device's subgroup sizes are served as claimed, like its
++    // vendor and architecture. They only describe the device: shaders are
++    // still compiled for the backend's own sizes, which come from the
++    // physical device. They go after the D3D12 relaxation above, which is
++    // about the host's GPU, not the claimed one. A size that is not a power
++    // of two is not one any device reports, so the backend's stays.
++    if (mProfileSubgroupMin > 0 && IsPowerOfTwo(mProfileSubgroupMin)) {
++        info->subgroupMinSize = mProfileSubgroupMin;
++    }
++    if (mProfileSubgroupMax > 0 && IsPowerOfTwo(mProfileSubgroupMax)) {
++        info->subgroupMaxSize = mProfileSubgroupMax;
++    }
++
+     DAWN_CHECK(info->subgroupMaxSize == 0 || IsPowerOfTwo(info->subgroupMaxSize));
+     DAWN_CHECK(info->subgroupMinSize == 0 || IsPowerOfTwo(info->subgroupMinSize));
+ 

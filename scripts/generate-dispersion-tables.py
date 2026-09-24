@@ -618,6 +618,12 @@ def member_webgpu(path: Path, anchor_id: str, cluster: dict, capture: str) -> di
         for field in ("architecture", "vendor")
         if isinstance(adapter.get(field), str) and adapter[field]
     }
+    # The subgroup sizes the adapter reported, under the profile's names.
+    for measured, field in (("subgroupMinSize", "subgroup_min_size"),
+                            ("subgroupMaxSize", "subgroup_max_size")):
+        size = integral(adapter.get(measured))
+        if size is not None and size > 0:
+            info[field] = size
     if info:
         section["info"] = dict(sorted(info.items()))
     limits = {
@@ -741,14 +747,19 @@ def register_identities(axes: list[dict], anchors: list[dict]) -> int:
     measured WebGPU adapter, `webgpu_measured_on` naming that member's device.
     Anything else is a build failure here instead of a crash at launch.
 
-    `webgpu_architecture` is the one field of the borrowed adapter that does not
-    travel with the donor. Dawn resolves `GPUAdapterInfo.architecture` from the
-    PCI device id (`third_party/dawn/src/dawn/gpu_info.json`), so an identity
-    that rotates across silicon generations on one backend anchor -- every
-    D3D11 NVIDIA board sits on the same feature-level caps, but a 4090 reports
-    `lovelace` where the measured 3070 Ti reports `ampere` -- must state its own.
-    It overrides only that one string; vendor, features and the measured limits
-    still come from the donor, because those are what the donor measured.
+    Two fields of the borrowed adapter may follow the identity instead of the
+    donor, and both come from Dawn keying on the PCI device id.
+    `webgpu_architecture`: Dawn resolves `GPUAdapterInfo.architecture` from the
+    id (`third_party/dawn/src/dawn/gpu_info.json`), so an identity that rotates
+    across silicon generations on one backend anchor -- every D3D11 NVIDIA
+    board sits on the same feature-level caps, but a 4090 reports `lovelace`
+    where the measured 3070 Ti reports `ampere` -- must state its own.
+    `webgpu_subgroup_min_size`: on D3D12 Dawn lowers
+    `GPUAdapterInfo.subgroupMinSize` to 8 for Intel Gen12LP ids (toggle
+    d3d12_relax_min_subgroup_size_to_8), so a UHD 770 or Iris Xe that borrows
+    the measured UHD 630 adapter states 8. Each replaces only its own field;
+    vendor, features, the other subgroup size and the measured limits still
+    come from the donor, because those are what the donor measured.
 
     Returns the number of identities registered.
     """
@@ -847,7 +858,13 @@ def register_identities(axes: list[dict], anchors: list[dict]) -> int:
                         "WebGPU source"
                     )
                 unknown = sorted(
-                    set(block) - {"label", "webgpu_measured_on", "webgpu_architecture"}
+                    set(block)
+                    - {
+                        "label",
+                        "webgpu_measured_on",
+                        "webgpu_architecture",
+                        "webgpu_subgroup_min_size",
+                    }
                 )
                 if unknown:
                     raise GeneratorError(
@@ -886,6 +903,9 @@ def register_identities(axes: list[dict], anchors: list[dict]) -> int:
                         )
                     webgpu = donor["webgpu"]
 
+                # Fields of the borrowed adapter that follow the identity rather
+                # than the donor, by the name the profile's `webgpu.info` uses.
+                overrides: dict[str, object] = {}
                 architecture = block.get("webgpu_architecture")
                 if architecture is not None:
                     if not isinstance(architecture, str) or not architecture:
@@ -893,19 +913,31 @@ def register_identities(axes: list[dict], anchors: list[dict]) -> int:
                             f"gpu_identity option {option['id']!r}: "
                             "`member.webgpu_architecture` must be a non-empty string"
                         )
+                    overrides["architecture"] = architecture
+                subgroup_min = block.get("webgpu_subgroup_min_size")
+                if subgroup_min is not None:
+                    size = integral(subgroup_min)
+                    if size is None or size <= 0 or size & (size - 1):
+                        raise GeneratorError(
+                            f"gpu_identity option {option['id']!r}: "
+                            "`member.webgpu_subgroup_min_size` must be a positive power of two"
+                        )
+                    overrides["subgroup_min_size"] = size
+                if overrides:
                     # `webgpu` is the profile fragment `{"webgpu": {...}}` that
                     # member_webgpu built, so the adapter sits one level in.
                     section = webgpu.get("webgpu") or {}
                     info = dict(section.get("info") or {})
-                    if "architecture" not in info:
+                    missing = sorted(set(overrides) - set(info))
+                    if missing:
                         raise GeneratorError(
-                            f"gpu_identity option {option['id']!r}: "
-                            "`member.webgpu_architecture` overrides one field of a borrowed "
-                            "adapter, and this option borrows none that reported an "
-                            "architecture. Name a donor in `member.webgpu_measured_on` that "
-                            "did, or drop the field"
+                            f"gpu_identity option {option['id']!r}: a `member.webgpu_*` "
+                            "field overrides one field of a borrowed adapter, and this "
+                            f"option borrows none that reported {', '.join(missing)}. Name "
+                            "a donor in `member.webgpu_measured_on` that did, or drop the "
+                            "field"
                         )
-                    info["architecture"] = architecture
+                    info.update(overrides)
                     # Fresh dicts all the way down: `webgpu` is the donor
                     # member's own object and every other identity registered on
                     # that donor shares it.

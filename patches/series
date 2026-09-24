@@ -129,3 +129,4 @@
 0146-fonts-windows-family-aliases.patch
 0147-speech-persona-voices-without-a-host-engine.patch
 0148-locale-a-bare-tag-names-only-the-application-locale.patch
+0149-webgpu-subgroup-sizes-from-the-profile.patch

@@ -1413,6 +1413,13 @@ def _member_webgpu(record: Mapping[str, Any], cluster: Mapping[str, Any],
         section["features"] = sorted(str(name) for name in features)
     info = {field: adapter[field] for field in ("vendor", "architecture")
             if isinstance(adapter.get(field), str) and adapter[field]}
+    # The subgroup sizes the adapter reported, under the profile's names.
+    # Mirrors member_webgpu in scripts/generate-dispersion-tables.py.
+    for measured, field in (("subgroupMinSize", "subgroup_min_size"),
+                            ("subgroupMaxSize", "subgroup_max_size")):
+        size = adapter.get(measured)
+        if isinstance(size, int) and not isinstance(size, bool) and size > 0:
+            info[field] = size
     if info:
         section["info"] = info
     limits = {name: value for name, value in (adapter.get("limits") or {}).items()
@@ -1795,18 +1802,21 @@ def _resolve_internal(config: Mapping[str, Any] | None = None, **overrides: Any)
             layer = _anchor_capability_layer(
                 anchor_records[anchor["id"]]["record"], identity_renderer,
             )
-            # Dawn resolves GPUAdapterInfo.architecture from the PCI device id,
-            # so it is the one borrowed adapter field that follows the claimed
-            # board rather than the donor. Everything else -- vendor, features,
-            # the measured limits -- stays the donor's, because that is what was
-            # measured. Mirrors register_identities in
+            # Two borrowed adapter fields follow the claimed board rather than
+            # the donor, because Dawn keys both on the PCI device id: the
+            # architecture name and, for Intel Gen12LP under D3D12, the smallest
+            # subgroup size. Everything else -- vendor, features, the other
+            # subgroup size, the measured limits -- stays the donor's, because
+            # that is what was measured. Mirrors register_identities in
             # scripts/generate-dispersion-tables.py; the compiled table and this
             # resolver must not disagree about what a persona reports.
-            if isinstance(block, Mapping) and block.get("webgpu_architecture") \
-                    and isinstance(layer.get("webgpu"), dict) \
-                    and isinstance(layer["webgpu"].get("info"), dict) \
-                    and "architecture" in layer["webgpu"]["info"]:
-                layer["webgpu"]["info"]["architecture"] = block["webgpu_architecture"]
+            webgpu = layer.get("webgpu")
+            info = webgpu.get("info") if isinstance(webgpu, dict) else None
+            if isinstance(block, Mapping) and isinstance(info, dict):
+                for key, field in (("webgpu_architecture", "architecture"),
+                                   ("webgpu_subgroup_min_size", "subgroup_min_size")):
+                    if block.get(key) and field in info:
+                        info[field] = block[key]
             profile = _merge(profile, layer)
             chosen["anchor"] = {
                 "options": [anchor["id"]],

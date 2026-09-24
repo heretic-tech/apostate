@@ -27,10 +27,10 @@ The schema is `config/profile.schema.json` (schema version 3). Its sections:
 | `gl_limits` | WebGL numeric limits, such as `MAX_TEXTURE_SIZE`. WebGL reports them on every host; Chromium's own drawing keeps the lower of these and the host's. |
 | `gl_extensions` | The WebGL extensions the GPU has. Extensions it lacks are removed. Five that only add constants are added even when the host lacks them; any other extension shows only if the host supports it. |
 | `gl_precisions` | `getShaderPrecisionFormat()` results. |
-| `webgpu` | WebGPU adapter vendor, architecture, features and limits. |
+| `webgpu` | WebGPU adapter vendor, architecture, subgroup sizes, features and limits. |
 | `screen` | Size, available area and taskbar or menu-bar insets, pixel ratio, colour depth, gamut, HDR, extra displays. |
 | `window` | Window frame sizes. The browser does not use them; the real window's frame shows. |
-| `locale` | Timezone and Accept-Language list. |
+| `locale` | Timezone, and the UI locale (`application`) or the Accept-Language list. |
 | `theme` | Dark mode, highlight colours, and the fonts CSS system font keywords resolve to. |
 | `input` | Pointer type and hover. |
 | `audio` | Audio output buffer size, which sets `AudioContext.baseLatency`. |
@@ -117,7 +117,8 @@ The GPU values come from four GPU families measured on that hardware:
 
 Within a family, WebGL limits, extensions and shader precision are the same
 for every model, and so is the WebGPU adapter apart from its architecture
-name, which follows the model's chip generation. A persona can therefore name
+name and, on Intel's 12th-generation graphics, its smallest subgroup size,
+which follow the model's chip generation. A persona can therefore name
 any model of the family by changing the renderer string. The models are
 listed in `resources/profiles/dispersion/gpu_identity.json`. A fifth family,
 the SwiftShader software renderer, is only used when pinned with
