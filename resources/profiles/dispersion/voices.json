@@ -5,12 +5,12 @@
   "os_release",
   "languages"
  ],
- "description": "Registered speech voices for an OS release and an accept-languages list. The languages key is the resolved accept-languages string; the empty-string key is always present and leaves the speech section absent so host providers remain in effect. Only localService true voices appear here. The network voices Chromium lists are served by its network speech synthesis component against a Google endpoint and need build-time keys, so they are a build capability and not a profile value (docs/FINGERPRINTS.md section 8).",
+ "description": "Registered speech voices for an OS release and a locale. The languages key is the application locale the launch named: a single --fingerprint-locale tag, or the first tag of a list. The empty-string key is always present and is what a locale nobody measured, or a launch that named none, projects onto. Only localService true voices appear here. The network voices Chromium lists are served by its network speech synthesis component against a Google endpoint and need build-time keys, so they are a build capability and not a profile value (docs/FINGERPRINTS.md section 8).",
  "label": "voices",
  "option_sets": [
   {
    "key": {
-    "languages": "en-US,en",
+    "languages": "en-US",
     "os_release": "macos-26-6-2",
     "platform": "macos"
    },
@@ -18,7 +18,7 @@
     {
      "evidence": "physical-ground-truth",
      "id": "macos-bundled",
-     "note": "The 180 local voices measured on the Apple M4 Max reference host. macOS lists every installed voice regardless of the UI language, which is why the set does not vary with the accept-languages list. Only localService true voices appear here. The network voices Chromium lists are served by its network speech synthesis component against a Google endpoint and need build-time keys, so they are a build capability and not a profile value (docs/FINGERPRINTS.md section 8). The nineteen network voices a Chrome-branded build registers. They are a browser property, not a device one: both this project's Windows capture and its macOS capture record the same nineteen names in the same order, so they belong to every persona this fork serves rather than to a machine. Patch 0125 speaks a listed voice through a real local provider when this build has no network speech key, so listing them no longer means listing a voice that cannot speak.",
+     "note": "The 180 local voices measured on the Apple M4 Max reference host. macOS lists every installed voice regardless of the UI language, which is why the set does not vary with the locale. Only localService true voices appear here. The network voices Chromium lists are served by its network speech synthesis component against a Google endpoint and need build-time keys, so they are a build capability and not a profile value (docs/FINGERPRINTS.md section 8). The nineteen network voices a Chrome-branded build registers. They are a browser property, not a device one: both this project's Windows capture and its macOS capture record the same nineteen names in the same order, so they belong to every persona this fork serves rather than to a machine. Patch 0125 speaks a listed voice through a real local provider when this build has no network speech key, so listing them no longer means listing a voice that cannot speak.",
      "source": "resources/fingerprints/raw/m4-max-chrome-20260908T163229Z.json",
      "value": {
       "speech": {
@@ -1226,7 +1226,7 @@
   },
   {
    "key": {
-    "languages": "en-GB,en",
+    "languages": "en-GB",
     "os_release": "macos-26-6-2",
     "platform": "macos"
    },
@@ -1234,7 +1234,7 @@
     {
      "evidence": "physical-ground-truth",
      "id": "macos-bundled",
-     "note": "The 180 local voices measured on the Apple M4 Max reference host. macOS lists every installed voice regardless of the UI language, which is why the set does not vary with the accept-languages list. Only localService true voices appear here. The network voices Chromium lists are served by its network speech synthesis component against a Google endpoint and need build-time keys, so they are a build capability and not a profile value (docs/FINGERPRINTS.md section 8).",
+     "note": "The 180 local voices measured on the Apple M4 Max reference host. macOS lists every installed voice regardless of the UI language, which is why the set does not vary with the locale. Only localService true voices appear here. The network voices Chromium lists are served by its network speech synthesis component against a Google endpoint and need build-time keys, so they are a build capability and not a profile value (docs/FINGERPRINTS.md section 8). The 19 Google network voices that Chrome with API keys lists on every OS and locale follow the local ones, in the order the captures list them.",
      "source": "resources/fingerprints/raw/m4-max-chrome-20260908T163229Z.json",
      "value": {
       "speech": {
@@ -2318,6 +2318,120 @@
          "lang": "cs-CZ",
          "local_service": true,
          "name": "Zuzana"
+        },
+        {
+         "default": false,
+         "lang": "de-DE",
+         "local_service": false,
+         "name": "Google Deutsch"
+        },
+        {
+         "default": false,
+         "lang": "en-US",
+         "local_service": false,
+         "name": "Google US English"
+        },
+        {
+         "default": false,
+         "lang": "en-GB",
+         "local_service": false,
+         "name": "Google UK English Female"
+        },
+        {
+         "default": false,
+         "lang": "en-GB",
+         "local_service": false,
+         "name": "Google UK English Male"
+        },
+        {
+         "default": false,
+         "lang": "es-ES",
+         "local_service": false,
+         "name": "Google espa\u00f1ol"
+        },
+        {
+         "default": false,
+         "lang": "es-US",
+         "local_service": false,
+         "name": "Google espa\u00f1ol de Estados Unidos"
+        },
+        {
+         "default": false,
+         "lang": "fr-FR",
+         "local_service": false,
+         "name": "Google fran\u00e7ais"
+        },
+        {
+         "default": false,
+         "lang": "hi-IN",
+         "local_service": false,
+         "name": "Google \u0939\u093f\u0928\u094d\u0926\u0940"
+        },
+        {
+         "default": false,
+         "lang": "id-ID",
+         "local_service": false,
+         "name": "Google Bahasa Indonesia"
+        },
+        {
+         "default": false,
+         "lang": "it-IT",
+         "local_service": false,
+         "name": "Google italiano"
+        },
+        {
+         "default": false,
+         "lang": "ja-JP",
+         "local_service": false,
+         "name": "Google \u65e5\u672c\u8a9e"
+        },
+        {
+         "default": false,
+         "lang": "ko-KR",
+         "local_service": false,
+         "name": "Google \ud55c\uad6d\uc758"
+        },
+        {
+         "default": false,
+         "lang": "nl-NL",
+         "local_service": false,
+         "name": "Google Nederlands"
+        },
+        {
+         "default": false,
+         "lang": "pl-PL",
+         "local_service": false,
+         "name": "Google polski"
+        },
+        {
+         "default": false,
+         "lang": "pt-BR",
+         "local_service": false,
+         "name": "Google portugu\u00eas do Brasil"
+        },
+        {
+         "default": false,
+         "lang": "ru-RU",
+         "local_service": false,
+         "name": "Google \u0440\u0443\u0441\u0441\u043a\u0438\u0439"
+        },
+        {
+         "default": false,
+         "lang": "zh-CN",
+         "local_service": false,
+         "name": "Google\u00a0\u666e\u901a\u8bdd\uff08\u4e2d\u56fd\u5927\u9646\uff09"
+        },
+        {
+         "default": false,
+         "lang": "zh-HK",
+         "local_service": false,
+         "name": "Google\u00a0\u7ca4\u8a9e\uff08\u9999\u6e2f\uff09"
+        },
+        {
+         "default": false,
+         "lang": "zh-TW",
+         "local_service": false,
+         "name": "Google \u570b\u8a9e\uff08\u81fa\u7063\uff09"
         }
        ]
       }
@@ -2336,7 +2450,7 @@
     {
      "evidence": "physical-ground-truth",
      "id": "macos-bundled",
-     "note": "The 180 local voices measured on the Apple M4 Max reference host. macOS lists every installed voice regardless of the UI language, which is why the set does not vary with the accept-languages list. Only localService true voices appear here. The network voices Chromium lists are served by its network speech synthesis component against a Google endpoint and need build-time keys, so they are a build capability and not a profile value (docs/FINGERPRINTS.md section 8). The nineteen network voices a Chrome-branded build registers. They are a browser property, not a device one: both this project's Windows capture and its macOS capture record the same nineteen names in the same order, so they belong to every persona this fork serves rather than to a machine. Patch 0125 speaks a listed voice through a real local provider when this build has no network speech key, so listing them no longer means listing a voice that cannot speak. Served for an accept-languages list the table does not key on. The alternative was host inheritance, which hands a page the host machine's own voice list under a persona that is not that machine: a Windows identity on a macOS host enumerated 180 Apple voices, measured. An English voice set under another browser locale is an ordinary machine; the host's set under a foreign persona is not a machine at all.",
+     "note": "The 180 local voices measured on the Apple M4 Max reference host. macOS lists every installed voice regardless of the UI language, which is why the set does not vary with the locale. Only localService true voices appear here. The network voices Chromium lists are served by its network speech synthesis component against a Google endpoint and need build-time keys, so they are a build capability and not a profile value (docs/FINGERPRINTS.md section 8). The nineteen network voices a Chrome-branded build registers. They are a browser property, not a device one: both this project's Windows capture and its macOS capture record the same nineteen names in the same order, so they belong to every persona this fork serves rather than to a machine. Patch 0125 speaks a listed voice through a real local provider when this build has no network speech key, so listing them no longer means listing a voice that cannot speak. Served for an accept-languages list the table does not key on. The alternative was host inheritance, which hands a page the host machine's own voice list under a persona that is not that machine: a Windows identity on a macOS host enumerated 180 Apple voices, measured. An English voice set under another browser locale is an ordinary machine; the host's set under a foreign persona is not a machine at all.",
      "source": "resources/fingerprints/raw/m4-max-chrome-20260908T163229Z.json",
      "value": {
       "speech": {
@@ -3544,7 +3658,7 @@
   },
   {
    "key": {
-    "languages": "en-US,en",
+    "languages": "en-US",
     "os_release": "macos-26-5-0",
     "platform": "macos"
    },
@@ -3552,7 +3666,7 @@
     {
      "evidence": "catalogue-value",
      "id": "macos-bundled",
-     "note": "The 180 local voices measured on the Apple M4 Max reference host. macOS lists every installed voice regardless of the UI language, which is why the set does not vary with the accept-languages list. Only localService true voices appear here. The network voices Chromium lists are served by its network speech synthesis component against a Google endpoint and need build-time keys, so they are a build capability and not a profile value (docs/FINGERPRINTS.md section 8). AUTHORED FOR THIS RELEASE, NOT MEASURED: the set is replayed from the macOS 26.6.2 capture; Apple adds voices between releases and only 26.6.2 is measured here.",
+     "note": "The 180 local voices measured on the Apple M4 Max reference host. macOS lists every installed voice regardless of the UI language, which is why the set does not vary with the locale. Only localService true voices appear here. The network voices Chromium lists are served by its network speech synthesis component against a Google endpoint and need build-time keys, so they are a build capability and not a profile value (docs/FINGERPRINTS.md section 8). AUTHORED FOR THIS RELEASE, NOT MEASURED: the set is replayed from the macOS 26.6.2 capture; Apple adds voices between releases and only 26.6.2 is measured here. The 19 Google network voices that Chrome with API keys lists on every OS and locale follow the local ones, in the order the captures list them.",
      "source": "resources/fingerprints/raw/m4-max-chrome-20260908T163229Z.json",
      "value": {
       "speech": {
@@ -4636,6 +4750,120 @@
          "lang": "cs-CZ",
          "local_service": true,
          "name": "Zuzana"
+        },
+        {
+         "default": false,
+         "lang": "de-DE",
+         "local_service": false,
+         "name": "Google Deutsch"
+        },
+        {
+         "default": false,
+         "lang": "en-US",
+         "local_service": false,
+         "name": "Google US English"
+        },
+        {
+         "default": false,
+         "lang": "en-GB",
+         "local_service": false,
+         "name": "Google UK English Female"
+        },
+        {
+         "default": false,
+         "lang": "en-GB",
+         "local_service": false,
+         "name": "Google UK English Male"
+        },
+        {
+         "default": false,
+         "lang": "es-ES",
+         "local_service": false,
+         "name": "Google espa\u00f1ol"
+        },
+        {
+         "default": false,
+         "lang": "es-US",
+         "local_service": false,
+         "name": "Google espa\u00f1ol de Estados Unidos"
+        },
+        {
+         "default": false,
+         "lang": "fr-FR",
+         "local_service": false,
+         "name": "Google fran\u00e7ais"
+        },
+        {
+         "default": false,
+         "lang": "hi-IN",
+         "local_service": false,
+         "name": "Google \u0939\u093f\u0928\u094d\u0926\u0940"
+        },
+        {
+         "default": false,
+         "lang": "id-ID",
+         "local_service": false,
+         "name": "Google Bahasa Indonesia"
+        },
+        {
+         "default": false,
+         "lang": "it-IT",
+         "local_service": false,
+         "name": "Google italiano"
+        },
+        {
+         "default": false,
+         "lang": "ja-JP",
+         "local_service": false,
+         "name": "Google \u65e5\u672c\u8a9e"
+        },
+        {
+         "default": false,
+         "lang": "ko-KR",
+         "local_service": false,
+         "name": "Google \ud55c\uad6d\uc758"
+        },
+        {
+         "default": false,
+         "lang": "nl-NL",
+         "local_service": false,
+         "name": "Google Nederlands"
+        },
+        {
+         "default": false,
+         "lang": "pl-PL",
+         "local_service": false,
+         "name": "Google polski"
+        },
+        {
+         "default": false,
+         "lang": "pt-BR",
+         "local_service": false,
+         "name": "Google portugu\u00eas do Brasil"
+        },
+        {
+         "default": false,
+         "lang": "ru-RU",
+         "local_service": false,
+         "name": "Google \u0440\u0443\u0441\u0441\u043a\u0438\u0439"
+        },
+        {
+         "default": false,
+         "lang": "zh-CN",
+         "local_service": false,
+         "name": "Google\u00a0\u666e\u901a\u8bdd\uff08\u4e2d\u56fd\u5927\u9646\uff09"
+        },
+        {
+         "default": false,
+         "lang": "zh-HK",
+         "local_service": false,
+         "name": "Google\u00a0\u7ca4\u8a9e\uff08\u9999\u6e2f\uff09"
+        },
+        {
+         "default": false,
+         "lang": "zh-TW",
+         "local_service": false,
+         "name": "Google \u570b\u8a9e\uff08\u81fa\u7063\uff09"
         }
        ]
       }
@@ -4646,7 +4874,7 @@
   },
   {
    "key": {
-    "languages": "en-GB,en",
+    "languages": "en-GB",
     "os_release": "macos-26-5-0",
     "platform": "macos"
    },
@@ -4654,7 +4882,7 @@
     {
      "evidence": "catalogue-value",
      "id": "macos-bundled",
-     "note": "The 180 local voices measured on the Apple M4 Max reference host. macOS lists every installed voice regardless of the UI language, which is why the set does not vary with the accept-languages list. Only localService true voices appear here. The network voices Chromium lists are served by its network speech synthesis component against a Google endpoint and need build-time keys, so they are a build capability and not a profile value (docs/FINGERPRINTS.md section 8). AUTHORED FOR THIS RELEASE, NOT MEASURED: the set is replayed from the macOS 26.6.2 capture; Apple adds voices between releases and only 26.6.2 is measured here.",
+     "note": "The 180 local voices measured on the Apple M4 Max reference host. macOS lists every installed voice regardless of the UI language, which is why the set does not vary with the locale. Only localService true voices appear here. The network voices Chromium lists are served by its network speech synthesis component against a Google endpoint and need build-time keys, so they are a build capability and not a profile value (docs/FINGERPRINTS.md section 8). AUTHORED FOR THIS RELEASE, NOT MEASURED: the set is replayed from the macOS 26.6.2 capture; Apple adds voices between releases and only 26.6.2 is measured here. The 19 Google network voices that Chrome with API keys lists on every OS and locale follow the local ones, in the order the captures list them.",
      "source": "resources/fingerprints/raw/m4-max-chrome-20260908T163229Z.json",
      "value": {
       "speech": {
@@ -5738,6 +5966,120 @@
          "lang": "cs-CZ",
          "local_service": true,
          "name": "Zuzana"
+        },
+        {
+         "default": false,
+         "lang": "de-DE",
+         "local_service": false,
+         "name": "Google Deutsch"
+        },
+        {
+         "default": false,
+         "lang": "en-US",
+         "local_service": false,
+         "name": "Google US English"
+        },
+        {
+         "default": false,
+         "lang": "en-GB",
+         "local_service": false,
+         "name": "Google UK English Female"
+        },
+        {
+         "default": false,
+         "lang": "en-GB",
+         "local_service": false,
+         "name": "Google UK English Male"
+        },
+        {
+         "default": false,
+         "lang": "es-ES",
+         "local_service": false,
+         "name": "Google espa\u00f1ol"
+        },
+        {
+         "default": false,
+         "lang": "es-US",
+         "local_service": false,
+         "name": "Google espa\u00f1ol de Estados Unidos"
+        },
+        {
+         "default": false,
+         "lang": "fr-FR",
+         "local_service": false,
+         "name": "Google fran\u00e7ais"
+        },
+        {
+         "default": false,
+         "lang": "hi-IN",
+         "local_service": false,
+         "name": "Google \u0939\u093f\u0928\u094d\u0926\u0940"
+        },
+        {
+         "default": false,
+         "lang": "id-ID",
+         "local_service": false,
+         "name": "Google Bahasa Indonesia"
+        },
+        {
+         "default": false,
+         "lang": "it-IT",
+         "local_service": false,
+         "name": "Google italiano"
+        },
+        {
+         "default": false,
+         "lang": "ja-JP",
+         "local_service": false,
+         "name": "Google \u65e5\u672c\u8a9e"
+        },
+        {
+         "default": false,
+         "lang": "ko-KR",
+         "local_service": false,
+         "name": "Google \ud55c\uad6d\uc758"
+        },
+        {
+         "default": false,
+         "lang": "nl-NL",
+         "local_service": false,
+         "name": "Google Nederlands"
+        },
+        {
+         "default": false,
+         "lang": "pl-PL",
+         "local_service": false,
+         "name": "Google polski"
+        },
+        {
+         "default": false,
+         "lang": "pt-BR",
+         "local_service": false,
+         "name": "Google portugu\u00eas do Brasil"
+        },
+        {
+         "default": false,
+         "lang": "ru-RU",
+         "local_service": false,
+         "name": "Google \u0440\u0443\u0441\u0441\u043a\u0438\u0439"
+        },
+        {
+         "default": false,
+         "lang": "zh-CN",
+         "local_service": false,
+         "name": "Google\u00a0\u666e\u901a\u8bdd\uff08\u4e2d\u56fd\u5927\u9646\uff09"
+        },
+        {
+         "default": false,
+         "lang": "zh-HK",
+         "local_service": false,
+         "name": "Google\u00a0\u7ca4\u8a9e\uff08\u9999\u6e2f\uff09"
+        },
+        {
+         "default": false,
+         "lang": "zh-TW",
+         "local_service": false,
+         "name": "Google \u570b\u8a9e\uff08\u81fa\u7063\uff09"
         }
        ]
       }
@@ -5756,7 +6098,7 @@
     {
      "evidence": "physical-ground-truth",
      "id": "macos-bundled",
-     "note": "The 180 local voices measured on the Apple M4 Max reference host. macOS lists every installed voice regardless of the UI language, which is why the set does not vary with the accept-languages list. Only localService true voices appear here. The network voices Chromium lists are served by its network speech synthesis component against a Google endpoint and need build-time keys, so they are a build capability and not a profile value (docs/FINGERPRINTS.md section 8). The nineteen network voices a Chrome-branded build registers. They are a browser property, not a device one: both this project's Windows capture and its macOS capture record the same nineteen names in the same order, so they belong to every persona this fork serves rather than to a machine. Patch 0125 speaks a listed voice through a real local provider when this build has no network speech key, so listing them no longer means listing a voice that cannot speak. Served for an accept-languages list the table does not key on. The alternative was host inheritance, which hands a page the host machine's own voice list under a persona that is not that machine: a Windows identity on a macOS host enumerated 180 Apple voices, measured. An English voice set under another browser locale is an ordinary machine; the host's set under a foreign persona is not a machine at all.",
+     "note": "The 180 local voices measured on the Apple M4 Max reference host. macOS lists every installed voice regardless of the UI language, which is why the set does not vary with the locale. Only localService true voices appear here. The network voices Chromium lists are served by its network speech synthesis component against a Google endpoint and need build-time keys, so they are a build capability and not a profile value (docs/FINGERPRINTS.md section 8). The nineteen network voices a Chrome-branded build registers. They are a browser property, not a device one: both this project's Windows capture and its macOS capture record the same nineteen names in the same order, so they belong to every persona this fork serves rather than to a machine. Patch 0125 speaks a listed voice through a real local provider when this build has no network speech key, so listing them no longer means listing a voice that cannot speak. Served for an accept-languages list the table does not key on. The alternative was host inheritance, which hands a page the host machine's own voice list under a persona that is not that machine: a Windows identity on a macOS host enumerated 180 Apple voices, measured. An English voice set under another browser locale is an ordinary machine; the host's set under a foreign persona is not a machine at all.",
      "source": "resources/fingerprints/raw/m4-max-chrome-20260908T163229Z.json",
      "value": {
       "speech": {
@@ -6964,7 +7306,7 @@
   },
   {
    "key": {
-    "languages": "en-US,en",
+    "languages": "en-US",
     "os_release": "macos-15-7-2",
     "platform": "macos"
    },
@@ -6972,7 +7314,7 @@
     {
      "evidence": "catalogue-value",
      "id": "macos-bundled",
-     "note": "The 180 local voices measured on the Apple M4 Max reference host. macOS lists every installed voice regardless of the UI language, which is why the set does not vary with the accept-languages list. Only localService true voices appear here. The network voices Chromium lists are served by its network speech synthesis component against a Google endpoint and need build-time keys, so they are a build capability and not a profile value (docs/FINGERPRINTS.md section 8). AUTHORED FOR THIS RELEASE, NOT MEASURED: the set is replayed from the macOS 26.6.2 capture; Apple adds voices between releases and only 26.6.2 is measured here.",
+     "note": "The 180 local voices measured on the Apple M4 Max reference host. macOS lists every installed voice regardless of the UI language, which is why the set does not vary with the locale. Only localService true voices appear here. The network voices Chromium lists are served by its network speech synthesis component against a Google endpoint and need build-time keys, so they are a build capability and not a profile value (docs/FINGERPRINTS.md section 8). AUTHORED FOR THIS RELEASE, NOT MEASURED: the set is replayed from the macOS 26.6.2 capture; Apple adds voices between releases and only 26.6.2 is measured here. The 19 Google network voices that Chrome with API keys lists on every OS and locale follow the local ones, in the order the captures list them.",
      "source": "resources/fingerprints/raw/m4-max-chrome-20260908T163229Z.json",
      "value": {
       "speech": {
@@ -8056,6 +8398,120 @@
          "lang": "cs-CZ",
          "local_service": true,
          "name": "Zuzana"
+        },
+        {
+         "default": false,
+         "lang": "de-DE",
+         "local_service": false,
+         "name": "Google Deutsch"
+        },
+        {
+         "default": false,
+         "lang": "en-US",
+         "local_service": false,
+         "name": "Google US English"
+        },
+        {
+         "default": false,
+         "lang": "en-GB",
+         "local_service": false,
+         "name": "Google UK English Female"
+        },
+        {
+         "default": false,
+         "lang": "en-GB",
+         "local_service": false,
+         "name": "Google UK English Male"
+        },
+        {
+         "default": false,
+         "lang": "es-ES",
+         "local_service": false,
+         "name": "Google espa\u00f1ol"
+        },
+        {
+         "default": false,
+         "lang": "es-US",
+         "local_service": false,
+         "name": "Google espa\u00f1ol de Estados Unidos"
+        },
+        {
+         "default": false,
+         "lang": "fr-FR",
+         "local_service": false,
+         "name": "Google fran\u00e7ais"
+        },
+        {
+         "default": false,
+         "lang": "hi-IN",
+         "local_service": false,
+         "name": "Google \u0939\u093f\u0928\u094d\u0926\u0940"
+        },
+        {
+         "default": false,
+         "lang": "id-ID",
+         "local_service": false,
+         "name": "Google Bahasa Indonesia"
+        },
+        {
+         "default": false,
+         "lang": "it-IT",
+         "local_service": false,
+         "name": "Google italiano"
+        },
+        {
+         "default": false,
+         "lang": "ja-JP",
+         "local_service": false,
+         "name": "Google \u65e5\u672c\u8a9e"
+        },
+        {
+         "default": false,
+         "lang": "ko-KR",
+         "local_service": false,
+         "name": "Google \ud55c\uad6d\uc758"
+        },
+        {
+         "default": false,
+         "lang": "nl-NL",
+         "local_service": false,
+         "name": "Google Nederlands"
+        },
+        {
+         "default": false,
+         "lang": "pl-PL",
+         "local_service": false,
+         "name": "Google polski"
+        },
+        {
+         "default": false,
+         "lang": "pt-BR",
+         "local_service": false,
+         "name": "Google portugu\u00eas do Brasil"
+        },
+        {
+         "default": false,
+         "lang": "ru-RU",
+         "local_service": false,
+         "name": "Google \u0440\u0443\u0441\u0441\u043a\u0438\u0439"
+        },
+        {
+         "default": false,
+         "lang": "zh-CN",
+         "local_service": false,
+         "name": "Google\u00a0\u666e\u901a\u8bdd\uff08\u4e2d\u56fd\u5927\u9646\uff09"
+        },
+        {
+         "default": false,
+         "lang": "zh-HK",
+         "local_service": false,
+         "name": "Google\u00a0\u7ca4\u8a9e\uff08\u9999\u6e2f\uff09"
+        },
+        {
+         "default": false,
+         "lang": "zh-TW",
+         "local_service": false,
+         "name": "Google \u570b\u8a9e\uff08\u81fa\u7063\uff09"
         }
        ]
       }
@@ -8066,7 +8522,7 @@
   },
   {
    "key": {
-    "languages": "en-GB,en",
+    "languages": "en-GB",
     "os_release": "macos-15-7-2",
     "platform": "macos"
    },
@@ -8074,7 +8530,7 @@
     {
      "evidence": "catalogue-value",
      "id": "macos-bundled",
-     "note": "The 180 local voices measured on the Apple M4 Max reference host. macOS lists every installed voice regardless of the UI language, which is why the set does not vary with the accept-languages list. Only localService true voices appear here. The network voices Chromium lists are served by its network speech synthesis component against a Google endpoint and need build-time keys, so they are a build capability and not a profile value (docs/FINGERPRINTS.md section 8). AUTHORED FOR THIS RELEASE, NOT MEASURED: the set is replayed from the macOS 26.6.2 capture; Apple adds voices between releases and only 26.6.2 is measured here.",
+     "note": "The 180 local voices measured on the Apple M4 Max reference host. macOS lists every installed voice regardless of the UI language, which is why the set does not vary with the locale. Only localService true voices appear here. The network voices Chromium lists are served by its network speech synthesis component against a Google endpoint and need build-time keys, so they are a build capability and not a profile value (docs/FINGERPRINTS.md section 8). AUTHORED FOR THIS RELEASE, NOT MEASURED: the set is replayed from the macOS 26.6.2 capture; Apple adds voices between releases and only 26.6.2 is measured here. The 19 Google network voices that Chrome with API keys lists on every OS and locale follow the local ones, in the order the captures list them.",
      "source": "resources/fingerprints/raw/m4-max-chrome-20260908T163229Z.json",
      "value": {
       "speech": {
@@ -9158,6 +9614,120 @@
          "lang": "cs-CZ",
          "local_service": true,
          "name": "Zuzana"
+        },
+        {
+         "default": false,
+         "lang": "de-DE",
+         "local_service": false,
+         "name": "Google Deutsch"
+        },
+        {
+         "default": false,
+         "lang": "en-US",
+         "local_service": false,
+         "name": "Google US English"
+        },
+        {
+         "default": false,
+         "lang": "en-GB",
+         "local_service": false,
+         "name": "Google UK English Female"
+        },
+        {
+         "default": false,
+         "lang": "en-GB",
+         "local_service": false,
+         "name": "Google UK English Male"
+        },
+        {
+         "default": false,
+         "lang": "es-ES",
+         "local_service": false,
+         "name": "Google espa\u00f1ol"
+        },
+        {
+         "default": false,
+         "lang": "es-US",
+         "local_service": false,
+         "name": "Google espa\u00f1ol de Estados Unidos"
+        },
+        {
+         "default": false,
+         "lang": "fr-FR",
+         "local_service": false,
+         "name": "Google fran\u00e7ais"
+        },
+        {
+         "default": false,
+         "lang": "hi-IN",
+         "local_service": false,
+         "name": "Google \u0939\u093f\u0928\u094d\u0926\u0940"
+        },
+        {
+         "default": false,
+         "lang": "id-ID",
+         "local_service": false,
+         "name": "Google Bahasa Indonesia"
+        },
+        {
+         "default": false,
+         "lang": "it-IT",
+         "local_service": false,
+         "name": "Google italiano"
+        },
+        {
+         "default": false,
+         "lang": "ja-JP",
+         "local_service": false,
+         "name": "Google \u65e5\u672c\u8a9e"
+        },
+        {
+         "default": false,
+         "lang": "ko-KR",
+         "local_service": false,
+         "name": "Google \ud55c\uad6d\uc758"
+        },
+        {
+         "default": false,
+         "lang": "nl-NL",
+         "local_service": false,
+         "name": "Google Nederlands"
+        },
+        {
+         "default": false,
+         "lang": "pl-PL",
+         "local_service": false,
+         "name": "Google polski"
+        },
+        {
+         "default": false,
+         "lang": "pt-BR",
+         "local_service": false,
+         "name": "Google portugu\u00eas do Brasil"
+        },
+        {
+         "default": false,
+         "lang": "ru-RU",
+         "local_service": false,
+         "name": "Google \u0440\u0443\u0441\u0441\u043a\u0438\u0439"
+        },
+        {
+         "default": false,
+         "lang": "zh-CN",
+         "local_service": false,
+         "name": "Google\u00a0\u666e\u901a\u8bdd\uff08\u4e2d\u56fd\u5927\u9646\uff09"
+        },
+        {
+         "default": false,
+         "lang": "zh-HK",
+         "local_service": false,
+         "name": "Google\u00a0\u7ca4\u8a9e\uff08\u9999\u6e2f\uff09"
+        },
+        {
+         "default": false,
+         "lang": "zh-TW",
+         "local_service": false,
+         "name": "Google \u570b\u8a9e\uff08\u81fa\u7063\uff09"
         }
        ]
       }
@@ -9176,7 +9746,7 @@
     {
      "evidence": "physical-ground-truth",
      "id": "macos-bundled",
-     "note": "The 180 local voices measured on the Apple M4 Max reference host. macOS lists every installed voice regardless of the UI language, which is why the set does not vary with the accept-languages list. Only localService true voices appear here. The network voices Chromium lists are served by its network speech synthesis component against a Google endpoint and need build-time keys, so they are a build capability and not a profile value (docs/FINGERPRINTS.md section 8). The nineteen network voices a Chrome-branded build registers. They are a browser property, not a device one: both this project's Windows capture and its macOS capture record the same nineteen names in the same order, so they belong to every persona this fork serves rather than to a machine. Patch 0125 speaks a listed voice through a real local provider when this build has no network speech key, so listing them no longer means listing a voice that cannot speak. Served for an accept-languages list the table does not key on. The alternative was host inheritance, which hands a page the host machine's own voice list under a persona that is not that machine: a Windows identity on a macOS host enumerated 180 Apple voices, measured. An English voice set under another browser locale is an ordinary machine; the host's set under a foreign persona is not a machine at all.",
+     "note": "The 180 local voices measured on the Apple M4 Max reference host. macOS lists every installed voice regardless of the UI language, which is why the set does not vary with the locale. Only localService true voices appear here. The network voices Chromium lists are served by its network speech synthesis component against a Google endpoint and need build-time keys, so they are a build capability and not a profile value (docs/FINGERPRINTS.md section 8). The nineteen network voices a Chrome-branded build registers. They are a browser property, not a device one: both this project's Windows capture and its macOS capture record the same nineteen names in the same order, so they belong to every persona this fork serves rather than to a machine. Patch 0125 speaks a listed voice through a real local provider when this build has no network speech key, so listing them no longer means listing a voice that cannot speak. Served for an accept-languages list the table does not key on. The alternative was host inheritance, which hands a page the host machine's own voice list under a persona that is not that machine: a Windows identity on a macOS host enumerated 180 Apple voices, measured. An English voice set under another browser locale is an ordinary machine; the host's set under a foreign persona is not a machine at all.",
      "source": "resources/fingerprints/raw/m4-max-chrome-20260908T163229Z.json",
      "value": {
       "speech": {
@@ -10384,7 +10954,7 @@
   },
   {
    "key": {
-    "languages": "en-US,en",
+    "languages": "en-US",
     "os_release": "windows-11",
     "platform": "windows"
    },
@@ -10532,7 +11102,7 @@
   },
   {
    "key": {
-    "languages": "en-GB,en",
+    "languages": "en-GB",
     "os_release": "windows-11",
     "platform": "windows"
    },
@@ -10834,7 +11404,7 @@
   },
   {
    "key": {
-    "languages": "en-US,en",
+    "languages": "en-US",
     "os_release": "windows-10-22h2",
     "platform": "windows"
    },
@@ -10842,7 +11412,7 @@
     {
      "evidence": "catalogue-value",
      "id": "windows-en-us",
-     "note": "AUTHORED, NOT MEASURED: the reference Windows host carried the United Kingdom voices, so the en-US pair is the published Windows 10/11 default set rather than a capture. Only localService true voices appear here. The network voices Chromium lists are served by its network speech synthesis component against a Google endpoint and need build-time keys, so they are a build capability and not a profile value (docs/FINGERPRINTS.md section 8).",
+     "note": "AUTHORED, NOT MEASURED: the reference Windows host carried the United Kingdom voices, so the en-US pair is the published Windows 10/11 default set rather than a capture. Only localService true voices appear here. The network voices Chromium lists are served by its network speech synthesis component against a Google endpoint and need build-time keys, so they are a build capability and not a profile value (docs/FINGERPRINTS.md section 8). The 19 Google network voices that Chrome with API keys lists on every OS and locale follow the local ones, in the order the captures list them.",
      "source": "Windows en-US speech resources",
      "value": {
       "speech": {
@@ -10858,6 +11428,120 @@
          "lang": "en-US",
          "local_service": true,
          "name": "Microsoft Zira - English (United States)"
+        },
+        {
+         "default": false,
+         "lang": "de-DE",
+         "local_service": false,
+         "name": "Google Deutsch"
+        },
+        {
+         "default": false,
+         "lang": "en-US",
+         "local_service": false,
+         "name": "Google US English"
+        },
+        {
+         "default": false,
+         "lang": "en-GB",
+         "local_service": false,
+         "name": "Google UK English Female"
+        },
+        {
+         "default": false,
+         "lang": "en-GB",
+         "local_service": false,
+         "name": "Google UK English Male"
+        },
+        {
+         "default": false,
+         "lang": "es-ES",
+         "local_service": false,
+         "name": "Google espa\u00f1ol"
+        },
+        {
+         "default": false,
+         "lang": "es-US",
+         "local_service": false,
+         "name": "Google espa\u00f1ol de Estados Unidos"
+        },
+        {
+         "default": false,
+         "lang": "fr-FR",
+         "local_service": false,
+         "name": "Google fran\u00e7ais"
+        },
+        {
+         "default": false,
+         "lang": "hi-IN",
+         "local_service": false,
+         "name": "Google \u0939\u093f\u0928\u094d\u0926\u0940"
+        },
+        {
+         "default": false,
+         "lang": "id-ID",
+         "local_service": false,
+         "name": "Google Bahasa Indonesia"
+        },
+        {
+         "default": false,
+         "lang": "it-IT",
+         "local_service": false,
+         "name": "Google italiano"
+        },
+        {
+         "default": false,
+         "lang": "ja-JP",
+         "local_service": false,
+         "name": "Google \u65e5\u672c\u8a9e"
+        },
+        {
+         "default": false,
+         "lang": "ko-KR",
+         "local_service": false,
+         "name": "Google \ud55c\uad6d\uc758"
+        },
+        {
+         "default": false,
+         "lang": "nl-NL",
+         "local_service": false,
+         "name": "Google Nederlands"
+        },
+        {
+         "default": false,
+         "lang": "pl-PL",
+         "local_service": false,
+         "name": "Google polski"
+        },
+        {
+         "default": false,
+         "lang": "pt-BR",
+         "local_service": false,
+         "name": "Google portugu\u00eas do Brasil"
+        },
+        {
+         "default": false,
+         "lang": "ru-RU",
+         "local_service": false,
+         "name": "Google \u0440\u0443\u0441\u0441\u043a\u0438\u0439"
+        },
+        {
+         "default": false,
+         "lang": "zh-CN",
+         "local_service": false,
+         "name": "Google\u00a0\u666e\u901a\u8bdd\uff08\u4e2d\u56fd\u5927\u9646\uff09"
+        },
+        {
+         "default": false,
+         "lang": "zh-HK",
+         "local_service": false,
+         "name": "Google\u00a0\u7ca4\u8a9e\uff08\u9999\u6e2f\uff09"
+        },
+        {
+         "default": false,
+         "lang": "zh-TW",
+         "local_service": false,
+         "name": "Google \u570b\u8a9e\uff08\u81fa\u7063\uff09"
         }
        ]
       }
@@ -10868,7 +11552,7 @@
   },
   {
    "key": {
-    "languages": "en-GB,en",
+    "languages": "en-GB",
     "os_release": "windows-10-22h2",
     "platform": "windows"
    },
@@ -10876,7 +11560,7 @@
     {
      "evidence": "catalogue-value",
      "id": "windows-en-gb",
-     "note": "The 3 local voices measured on the Windows reference host, which carried the United Kingdom speech resources. Only localService true voices appear here. The network voices Chromium lists are served by its network speech synthesis component against a Google endpoint and need build-time keys, so they are a build capability and not a profile value (docs/FINGERPRINTS.md section 8). AUTHORED FOR THIS RELEASE, NOT MEASURED: replayed from the Windows 11 capture.",
+     "note": "The 3 local voices measured on the Windows reference host, which carried the United Kingdom speech resources. Only localService true voices appear here. The network voices Chromium lists are served by its network speech synthesis component against a Google endpoint and need build-time keys, so they are a build capability and not a profile value (docs/FINGERPRINTS.md section 8). AUTHORED FOR THIS RELEASE, NOT MEASURED: replayed from the Windows 11 capture. The 19 Google network voices that Chrome with API keys lists on every OS and locale follow the local ones, in the order the captures list them.",
      "source": "resources/fingerprints/raw/windows-chrome-20260910T140813Z.json",
      "value": {
       "speech": {
@@ -10898,6 +11582,120 @@
          "lang": "en-GB",
          "local_service": true,
          "name": "Microsoft Susan - English (United Kingdom)"
+        },
+        {
+         "default": false,
+         "lang": "de-DE",
+         "local_service": false,
+         "name": "Google Deutsch"
+        },
+        {
+         "default": false,
+         "lang": "en-US",
+         "local_service": false,
+         "name": "Google US English"
+        },
+        {
+         "default": false,
+         "lang": "en-GB",
+         "local_service": false,
+         "name": "Google UK English Female"
+        },
+        {
+         "default": false,
+         "lang": "en-GB",
+         "local_service": false,
+         "name": "Google UK English Male"
+        },
+        {
+         "default": false,
+         "lang": "es-ES",
+         "local_service": false,
+         "name": "Google espa\u00f1ol"
+        },
+        {
+         "default": false,
+         "lang": "es-US",
+         "local_service": false,
+         "name": "Google espa\u00f1ol de Estados Unidos"
+        },
+        {
+         "default": false,
+         "lang": "fr-FR",
+         "local_service": false,
+         "name": "Google fran\u00e7ais"
+        },
+        {
+         "default": false,
+         "lang": "hi-IN",
+         "local_service": false,
+         "name": "Google \u0939\u093f\u0928\u094d\u0926\u0940"
+        },
+        {
+         "default": false,
+         "lang": "id-ID",
+         "local_service": false,
+         "name": "Google Bahasa Indonesia"
+        },
+        {
+         "default": false,
+         "lang": "it-IT",
+         "local_service": false,
+         "name": "Google italiano"
+        },
+        {
+         "default": false,
+         "lang": "ja-JP",
+         "local_service": false,
+         "name": "Google \u65e5\u672c\u8a9e"
+        },
+        {
+         "default": false,
+         "lang": "ko-KR",
+         "local_service": false,
+         "name": "Google \ud55c\uad6d\uc758"
+        },
+        {
+         "default": false,
+         "lang": "nl-NL",
+         "local_service": false,
+         "name": "Google Nederlands"
+        },
+        {
+         "default": false,
+         "lang": "pl-PL",
+         "local_service": false,
+         "name": "Google polski"
+        },
+        {
+         "default": false,
+         "lang": "pt-BR",
+         "local_service": false,
+         "name": "Google portugu\u00eas do Brasil"
+        },
+        {
+         "default": false,
+         "lang": "ru-RU",
+         "local_service": false,
+         "name": "Google \u0440\u0443\u0441\u0441\u043a\u0438\u0439"
+        },
+        {
+         "default": false,
+         "lang": "zh-CN",
+         "local_service": false,
+         "name": "Google\u00a0\u666e\u901a\u8bdd\uff08\u4e2d\u56fd\u5927\u9646\uff09"
+        },
+        {
+         "default": false,
+         "lang": "zh-HK",
+         "local_service": false,
+         "name": "Google\u00a0\u7ca4\u8a9e\uff08\u9999\u6e2f\uff09"
+        },
+        {
+         "default": false,
+         "lang": "zh-TW",
+         "local_service": false,
+         "name": "Google \u570b\u8a9e\uff08\u81fa\u7063\uff09"
         }
        ]
       }
@@ -11056,7 +11854,7 @@
   },
   {
    "key": {
-    "languages": "en-US,en",
+    "languages": "en-US",
     "os_release": "linux-x86-64",
     "platform": "linux"
    },
@@ -11192,7 +11990,7 @@
   },
   {
    "key": {
-    "languages": "en-GB,en",
+    "languages": "en-GB",
     "os_release": "linux-x86-64",
     "platform": "linux"
    },
@@ -11200,11 +11998,126 @@
     {
      "evidence": "physical-ground-truth",
      "id": "linux-none",
-     "note": "Both Linux reference hosts enumerated zero local voices: Chromium on Linux has no bundled speech provider, so every voice it listed was a network voice. An explicit empty list permits none, which is the measured result. Only localService true voices appear here. The network voices Chromium lists are served by its network speech synthesis component against a Google endpoint and need build-time keys, so they are a build capability and not a profile value (docs/FINGERPRINTS.md section 8).",
+     "note": "Both Linux reference hosts enumerated zero local voices: Chromium on Linux has no bundled speech provider, so every voice it listed was a network voice. An explicit empty list permits none, which is the measured result. Only localService true voices appear here. The network voices Chromium lists are served by its network speech synthesis component against a Google endpoint and need build-time keys, so they are a build capability and not a profile value (docs/FINGERPRINTS.md section 8). The 19 Google network voices that Chrome with API keys lists on every OS and locale follow the local ones, in the order the captures list them.",
      "source": "resources/fingerprints/raw/stock-linux-20260907T150627Z.json",
      "value": {
       "speech": {
-       "voices": []
+       "voices": [
+        {
+         "default": false,
+         "lang": "de-DE",
+         "local_service": false,
+         "name": "Google Deutsch"
+        },
+        {
+         "default": false,
+         "lang": "en-US",
+         "local_service": false,
+         "name": "Google US English"
+        },
+        {
+         "default": false,
+         "lang": "en-GB",
+         "local_service": false,
+         "name": "Google UK English Female"
+        },
+        {
+         "default": false,
+         "lang": "en-GB",
+         "local_service": false,
+         "name": "Google UK English Male"
+        },
+        {
+         "default": false,
+         "lang": "es-ES",
+         "local_service": false,
+         "name": "Google espa\u00f1ol"
+        },
+        {
+         "default": false,
+         "lang": "es-US",
+         "local_service": false,
+         "name": "Google espa\u00f1ol de Estados Unidos"
+        },
+        {
+         "default": false,
+         "lang": "fr-FR",
+         "local_service": false,
+         "name": "Google fran\u00e7ais"
+        },
+        {
+         "default": false,
+         "lang": "hi-IN",
+         "local_service": false,
+         "name": "Google \u0939\u093f\u0928\u094d\u0926\u0940"
+        },
+        {
+         "default": false,
+         "lang": "id-ID",
+         "local_service": false,
+         "name": "Google Bahasa Indonesia"
+        },
+        {
+         "default": false,
+         "lang": "it-IT",
+         "local_service": false,
+         "name": "Google italiano"
+        },
+        {
+         "default": false,
+         "lang": "ja-JP",
+         "local_service": false,
+         "name": "Google \u65e5\u672c\u8a9e"
+        },
+        {
+         "default": false,
+         "lang": "ko-KR",
+         "local_service": false,
+         "name": "Google \ud55c\uad6d\uc758"
+        },
+        {
+         "default": false,
+         "lang": "nl-NL",
+         "local_service": false,
+         "name": "Google Nederlands"
+        },
+        {
+         "default": false,
+         "lang": "pl-PL",
+         "local_service": false,
+         "name": "Google polski"
+        },
+        {
+         "default": false,
+         "lang": "pt-BR",
+         "local_service": false,
+         "name": "Google portugu\u00eas do Brasil"
+        },
+        {
+         "default": false,
+         "lang": "ru-RU",
+         "local_service": false,
+         "name": "Google \u0440\u0443\u0441\u0441\u043a\u0438\u0439"
+        },
+        {
+         "default": false,
+         "lang": "zh-CN",
+         "local_service": false,
+         "name": "Google\u00a0\u666e\u901a\u8bdd\uff08\u4e2d\u56fd\u5927\u9646\uff09"
+        },
+        {
+         "default": false,
+         "lang": "zh-HK",
+         "local_service": false,
+         "name": "Google\u00a0\u7ca4\u8a9e\uff08\u9999\u6e2f\uff09"
+        },
+        {
+         "default": false,
+         "lang": "zh-TW",
+         "local_service": false,
+         "name": "Google \u570b\u8a9e\uff08\u81fa\u7063\uff09"
+        }
+       ]
       }
      },
      "weight": 100
@@ -11349,7 +12262,7 @@
   },
   {
    "key": {
-    "languages": "en-US,en",
+    "languages": "en-US",
     "os_release": "windows-11-22h2",
     "platform": "windows"
    },
@@ -11357,7 +12270,7 @@
     {
      "evidence": "catalogue-value",
      "id": "windows-en-us",
-     "note": "AUTHORED, NOT MEASURED: the reference Windows host carried the United Kingdom voices, so the en-US pair is the published Windows 10/11 default set rather than a capture. Only localService true voices appear here. The network voices Chromium lists are served by its network speech synthesis component against a Google endpoint and need build-time keys, so they are a build capability and not a profile value (docs/FINGERPRINTS.md section 8).",
+     "note": "AUTHORED, NOT MEASURED: the reference Windows host carried the United Kingdom voices, so the en-US pair is the published Windows 10/11 default set rather than a capture. Only localService true voices appear here. The network voices Chromium lists are served by its network speech synthesis component against a Google endpoint and need build-time keys, so they are a build capability and not a profile value (docs/FINGERPRINTS.md section 8). The 19 Google network voices that Chrome with API keys lists on every OS and locale follow the local ones, in the order the captures list them.",
      "source": "Windows en-US speech resources",
      "value": {
       "speech": {
@@ -11373,6 +12286,120 @@
          "lang": "en-US",
          "local_service": true,
          "name": "Microsoft Zira - English (United States)"
+        },
+        {
+         "default": false,
+         "lang": "de-DE",
+         "local_service": false,
+         "name": "Google Deutsch"
+        },
+        {
+         "default": false,
+         "lang": "en-US",
+         "local_service": false,
+         "name": "Google US English"
+        },
+        {
+         "default": false,
+         "lang": "en-GB",
+         "local_service": false,
+         "name": "Google UK English Female"
+        },
+        {
+         "default": false,
+         "lang": "en-GB",
+         "local_service": false,
+         "name": "Google UK English Male"
+        },
+        {
+         "default": false,
+         "lang": "es-ES",
+         "local_service": false,
+         "name": "Google espa\u00f1ol"
+        },
+        {
+         "default": false,
+         "lang": "es-US",
+         "local_service": false,
+         "name": "Google espa\u00f1ol de Estados Unidos"
+        },
+        {
+         "default": false,
+         "lang": "fr-FR",
+         "local_service": false,
+         "name": "Google fran\u00e7ais"
+        },
+        {
+         "default": false,
+         "lang": "hi-IN",
+         "local_service": false,
+         "name": "Google \u0939\u093f\u0928\u094d\u0926\u0940"
+        },
+        {
+         "default": false,
+         "lang": "id-ID",
+         "local_service": false,
+         "name": "Google Bahasa Indonesia"
+        },
+        {
+         "default": false,
+         "lang": "it-IT",
+         "local_service": false,
+         "name": "Google italiano"
+        },
+        {
+         "default": false,
+         "lang": "ja-JP",
+         "local_service": false,
+         "name": "Google \u65e5\u672c\u8a9e"
+        },
+        {
+         "default": false,
+         "lang": "ko-KR",
+         "local_service": false,
+         "name": "Google \ud55c\uad6d\uc758"
+        },
+        {
+         "default": false,
+         "lang": "nl-NL",
+         "local_service": false,
+         "name": "Google Nederlands"
+        },
+        {
+         "default": false,
+         "lang": "pl-PL",
+         "local_service": false,
+         "name": "Google polski"
+        },
+        {
+         "default": false,
+         "lang": "pt-BR",
+         "local_service": false,
+         "name": "Google portugu\u00eas do Brasil"
+        },
+        {
+         "default": false,
+         "lang": "ru-RU",
+         "local_service": false,
+         "name": "Google \u0440\u0443\u0441\u0441\u043a\u0438\u0439"
+        },
+        {
+         "default": false,
+         "lang": "zh-CN",
+         "local_service": false,
+         "name": "Google\u00a0\u666e\u901a\u8bdd\uff08\u4e2d\u56fd\u5927\u9646\uff09"
+        },
+        {
+         "default": false,
+         "lang": "zh-HK",
+         "local_service": false,
+         "name": "Google\u00a0\u7ca4\u8a9e\uff08\u9999\u6e2f\uff09"
+        },
+        {
+         "default": false,
+         "lang": "zh-TW",
+         "local_service": false,
+         "name": "Google \u570b\u8a9e\uff08\u81fa\u7063\uff09"
         }
        ]
       }
@@ -11383,7 +12410,7 @@
   },
   {
    "key": {
-    "languages": "en-GB,en",
+    "languages": "en-GB",
     "os_release": "windows-11-22h2",
     "platform": "windows"
    },
@@ -11391,7 +12418,7 @@
     {
      "evidence": "physical-ground-truth",
      "id": "windows-en-gb",
-     "note": "The 3 local voices measured on the Windows reference host, which carried the United Kingdom speech resources. Only localService true voices appear here. The network voices Chromium lists are served by its network speech synthesis component against a Google endpoint and need build-time keys, so they are a build capability and not a profile value (docs/FINGERPRINTS.md section 8).",
+     "note": "The 3 local voices measured on the Windows reference host, which carried the United Kingdom speech resources. Only localService true voices appear here. The network voices Chromium lists are served by its network speech synthesis component against a Google endpoint and need build-time keys, so they are a build capability and not a profile value (docs/FINGERPRINTS.md section 8). The 19 Google network voices that Chrome with API keys lists on every OS and locale follow the local ones, in the order the captures list them.",
      "source": "resources/fingerprints/raw/windows-chrome-20260910T140813Z.json",
      "value": {
       "speech": {
@@ -11413,6 +12440,120 @@
          "lang": "en-GB",
          "local_service": true,
          "name": "Microsoft Susan - English (United Kingdom)"
+        },
+        {
+         "default": false,
+         "lang": "de-DE",
+         "local_service": false,
+         "name": "Google Deutsch"
+        },
+        {
+         "default": false,
+         "lang": "en-US",
+         "local_service": false,
+         "name": "Google US English"
+        },
+        {
+         "default": false,
+         "lang": "en-GB",
+         "local_service": false,
+         "name": "Google UK English Female"
+        },
+        {
+         "default": false,
+         "lang": "en-GB",
+         "local_service": false,
+         "name": "Google UK English Male"
+        },
+        {
+         "default": false,
+         "lang": "es-ES",
+         "local_service": false,
+         "name": "Google espa\u00f1ol"
+        },
+        {
+         "default": false,
+         "lang": "es-US",
+         "local_service": false,
+         "name": "Google espa\u00f1ol de Estados Unidos"
+        },
+        {
+         "default": false,
+         "lang": "fr-FR",
+         "local_service": false,
+         "name": "Google fran\u00e7ais"
+        },
+        {
+         "default": false,
+         "lang": "hi-IN",
+         "local_service": false,
+         "name": "Google \u0939\u093f\u0928\u094d\u0926\u0940"
+        },
+        {
+         "default": false,
+         "lang": "id-ID",
+         "local_service": false,
+         "name": "Google Bahasa Indonesia"
+        },
+        {
+         "default": false,
+         "lang": "it-IT",
+         "local_service": false,
+         "name": "Google italiano"
+        },
+        {
+         "default": false,
+         "lang": "ja-JP",
+         "local_service": false,
+         "name": "Google \u65e5\u672c\u8a9e"
+        },
+        {
+         "default": false,
+         "lang": "ko-KR",
+         "local_service": false,
+         "name": "Google \ud55c\uad6d\uc758"
+        },
+        {
+         "default": false,
+         "lang": "nl-NL",
+         "local_service": false,
+         "name": "Google Nederlands"
+        },
+        {
+         "default": false,
+         "lang": "pl-PL",
+         "local_service": false,
+         "name": "Google polski"
+        },
+        {
+         "default": false,
+         "lang": "pt-BR",
+         "local_service": false,
+         "name": "Google portugu\u00eas do Brasil"
+        },
+        {
+         "default": false,
+         "lang": "ru-RU",
+         "local_service": false,
+         "name": "Google \u0440\u0443\u0441\u0441\u043a\u0438\u0439"
+        },
+        {
+         "default": false,
+         "lang": "zh-CN",
+         "local_service": false,
+         "name": "Google\u00a0\u666e\u901a\u8bdd\uff08\u4e2d\u56fd\u5927\u9646\uff09"
+        },
+        {
+         "default": false,
+         "lang": "zh-HK",
+         "local_service": false,
+         "name": "Google\u00a0\u7ca4\u8a9e\uff08\u9999\u6e2f\uff09"
+        },
+        {
+         "default": false,
+         "lang": "zh-TW",
+         "local_service": false,
+         "name": "Google \u570b\u8a9e\uff08\u81fa\u7063\uff09"
         }
        ]
       }
