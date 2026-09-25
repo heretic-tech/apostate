@@ -132,3 +132,4 @@
 0149-webgpu-subgroup-sizes-from-the-profile.patch
 0150-fonts-windows-emoji-and-symbol-fallback.patch
 0151-url-windows-profile-parses-file-paths-as-windows.patch
+0152-cpu-performance-tier-without-the-host-cpu-model.patch

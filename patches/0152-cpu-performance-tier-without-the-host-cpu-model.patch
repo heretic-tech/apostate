@@ -1,0 +1,55 @@
+Subject: [PATCH] cpu performance: the tier ignores the host CPU model under a persona
+
+navigator.cpuPerformance comes from GetTierFromCpuInfo(model, cores).
+The core count already follows the profile (0004), but the model is
+read from the host, so the host showed through the tier: a 4-core
+Windows persona on an AMD Ryzen server read "high" (3) where a 4-core
+Intel desktop reads "mid" (2), and an 8-to-10-core persona on Apple
+silicon read "ultra". A composed persona claims no CPU model, so the
+model is dropped and the tier follows the claimed core count the way
+Chrome rates a common Intel or AMD part. A macOS persona on a Mac keeps
+the host model, because Apple silicon is part of that claim.
+
+diff --git a/content/browser/cpu_performance/cpu_performance.cc b/content/browser/cpu_performance/cpu_performance.cc
+--- a/content/browser/cpu_performance/cpu_performance.cc
++++ b/content/browser/cpu_performance/cpu_performance.cc
+@@ -6,12 +6,14 @@
+ 
+ #include <optional>
+ 
++#include "base/apostate/profile.h"
+ #include "base/functional/bind.h"
+ #include "base/no_destructor.h"
+ #include "base/strings/string_util.h"
+ #include "base/synchronization/lock.h"
+ #include "base/system/sys_info.h"
+ #include "base/task/thread_pool.h"
++#include "build/build_config.h"
+ #include "third_party/blink/public/common/features.h"
+ #include "third_party/re2/src/re2/re2.h"
+ 
+@@ -177,6 +179,24 @@ void InitializeFromCores() {
+ 
+ void InitializeFromCpuInfo() {
+   std::string model = base::SysInfo::CPUModelName();
++  // Apostate: a composed persona claims a core count but no CPU model, so the
++  // host's model string is not the persona's. Left in, it shows through the
++  // tier: a 4-core Windows persona on an AMD Ryzen host reads as "high" where
++  // a 4-core Intel desktop reads "mid", and an 8-core one on Apple silicon as
++  // "ultra". Without a model the tier follows the core count the way Chrome
++  // rates a common Intel or AMD part. A macOS persona on a Mac keeps the
++  // model: Apple silicon is part of that claim.
++  if (const base::apostate::Profile* profile = base::apostate::Profile::Get();
++      profile && profile->ua_platform()) {
++#if BUILDFLAG(IS_MAC)
++    const bool model_is_the_personas = *profile->ua_platform() == "macOS";
++#else
++    const bool model_is_the_personas = false;
++#endif
++    if (!model_is_the_personas) {
++      model.clear();
++    }
++  }
+   int cores = base::SysInfo::NumberOfProcessors();
+   Tier tier = GetTierFromCpuInfo(model, cores);
+ 
