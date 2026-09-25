@@ -1,0 +1,348 @@
+Subject: [PATCH] url: a Windows profile parses file paths as Windows Chrome does
+
+Chrome on Windows turns things that look like Windows paths into file:
+URLs (url_util.cc DoCanonicalize and the WIN32 branches it cites):
+new URL("c:/foo") is file:///C:/foo there and a URL with the scheme "c"
+everywhere else, and UNC paths, "Z|" drive separators and drive letters
+against a file base follow. A page reads the difference with one
+.protocol. FingerprintJS does, right after enumerating navigator: on
+the same Linux host, stock Chrome, this build under a Windows profile
+and a competing build under Linux all read "c:" and score anomaly 1,
+and the competing build under Windows reads "file:" and scores 0.
+
+Every WIN32 branch in url/ now also applies when the profile claims
+Windows. The profile is asked only after the input looks like a drive
+spec or UNC path, or where the two platforms' rules disagree, so
+ordinary URLs never reach it. Windows builds keep upstream behaviour.
+
+diff --git a/url/url_canon_fileurl.cc b/url/url_canon_fileurl.cc
+--- a/url/url_canon_fileurl.cc
++++ b/url/url_canon_fileurl.cc
+@@ -55,8 +55,7 @@ size_t DoFindWindowsDriveLetter(
+   return drive_letter_pos;
+ }
+ 
+-#ifdef WIN32
+-
++// Apostate: compiled on every host; it acts only under Windows semantics.
+ // Given a path string, this copies and canonicalizes the drive letter and
+ // colon to the `output`, if one is found. If there is not a drive spec, it
+ // won't do anything. The index of the next character in the input string
+@@ -65,7 +64,8 @@ size_t DoFindWindowsDriveLetter(
+ template <typename CHAR>
+ size_t FileDoDriveSpec(std::basic_string_view<CHAR> path, CanonOutput* output) {
+   size_t drive_letter_pos = FindWindowsDriveLetter(path);
+-  if (drive_letter_pos == std::basic_string_view<CHAR>::npos) {
++  if (drive_letter_pos == std::basic_string_view<CHAR>::npos ||
++      !UsesWindowsFileSemantics()) {
+     return 0;
+   }
+ 
+@@ -83,8 +83,6 @@ size_t FileDoDriveSpec(std::basic_string_view<CHAR> path, CanonOutput* output) {
+   return drive_letter_pos + 2;
+ }
+ 
+-#endif  // WIN32
+-
+ template <typename CHAR, typename UCHAR>
+ bool DoFileCanonicalizePath(std::optional<std::basic_string_view<CHAR>> path,
+                             CanonOutput* output,
+@@ -92,11 +90,9 @@ bool DoFileCanonicalizePath(std::optional<std::basic_string_view<CHAR>> path,
+   // Copies and normalizes the "c:" at the beginning, if present.
+   out_path->begin = output->length();
+   size_t after_drive = 0;
+-#ifdef WIN32
+   if (path) {
+     after_drive = FileDoDriveSpec(*path, output);
+   }
+-#endif
+ 
+   // Copies the rest of the path, starting from the slash following the
+   // drive colon (if any, Windows only), or the first slash of the path.
+diff --git a/url/url_canon_relative.cc b/url/url_canon_relative.cc
+--- a/url/url_canon_relative.cc
++++ b/url/url_canon_relative.cc
+@@ -47,7 +47,8 @@ bool AreSchemesEqual(std::string_view base, std::basic_string_view<CHAR> cmp) {
+   return true;
+ }
+ 
+-#ifdef WIN32
++// Apostate: the helpers below are compiled on every host and act only under
++// Windows semantics (see UsesWindowsFileSemantics in url_file.h).
+ 
+ // Here, we also allow Windows paths to be represented as "/C:/" so we can be
+ // consistent about URL paths beginning with slashes. This function is like
+@@ -63,8 +64,6 @@ bool DoesBeginSlashWindowsDriveSpec(std::basic_string_view<CHAR> spec,
+          DoesBeginWindowsDriveSpec(spec, start_offset + 1);
+ }
+ 
+-#endif  // WIN32
+-
+ template <typename CHAR>
+ bool IsValidScheme(std::basic_string_view<CHAR> scheme) {
+   // Caller should ensure that the |scheme| is not empty.
+@@ -123,7 +122,6 @@ bool DoIsRelativeUrl(std::string_view base,
+     return true;
+   }
+ 
+-#ifdef WIN32
+   // We special case paths like "C:\foo" so they can link directly to the
+   // file on Windows (IE compatibility). The security domain stuff should
+   // prevent a link like this from actually being followed if its on a
+@@ -135,10 +133,10 @@ bool DoIsRelativeUrl(std::string_view base,
+   //
+   // We require strict backslashes when detecting UNC since two forward
+   // slashes should be treated a a relative URL with a hostname.
+-  if (DoesBeginWindowsDriveSpec(url, 0) || DoesBeginUncPath(url, 0, true)) {
++  if ((DoesBeginWindowsDriveSpec(url, 0) || DoesBeginUncPath(url, 0, true)) &&
++      UsesWindowsFileSemantics()) {
+     return true;
+   }
+-#endif  // WIN32
+ 
+   // See if we've got a scheme, if not, we know this is a relative URL.
+   // BUT, just because we have a scheme, doesn't make it absolute.
+@@ -268,9 +266,7 @@ void CopyOneComponent(std::string_view source,
+   output_component->len = output->length() - output_component->begin;
+ }
+ 
+-#ifdef WIN32
+-
+-// Called on Windows when the base URL is a file URL, this will copy the "C:"
++// Called when the base URL is a file URL, this will copy the "C:"
+ // to the output, if there is a drive letter and if that drive letter is not
+ // being overridden by the relative URL. Otherwise, do nothing.
+ //
+@@ -297,7 +293,8 @@ int CopyBaseDriveSpecIfNecessary(std::string_view base_url,
+   // The path should begin with a slash (as all canonical paths do). We check
+   // if it is followed by a drive letter and copy it.
+   if (DoesBeginSlashWindowsDriveSpec(base_url.substr(0, base_path_end),
+-                                     base_path_begin)) {
++                                     base_path_begin) &&
++      UsesWindowsFileSemantics()) {
+     // Copy the two-character drive spec to the output. It will now look like
+     // "file:///C:" so the rest of it can be treated like a standard path.
+     output->push_back('/');
+@@ -309,8 +306,6 @@ int CopyBaseDriveSpecIfNecessary(std::string_view base_url,
+   return base_path_begin;
+ }
+ 
+-#endif  // WIN32
+-
+ // A subroutine of DoResolveRelativeUrl, this resolves the URL knowing that
+ // the input is a relative path or less (query or ref).
+ template <typename CHAR>
+@@ -373,7 +368,6 @@ bool DoResolveRelativePath(std::string_view base_url,
+     // incoming URL does not provide a drive spec. We save the true path
+     // beginning so we can fix it up after we are done.
+     int base_path_begin = base_parsed.path.begin;
+-#ifdef WIN32
+     if (base_is_file) {
+       base_path_begin = CopyBaseDriveSpecIfNecessary(
+           base_url, base_parsed.path.begin, base_parsed.path.end(),
+@@ -382,7 +376,6 @@ bool DoResolveRelativePath(std::string_view base_url,
+       // and we can start appending the rest of the path. |base_path_begin|
+       // points to the character in the base that comes next.
+     }
+-#endif  // WIN32
+ 
+     if (IsSlashOrBackslash(relative_url[path.begin])) {
+       // Easy case: the path is an absolute path on the server, so we can
+@@ -575,7 +568,6 @@ bool DoResolveRelativeUrl(std::string_view base_url,
+   size_t num_slashes =
+       CountConsecutiveSlashesOrBackslashes(relative_url_view, 0);
+ 
+-#ifdef WIN32
+   // On Windows, two slashes for a file path (regardless of which direction
+   // they are) means that it's UNC. Two backslashes on any base scheme mean
+   // that it's an absolute UNC path (we use the base_is_file flag to control
+@@ -589,27 +581,29 @@ bool DoResolveRelativeUrl(std::string_view base_url,
+   //
+   // This assumes the absolute path resolver handles absolute URLs like this
+   // properly. DoCanonicalize does this.
+-  size_t after_slashes = relative_component.begin + num_slashes;
+-  if (DoesBeginUncPath(relative_component.AsViewOn(relative_url), 0,
+-                       !base_is_file) ||
+-      ((num_slashes == 0 || base_is_file) &&
+-       DoesBeginWindowsDriveSpec(
+-           relative_url.substr(0, relative_component.end()), after_slashes))) {
+-    return DoResolveAbsoluteFile(relative_url_view, query_converter, output,
+-                                 out_parsed);
+-  }
+-#else
++  //
+   // Other platforms need explicit handling for file: URLs with multiple
+   // slashes because the generic scheme parsing always extracts a host, but a
+   // file: URL only has a host if it has exactly 2 slashes. Even if it does
+   // have a host, we want to use the special host detection logic for file
+   // URLs provided by DoResolveAbsoluteFile(), as opposed to the generic host
+   // detection logic, for consistency with parsing file URLs from scratch.
+-  if (base_is_file && num_slashes >= 2) {
++  //
++  // Apostate: the profile is asked only when the two rules disagree.
++  size_t after_slashes = relative_component.begin + num_slashes;
++  const bool windows_absolute =
++      DoesBeginUncPath(relative_component.AsViewOn(relative_url), 0,
++                       !base_is_file) ||
++      ((num_slashes == 0 || base_is_file) &&
++       DoesBeginWindowsDriveSpec(
++           relative_url.substr(0, relative_component.end()), after_slashes));
++  const bool posix_absolute = base_is_file && num_slashes >= 2;
++  if (windows_absolute == posix_absolute
++          ? posix_absolute
++          : (UsesWindowsFileSemantics() ? windows_absolute : posix_absolute)) {
+     return DoResolveAbsoluteFile(relative_url_view, query_converter, output,
+                                  out_parsed);
+   }
+-#endif
+ 
+   // Any other double-slashes mean that this is relative to the scheme.
+   if (num_slashes >= 2) {
+diff --git a/url/url_file.h b/url/url_file.h
+--- a/url/url_file.h
++++ b/url/url_file.h
+@@ -64,7 +64,14 @@ inline bool DoesBeginWindowsDriveSpec(std::basic_string_view<CHAR> spec,
+          start_offset;
+ }
+ 
+-#ifdef WIN32
++// Apostate: whether this process parses URLs the way Chrome on Windows does,
++// turning "c:\foo" and "\\server\share" into file: URLs. True on Windows, and
++// on any other host when the profile claims Windows: the difference is visible
++// to any page through `new URL("c:/x").protocol`, so a Windows persona that
++// parsed like Linux would contradict its own user agent. Callers ask only once
++// the input already looks like a drive spec or UNC path, which keeps the
++// profile out of the hot path. Defined in url_util.cc.
++bool UsesWindowsFileSemantics();
+ 
+ // Returns true if the start_offset in the given text looks like it begins a
+ // UNC path, for example "\\". This function explicitly handles start_offset
+@@ -89,8 +96,6 @@ inline bool DoesBeginUncPath(std::basic_string_view<CHAR> text,
+   return IsSlashOrBackslash(ch0) && IsSlashOrBackslash(ch1);
+ }
+ 
+-#endif  // WIN32
+-
+ }  // namespace url
+ 
+ #endif  // URL_URL_FILE_H_
+diff --git a/url/url_parse_file.cc b/url/url_parse_file.cc
+--- a/url/url_parse_file.cc
++++ b/url/url_parse_file.cc
+@@ -115,22 +115,21 @@ Parsed DoParseFileUrl(std::basic_string_view<CharT> url) {
+   size_t after_scheme;
+   size_t after_slashes;
+   Parsed parsed;
+-#ifdef WIN32
+   // See how many slashes there are. We want to handle cases like UNC but also
+   // "/c:/foo". This is when there is no scheme, so we can allow pages to do
+   // links like "c:/foo/bar" or "//foo/bar". This is also called by the
+   // relative URL resolver when it determines there is an absolute URL, which
+-  // may give us input like "/c:/foo".
++  // may give us input like "/c:/foo". Apostate: Windows semantics only.
+   after_slashes = begin + num_slashes;
+-  if (DoesBeginWindowsDriveSpec(url, after_slashes)) {
++  if (DoesBeginWindowsDriveSpec(url, after_slashes) &&
++      UsesWindowsFileSemantics()) {
+     // Windows path, don't try to extract the scheme (for example, "c:\foo").
+     after_scheme = after_slashes;
+-  } else if (DoesBeginUncPath(url, begin, false)) {
++  } else if (DoesBeginUncPath(url, begin, false) &&
++             UsesWindowsFileSemantics()) {
+     // Windows UNC path: don't try to extract the scheme, but keep the slashes.
+     after_scheme = begin;
+-  } else
+-#endif
+-  {
++  } else {
+     // ExtractScheme doesn't understand the possibility of filenames with
+     // colons in them, in which case it returns the entire spec up to the
+     // colon as the scheme. So handle /foo.c:5 as a file but foo.c:5 as
+@@ -154,25 +153,20 @@ Parsed DoParseFileUrl(std::basic_string_view<CharT> url) {
+ 
+   num_slashes = CountConsecutiveSlashesOrBackslashes(url, after_scheme);
+   after_slashes = after_scheme + num_slashes;
+-#ifdef WIN32
+-  // Check whether the input is a drive again. We checked above for windows
+-  // drive specs, but that's only at the very beginning to see if we have a
+-  // scheme at all. This test will be duplicated in that case, but will
+-  // additionally handle all cases with a real scheme such as "file:///C:/".
+-  if (!DoesBeginWindowsDriveSpec(url, after_slashes) && num_slashes != 3) {
+-    // Anything not beginning with a drive spec ("c:\") on Windows is treated
+-    // as UNC, with the exception of three slashes which always means a file.
+-    // Even IE7 treats file:///foo/bar as "/foo/bar", which then fails.
+-    DoParseUnc(url, after_slashes, &parsed);
+-    return parsed;
+-  }
+-#else
+-  // file: URL with exactly 2 slashes is considered to have a host component.
+-  if (num_slashes == 2) {
++  // On Windows, anything not beginning with a drive spec ("c:\") is treated
++  // as UNC, with the exception of three slashes which always means a file.
++  // Even IE7 treats file:///foo/bar as "/foo/bar", which then fails.
++  // Elsewhere a file: URL with exactly 2 slashes has a host component.
++  // Apostate: the profile is asked only when the two rules disagree.
++  const bool windows_unc =
++      !DoesBeginWindowsDriveSpec(url, after_slashes) && num_slashes != 3;
++  const bool posix_unc = num_slashes == 2;
++  if (windows_unc == posix_unc
++          ? posix_unc
++          : (UsesWindowsFileSemantics() ? windows_unc : posix_unc)) {
+     DoParseUnc(url, after_slashes, &parsed);
+     return parsed;
+   }
+-#endif  // WIN32
+ 
+   // Easy and common case, the full path immediately follows the scheme
+   // (modulo slashes), as in "file://c:/foo". Just treat everything from
+diff --git a/url/url_util.cc b/url/url_util.cc
+--- a/url/url_util.cc
++++ b/url/url_util.cc
+@@ -12,6 +12,7 @@
+ #include <ostream>
+ #include <string_view>
+ 
++#include "base/apostate/profile.h"
+ #include "base/check_op.h"
+ #include "base/compiler_specific.h"
+ #include "base/no_destructor.h"
+@@ -262,7 +263,6 @@ bool DoCanonicalize(std::basic_string_view<CHAR> spec,
+                                &output_parsed->potentially_dangling_markup);
+   }
+ 
+-#ifdef WIN32
+   // For Windows, we allow things that look like absolute Windows paths to be
+   // fixed up magically to file URLs. This is done for IE compatibility. For
+   // example, this will change "c:/foo" into a file URL rather than treating
+@@ -272,12 +272,12 @@ bool DoCanonicalize(std::basic_string_view<CHAR> spec,
+   // For Max & Unix, we don't do this (the equivalent would be "/foo/bar" which
+   // has no meaning as an absolute path name. This is because browsers on Mac
+   // & Unix don't generally do this, so there is no compatibility reason for
+-  // doing so.
+-  if (DoesBeginUncPath(spec, 0, false) || DoesBeginWindowsDriveSpec(spec, 0)) {
++  // doing so. Apostate: a Windows profile does it on every host.
++  if ((DoesBeginUncPath(spec, 0, false) || DoesBeginWindowsDriveSpec(spec, 0)) &&
++      UsesWindowsFileSemantics()) {
+     return CanonicalizeFileUrl(spec, ParseFileUrl(spec), charset_converter,
+                                output, output_parsed);
+   }
+-#endif
+ 
+   Component scheme;
+   if (!ExtractScheme(spec, &scheme)) {
+@@ -545,6 +545,15 @@ void DoAddSchemeWithType(std::string_view new_scheme,
+ 
+ }  // namespace
+ 
++bool UsesWindowsFileSemantics() {
++#ifdef WIN32
++  return true;
++#else
++  const base::apostate::Profile* profile = base::apostate::Profile::Get();
++  return profile && profile->ua_platform() == "Windows";
++#endif
++}
++
+ void ClearSchemesForTests() {
+   DCHECK(!g_scheme_registries_used.load())
+       << "Schemes already used "
