@@ -34,13 +34,19 @@ the encoders the host has. Real Windows machines with an Intel or NVIDIA GPU
 also offer H.264 High and H.265, which a persona on a server without those
 encoders does not list.
 
-**FingerprintJS Pro tampering on a GPU-less Linux server.** On one bare-metal
-Linux server with no usable GPU, under Xvfb, FingerprintJS Pro reported
-`anomaly_score` 1 and `anti_detect_browser` true for each of the five Windows
-seeds tested, for `--fingerprint=host`, and for an unmodified Google Chrome.
-The cause has not been isolated. Changing canvas pixels, fonts, the claimed
-cores, memory and GPU, the driver, or any single profile section did not
-change it.
+**FingerprintJS Pro still flags `anti_detect_browser`.** On one bare-metal
+Linux server with no GPU, under Xvfb, through residential exits, five Windows
+seeds scored `anomaly_score` 0 with no rare-device, virtual-machine or
+developer-tools flag, and a suspect score of 8 on exits the service does not
+list as proxies. The remaining flag is `anti_detect_browser`, with a tampering
+model score between 0.97 and 0.9998. The cause is not isolated. Exit
+reputation and the installed Windows font set are known to move it for other
+builds.
+
+**A Windows host parses file paths as Windows under any persona.** Chrome on
+Windows turns `c:\foo` and `\\server\share` into `file:` URLs and a page can
+read that. A Windows persona on Linux or macOS does the same; a macOS or Linux
+persona on a Windows host does not undo it.
 
 **WebGL limits above an Apple GPU's.** WebGL reports the persona's limits on
 every host, and a Windows or Linux persona claims more than Metal allows. On
