@@ -41,17 +41,17 @@ the encoders the host has. Real Windows machines with an Intel or NVIDIA GPU
 also offer H.264 High and H.265, which a persona on a server without those
 encoders does not list.
 
-**FingerprintJS Pro flags `anti_detect_browser` on a Linux server.** On one
-bare-metal Linux server with no GPU, under Xvfb, through residential exits,
-Windows personas score `anomaly_score` 0, with a suspect score of 8 on exits
-the service does not list as proxies and 10 to 18 on listed ones. The flag
-`anti_detect_browser` stayed set in 47 of 47 runs, with or without the
-Widevine module, with or without `--fingerprint-noise`, and under both
-drivers. It also stayed set with the Python wrapper and a persistent profile,
-through an exit the service did not list as a proxy, with fonts whose hash
-equals a real Windows machine's. The same personas on an Apple silicon Mac
-did not get it in 12 runs, 3 of them with WebGL on SwiftShader; those Mac runs
-used plain Playwright and no proxy. The cause is not isolated.
+**FingerprintJS Pro flags `anti_detect_browser` when the Linux Widevine module
+answers for a Windows persona.** On a bare-metal Linux server under Xvfb,
+Windows personas with the Widevine module present got the flag in 6 of 6
+runs; the same binary, seeds and exit without the module did not, in 6 of 6.
+The wrappers install Widevine on every launch, so every wrapper launch of a
+Windows persona on Linux carries it (see "Widevine shows the host OS"
+below). An earlier set of runs that found no difference went through the
+wrapper, which put the module back in the arm meant to be without it. The
+same module in an emulated Linux container on a Mac was not flagged, so it
+may not be the only input. Without the module, suspect scores were 12 on a
+home connection.
 The tampering score depends on the driver: about 1.0 under the default
 Patchright driver and 0 under plain Playwright, which adds the
 developer-tools flag instead.
