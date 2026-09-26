@@ -49,6 +49,7 @@ third_party/angle/src/tests/gl_tests/ApostateLargeElementIndexTest.cpp	windows-*
 
 # ----------------------------------------------------------------------- blink
 third_party/blink/renderer/core/layout/layout_theme_font_provider_default.cc	windows-*	platform	third_party/blink/renderer/core/layout/build.gni:715 adds it in the `else` of `if (is_win)`, which takes layout_theme_font_provider_win.cc instead
+third_party/blink/renderer/core/layout/layout_theme_font_provider_win.cc	linux-*,macos-*	platform	third_party/blink/renderer/core/layout/build.gni:707 adds it under `if (is_win)` (line 705)
 third_party/blink/renderer/platform/fonts/linux/font_cache_linux.cc	windows-*,macos-*	platform	third_party/blink/renderer/platform/BUILD.gn:1769 adds it under `if (is_linux || is_chromeos)`
 third_party/blink/renderer/platform/fonts/skia/font_cache_skia.cc	macos-*	platform	third_party/blink/renderer/platform/BUILD.gn:1929 removes it with `sources -=` under `if (is_mac)`, which uses FontCacheMac instead
 
