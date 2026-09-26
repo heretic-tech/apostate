@@ -47,11 +47,11 @@ Windows personas score `anomaly_score` 0, with a suspect score of 8 on exits
 the service does not list as proxies and 10 to 18 on listed ones. The flag
 `anti_detect_browser` stayed set in 47 of 47 runs, with or without the
 Widevine module, with or without `--fingerprint-noise`, and under both
-drivers. It also stayed set on a second Linux server through an exit the
-service did not list as a proxy, with fonts whose hash equals a real Windows
-machine's. The same personas on an Apple silicon Mac did not get it in 12
-runs, 3 of them with WebGL on SwiftShader; those Mac runs used plain
-Playwright and no proxy. The cause is not isolated.
+drivers. It also stayed set with the Python wrapper and a persistent profile,
+through an exit the service did not list as a proxy, with fonts whose hash
+equals a real Windows machine's. The same personas on an Apple silicon Mac
+did not get it in 12 runs, 3 of them with WebGL on SwiftShader; those Mac runs
+used plain Playwright and no proxy. The cause is not isolated.
 The tampering score depends on the driver: about 1.0 under the default
 Patchright driver and 0 under plain Playwright, which adds the
 developer-tools flag instead.
