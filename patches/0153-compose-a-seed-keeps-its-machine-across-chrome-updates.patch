@@ -1,0 +1,103 @@
+Subject: [PATCH] compose: a seed keeps its machine across Chrome updates
+
+The composition root hashed the running Chromium build and catalogue
+version with the seed, so every Chrome update or catalogue bump drew
+almost every seed's hardware again: on 10,000 Windows seeds a patch
+level build change gave 97% of them a different GPU. A persistent
+profile presented a different device under the same cookies after an
+upgrade.
+
+Compose() now keys the root with frozen epochs, the values v0.4.2
+hashed, so no existing seed moves and later builds draw the same
+options. The composition still records and stamps the real build.
+Bumping an epoch re-keys every seed, so it only happens on purpose.
+Table edits still re-draw the axes they touch; recording the composed
+machine in the profile directory is separate work.
+
+diff --git a/base/apostate/compose.h b/base/apostate/compose.h
+--- a/base/apostate/compose.h
++++ b/base/apostate/compose.h
+@@ -124,10 +124,9 @@
+ 
+ using Digest = std::array<uint8_t, 32>;
+ 
+-// The tuple that keys the composition. Every field is part of the identity, so
+-// changing any one of them is a different profile for the same seed -- which
+-// is what makes a binary and a profile unable to silently disagree about what
+-// the catalogue said.
++// The tuple that keys the composition. ComputeRoot hashes whatever it is given;
++// Compose() gives it the frozen epochs below for the three version fields, not
++// the running build's versions.
+ struct BASE_EXPORT RootInputs {
+   std::string_view profile_schema_version;
+   std::string_view catalogue_version;
+@@ -143,6 +142,17 @@
+ //                 fingerprint_platform   0x00
+ //                 seed )
+ BASE_EXPORT Digest ComputeRoot(const RootInputs& inputs);
++
++// The version inputs Compose() hashes into every root. They are epochs, fixed
++// at the values v0.4.2 hashed, not the build's own versions: a persistent
++// profile keeps its machine (AGENTS.md), and hashing the running Chromium or
++// catalogue version made every Chrome update or catalogue bump re-draw nearly
++// every seed's hardware under the same cookies. The composition still records
++// and stamps the real versions. Bumping an epoch re-keys every seed, so it is
++// only ever done on purpose. scripts/profile_resolver.py mirrors these.
++inline constexpr std::string_view kRootSchemaEpoch = "3";
++inline constexpr std::string_view kRootCatalogueEpoch = "2";
++inline constexpr std::string_view kRootChromiumEpoch = "152.0.7977.83";
+ 
+ // draw(label, i) = SHA-256( root 0x00 label 0x00 uint32_be(i) )
+ //
+diff --git a/base/apostate/compose.cc b/base/apostate/compose.cc
+--- a/base/apostate/compose.cc
++++ b/base/apostate/compose.cc
+@@ -969,9 +969,9 @@
+   }
+ 
+   const RootInputs root_inputs = {
+-      .profile_schema_version = request.profile_schema_version,
+-      .catalogue_version = request.catalogue_version,
+-      .chromium_version = request.chromium_version,
++      .profile_schema_version = kRootSchemaEpoch,
++      .catalogue_version = kRootCatalogueEpoch,
++      .chromium_version = kRootChromiumEpoch,
+       .fingerprint_platform = composition.platform,
+       .seed = composition.seed,
+   };
+diff --git a/base/apostate/compose_unittest.cc b/base/apostate/compose_unittest.cc
+--- a/base/apostate/compose_unittest.cc
++++ b/base/apostate/compose_unittest.cc
+@@ -516,7 +516,32 @@
+   EXPECT_NE(HexEncodeLower(first->root), HexEncodeLower(second->root));
+   EXPECT_NE(ProfileJson(*first), ProfileJson(*second));
+ }
++
++// A persistent profile keeps its machine across upgrades. A newer Chromium
++// build or catalogue version must not re-key the seed: the root, and so every
++// axis's pick, stays where the frozen epochs put it. Hashing the build's own
++// versions re-drew about 97% of machines on a patch-level Chrome update.
++TEST(ApostateComposeTest, AnUpgradeKeepsTheSeedsMachine) {
++  constexpr DispersionAxis kAxes[] = {kOsReleaseAxis, kCpuAxis, kFontAxis};
++  const HostCapability host = CapableHost();
+ 
++  const std::optional<Composition> before =
++      Compose(RequestFor("stable-seed", kAxes, host));
++  ComposeRequest upgraded = RequestFor("stable-seed", kAxes, host);
++  upgraded.chromium_version = "153.0.7990.0";
++  upgraded.catalogue_version = "3";
++  const std::optional<Composition> after = Compose(upgraded);
++
++  ASSERT_TRUE(before.has_value());
++  ASSERT_TRUE(after.has_value());
++  EXPECT_EQ(HexEncodeLower(before->root), HexEncodeLower(after->root));
++  EXPECT_EQ(ChosenId(*before, "anchor"), ChosenId(*after, "anchor"));
++  EXPECT_EQ(ChosenId(*before, "os_release"), ChosenId(*after, "os_release"));
++  EXPECT_EQ(ChosenId(*before, "cpu"), ChosenId(*after, "cpu"));
++  // The composition still reports the build it actually ran under.
++  EXPECT_EQ("153.0.7990.0", after->chromium_version);
++}
++
+ // The property that lets the catalogue grow. Every axis draws from a substream
+ // keyed by its own label, so inserting an axis must leave every other axis's
+ // choice exactly where it was -- otherwise every shipped seed silently means a

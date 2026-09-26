@@ -310,6 +310,15 @@ def _read_object(path: Path, what: str) -> dict[str, Any]:
 # --------------------------------------------------------------------------
 # Seed derivation (docs/HOW_IT_WORKS.md)
 # --------------------------------------------------------------------------
+# The version inputs every root is keyed by. Epochs frozen at the values v0.4.2
+# hashed, not the build's own versions, so a Chrome update or a catalogue bump
+# does not re-draw a seed's machine (base/apostate/compose.h kRoot*Epoch).
+# Bumping one re-keys every seed, so it is only ever done on purpose.
+ROOT_SCHEMA_EPOCH = 3
+ROOT_CATALOGUE_EPOCH = 2
+ROOT_CHROMIUM_EPOCH = "152.0.7977.83"
+
+
 def seed_root(seed: str, platform: str, browser_build: str,
               catalogue_version: int = CATALOGUE_VERSION,
               profile_schema_version: int = PROFILE_SCHEMA_VERSION) -> bytes:
@@ -1695,8 +1704,8 @@ def _resolve_internal(config: Mapping[str, Any] | None = None, **overrides: Any)
     if requested_version is not None and requested_version != catalogue["catalogue_version"]:
         raise ResolverError("requested catalogue_version does not match the loaded catalogue")
 
-    root = seed_root(seed, platform, browser_build, catalogue["catalogue_version"],
-                     PROFILE_SCHEMA_VERSION)
+    root = seed_root(seed, platform, ROOT_CHROMIUM_EPOCH, ROOT_CATALOGUE_EPOCH,
+                     ROOT_SCHEMA_EPOCH)
     warnings: list[str] = []
     dropped: list[str] = []
     if platform_value is None:

@@ -320,6 +320,21 @@ class CompositionTests(unittest.TestCase):
         self.assertNotEqual(root, resolver.seed_root("1", "windows", "152.0.7977.83", 3, 3))
         self.assertNotEqual(root, resolver.seed_root("1", "windows", "152.0.7977.83", 2, 4))
 
+    def test_a_different_chromium_build_keeps_the_seeds_machine(self) -> None:
+        """A persistent profile keeps its machine across a Chrome update.
+
+        The root is keyed by frozen epochs, so another build draws the same
+        option on every axis and carries the same profile id; only the
+        build-bound values (the user agent) move.
+        """
+        base = resolver.resolve_with_diagnostics(BASE_CONFIG)
+        other = resolver.resolve_with_diagnostics(dict(BASE_CONFIG, browser_build="152.0.7977.82"))
+        self.assertEqual(base["diagnostics"]["axes"], other["diagnostics"]["axes"])
+        self.assertEqual(base["diagnostics"]["anchor"], other["diagnostics"]["anchor"])
+        self.assertEqual(base["profile"]["id"], other["profile"]["id"])
+        self.assertNotEqual(base["diagnostics"]["browser_build"],
+                            other["diagnostics"]["browser_build"])
+
     def test_adding_a_pack_at_the_end_shifts_nothing_else(self) -> None:
         """The seed-stability claim: axis substreams are independent."""
         before = resolver.resolve_with_diagnostics(BASE_CONFIG)["diagnostics"]["axes"]

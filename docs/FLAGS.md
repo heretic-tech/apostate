@@ -54,9 +54,11 @@ cannot be read or written, that launch gets a one-off machine and
 `--fingerprint-explain` says so. A file that does not hold a valid seed is
 replaced.
 
-The seed is hashed together with the persona, the Chromium version and the
-catalogue version. A different persona, or a new browser build, gives a
-different machine for the same seed.
+The seed is hashed together with the persona and fixed version epochs, not the
+running Chromium or catalogue version, so a Chrome update keeps the seed's
+machine and moves only the browser version. A different persona gives a
+different machine. A release that changes the catalogue tables re-draws the
+choices those tables decide (docs/KNOWN_GAPS.md).
 
 ## Per-field switches
 

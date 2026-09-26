@@ -133,3 +133,4 @@
 0150-fonts-windows-emoji-and-symbol-fallback.patch
 0151-url-windows-profile-parses-file-paths-as-windows.patch
 0152-cpu-performance-tier-without-the-host-cpu-model.patch
+0153-compose-a-seed-keeps-its-machine-across-chrome-updates.patch

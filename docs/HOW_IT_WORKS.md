@@ -69,13 +69,16 @@ family, macOS the Metal one and Linux the Vulkan one, whatever GPU the host
 has.
 
 The seed decides every choice. The browser hashes it (SHA-256) together with
-the profile schema version, the catalogue version, the Chromium version and
-the persona, then draws each choice from its own hash of that result. The
-same seed, persona and build give the same machine on every host with enough
-cores and memory for it. A new Chromium version or catalogue version gives
-every seed a new machine.
+the persona and three fixed version epochs (profile schema 3, catalogue 2,
+Chromium 152.0.7977.83), then draws each choice from its own hash of that
+result. The epochs are not the running build's versions, so a Chrome update
+keeps every seed's machine; bumping one re-keys every seed and is only done on
+purpose. The same seed, persona and catalogue tables give the same machine on
+every host with enough cores and memory for it.
 
-A drawn core count or memory size above the host's is lowered to the host's.
+Core counts and memory sizes the host cannot serve are left out of the draw,
+so on a smaller host a seed's core count or memory can differ.
+
 Language and timezone are never drawn from the seed, because a drawn timezone
 would not match the proxy exit. They come from `--fingerprint-locale` and
 `--fingerprint-timezone`, which the packages fill from GeoIP. Without them the
