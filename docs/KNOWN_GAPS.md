@@ -20,6 +20,13 @@ than the host has, so on a small server every persona reports the server's
 core count next to a desktop GPU. Use a host with at least as many cores and
 as much memory as the machines you want to present.
 
+**Browser chrome height at display scaling above 100%.** The height of the
+tab strip and toolbar, `outerHeight - innerHeight`, comes from the host's
+browser layout. At 100% it matches real Windows (143). On one real Windows
+machine it grew with scaling (149 at 200%), while ours stays about 143 DIP
+and reads 142 at 125%. Personas that claim 125% or more report a value real
+Windows does not.
+
 **Rendering is the host's.** Canvas, WebGL and WebGPU pixels, and rendering
 speed, come from the host's GPU, or from the SwiftShader software renderer when
 there is none. A page that times rendering or compares images with real
