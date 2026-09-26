@@ -66,7 +66,12 @@
         "prototype.shape": { "$ref": "#/$defs/successful_probe" },
         "chrome.object": { "$ref": "#/$defs/successful_probe" },
         "error.stack": { "$ref": "#/$defs/successful_probe" },
-        "storage.persist": { "$ref": "#/$defs/successful_probe" }
+        "storage.persist": { "$ref": "#/$defs/successful_probe" },
+        "url.file_semantics": { "$ref": "#/$defs/successful_probe", "description": "Optional; absent from captures taken before the probe existed." },
+        "webauthn.client_capabilities": { "$ref": "#/$defs/successful_probe", "description": "Optional; absent from captures taken before the probe existed." },
+        "eme.widevine_challenge": { "$ref": "#/$defs/successful_probe", "description": "Optional and read once. A CDM failure is recorded in value.failedStage and value.error, not as a failed probe." },
+        "media.decoding_info_worker": { "$ref": "#/$defs/successful_probe", "description": "Optional; absent from captures taken before the probe existed." },
+        "text.emoji_box": { "$ref": "#/$defs/successful_probe", "description": "Optional; absent from captures taken before the probe existed." }
       },
       "additionalProperties": { "$ref": "#/$defs/probe" }
     },

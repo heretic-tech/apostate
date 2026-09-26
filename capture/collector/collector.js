@@ -70,6 +70,33 @@
 
   function must(cond, msg) { if (!cond) throw new Error(msg); }
 
+  // A sub-measurement's failure recorded in place, so one unsupported call
+  // inside a multi-part probe does not discard the parts that did measure.
+  async function settle(fn) {
+    try { return await fn(); }
+    catch (e) { return { __error: String((e && e.message) || e), __errorName: (e && e.name) || null }; }
+  }
+
+  // Runs `src` in a dedicated Worker, posts `message`, and resolves with the
+  // first message back. The worker is terminated on every path, timeout included.
+  async function inWorker(src, message, timeoutMs, timeoutMsg) {
+    must(global.Worker, "Worker unsupported");
+    var url = URL.createObjectURL(new Blob([src], { type: "text/javascript" }));
+    var w = null;
+    try {
+      w = new Worker(url);
+      return await new Promise(function (resolve, reject) {
+        var t = setTimeout(function () { reject(new Error(timeoutMsg)); }, timeoutMs);
+        w.onmessage = function (e) { clearTimeout(t); resolve(e.data); };
+        w.onerror = function (e) { clearTimeout(t); reject(new Error(e.message || "worker error")); };
+        w.postMessage(message);
+      });
+    } finally {
+      if (w) w.terminate();
+      URL.revokeObjectURL(url);
+    }
+  }
+
   // ------------------------------------------------------------ environment
 
   probe("navigator.scalars", { deterministic: true }, function () {
@@ -126,7 +153,10 @@
       // Window metrics vary with the window; recorded for the taskbar/chrome deltas they imply.
       outerWidth: global.outerWidth, outerHeight: global.outerHeight,
       innerWidth: global.innerWidth, innerHeight: global.innerHeight,
-      screenX: global.screenX, screenY: global.screenY
+      screenX: global.screenX, screenY: global.screenY,
+      // The layout viewport without scrollbars, which innerHeight includes.
+      documentClientWidth: document.documentElement.clientWidth,
+      documentClientHeight: document.documentElement.clientHeight
     };
   });
 
@@ -853,25 +883,11 @@
     // Whether a worker-initiated fetch carries Client Hints cannot be answered
     // from the renderer's own view; only the server sees what arrived. A
     // difference against headers.echo is a real divergence between scopes.
-    must(global.Worker, "Worker unsupported");
     var echoUrl = new URL("/echo", location.href).href;
     var src = "self.onmessage=function(e){" +
       "fetch(e.data).then(function(r){return r.json()}).then(function(j){postMessage(j)})" +
       ".catch(function(err){postMessage({__error:String(err&&err.message||err)})})};";
-    var url = URL.createObjectURL(new Blob([src], { type: "text/javascript" }));
-    try {
-      var w = new Worker(url);
-      var result = await new Promise(function (resolve, reject) {
-        var t = setTimeout(function () { reject(new Error("worker fetch timed out")); }, 5000);
-        w.onmessage = function (e) { clearTimeout(t); resolve(e.data); };
-        w.onerror = function (e) { clearTimeout(t); reject(new Error(e.message || "worker error")); };
-        w.postMessage(echoUrl);
-      });
-      w.terminate();
-      return result;
-    } finally {
-      URL.revokeObjectURL(url);
-    }
+    return await inWorker(src, echoUrl, 5000, "worker fetch timed out");
   });
 
   probe("screen.details", { deterministic: true }, async function () {
@@ -1022,20 +1038,7 @@
       "  self.postMessage(out);",
       "};"
     ].join("\n");
-    var url = URL.createObjectURL(new Blob([src], { type: "text/javascript" }));
-    try {
-      var w = new Worker(url);
-      var result = await new Promise(function (resolve, reject) {
-        var timer = setTimeout(function () { reject(new Error("worker timed out")); }, 8000);
-        w.onmessage = function (e) { clearTimeout(timer); resolve(e.data); };
-        w.onerror = function (e) { clearTimeout(timer); reject(new Error(e.message || "worker error")); };
-        w.postMessage(null);
-      });
-      w.terminate();
-      return result;
-    } finally {
-      URL.revokeObjectURL(url);
-    }
+    return await inWorker(src, null, 8000, "worker timed out");
   });
 
   probe("prototype.shape", { deterministic: true }, function () {
@@ -1204,6 +1207,303 @@
       };
     } finally {
       pc.close();
+    }
+  });
+
+  // Relative-URL resolution for file: and drive-letter inputs. GURL
+  // canonicalises these with Windows-only rules (the WIN32 blocks of
+  // url_canon_unittest.cc ResolveRelativeURL and gurl_unittest.cc
+  // TypesTestCase), so the answers are a platform fact that needs no
+  // permission and no rendering. Pairs are copied verbatim from the test
+  // source; a null base means `new URL(relative)` alone.
+  var URL_WIN_CASES = [
+    ["file:///C:/foo", "bar"],
+    ["file:///C:/foo", "../../../bar.html"],
+    ["file:///C:/foo", "/../bar.html"],
+    ["file:///C:/something", "//c:/foo"],
+    ["file:///C:/something", "//localhost/c:/foo"],
+    ["file:///C:/foo", "/z:/bar"],
+    ["file:///C:/foo", "/bar"],
+    ["file://localhost/C:/foo", "/bar"],
+    ["file:///C:/foo/com/", "/bar"],
+    ["file:///C:/something", "//somehost/path"],
+    ["file:///C:/something", "/\\//somehost/path"],
+    ["http://host/a", "\\\\another\\path"],
+    [null, "c:\\foo.txt"],
+    [null, "Z|foo.txt"],
+    [null, "\\\\server\\foo.txt"],
+    [null, "c:/foo"],
+    [null, "file://C:/x/../y"]
+  ];
+  // Cross-platform cases, kept as the control: these must not move with the OS.
+  var URL_COMMON_CASES = [
+    ["http://host/a", "/c:\\foo"],
+    ["http://host/a", "//c:\\foo"],
+    ["file://host/a", "/"],
+    ["file://host/a", "//"],
+    ["file://host/a", "/b"],
+    ["file://host/a", "//b"],
+    [null, "https://example.com/a/../b"],
+    [null, "file:///tmp/x.html"]
+  ];
+
+  // Both functions are also serialised into a worker, so they may reference
+  // nothing outside their own bodies.
+  function resolveUrlCases(cases) {
+    return cases.map(function (c) {
+      try { return c[0] === null ? new URL(c[1]).href : new URL(c[1], c[0]).href; }
+      catch (e) { return "throw:" + e.name; }
+    });
+  }
+  function driveLetterProtocol() {
+    try { return new URL("c:/x").protocol; } catch (e) { return "throw:" + e.name; }
+  }
+
+  probe("url.file_semantics", { deterministic: true }, async function () {
+    var src = resolveUrlCases.toString() + "\n" + driveLetterProtocol.toString() + "\n" +
+      "self.onmessage = function (e) { self.postMessage({ win: resolveUrlCases(e.data.win)," +
+      " common: resolveUrlCases(e.data.common), driveLetterProtocol: driveLetterProtocol() }); };";
+    // An anchor resolves through the document's base URL rather than through
+    // the URL constructor, which is a separate path into the same canonicaliser.
+    var a = document.createElement("a");
+    a.href = "c:\\foo";
+    return {
+      win_cases: URL_WIN_CASES,
+      common_cases: URL_COMMON_CASES,
+      window: {
+        win: resolveUrlCases(URL_WIN_CASES),
+        common: resolveUrlCases(URL_COMMON_CASES),
+        driveLetterProtocol: driveLetterProtocol(),
+        anchor: { href: a.href, protocol: a.protocol }
+      },
+      worker: await settle(function () {
+        return inWorker(src, { win: URL_WIN_CASES, common: URL_COMMON_CASES }, 5000, "worker timed out");
+      })
+    };
+  });
+
+  probe("webauthn.client_capabilities", { deterministic: true }, async function () {
+    // What the OS authenticator stack reports through the three static
+    // capability queries. Nothing here creates or gets a credential, and none
+    // of these calls shows UI. getClientCapabilities is kept whole: which keys
+    // it returns is as much a build and platform fact as their values.
+    var PKC = global.PublicKeyCredential;
+    must(PKC, "PublicKeyCredential unsupported");
+    function ask(name) {
+      return settle(function () {
+        must(typeof PKC[name] === "function", name + " unsupported");
+        return PKC[name]();
+      });
+    }
+    return {
+      getClientCapabilities: await ask("getClientCapabilities"),
+      isUserVerifyingPlatformAuthenticatorAvailable: await ask("isUserVerifyingPlatformAuthenticatorAvailable"),
+      isConditionalMediationAvailable: await ask("isConditionalMediationAvailable")
+    };
+  });
+
+  probe("eme.widevine_challenge", { deterministic: false }, async function () {
+    // The first message the installed Widevine CDM emits for one fixed PSSH.
+    // eme.keysystems says whether the key system resolves; this keeps the bytes
+    // the CDM behind it actually sends, which is what a license server reads.
+    // Read once: a license request carries per-request fields, so two reads
+    // would differ by design.
+    //
+    // setServerCertificate is never called, so a CDM that insists on a service
+    // certificate answers with that request instead (Chrome 154 on macOS sent
+    // the two bytes 08 04, typed "license-request", where Chrome 150 sent a full
+    // license request). A failure at any stage is kept
+    // in failedStage and error rather than failing the probe, the same way
+    // eme.keysystems records an unsupported system: the receiver refuses a
+    // whole capture over a single failed probe.
+    must(navigator.requestMediaKeySystemAccess, "EME unsupported");
+    var KEY_SYSTEM = "com.widevine.alpha";
+    var SYSTEM_ID = [0xed, 0xef, 0x8b, 0xa9, 0x79, 0xd6, 0x4a, 0xce,
+                     0xa3, 0xc8, 0x27, 0xdc, 0xd5, 0x1d, 0x21, 0xed];
+    var DATA = [0x12, 0x10].concat(new Array(16).fill(0x11));
+    var pssh = new Uint8Array([0, 0, 0, 32 + DATA.length, 0x70, 0x73, 0x73, 0x68, 0, 0, 0, 0]
+      .concat(SYSTEM_ID, [0, 0, 0, DATA.length], DATA));
+    var CONFIG = [{ initDataTypes: ["cenc"],
+                    videoCapabilities: [{ contentType: 'video/mp4; codecs="avc1.42E01E"' }] }];
+    var TIMEOUT_MS = 10000;
+    var out = {
+      keySystem: KEY_SYSTEM, pssh_base64: b64(pssh), configuration: null,
+      messageType: null, message_byteLength: null, message_base64: null,
+      failedStage: null, error: null, sessionClosed: null
+    };
+    var stage = "requestMediaKeySystemAccess", session = null, timer = null;
+    var timeout = new Promise(function (resolve, reject) {
+      timer = setTimeout(function () {
+        reject(new Error("timed out after " + TIMEOUT_MS + " ms"));
+      }, TIMEOUT_MS);
+    });
+    async function challenge() {
+      var access = await navigator.requestMediaKeySystemAccess(KEY_SYSTEM, CONFIG);
+      var configuration = access.getConfiguration();
+      stage = "createMediaKeys";
+      var keys = await access.createMediaKeys();
+      stage = "createSession";
+      session = keys.createSession();
+      var first = new Promise(function (resolve) {
+        session.addEventListener("message", resolve, { once: true });
+      });
+      stage = "generateRequest";
+      await session.generateRequest("cenc", pssh);
+      stage = "message";
+      var ev = await first;
+      return { configuration: configuration, messageType: ev.messageType, bytes: new Uint8Array(ev.message) };
+    }
+    try {
+      // Assigned only from the winner, so a request that finishes after the
+      // timeout cannot rewrite a value that has already been returned.
+      var got = await Promise.race([timeout, challenge()]);
+      out.configuration = got.configuration;
+      out.messageType = got.messageType;
+      out.message_byteLength = got.bytes.byteLength;
+      out.message_base64 = b64(got.bytes);
+    } catch (e) {
+      out.failedStage = stage;
+      out.error = { name: (e && e.name) || null, message: String((e && e.message) || e) };
+    } finally {
+      clearTimeout(timer);
+    }
+    if (session) {
+      // On Chrome 154 for macOS, close() on a session whose only message so far is
+      // the service-certificate request was still pending after 8 s in testing,
+      // so the wait is bounded and whether it resolved is itself recorded.
+      var open = session;
+      out.sessionClosed = await settle(function () {
+        return Promise.race([
+          open.close().then(function () { return true; }),
+          new Promise(function (resolve, reject) {
+            setTimeout(function () { reject(new Error("close() still pending after 2000 ms")); }, 2000);
+          })
+        ]);
+      });
+    }
+    return out;
+  });
+
+  var DECODE_QUERY = {
+    width: 1920, height: 1080, framerate: 30, bitrate: 10000000,
+    contentTypes: {
+      av01: 'video/mp4; codecs="av01.0.08M.08"',
+      h264: 'video/mp4; codecs="avc1.640028"',
+      vp9: 'video/mp4; codecs="vp09.00.40.08"',
+      hevc: 'video/mp4; codecs="hvc1.1.6.L120.90"'
+    }
+  };
+
+  // Serialised into a worker as well; self-contained for the same reason as
+  // resolveUrlCases.
+  async function decodeEach(query) {
+    if (!self.navigator.mediaCapabilities) throw new Error("mediaCapabilities unsupported");
+    var out = {};
+    for (var name of Object.keys(query.contentTypes)) {
+      try {
+        var r = await self.navigator.mediaCapabilities.decodingInfo({ type: "file", video: {
+          contentType: query.contentTypes[name], width: query.width, height: query.height,
+          framerate: query.framerate, bitrate: query.bitrate } });
+        out[name] = { supported: r.supported, smooth: r.smooth, powerEfficient: r.powerEfficient };
+      } catch (e) {
+        out[name] = { __error: String((e && e.message) || e) };
+      }
+    }
+    return out;
+  }
+
+  probe("media.decoding_info_worker", { deterministic: true }, async function () {
+    // decodingInfo asked from a dedicated worker and from the window with one
+    // query. The worker answers through a different binding (WorkerNavigator),
+    // so a patch that covers only the window shows up as the two sides
+    // disagreeing.
+    // codecs.media uses other profiles and bitrates and cannot stand in for the
+    // window side here.
+    var src = decodeEach.toString() + "\n" +
+      "self.onmessage = function (e) { decodeEach(e.data).then(function (r) { self.postMessage(r); }," +
+      " function (err) { self.postMessage({ __error: String((err && err.message) || err) }); }); };";
+    return {
+      query: DECODE_QUERY,
+      window: await settle(function () { return decodeEach(DECODE_QUERY); }),
+      worker: await settle(function () { return inWorker(src, DECODE_QUERY, 8000, "worker timed out"); })
+    };
+  });
+
+  probe("text.emoji_box", { deterministic: true }, async function () {
+    // An emoji run measured the way a commercial detector does it: a fresh
+    // srcdoc iframe, the default font, the body's default margin, one span, its
+    // getBoundingClientRect and its computed font-family. Which fallback font
+    // draws emoji differs by OS, so the box is a platform fact.
+    //
+    // The detector's exact string is not in our hook logs. They record the
+    // srcdoc below, the three style properties set in the frame (visibility,
+    // text-size-adjust, zoom), the family it reads back ("Times New Roman") and
+    // the rect it gets (1597.078125 x 17, 1757.5 x 17 and 1600 x 17 across
+    // runs), but never the text, and they contain no emoji characters at all.
+    // The strings here are therefore our own candidates: the 100 x U+1F600 run
+    // and the mixed line from our earlier emoji probe. white-space:nowrap is
+    // ours too; the logged height of 17 says the detector's run was one line.
+    // The same text is also measured under explicit emoji families, so a diff
+    // can name the font that drew the default run: JavaScript cannot read the
+    // rendering font directly, only which declared family matches its width.
+    var SRCDOC = '<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">';
+    var CANDIDATES = {
+      "U+1F600x100": String.fromCodePoint(0x1F600).repeat(100),
+      "mixed": "Cwm fjordbank gly " + String.fromCodePoint(0x1F603, 0x1F44D, 0x2764, 0xFE0F, 0x1F680)
+    };
+    var FAMILIES = ["Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", "Segoe UI Symbol"];
+    var frame = document.createElement("iframe");
+    frame.style.cssText = "position:absolute;left:-10000px;top:0;border:0";
+    var loaded = new Promise(function (resolve, reject) {
+      frame.onload = resolve;
+      setTimeout(function () { reject(new Error("iframe load timed out")); }, 5000);
+    });
+    frame.srcdoc = SRCDOC;
+    document.body.appendChild(frame);
+    try {
+      await loaded;
+      var win = frame.contentWindow, doc = frame.contentDocument;
+      must(doc && doc.body, "iframe document unavailable");
+      var measure = function (text, family) {
+        var span = doc.createElement("span");
+        span.style.setProperty("visibility", "hidden");
+        span.style.setProperty("text-size-adjust", "none");
+        span.style.setProperty("zoom", "1");
+        span.style.setProperty("white-space", "nowrap");
+        if (family) span.style.setProperty("font-family", "'" + family + "'");
+        span.textContent = text;
+        doc.body.appendChild(span);
+        var r = span.getBoundingClientRect();
+        var o = {
+          x: r.x, y: r.y, width: r.width, height: r.height,
+          top: r.top, bottom: r.bottom, left: r.left, right: r.right
+        };
+        // The frame's own getComputedStyle with a null pseudo-element, which is
+        // the call the detector makes. An injected script can break that call in
+        // a srcdoc frame (a managed test browser throws "Illegal invocation"
+        // here), and the rect above is still a measurement, so the failure is
+        // kept beside it.
+        try {
+          var cs = win.getComputedStyle(span, null);
+          o.fontFamily = cs.getPropertyValue("font-family");
+          o.fontSize = cs.fontSize;
+          o.lineHeight = cs.lineHeight;
+        } catch (e) {
+          o.style = { __error: String((e && e.message) || e), __errorName: (e && e.name) || null };
+        }
+        span.remove();
+        return o;
+      };
+      var out = { srcdoc: SRCDOC, candidates: {} };
+      Object.keys(CANDIDATES).forEach(function (name) {
+        var text = CANDIDATES[name];
+        var byFamily = {};
+        FAMILIES.forEach(function (f) { byFamily[f] = measure(text, f); });
+        out.candidates[name] = { text: text, default: measure(text, null), families: byFamily };
+      });
+      return out;
+    } finally {
+      frame.remove();
     }
   });
 
