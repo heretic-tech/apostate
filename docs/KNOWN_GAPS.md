@@ -34,14 +34,31 @@ the encoders the host has. Real Windows machines with an Intel or NVIDIA GPU
 also offer H.264 High and H.265, which a persona on a server without those
 encoders does not list.
 
-**FingerprintJS Pro still flags `anti_detect_browser`.** On one bare-metal
-Linux server with no GPU, under Xvfb, through residential exits, five Windows
-seeds scored `anomaly_score` 0 with no rare-device, virtual-machine or
-developer-tools flag, and a suspect score of 8 on exits the service does not
-list as proxies. The remaining flag is `anti_detect_browser`, with a tampering
-model score between 0.97 and 0.9998. The cause is not isolated. Exit
-reputation and the installed Windows font set are known to move it for other
-builds.
+**FingerprintJS Pro flags `anti_detect_browser` on a Linux server.** On one
+bare-metal Linux server with no GPU, under Xvfb, through residential exits,
+Windows personas score `anomaly_score` 0, with a suspect score of 8 on exits
+the service does not list as proxies and 10 to 18 on listed ones. The flag
+`anti_detect_browser` stayed set in 47 of 47 runs, with or without the
+Widevine module, with or without `--fingerprint-noise`, and under both
+drivers. The same personas on an Apple silicon Mac without a proxy did not get
+it in 6 runs. The cause is not isolated.
+The tampering score depends on the driver: about 1.0 under the default
+Patchright driver and 0 under plain Playwright, which adds the
+developer-tools flag instead.
+
+**Linux personas and `--fingerprint=host` score `anomaly_score` 1** in
+FingerprintJS Pro on the same server, like stock Chrome there. The cause is
+not isolated.
+
+**Widevine names the host OS.** Under a Windows persona on Linux, a Widevine
+license request that a page generates carries the module's own platform,
+`Linux` and `x86-64`, which the browser cannot change. DRM playback still
+works. A page that asks for one and reads it can tell the host OS.
+
+**Passkey capabilities are the host's.**
+`PublicKeyCredential.getClientCapabilities()` reports the host's answers, so a
+Windows persona on Linux reports no Secure Payment Confirmation, no hybrid
+transport and no platform passkey authenticator.
 
 **A Windows host parses file paths as Windows under any persona.** Chrome on
 Windows turns `c:\foo` and `\\server\share` into `file:` URLs and a page can
@@ -93,9 +110,15 @@ synthetic picture and a claimed microphone a quiet noise floor.
 **Web Share on Linux.** Linux has no share sheet, so under a Windows or macOS
 persona `navigator.share()` rejects at once, as if the user closed the sheet.
 
-**An update changes the machine.** The seed is hashed with the Chromium and
-catalogue versions, so after an update every seed and persistent profile
-presents a different machine. Pin the package version to keep one.
+**A catalogue change can change the machine.** A Chrome update keeps a seed's
+machine, but a release that corrects the catalogue tables re-draws the choices
+those tables decide, for seeds and persistent profiles alike. v0.4.3 uses the
+same tables as v0.4.2. Recording the composed machine in the profile directory,
+so that table changes stop moving it, is planned.
+
+**The core count and memory depend on the host.** A host with fewer cores or
+less memory than a seed's draw leaves those options out, so the same seed can
+present fewer cores or less memory there.
 
 ## Sessions and network
 
