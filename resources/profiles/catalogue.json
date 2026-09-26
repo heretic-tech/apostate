@@ -522,13 +522,19 @@
   "domain": "apostate/fp/v1",
   "draw": "sha256(root 0x00 label 0x00 uint32_be(index))",
   "hash": "sha256",
-  "persist_path": "<user-data-dir>/apostate/seed",
+  "persist_path": "<user-data-dir>/apostate/identity",
   "persist_reason": "A new fingerprint on every launch of the same browser profile is itself a signal: returning-visitor checks, long-lived cookies and storage all expect the machine to stay the same machine.",
+  "root_epochs": {
+   "catalogue": 2,
+   "chromium": "152.0.7977.83",
+   "profile_schema": 3,
+   "reason": "Frozen at the values v0.4.2 hashed, not the build's own versions, so a Chrome update or a catalogue version bump does not re-draw a seed's machine. Changing one re-keys every seed."
+  },
   "root_material": [
    "domain",
-   "profile_schema_version",
-   "catalogue_version",
-   "chromium_version",
+   "root_epochs.profile_schema",
+   "root_epochs.catalogue",
+   "root_epochs.chromium",
    "fingerprint_platform",
    "seed"
   ],

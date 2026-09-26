@@ -47,8 +47,11 @@ Windows personas score `anomaly_score` 0, with a suspect score of 8 on exits
 the service does not list as proxies and 10 to 18 on listed ones. The flag
 `anti_detect_browser` stayed set in 47 of 47 runs, with or without the
 Widevine module, with or without `--fingerprint-noise`, and under both
-drivers. The same personas on an Apple silicon Mac without a proxy did not get
-it in 6 runs. The cause is not isolated.
+drivers. It also stayed set on a second Linux server through an exit the
+service did not list as a proxy, with fonts whose hash equals a real Windows
+machine's. The same personas on an Apple silicon Mac did not get it in 12
+runs, 3 of them with WebGL on SwiftShader; those Mac runs used plain
+Playwright and no proxy. The cause is not isolated.
 The tampering score depends on the driver: about 1.0 under the default
 Patchright driver and 0 under plain Playwright, which adds the
 developer-tools flag instead.
@@ -57,15 +60,18 @@ developer-tools flag instead.
 FingerprintJS Pro on the same server, like stock Chrome there. The cause is
 not isolated.
 
-**Widevine names the host OS.** Under a Windows persona on Linux, a Widevine
-license request that a page generates carries the module's own platform,
-`Linux` and `x86-64`, which the browser cannot change. DRM playback still
-works. A page that asks for one and reads it can tell the host OS.
+**Widevine shows the host OS.** Real Windows Chrome answers a page's first
+Widevine request with a 2-byte service-certificate request, so no client
+identity leaves in the clear. Under a Windows persona on Linux, the first
+message is a license request of about 1,700 bytes that carries the module's
+own platform, `Linux` and `x86-64`, in the clear. A page can tell the two
+apart from the message length alone. DRM playback still works.
 
 **Passkey capabilities are the host's.**
-`PublicKeyCredential.getClientCapabilities()` reports the host's answers, so a
-Windows persona on Linux reports no Secure Payment Confirmation, no hybrid
-transport and no platform passkey authenticator.
+`PublicKeyCredential.getClientCapabilities()` reports the host's answers. Real
+Windows Chrome reports `extension:payment` (Secure Payment Confirmation) as
+true; a Windows persona on Linux reports it false. Hybrid transport and the
+platform authenticator also follow the host.
 
 **A Windows host parses file paths as Windows under any persona.** Chrome on
 Windows turns `c:\foo` and `\\server\share` into `file:` URLs and a page can
@@ -124,8 +130,9 @@ same tables as v0.4.2. Recording the composed machine in the profile directory,
 so that table changes stop moving it, is planned.
 
 **The core count and memory depend on the host.** A host with fewer cores or
-less memory than a seed's draw leaves those options out, so the same seed can
-present fewer cores or less memory there.
+less memory than a seed's draw leaves those options out and the draw is taken
+over the rest, so the same seed can present a different core count or memory
+size there, even one the host could have served.
 
 ## Sessions and network
 
