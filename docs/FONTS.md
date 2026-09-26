@@ -24,8 +24,10 @@ Segoe UI Variable and SimSun-ExtG, which only Windows 11 has.
 All Windows families come from the
 [MauCariApa-com/windows-11-fonts](https://github.com/MauCariApa-com/windows-11-fonts)
 repository, except Marlett, which every Windows machine has and the repository
-does not include. Add it from a Windows Fonts folder (below). A host without
-it simply does not show it.
+does not include. The installer adds the Windows 11 Marlett from the Win11
+release zip of [liblaf/fonts](https://github.com/liblaf/fonts/releases/tag/Win11)
+(below). Only the Windows 11 build is accepted: the Office build has different
+metrics.
 
 A Windows persona also answers the other names Windows answers to, with the
 family Windows uses for them: Courier is Courier New, MS Sans Serif is
@@ -61,7 +63,14 @@ npx apostate fonts install windows    # npm
 
 It clones https://github.com/MauCariApa-com/windows-11-fonts with `git` and
 installs the files in its `w11-fonts/` directory whose family is in the
-Windows core pack, and no others:
+Windows core pack, and no others. It also adds Marlett, which that repository
+lacks, from the Windows 11 release zip
+`https://github.com/liblaf/fonts/releases/download/Win11/Win11-English.zip`.
+The zip is about 200 MB, but the command fetches only `marlett.ttf` out of it
+with HTTP range reads, about 80 KB in all, and installs it only when its sha256
+matches the one the command pins. If the download fails or the sha256 does
+not match, it prints why Marlett was not installed and installs the rest.
+The fonts go:
 
 - Linux: into `~/.local/share/fonts/apostate-windows`, then runs `fc-cache -f`.
 - macOS: into `~/Library/Fonts/apostate-windows`.
@@ -72,17 +81,18 @@ Narrow stays out even though its files also carry the name Arial. Files left in
 that directory by an older install that are not core fonts are removed. The
 command ends by listing the core families the host still lacks.
 
-To add what the repository lacks, such as Marlett, copy a real Windows
-machine's `C:\Windows\Fonts` folder to the host and install from it. This
-takes the core families from that folder instead of cloning:
+To add what the repository lacks, copy a real Windows machine's
+`C:\Windows\Fonts` folder to the host and install from it. This takes the
+core families, Marlett included, from that folder instead of cloning and
+downloading:
 
 ```sh
 apostate fonts install windows --from ~/windows-fonts
 ```
 
-Apostate does not ship these fonts. The repository has its own licence, and
-the command clones it on your machine. The fonts are ordinary user fonts, so
-other programs on the host can use them too.
+Apostate does not ship these fonts. The repository and the release zip have
+their own licences, and the command fetches them on your machine. The fonts
+are ordinary user fonts, so other programs on the host can use them too.
 
 ### macOS persona on a Linux host
 

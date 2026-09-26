@@ -34,6 +34,7 @@ import {
   resolveProfile,
   toCanonicalLaunchConfig,
 } from "../dist/index.js";
+import { fetchMarlett } from "../scripts/cli.mjs";
 
 const target = "linux-x64";
 const artifactNameFor = (platform) => expectedArtifactName(platform);
@@ -1893,5 +1894,133 @@ test("a socks5 GeoIP lookup hands the endpoint name to the proxy, never resolvin
     assert.equal(config.webrtc_ip, "203.0.113.7");
   } finally {
     await proxy.close();
+  }
+});
+
+// `fonts install windows` takes marlett.ttf out of a 198 MB zip by range reads.
+// python/tests/test_package.py runs the same fixtures through the Python reader.
+const MARLETT_STAND_IN = Buffer.from("Marlett stand-in ".repeat(1024));
+
+// A zip bigger than the 64 KiB tail the reader fetches, holding marlett.ttf.
+// The CRCs are left at zero: the reader verifies by sha256, not CRC. The local
+// header of marlett.ttf carries an extra field the central directory does not,
+// as real zips do, so the reader has to skip the local lengths, not the central.
+function marlettZip() {
+  const entries = [
+    { name: "arial.ttf", data: Buffer.alloc(256 * 1024, "padding "), method: 0, extra: Buffer.alloc(0) },
+    { name: "marlett.ttf", data: MARLETT_STAND_IN, method: 8, extra: Buffer.from([0xfe, 0xca, 4, 0, 1, 2, 3, 4]) },
+    { name: "times.ttf", data: Buffer.alloc(100, "x"), method: 0, extra: Buffer.alloc(0) },
+  ];
+  const locals = [];
+  const centrals = [];
+  let offset = 0;
+  for (const { name, data, method, extra } of entries) {
+    const body = method === 8 ? zlib.deflateRawSync(data) : data;
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(method, 8);
+    local.writeUInt32LE(body.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(name.length, 26);
+    local.writeUInt16LE(extra.length, 28);
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt16LE(method, 10);
+    central.writeUInt32LE(body.length, 20);
+    central.writeUInt32LE(data.length, 24);
+    central.writeUInt16LE(name.length, 28);
+    central.writeUInt32LE(offset, 42);
+    locals.push(local, Buffer.from(name), extra, body);
+    centrals.push(central, Buffer.from(name));
+    offset += 30 + name.length + extra.length + body.length;
+  }
+  const directory = Buffer.concat(centrals);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(directory.length, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, directory, end]);
+}
+
+// One file over HTTP, served only in the byte ranges asked for, recording the
+// Range header of every request and the bytes sent.
+async function rangeServer(payload, { honourRange = true } = {}) {
+  const state = { ranges: [], sent: 0 };
+  const server = createServer((request, response) => {
+    const header = request.headers.range;
+    state.ranges.push(header);
+    let [first, last] = [0, payload.length - 1];
+    if (header && honourRange) {
+      const [start, end] = header.replace("bytes=", "").split("-").map(Number);
+      [first, last] = [start, Math.min(end, last)];
+      response.writeHead(206, { "content-range": `bytes ${first}-${last}/${payload.length}` });
+    } else {
+      response.writeHead(200);
+    }
+    const body = payload.subarray(first, last + 1);
+    state.sent += body.length;
+    response.on("error", () => {}); // The client hung up rather than read it, as it should.
+    response.end(body);
+  });
+  await new Promise((ready) => server.listen(0, "127.0.0.1", ready));
+  state.url = `http://127.0.0.1:${server.address().port}/Win11-English.zip`;
+  state.close = () => new Promise((closed) => { server.closeAllConnections(); server.close(closed); });
+  return state;
+}
+
+async function fetchStandIn(url, directory, sha256) {
+  const original = console.log;
+  console.log = () => {};
+  try {
+    return await fetchMarlett(directory, { url, sha256, size: MARLETT_STAND_IN.length });
+  } finally {
+    console.log = original;
+  }
+}
+
+test("only the zip's central directory and marlett.ttf are downloaded", async () => {
+  const payload = marlettZip();
+  const server = await rangeServer(payload);
+  const directory = await mkdtemp(join(tmpdir(), "apostate-marlett-"));
+  try {
+    const path = await fetchStandIn(server.url, directory, createHash("sha256").update(MARLETT_STAND_IN).digest("hex"));
+    assert.deepEqual(await readFile(path), MARLETT_STAND_IN);
+    assert.ok(server.ranges.every((header) => header?.startsWith("bytes=")));
+    assert.ok(!server.ranges.includes(`bytes=0-${payload.length - 1}`));
+    assert.ok(server.sent < payload.length / 2, `${server.sent} of ${payload.length} bytes sent`);
+  } finally {
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("a marlett.ttf that fails its sha256 is not installed", async () => {
+  const server = await rangeServer(marlettZip());
+  const directory = await mkdtemp(join(tmpdir(), "apostate-marlett-"));
+  try {
+    await assert.rejects(fetchStandIn(server.url, directory, "0".repeat(64)), /sha256/);
+    assert.deepEqual(await readdir(directory), []);
+  } finally {
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("a server that ignores the byte range is not read", async () => {
+  const server = await rangeServer(marlettZip(), { honourRange: false });
+  const directory = await mkdtemp(join(tmpdir(), "apostate-marlett-"));
+  try {
+    const sha256 = createHash("sha256").update(MARLETT_STAND_IN).digest("hex");
+    await assert.rejects(fetchStandIn(server.url, directory, sha256), /ignored the byte range/);
+    assert.deepEqual(await readdir(directory), []);
+    assert.equal(server.ranges.length, 1);
+  } finally {
+    await server.close();
+    await rm(directory, { recursive: true, force: true });
   }
 });

@@ -49,8 +49,10 @@ It is free and open source. Its job is to pass the detectors real operators meet
 - Fonts: each platform has an allowlist of real system fonts and everything
   else is hidden. The fonts must be installed on the host
   (`apostate fonts install windows` clones
-  `github.com/MauCariApa-com/windows-11-fonts`). Missing fonts are the user's
-  problem; we do not fake them.
+  `github.com/MauCariApa-com/windows-11-fonts` and adds the Windows 11 Marlett,
+  which that repository lacks, from the `liblaf/fonts` Win11 release zip,
+  range-reading only that file and checking its sha256). Missing fonts are the
+  user's problem; we do not fake them.
 - GPU: four GPU families were captured on real hardware. Within a family, the
   renderer string can be swapped for any model of that family with no other
   change. WebGL and WebGPU values come from the family.

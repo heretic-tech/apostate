@@ -6,15 +6,24 @@
 import { spawn, spawnSync } from "node:child_process";
 import {
   closeSync, copyFileSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync,
-  rmSync, statSync, unlinkSync,
+  realpathSync, rmSync, statSync, unlinkSync, writeFileSync,
 } from "node:fs";
+import { createHash } from "node:crypto";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { inflateRawSync } from "node:zlib";
 import { binaryInfo, clearCache, ensureBinary, ensureWidevine, CHROMIUM_VERSION, PACKAGE_VERSION } from "../dist/index.js";
 
 // The Windows 11 font set. Cloned by the user's own machine, never shipped.
 const WINDOWS_FONTS = "https://github.com/MauCariApa-com/windows-11-fonts";
+// Marlett, which that set lacks and every real Windows has. Only the Windows 11
+// build answers as Windows 11 does; the one file is range-read out of this zip.
+const MARLETT_URL = "https://github.com/liblaf/fonts/releases/download/Win11/Win11-English.zip";
+const MARLETT_SHA256 = "b7397adf2dcc24ca790348a3c26deb2122b45e5728fd25fc588de4cf5a75b469";
+const MARLETT_SIZE = 27724;
+// How much of the zip's end is read to find its central directory.
+const ZIP_TAIL = 65536;
 const FONT_SUFFIXES = [".ttf", ".ttc", ".otf"];
 // Where a Mac keeps the fonts its persona lists. PingFang lives in the private
 // FontServices directory; downloaded fonts in the font asset folders.
@@ -219,7 +228,116 @@ function installWindowsFonts(files) {
   console.log("add them from a Windows Fonts folder with `fonts install windows --from DIR`");
 }
 
-function fonts([action, value], from) {
+// A byte range that could not be downloaded, as against one that made no sense.
+class DownloadError extends Error {}
+
+// Byte ranges of the file at `url`, counting what was downloaded.
+function rangeReader(url) {
+  const reader = { size: 0, downloaded: 0 };
+  // `length` bytes from `offset`; learns the file's size on the way.
+  reader.read = async (offset, length) => {
+    let response;
+    try {
+      response = await fetch(url, {
+        headers: { Range: `bytes=${offset}-${offset + length - 1}` },
+        signal: AbortSignal.timeout(60_000),
+      });
+    } catch (error) {
+      throw new DownloadError(error?.cause?.message ?? error?.message ?? String(error));
+    }
+    const chunks = [];
+    let received = 0;
+    try {
+      if (!response.ok) throw new DownloadError(`HTTP Error ${response.status}: ${response.statusText}`);
+      // A server that ignores Range sends the whole file; read none of it.
+      if (response.status !== 206) throw new Error(`the server ignored the byte range (HTTP ${response.status})`);
+      const match = /^bytes \d+-\d+\/(\d+)$/.exec((response.headers.get("content-range") ?? "").trim());
+      if (!match) throw new Error("the server sent no file size with the byte range");
+      reader.size = Number(match[1]);
+      for await (const chunk of response.body) {
+        chunks.push(chunk);
+        received += chunk.length;
+        if (received > length) break;
+      }
+    } catch (error) {
+      if (error instanceof DownloadError || !(error instanceof TypeError || error?.name === "TimeoutError")) throw error;
+      throw new DownloadError(error?.cause?.message ?? error.message);
+    } finally {
+      reader.downloaded += received;
+      if (!response.bodyUsed) await response.body?.cancel();
+    }
+    if (received !== length) throw new Error("the server sent the wrong byte range");
+    return Buffer.concat(chunks);
+  };
+  return reader;
+}
+
+// The bytes of marlett.ttf in the zip `reader` reads: only the zip's central
+// directory and that one entry are downloaded.
+async function marlettEntry(reader, size) {
+  await reader.read(0, 1); // The file's size, which a byte range needs to find the tail.
+  const start = Math.max(0, reader.size - ZIP_TAIL);
+  const tail = await reader.read(start, reader.size - start);
+  const end = tail.lastIndexOf(Buffer.from("PK\x05\x06", "latin1"));
+  if (end < 0 || end + 22 > tail.length) throw new Error("no end of central directory record");
+  const entries = tail.readUInt16LE(end + 10);
+  const centralSize = tail.readUInt32LE(end + 12);
+  const centralOffset = tail.readUInt32LE(end + 16);
+  if (centralOffset === 0xffffffff || centralSize === 0xffffffff) throw new Error("ZIP64 archives are not supported");
+  const central = centralOffset >= start
+    ? tail.subarray(centralOffset - start, centralOffset - start + centralSize)
+    : await reader.read(centralOffset, centralSize);
+  let entry;
+  for (let index = 0, position = 0; index < entries; index += 1) {
+    if (central.readUInt32LE(position) !== 0x02014b50) throw new Error("a damaged central directory");
+    const nameLength = central.readUInt16LE(position + 28);
+    const name = central.subarray(position + 46, position + 46 + nameLength).toString("utf8");
+    if (name.split("/").pop().toLowerCase() === "marlett.ttf") {
+      entry = {
+        method: central.readUInt16LE(position + 10),
+        compressed: central.readUInt32LE(position + 20),
+        uncompressed: central.readUInt32LE(position + 24),
+        local: central.readUInt32LE(position + 42),
+      };
+      break;
+    }
+    position += 46 + nameLength + central.readUInt16LE(position + 30) + central.readUInt16LE(position + 32);
+  }
+  if (!entry) throw new Error("the zip holds no marlett.ttf");
+  // Checked before the entry is downloaded, so a wrong entry costs nothing.
+  if (entry.uncompressed !== size || entry.compressed > size + 1024) {
+    throw new Error(`the zip's marlett.ttf is ${entry.uncompressed} bytes, not ${size}`);
+  }
+  const header = await reader.read(entry.local, 30);
+  if (header.readUInt32LE(0) !== 0x04034b50) throw new Error("a damaged local file header");
+  const data = await reader.read(entry.local + 30 + header.readUInt16LE(26) + header.readUInt16LE(28), entry.compressed);
+  if (entry.method === 8) return inflateRawSync(data, { maxOutputLength: size + 1 });
+  if (entry.method !== 0) throw new Error(`compression method ${entry.method} is not supported`);
+  return data;
+}
+
+// Write the Windows 11 marlett.ttf from the zip at `url` into `directory`, once
+// its size and SHA-256 match, and return its path.
+export async function fetchMarlett(directory, { url = MARLETT_URL, sha256 = MARLETT_SHA256, size = MARLETT_SIZE } = {}) {
+  const reader = rangeReader(url);
+  let data;
+  try {
+    data = await marlettEntry(reader, size);
+  } catch (error) {
+    if (error instanceof DownloadError) throw new Error(`could not download ${url}: ${error.message}`);
+    throw new Error(`could not read marlett.ttf from ${url}: ${error?.message ?? error}`);
+  }
+  const digest = createHash("sha256").update(data).digest("hex");
+  if (data.length !== size || digest !== sha256) {
+    throw new Error(`marlett.ttf from ${url} has sha256 ${digest} and ${data.length} bytes, not the expected ${sha256} and ${size} bytes`);
+  }
+  const path = join(directory, "marlett.ttf");
+  writeFileSync(path, data);
+  console.log(`fetched Marlett from ${url}, verified by sha256 (${reader.downloaded} bytes downloaded)`);
+  return path;
+}
+
+async function fonts([action, value], from) {
   if (action === "export-macos") {
     if (process.platform !== "darwin") throw new Error("fonts export-macos runs on a Mac");
     if (!value) throw new Error("name the directory to copy the fonts into");
@@ -251,7 +369,13 @@ function fonts([action, value], from) {
       const result = spawnSync("git", ["clone", "--depth", "1", WINDOWS_FONTS, clone], { stdio: "inherit" });
       if (result.error?.code === "ENOENT") throw new Error("git is not installed; install it and try again");
       if (result.status !== 0) throw new Error(`git clone ${WINDOWS_FONTS} failed with exit code ${result.status}`);
-      installWindowsFonts(fontFiles(join(clone, "w11-fonts")));
+      const files = fontFiles(join(clone, "w11-fonts"));
+      try {
+        files.push(await fetchMarlett(scratch));
+      } catch (error) {
+        console.log(`Marlett was not installed: ${error.message}`);
+      }
+      installWindowsFonts(files);
     } finally {
       rmSync(scratch, { recursive: true, force: true });
     }
@@ -266,48 +390,55 @@ function fonts([action, value], from) {
   installFonts(fontFiles(resolve(from)), "macos");
 }
 
-const argv = process.argv.slice(2);
-const options = {};
-const rest = [];
-let from;
-for (let index = 0; index < argv.length; index += 1) {
-  const item = argv[index];
-  if (item === "--") { rest.push(...argv.slice(index + 1)); break; }
-  if (item === "--cache-dir") { options.cacheDir = argv[++index]; continue; }
-  if (item === "--manifest") { options.manifest = argv[++index]; continue; }
-  if (item === "--target") { options.target = argv[++index]; continue; }
-  if (item === "--from") { from = argv[++index]; continue; }
-  if (item === "--force") { options.force = true; continue; }
-  if (item === "--keep-archive") { process.env.APOSTATE_KEEP_ARCHIVE = "1"; continue; }
-  if (item === "--version" || item === "-v") { console.log(`apostate ${PACKAGE_VERSION} (Chromium ${CHROMIUM_VERSION})`); process.exit(0); }
-  if (item === "--help" || item === "-h") { console.log(USAGE); process.exit(0); }
-  rest.push(item);
+async function main(argv) {
+  const options = {};
+  const rest = [];
+  let from;
+  for (let index = 0; index < argv.length; index += 1) {
+    const item = argv[index];
+    if (item === "--") { rest.push(...argv.slice(index + 1)); break; }
+    if (item === "--cache-dir") { options.cacheDir = argv[++index]; continue; }
+    if (item === "--manifest") { options.manifest = argv[++index]; continue; }
+    if (item === "--target") { options.target = argv[++index]; continue; }
+    if (item === "--from") { from = argv[++index]; continue; }
+    if (item === "--force") { options.force = true; continue; }
+    if (item === "--keep-archive") { process.env.APOSTATE_KEEP_ARCHIVE = "1"; continue; }
+    if (item === "--version" || item === "-v") { console.log(`apostate ${PACKAGE_VERSION} (Chromium ${CHROMIUM_VERSION})`); process.exit(0); }
+    if (item === "--help" || item === "-h") { console.log(USAGE); process.exit(0); }
+    rest.push(item);
+  }
+
+  const command = rest.shift();
+  try {
+    if (command === "clear") {
+      await clearCache(options);
+    } else if (command === "info") {
+      console.log(JSON.stringify(await binaryInfo(options), null, 2));
+    } else if (command === "install" || command === "path") {
+      const executable = await ensureBinary(options);
+      if (command === "install") await ensureWidevine(executable, options);
+      console.log(executable);
+    } else if (command === "fonts") {
+      await fonts(rest, from);
+    } else if (command === "run") {
+      const executable = await ensureBinary(options);
+      const profile = rest.find((item) => item.startsWith("--user-data-dir="))?.slice("--user-data-dir=".length);
+      await ensureWidevine(executable, { ...options, userDataDir: profile });
+      // The browser owns the terminal and the exit code from here on.
+      const child = spawn(executable, rest, { stdio: "inherit" });
+      child.on("exit", (code, signal) => process.exit(signal ? 1 : code ?? 0));
+    } else {
+      console.log(USAGE);
+      process.exit(command === undefined ? 1 : 2);
+    }
+  } catch (error) {
+    console.error(`apostate: ${error?.message ?? error}`);
+    process.exit(1);
+  }
 }
 
-const command = rest.shift();
-try {
-  if (command === "clear") {
-    await clearCache(options);
-  } else if (command === "info") {
-    console.log(JSON.stringify(await binaryInfo(options), null, 2));
-  } else if (command === "install" || command === "path") {
-    const executable = await ensureBinary(options);
-    if (command === "install") await ensureWidevine(executable, options);
-    console.log(executable);
-  } else if (command === "fonts") {
-    fonts(rest, from);
-  } else if (command === "run") {
-    const executable = await ensureBinary(options);
-    const profile = rest.find((item) => item.startsWith("--user-data-dir="))?.slice("--user-data-dir=".length);
-    await ensureWidevine(executable, { ...options, userDataDir: profile });
-    // The browser owns the terminal and the exit code from here on.
-    const child = spawn(executable, rest, { stdio: "inherit" });
-    child.on("exit", (code, signal) => process.exit(signal ? 1 : code ?? 0));
-  } else {
-    console.log(USAGE);
-    process.exit(command === undefined ? 1 : 2);
-  }
-} catch (error) {
-  console.error(`apostate: ${error?.message ?? error}`);
-  process.exit(1);
+// Run as the `apostate` command, through npm's bin link or directly; imported,
+// as the tests do, it only defines what it exports.
+if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
+  await main(process.argv.slice(2));
 }

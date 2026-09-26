@@ -260,8 +260,10 @@ Windows persona missing Windows faces is measurable in text metrics.
 npx apostate fonts install windows
 ```
 
-That clones the font set with `git`, copies the files of the Windows core
-families into `~/.local/share/fonts/apostate-windows`, runs `fc-cache -f` and
+That clones the font set with `git`, adds the Windows 11 Marlett it lacks
+from a Windows 11 release zip (only that file is downloaded, verified by
+sha256), copies the files of the Windows core families into
+`~/.local/share/fonts/apostate-windows`, runs `fc-cache -f` and
 names any core family the host still lacks. Passing
 `fingerprintPlatform: "linux"` composes the host's own OS instead and needs
 nothing installed. Windows-on-Linux is the default because it is the least bad
@@ -308,9 +310,10 @@ npx apostate fonts export-macos ~/mac-fonts           # on a Mac
 npx apostate fonts install macos --from ~/mac-fonts   # on the Linux host
 ```
 
-`fonts install windows` clones the font set with `git` and installs the files
-of the Windows core families; `--from DIR` takes them from a Windows Fonts
-folder instead, which is how to add Marlett. `fonts export-macos`
+`fonts install windows` clones the font set with `git`, adds the Windows 11
+Marlett from a Windows 11 release zip, fetching only that file and checking its
+sha256, and installs the files of the Windows core families; `--from DIR`
+takes them from a Windows Fonts folder instead. `fonts export-macos`
 copies a Mac's system fonts into a directory; copy that directory to the Linux
 host and install it from there. Fonts go into `~/.local/share/fonts/apostate-*`
 on Linux, followed by `fc-cache -f`, and `~/Library/Fonts/apostate-*` on

@@ -5,6 +5,7 @@ import base64
 import contextlib
 import hashlib
 import importlib
+import http.server
 import io
 import json
 import os
@@ -30,6 +31,7 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 if str(PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(PACKAGE_ROOT))
 
+import apostate.cli as cli_module  # noqa: E402
 import apostate.config as config_module  # noqa: E402
 import apostate.resolver as resolver_module  # noqa: E402
 from apostate import (  # noqa: E402
@@ -58,6 +60,7 @@ from apostate import (  # noqa: E402
     target_platform,
     translate_options,
 )
+from apostate.errors import ApostateError  # noqa: E402
 
 
 class _FakeAsyncChromium:
@@ -2045,6 +2048,111 @@ print(catalogue['browser_build'])
             self.assertEqual("en_US.UTF-8", environment["LC_ALL"])
             self.assertEqual("America/Mexico_City", environment["TZ"])
             self.assertEqual("caller", environment["LANG"])
+
+
+class _RangeServer:
+    """One file over HTTP, served only in the byte ranges asked for.
+
+    Records the Range header of every request and the bytes sent, which is how
+    a test proves the whole file was never downloaded.
+    """
+
+    def __init__(self, payload: bytes, *, honour_range: bool = True) -> None:
+        self.payload = payload
+        self.honour_range = honour_range
+        self.ranges: list[str | None] = []
+        self.sent = 0
+        server = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:  # noqa: N802 - the name http.server calls
+                header = self.headers.get("Range")
+                server.ranges.append(header)
+                first, last = 0, len(server.payload) - 1
+                if header and server.honour_range:
+                    start, _, end = header.removeprefix("bytes=").partition("-")
+                    first, last = int(start), min(int(end), last)
+                body = server.payload[first:last + 1]
+                self.send_response(206 if header and server.honour_range else 200)
+                if header and server.honour_range:
+                    self.send_header("Content-Range", f"bytes {first}-{last}/{len(server.payload)}")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                try:
+                    self.wfile.write(body)
+                    server.sent += len(body)
+                except OSError:
+                    pass  # The client hung up rather than read it, as it should.
+
+            def log_message(self, *args: Any) -> None:
+                pass
+
+        self._server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.url = f"http://127.0.0.1:{self._server.server_address[1]}/Win11-English.zip"
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+
+    def __enter__(self) -> "_RangeServer":
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc: Any) -> bool:
+        self._server.shutdown()
+        self._server.server_close()
+        self._thread.join(timeout=5)
+        return False
+
+
+class MarlettFetchTests(unittest.TestCase):
+    """`fonts install windows` takes marlett.ttf out of a 198 MB zip by range reads."""
+
+    #: Stands in for the real file, whose sha256 and size the tests pass in.
+    FONT = b"Marlett stand-in " * 1024
+
+    @classmethod
+    def _zip(cls) -> bytes:
+        """A zip bigger than the tail the reader fetches, holding marlett.ttf."""
+        archive = io.BytesIO()
+        with zipfile.ZipFile(archive, "w") as zipped:
+            # Stored and incompressible-sized, so the file is far larger than
+            # the reader's 64 KiB tail read.
+            zipped.writestr(zipfile.ZipInfo("arial.ttf"), bytes(range(256)) * 1024,
+                            compress_type=zipfile.ZIP_STORED)
+            zipped.writestr(zipfile.ZipInfo("marlett.ttf"), cls.FONT,
+                            compress_type=zipfile.ZIP_DEFLATED)
+            zipped.writestr(zipfile.ZipInfo("times.ttf"), b"x" * 100,
+                            compress_type=zipfile.ZIP_STORED)
+        return archive.getvalue()
+
+    def _fetch(self, server: _RangeServer, directory: Path, digest: str) -> Path:
+        with contextlib.redirect_stdout(io.StringIO()):
+            return cli_module._fetch_marlett(directory, url=server.url, sha256=digest,
+                                             size=len(self.FONT))
+
+    def test_only_the_central_directory_and_the_entry_are_downloaded(self) -> None:
+        payload = self._zip()
+        with _RangeServer(payload) as server, tempfile.TemporaryDirectory() as temporary:
+            path = self._fetch(server, Path(temporary), hashlib.sha256(self.FONT).hexdigest())
+            self.assertEqual(self.FONT, path.read_bytes())
+        self.assertTrue(all(header and header.startswith("bytes=") for header in server.ranges))
+        self.assertNotIn(f"bytes=0-{len(payload) - 1}", server.ranges)
+        self.assertLess(server.sent, len(payload) // 2)
+
+    def test_a_file_that_fails_its_sha256_is_not_installed(self) -> None:
+        with _RangeServer(self._zip()) as server, tempfile.TemporaryDirectory() as temporary:
+            with self.assertRaises(ApostateError) as raised:
+                self._fetch(server, Path(temporary), "0" * 64)
+            self.assertIn("sha256", str(raised.exception))
+            self.assertEqual([], list(Path(temporary).iterdir()))
+
+    def test_a_server_that_ignores_the_range_is_not_read(self) -> None:
+        payload = self._zip()
+        with _RangeServer(payload, honour_range=False) as server, \
+                tempfile.TemporaryDirectory() as temporary:
+            with self.assertRaises(ApostateError) as raised:
+                self._fetch(server, Path(temporary), hashlib.sha256(self.FONT).hexdigest())
+            self.assertIn("ignored the byte range", str(raised.exception))
+            self.assertEqual([], list(Path(temporary).iterdir()))
+        self.assertEqual(1, len(server.ranges))
 
 
 if __name__ == "__main__":

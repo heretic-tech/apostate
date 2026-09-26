@@ -7,14 +7,19 @@ system fonts a persona lists.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import http.client
 import importlib.resources
 import json
 import os
+import re
 import shutil
 import struct
 import subprocess
 import sys
 import tempfile
+import urllib.request
+import zlib
 from pathlib import Path
 
 from .binary import BinaryManager, target_platform
@@ -24,6 +29,13 @@ from .widevine import ensure as ensure_widevine
 
 #: The Windows 11 font set. Cloned by the user's own machine, never shipped.
 WINDOWS_FONTS = "https://github.com/MauCariApa-com/windows-11-fonts"
+#: Marlett, which that set lacks and every real Windows has. Only the Windows 11
+#: build answers as Windows 11 does; the one file is range-read out of this zip.
+MARLETT_URL = "https://github.com/liblaf/fonts/releases/download/Win11/Win11-English.zip"
+MARLETT_SHA256 = "b7397adf2dcc24ca790348a3c26deb2122b45e5728fd25fc588de4cf5a75b469"
+MARLETT_SIZE = 27724
+#: How much of the zip's end is read to find its central directory.
+_ZIP_TAIL = 65536
 _FONT_SUFFIXES = (".ttf", ".ttc", ".otf")
 #: Where a Mac keeps the fonts its persona lists. PingFang lives in the
 #: private FontServices directory; downloaded fonts in the font asset folders.
@@ -243,6 +255,95 @@ def _install_windows_fonts(files: list[Path]) -> None:
     print("add them from a Windows Fonts folder with `fonts install windows --from DIR`")
 
 
+class _RangeReader:
+    """Byte ranges of the file at *url*, counting what was downloaded."""
+
+    def __init__(self, url: str) -> None:
+        self.url = url
+        self.size = 0
+        self.downloaded = 0
+
+    def read(self, offset: int, length: int) -> bytes:
+        """*length* bytes from *offset*; learns the file's size on the way."""
+        request = urllib.request.Request(
+            self.url, headers={"Range": f"bytes={offset}-{offset + length - 1}"})
+        with urllib.request.urlopen(request, timeout=60) as response:
+            if response.status != 206:
+                # A server that ignores Range sends the whole file; read none of it.
+                raise ValueError(f"the server ignored the byte range (HTTP {response.status})")
+            match = re.fullmatch(r"bytes \d+-\d+/(\d+)",
+                                 response.headers.get("Content-Range", "").strip())
+            if not match:
+                raise ValueError("the server sent no file size with the byte range")
+            data = response.read(length + 1)
+        self.size = int(match.group(1))
+        self.downloaded += len(data)
+        if len(data) != length:
+            raise ValueError("the server sent the wrong byte range")
+        return data
+
+
+def _fetch_marlett(directory: Path, url: str = MARLETT_URL, sha256: str = MARLETT_SHA256,
+                   size: int = MARLETT_SIZE) -> Path:
+    """Write the Windows 11 marlett.ttf from the zip at *url* into *directory*.
+
+    Only the zip's central directory and the one entry are downloaded. The
+    file is written only once its size and SHA-256 match.
+    """
+    reader = _RangeReader(url)
+    try:
+        reader.read(0, 1)  # The file's size, which a byte range needs to find the tail.
+        start = max(0, reader.size - _ZIP_TAIL)
+        tail = reader.read(start, reader.size - start)
+        end = tail.rfind(b"PK\x05\x06")
+        if end < 0 or end + 22 > len(tail):
+            raise ValueError("no end of central directory record")
+        _, _, _, _, entries, cd_size, cd_offset, _ = struct.unpack("<4sHHHHIIH", tail[end:end + 22])
+        if cd_offset == 0xFFFFFFFF or cd_size == 0xFFFFFFFF:
+            raise ValueError("ZIP64 archives are not supported")
+        if cd_offset >= start:
+            central = tail[cd_offset - start:cd_offset - start + cd_size]
+        else:
+            central = reader.read(cd_offset, cd_size)
+        position = 0
+        for _ in range(entries):
+            (signature, _, _, _, method, _, _, _, compressed, uncompressed, name_length,
+             extra_length, comment_length, _, _, _, local) = struct.unpack(
+                "<4sHHHHHHIIIHHHHHII", central[position:position + 46])
+            if signature != b"PK\x01\x02":
+                raise ValueError("a damaged central directory")
+            name = central[position + 46:position + 46 + name_length].decode("utf-8", "replace")
+            position += 46 + name_length + extra_length + comment_length
+            if name.rsplit("/", 1)[-1].lower() == "marlett.ttf":
+                break
+        else:
+            raise ValueError("the zip holds no marlett.ttf")
+        # Checked before the entry is downloaded, so a wrong entry costs nothing.
+        if uncompressed != size or compressed > size + 1024:
+            raise ValueError(f"the zip's marlett.ttf is {uncompressed} bytes, not {size}")
+        signature, *_, name_length, extra_length = struct.unpack("<4sHHHHHIIIHH",
+                                                                 reader.read(local, 30))
+        if signature != b"PK\x03\x04":
+            raise ValueError("a damaged local file header")
+        data = reader.read(local + 30 + name_length + extra_length, compressed)
+        if method == 8:
+            data = zlib.decompressobj(-15).decompress(data, size + 1)
+        elif method != 0:
+            raise ValueError(f"compression method {method} is not supported")
+    except (OSError, http.client.HTTPException) as exc:
+        raise ApostateError(f"could not download {url}: {exc}") from None
+    except (ValueError, struct.error, zlib.error) as exc:
+        raise ApostateError(f"could not read marlett.ttf from {url}: {exc}") from None
+    digest = hashlib.sha256(data).hexdigest()
+    if len(data) != size or digest != sha256:
+        raise ApostateError(f"marlett.ttf from {url} has sha256 {digest} and {len(data)} bytes, "
+                            f"not the expected {sha256} and {size} bytes")
+    path = directory / "marlett.ttf"
+    path.write_bytes(data)
+    print(f"fetched Marlett from {url}, verified by sha256 ({reader.downloaded} bytes downloaded)")
+    return path
+
+
 def _fonts(args: argparse.Namespace) -> int:
     if args.fonts_command == "export-macos":
         if sys.platform != "darwin":
@@ -275,7 +376,12 @@ def _fonts(args: argparse.Namespace) -> int:
             except subprocess.CalledProcessError as exc:
                 raise ApostateError(f"git clone {WINDOWS_FONTS} failed with exit code "
                                     f"{exc.returncode}") from None
-            _install_windows_fonts(_font_files(clone / "w11-fonts"))
+            files = _font_files(clone / "w11-fonts")
+            try:
+                files.append(_fetch_marlett(Path(scratch)))
+            except ApostateError as exc:
+                print(f"Marlett was not installed: {exc}")
+            _install_windows_fonts(files)
         return 0
     if sys.platform == "darwin":
         print("this is a Mac; its fonts are already installed")

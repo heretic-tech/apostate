@@ -132,9 +132,12 @@ apostate fonts install windows        # or: npx apostate fonts install windows
 
 This clones `github.com/MauCariApa-com/windows-11-fonts` with `git` and
 installs, for your user, the files of the families a Windows persona lists.
-`--from DIR` takes them from a Windows Fonts folder instead, which is how to
-add Marlett. [docs/FONTS.md](docs/FONTS.md) has the font lists and the steps
-for a macOS persona on Linux.
+That repository lacks Marlett, so the command also adds the Windows 11
+Marlett from the `liblaf/fonts` Win11 release zip, verified by sha256. It
+downloads only that one file (about 80 KB), not the whole zip. `--from DIR`
+takes the fonts from a Windows Fonts folder instead.
+[docs/FONTS.md](docs/FONTS.md) has the font lists and the steps for a macOS
+persona on Linux.
 
 ## Headless Linux servers
 
