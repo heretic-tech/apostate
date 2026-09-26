@@ -688,6 +688,8 @@ def _persistent_options(plan: LaunchPlan, binary: Path, user_data_dir: str,
     # Set, not inherited: only host mode inherits the host's locale
     # environment. See _locale_environment.
     launch_options["env"] = _launch_environment(plan, launch_options.get("env"))
+    if launch_options.get("viewport", False) is None:
+        del launch_options["viewport"]
     if "viewport" not in launch_options and "no_viewport" not in launch_options:
         launch_options["no_viewport"] = True
     if plan.config.proxy is not None and "proxy" not in launch_options:
@@ -743,6 +745,10 @@ class _TemporaryProfileBrowser:
     @staticmethod
     def _context_options(options: dict[str, Any]) -> dict[str, Any]:
         # The window sets the viewport here too; see _persistent_options.
+        # viewport=None means "no viewport" in JS, but Python Playwright drops
+        # the None and emulates 1280x720, so treat it as absent.
+        if options.get("viewport", False) is None:
+            del options["viewport"]
         if "viewport" not in options and "no_viewport" not in options:
             options["no_viewport"] = True
         return options

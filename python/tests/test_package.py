@@ -1893,6 +1893,24 @@ print(catalogue['browser_build'])
         self.assertNotIn("no_viewport", fake.launches[1])
         self.assertEqual(fake.launches[1]["viewport"], chosen)
 
+    def test_viewport_none_means_no_viewport_not_the_driver_default(self) -> None:
+        # Python Playwright drops viewport=None and emulates 1280x720 at dpr 1,
+        # so None must become no_viewport instead of reaching the driver.
+        launch_module = importlib.import_module("apostate.launch")
+        fake = _FakePersistentPlaywright()
+        chosen = {"width": 1024, "height": 768}
+        with tempfile.NamedTemporaryFile() as executable:
+            os.chmod(executable.name, 0o755)
+            with mock.patch.object(launch_module, "_load_sync_backend",
+                                   return_value=launch_module.DriverSelection("patchright", lambda: fake)):
+                browser = launch(geoip=False, binary_path=executable.name, fingerprint="host", viewport=None)
+                browser.new_context(viewport=None)
+                browser.new_context(viewport=chosen)
+                browser.close()
+        self.assertTrue(fake.launches[0]["no_viewport"])
+        self.assertNotIn("viewport", fake.launches[0])
+        self.assertEqual(fake.contexts[0].off_the_record, [{"no_viewport": True}, {"viewport": chosen}])
+
     def test_launch_opens_pages_in_a_temporary_normal_profile(self) -> None:
         # Playwright's Browser.new_page() opens an off-the-record context, which
         # FingerprintJS reports as incognito. launch() and launch_context() run

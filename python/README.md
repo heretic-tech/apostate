@@ -162,8 +162,9 @@ Viewport geometry is handled for you: the drivers' default viewports report
 impossible values (Playwright: `screen == inner == avail` with
 `devicePixelRatio` flattened to 1; Puppeteer: an inner viewport *larger* than
 its own window), so Apostate lets the real window size through and the composed
-profile's geometry survives. Pass `viewport=` to `launch()` or `new_context()`
-and yours wins.
+profile's geometry survives. `viewport=None` means the same (Python Playwright
+would otherwise emulate 1280x720). Pass a `viewport=` dict to `launch()` or
+`new_context()` and yours wins.
 
 One case Apostate cannot fix: `fingerprint="host"` under `headless=True` has no
 display to inherit, so headless Chrome reports its synthetic 800x600 with
