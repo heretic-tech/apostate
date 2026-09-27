@@ -612,9 +612,10 @@ class CompositionTests(unittest.TestCase):
             for layer in layers[1:]:
                 self.assertEqual(reference, {key: layer[key] for key in reference})
 
-    def test_a_member_with_no_measured_adapter_leaves_webgpu_inherited(self) -> None:
+    def test_a_member_with_no_measured_adapter_claims_none(self) -> None:
         """WebGPU is not uniform inside the Linux/Vulkan anchor: two members
-        reported an adapter and two returned none.
+        reported an adapter and two returned none. Those two claim that they
+        have none (patch 0155), rather than leaving the host's in place.
 
         So an authored identity cannot take WebGPU from the anchor -- it
         takes it from the one member it names, and that member has to have
@@ -632,7 +633,7 @@ class CompositionTests(unittest.TestCase):
             layer = resolver._anchor_capability_layer(
                 record, ((member["identity"])["webgl1"])["unmaskedRenderer"])
             adapters[member["device"]] = layer.get("webgpu")
-            if "webgpu" in layer:
+            if layer["webgpu"] != {"available": False}:
                 present += 1
                 self.assertIn(layer["webgpu"]["info"]["architecture"], {"lovelace"})
             else:
@@ -645,8 +646,8 @@ class CompositionTests(unittest.TestCase):
         for option in authored:
             donor = option["member"].get("webgpu_measured_on")
             self.assertIsNotNone(donor, f"{option['id']} names no measured member")
-            self.assertIsNotNone(adapters[donor],
-                                 f"{option['id']} borrows WebGPU from a member that reported none")
+            self.assertNotEqual({"available": False}, adapters[donor],
+                                f"{option['id']} borrows WebGPU from a member that reported none")
         with self.assertRaises(resolver.ResolverError):
             resolver._anchor_capability_layer(record, "ANGLE (NVIDIA, fabricated RTX 5090)")
 

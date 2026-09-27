@@ -149,3 +149,4 @@
 0152-cpu-performance-tier-without-the-host-cpu-model.patch
 0153-compose-a-seed-keeps-its-machine-across-chrome-updates.patch
 0154-compose-the-gpu-cluster-follows-the-host-cpu-family.patch
+0155-webgpu-a-device-measured-without-an-adapter-has-none.patch

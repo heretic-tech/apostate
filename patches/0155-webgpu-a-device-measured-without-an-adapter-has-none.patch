@@ -1,0 +1,153 @@
+Subject: [PATCH] webgpu: a device measured without an adapter has none
+
+Some measured GPUs returned no WebGPU adapter in their capture: two of
+the Linux NVIDIA cards and the Adreno X1-45, where requestAdapter()
+resolves to null in Chrome 152. Their profiles carried no WebGPU
+section, which left the host's adapter in place: on a Mac, a persona
+claiming an Adreno X1-45 served Apple's adapter.
+
+The compositor now writes webgpu.available false for such a member, and
+the GPU process answers requestAdapter() with no adapter whenever the
+profile says so, on any host. Members that measured an adapter are
+unchanged.
+
+diff --git a/base/apostate/compose.cc b/base/apostate/compose.cc
+index 8ba4c7f..5725500 100644
+--- a/base/apostate/compose.cc
++++ b/base/apostate/compose.cc
+@@ -1573,10 +1573,11 @@ std::optional<Composition> Compose(const ComposeRequest& request,
+       }
+       if (axis.axis == "gpu_identity") {
+         // WebGPU belongs to the resolved member, not to the anchor: it is the
+-        // one part of a capability cluster that is not anchor-wide. Two of the
+-        // Linux/Vulkan anchor's four members measured no adapter at all, and
+-        // claiming a sibling's would be an unmeasured assertion, so an empty
+-        // fragment leaves WebGPU host-inherited.
++        // one part of a capability cluster that is not anchor-wide. Some
++        // members measured no adapter at all (two of the Linux/Vulkan anchor's
++        // four, the Adreno X1-45), and claiming a sibling's would be an
++        // unmeasured assertion. The host's own would be one too, so such a
++        // member claims that it has none.
+         const ClaimedIdentity identity =
+             IdentityFromProfile(composition.profile);
+         const AnchorMember* member =
+@@ -1603,17 +1604,16 @@ std::optional<Composition> Compose(const ComposeRequest& request,
+               .limitation = std::string(),
+           });
+         } else if (member) {
+-          const std::string limitation =
+-              "the resolved member measured no WebGPU adapter, so WebGPU is "
+-              "the host's own rather than a sibling member's";
++          MergeFragment(composition.profile,
++                        ParseFragment("webgpu", R"({"available":false})"),
++                        request.union_array_paths);
+           composition.surfaces.push_back({
+               .surface = "webgpu",
+-              .value = "(inherited)",
+-              .layer = std::string(kLayerHostInherited),
+-              .evidence = "host-inherited",
+-              .limitation = limitation,
++              .value = "(no adapter)",
++              .layer = std::string(kLayerAnchor),
++              .evidence = std::string(anchor->evidence),
++              .limitation = std::string(),
+           });
+-          composition.limitations.push_back("webgpu: " + limitation);
+         }
+       }
+       continue;
+diff --git a/base/apostate/compose_unittest.cc b/base/apostate/compose_unittest.cc
+index 63a2c81..42160c2 100644
+--- a/base/apostate/compose_unittest.cc
++++ b/base/apostate/compose_unittest.cc
+@@ -855,8 +855,8 @@ TEST(ApostateComposeTest, TheAnchorFollowsTheHostCpuFamily) {
+ // WebGPU is the one part of a capability cluster that is not anchor-wide.
+ // `capability_cluster.webgpu.uniform` is false for the Linux/Vulkan anchor: two
+ // members report nvidia/lovelace and two returned no adapter at all. Handing
+-// the adapter-less members a sibling's adapter would be an unmeasured
+-// assertion, so it stays host-inherited.
++// the adapter-less members a sibling's adapter, or the host's, would be an
++// unmeasured assertion, so they claim that they have none.
+ TEST(ApostateComposeTest, WebGpuComesFromTheResolvedMemberNotTheAnchor) {
+   // A macos persona, because the two members with and without an adapter hang
+   // off the macOS/Metal anchor and patch 0102 made the persona select the
+@@ -884,7 +884,10 @@ TEST(ApostateComposeTest, WebGpuComesFromTheResolvedMemberNotTheAnchor) {
+   const std::optional<Composition> absent =
+       Compose(RequestOnTestMetal("webgpu-seed", kNoAdapter));
+   ASSERT_TRUE(absent.has_value());
+-  EXPECT_FALSE(absent->profile.contains("webgpu"));
++  const DictValue* none = absent->profile.FindDict("webgpu");
++  ASSERT_TRUE(none);
++  EXPECT_EQ(std::optional<bool>(false), none->FindBool("available"));
++  EXPECT_FALSE(none->contains("info"));
+   // The same anchor, so the same GL cluster: it is the WebGPU section alone
+   // that differs between members.
+   EXPECT_EQ(16384, absent->profile.FindDict("gl_limits")
+@@ -892,8 +895,8 @@ TEST(ApostateComposeTest, WebGpuComesFromTheResolvedMemberNotTheAnchor) {
+ 
+   const SurfaceRecord* record = Record(*absent, "webgpu");
+   ASSERT_TRUE(record);
+-  EXPECT_EQ("host-inherited", record->layer);
+-  EXPECT_FALSE(record->limitation.empty());
++  EXPECT_EQ("(no adapter)", record->value);
++  EXPECT_TRUE(record->limitation.empty());
+ }
+ 
+ // ---------------------------------------------------------------------------
+diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
+index 0350166..a2fc1c6 100644
+--- a/base/apostate/profile.cc
++++ b/base/apostate/profile.cc
+@@ -1160,6 +1160,9 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
+   }
+ 
+   if (const DictValue* wgpu = dict->FindDict("webgpu")) {
++    if (std::optional<bool> available = wgpu->FindBool("available")) {
++      profile->webgpu_unavailable_ = !*available;
++    }
+     if (const ListValue* features = wgpu->FindList("features")) {
+       for (const auto& v : *features) {
+         if (const std::string* s = v.GetIfString()) {
+diff --git a/base/apostate/profile.h b/base/apostate/profile.h
+index 863ddde..fa36c44 100644
+--- a/base/apostate/profile.h
++++ b/base/apostate/profile.h
+@@ -503,6 +503,9 @@ class BASE_EXPORT Profile {
+     return webgpu_features_;
+   }
+   const std::string& webgpu_vendor() const { return webgpu_vendor_; }
++  // True when the profile says the claimed device has no WebGPU adapter
++  // (`webgpu.available: false`): requestAdapter() then finds none, on any host.
++  bool webgpu_unavailable() const { return webgpu_unavailable_; }
+   const std::string& webgpu_architecture() const { return webgpu_architecture_; }
+   uint32_t webgpu_subgroup_min() const { return webgpu_subgroup_min_; }
+   uint32_t webgpu_subgroup_max() const { return webgpu_subgroup_max_; }
+@@ -814,6 +817,7 @@ class BASE_EXPORT Profile {
+   std::set<std::string> gl_extensions_;
+   std::set<std::string> webgpu_features_;
+   std::string webgpu_vendor_;
++  bool webgpu_unavailable_ = false;
+   std::string webgpu_architecture_;
+   uint32_t webgpu_subgroup_min_ = 0;
+   uint32_t webgpu_subgroup_max_ = 0;
+diff --git a/gpu/command_buffer/service/webgpu_decoder_impl.cc b/gpu/command_buffer/service/webgpu_decoder_impl.cc
+index 0ebb417..27c4d9f 100644
+--- a/gpu/command_buffer/service/webgpu_decoder_impl.cc
++++ b/gpu/command_buffer/service/webgpu_decoder_impl.cc
+@@ -1607,6 +1607,16 @@ WGPUFuture WebGPUDecoderImpl::RequestAdapterImpl(
+     return {};
+   }
+ 
++  // The claimed device had no WebGPU adapter when it was measured, so
++  // requestAdapter() finds none on it, whatever GPU this host has.
++  if (const auto* profile = base::apostate::Profile::Get();
++      profile && profile->webgpu_unavailable()) {
++    callback_info.callback(WGPURequestAdapterStatus_Unavailable, nullptr,
++                           MakeStringView("No available adapters."),
++                           callback_info.userdata1, callback_info.userdata2);
++    return {};
++  }
++
+   bool force_fallback_adapter = force_fallback_adapter_;
+   if (use_webgpu_adapter_ == WebGPUAdapterName::kSwiftShader) {
+     force_fallback_adapter = true;

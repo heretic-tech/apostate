@@ -1414,11 +1414,12 @@ def _anchor_capability_layer(record: Mapping[str, Any], renderer: str | None) ->
 
 def _member_webgpu(record: Mapping[str, Any], cluster: Mapping[str, Any],
                    renderer: str | None) -> dict[str, Any] | None:
-    """The resolved member's WebGPU adapter, or None when it reported none."""
+    """The resolved member's WebGPU adapter, `{"available": False}` when it
+    reported none, or None when no member is resolved."""
     # coh: coh.gpu-webgl-webgpu - the WebGPU section is taken from the same anchor
-    # member whose unmaskedRenderer the profile presents, and is omitted rather
-    # than borrowed from a sibling when that member reported no adapter. A mixture
-    # of two members is a device that does not exist.
+    # member whose unmaskedRenderer the profile presents. A member that reported
+    # no adapter claims none (patch 0155) rather than borrowing a sibling's or
+    # the host's. A mixture of two members is a device that does not exist.
     if renderer is None:
         return None
     capture = None
@@ -1439,9 +1440,8 @@ def _member_webgpu(record: Mapping[str, Any], cluster: Mapping[str, Any],
     adapters = (matches[0].get("cluster") or {}).get("adapters") or {}
     adapter = adapters.get("high-performance") or adapters.get("low-power")
     if not isinstance(adapter, Mapping):
-        # This member returned no adapter at all. Claiming another member's
-        # adapter would be an unmeasured assertion, so WebGPU stays inherited.
-        return None
+        # This member returned no adapter at all, so requestAdapter() finds none.
+        return {"available": False}
     section: dict[str, Any] = {}
     features = adapter.get("features")
     if isinstance(features, list) and features:
