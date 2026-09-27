@@ -491,6 +491,8 @@ def _validate_catalogue_index(catalogue: Mapping[str, Any]) -> None:
         if not isinstance(requirements, dict) or requirements.get("platform") != anchor["platform"] \
                 or requirements.get("backend") != anchor["backend"]:
             raise ResolverError(f"{path}.host_requirements disagrees with the anchor")
+        if requirements.get("architecture", "arm") not in ("arm", "x86"):
+            raise ResolverError(f"{path}.host_requirements.architecture must be arm or x86 when present")
 
     axes = catalogue.get("axes")
     if not isinstance(axes, list) or [entry.get("axis") for entry in axes] != list(AXES):
@@ -649,6 +651,8 @@ def load_anchors(catalogue: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
         members = [member["device"] for member in anchor.get("members", [])]
         if members != entry["members"]:
             raise ResolverError(f"anchor {entry['id']} member list disagrees with the catalogue")
+        if (entry.get("host_requirements") or {}).get("architecture", "") != anchor.get("host_architecture", ""):
+            raise ResolverError(f"anchor {entry['id']} host architecture disagrees with the catalogue")
         anchors[entry["id"]] = {"index": dict(entry), "record": anchor}
     return anchors
 
@@ -930,7 +934,8 @@ def _named_locale_tag(section: Any) -> str | None:
 
 
 def _choose_anchor(catalogue: Mapping[str, Any], platform: str,
-                   root: bytes, requested: Any) -> tuple[Mapping[str, Any] | None, list[str]]:
+                   root: bytes, requested: Any,
+                   host_architecture: str | None = None) -> tuple[Mapping[str, Any] | None, list[str]]:
     """Mirror of the compositor's anchor draw in base/apostate/compose.cc.
 
     The persona selects the cluster. Within a platform every hardware anchor
@@ -941,6 +946,11 @@ def _choose_anchor(catalogue: Mapping[str, Any], platform: str,
     the compositor, handed a Windows persona on a Mac the Metal cluster and a
     GPU-less server the one anchor whose renderer string announces a software
     rasteriser.
+
+    The host's CPU family does filter. A Windows or Linux persona claims it
+    (patch 0138), so an anchor whose `host_requirements.architecture` names
+    the other family is skipped: an ARM Windows machine has a Qualcomm Adreno,
+    and an x86 one has an Intel or NVIDIA GPU.
 
     The software anchor is never drawn: it announces itself, and with a single
     member it offered no per-seed entropy, so every persona on every GPU-less
@@ -959,6 +969,7 @@ def _choose_anchor(catalogue: Mapping[str, Any], platform: str,
     servable = sorted(
         (a for a in anchors
          if "swiftshader" not in str(a.get("backend", "")).lower()
+         and (a.get("host_requirements") or {}).get("architecture") in (None, host_architecture)
          and a["platform"] == platform),
         key=lambda a: a["id"])
     if not servable:
@@ -1711,7 +1722,8 @@ def _resolve_internal(config: Mapping[str, Any] | None = None, **overrides: Any)
     if platform_value is None:
         warnings.append(f"fingerprint_platform defaulted to the host persona {platform}")
 
-    anchor, anchor_warnings = _choose_anchor(catalogue, platform, root, cfg.get("anchor"))
+    anchor, anchor_warnings = _choose_anchor(catalogue, platform, root, cfg.get("anchor"),
+                                             host["architecture"])
     warnings.extend(anchor_warnings)
     if anchor is None:
         # The compositor inherits the GPU surfaces and composes everything else

@@ -423,15 +423,36 @@ class CompositionTests(unittest.TestCase):
                  ("linux", "ANGLE/Vulkan"))
         for persona in sorted(resolver.PLATFORMS):
             for host_platform, backend in hosts:
-                for seed in range(6):
-                    profile = resolver.resolve_profile({
-                        "fingerprint": seed, "fingerprint_platform": persona,
-                        "host_platform": host_platform, "host_backend": backend,
-                        "host_logical_cores": 16, "host_total_bytes": 32 * 1024 ** 3,
-                        "window_width": 1024, "window_height": 700,
-                    })
-                    self.assertGreaterEqual(profile["screen"]["width"], 1024)
-                    self.assertLessEqual(profile["cpu"]["logical_cores"], 16)
+                for architecture in ("arm64", "x86_64"):
+                    for seed in range(6):
+                        profile = resolver.resolve_profile({
+                            "fingerprint": seed, "fingerprint_platform": persona,
+                            "host_platform": host_platform, "host_backend": backend,
+                            "host_architecture": architecture,
+                            "host_logical_cores": 32, "host_total_bytes": 64 * 1024 ** 3,
+                            "window_width": 1024, "window_height": 700,
+                        })
+                        self.assertGreaterEqual(profile["screen"]["width"], 1024)
+                        self.assertLessEqual(profile["cpu"]["logical_cores"], 32)
+
+    def test_the_anchor_follows_the_host_cpu_family(self) -> None:
+        """Mirror of patch 0154: a Windows persona on an ARM host draws the Adreno
+        cluster, and one on an x86 host never does."""
+        catalogue = resolver.load_catalogue()
+        family = {anchor["id"]: (anchor.get("host_requirements") or {}).get("architecture")
+                  for anchor in catalogue["anchors"]}
+        self.assertIn("arm", family.values())
+        for architecture, claimed in (("arm64", "arm"), ("x86_64", "x86")):
+            drawn = set()
+            for seed in range(40):
+                resolved = resolver.resolve_with_diagnostics(dict(
+                    BASE_CONFIG, fingerprint=f"cpu-family-{seed}", fingerprint_platform="windows",
+                    host_architecture=architecture))
+                anchor = resolved["diagnostics"]["anchor"]["id"]
+                drawn.add(anchor)
+                self.assertIn(family[anchor], (None, claimed), (architecture, anchor))
+                self.assertEqual(claimed, resolved["profile"]["platform"]["architecture"])
+            self.assertTrue(drawn)
 
     def test_every_persona_serves_its_own_audio_buffer(self) -> None:
         """The defect the audio axis exists for: baseLatency was the host's.
@@ -652,11 +673,13 @@ class CompositionTests(unittest.TestCase):
         stated: dict[str, str | None] = {}
         donor_of: dict[str, str] = {}
         stated_min: dict[str, int | None] = {}
+        anchor_of: dict[str, str] = {}
         for option_set in tables["gpu_identity"]["option_sets"]:
             for option in option_set["options"]:
                 block = option.get("member") or {}
                 if "webgpu_measured_on" not in block:
                     continue
+                anchor_of[option["id"]] = option_set["key"]["anchor"]
                 stated[option["id"]] = block.get("webgpu_architecture")
                 donor_of[option["id"]] = block["webgpu_measured_on"]
                 stated_min[option["id"]] = block.get("webgpu_subgroup_min_size")
@@ -667,6 +690,13 @@ class CompositionTests(unittest.TestCase):
                    if anchor["platform"] == "windows"]
         self.assertTrue(windows)
         for anchor in windows:
+            # Only the kinds of identity this anchor registers can be drawn. An
+            # anchor with no registered identity serves its measured members,
+            # whose adapter other tests check.
+            expected = {stated[identity] is not None
+                        for identity, owner in anchor_of.items() if owner == anchor["id"]}
+            if not expected:
+                continue
             record = records[anchor["id"]]["record"]
             renderer_of = {
                 member.get("device"):
@@ -696,11 +726,10 @@ class CompositionTests(unittest.TestCase):
                                  served["info"]["subgroup_max_size"], identity)
                 for field in ("features", "limits"):
                     self.assertEqual(donor.get(field), served.get(field), identity)
-                if len(covered) == 2:
+                if covered == expected:
                     break
-            self.assertEqual({False, True}, covered,
-                             f"{anchor['id']} never drew both an overriding and a "
-                             "non-overriding identity")
+            self.assertEqual(expected, covered,
+                             f"{anchor['id']} never drew every kind of identity it registers")
 
     def test_a_measured_point_size_fraction_is_carried(self) -> None:
         """A float-valued GL parameter keeps its fraction; a count does not.

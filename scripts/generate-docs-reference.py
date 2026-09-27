@@ -43,6 +43,9 @@ BLOB = "https://github.com/heretic-tech/apostate/blob/main/"
 
 PLATFORM_ORDER = ("windows", "macos", "linux")
 PLATFORM_NAMES = {"windows": "Windows", "macos": "macOS", "linux": "Linux"}
+# An anchor's host_requirements.architecture, as the page names it. "an" reads
+# for both.
+ARCHITECTURE_NAMES = {"arm": "ARM", "x86": "x86"}
 BACKEND_NAMES = {
     "ANGLE/D3D11": "Direct3D 11",
     "ANGLE/Metal": "Metal",
@@ -177,7 +180,11 @@ def gpu_page() -> str:
         if anchor.get("software_anchor"):
             drawn = "A seed never draws this family. Only `--fingerprint-anchor` selects it."
         else:
-            drawn = f"{PLATFORM_NAMES[anchor['platform']]} personas draw from this family."
+            # A family measured on one CPU family is drawn only on a host of
+            # that family, because the persona claims the host's CPU.
+            architecture = (anchor.get("host_requirements") or {}).get("architecture")
+            host = f" on an {ARCHITECTURE_NAMES[architecture]} host" if architecture else ""
+            drawn = f"{PLATFORM_NAMES[anchor['platform']]} personas{host} draw from this family."
         measured = join_list([text(member) for member in anchor["members"]])
         count = f"{len(options)} {'model' if len(options) == 1 else 'models'}"
         lines += [

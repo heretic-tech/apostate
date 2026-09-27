@@ -118,6 +118,10 @@ BACKEND_MAP = {
     "swiftshader": "swiftshader",
 }
 
+# An anchor's `host_architecture`: the CPU family of the machines it was
+# measured on, or empty for either.
+HOST_ARCHITECTURES = {"", "arm", "x86"}
+
 
 class GeneratorError(Exception):
     """A defect in the input tables. Never recovered from."""
@@ -719,6 +723,13 @@ def parse_anchor(path: Path, limit_entries) -> dict | None:
     if not isinstance(weight, int) or isinstance(weight, bool) or weight <= 0:
         die(path, "`dispersion_weight` must be a positive integer when present")
 
+    # The CPU family of the machines the cluster was measured on. The draw
+    # skips an anchor from the other family, because a persona claims the
+    # host's CPU family (patch 0138). Absent means either.
+    host_architecture = raw.get("host_architecture", "")
+    if host_architecture not in HOST_ARCHITECTURES:
+        die(path, f"`host_architecture` must be one of {sorted(a for a in HOST_ARCHITECTURES if a)} when present")
+
     return {
         "id": anchor_id,
         "platform": platform,
@@ -731,6 +742,7 @@ def parse_anchor(path: Path, limit_entries) -> dict | None:
         "weight": weight,
         "members": members,
         "value": anchor_gl_layer(path, anchor_id, cluster, limit_entries),
+        "host_architecture": host_architecture,
     }
 
 def register_identities(axes: list[dict], anchors: list[dict]) -> int:
@@ -962,6 +974,23 @@ def register_identities(axes: list[dict], anchors: list[dict]) -> int:
         anchor["members"].sort(key=lambda m: (m["vendor"], m["renderer"], m["label"]))
 
     return registered
+
+
+def check_host_architectures(anchors_dir: Path, anchors: list[dict]) -> None:
+    """Every platform keeps a drawable hardware anchor on both CPU families.
+
+    The draw skips an anchor measured on the other CPU family. A platform whose
+    hardware anchors all name one family would leave the other family's hosts
+    with no GPU cluster for that persona.
+    """
+    for platform in sorted({a["platform"] for a in anchors}):
+        hardware = [a for a in anchors if a["platform"] == platform and a["backend"] != "swiftshader"]
+        for family in sorted(HOST_ARCHITECTURES - {""}):
+            if not any(a["host_architecture"] in ("", family) for a in hardware):
+                raise GeneratorError(
+                    f"{anchors_dir}: no {platform} hardware anchor can be drawn on an "
+                    f"{family} host; give one anchor host_architecture {family!r} or none"
+                )
 
 
 def check_conditioning(axes: list[dict]) -> None:
@@ -1237,6 +1266,7 @@ def emit_anchor(out: list[str], anchor: dict) -> str:
         f"        /*weight=*/{anchor['weight']}u,",
         f"        /*members=*/span<const AnchorMember>({members_name}),",
         f"        /*value_json=*/{value_name},",
+        f"        /*host_architecture=*/{cpp_string(anchor['host_architecture'])},",
     ]
     return "\n".join(["    {", *entry, "    },"])
 
@@ -1531,6 +1561,7 @@ def main(argv: list[str] | None = None) -> int:
         anchors.sort(key=lambda a: a["id"])
         if len({a["id"] for a in anchors}) != len(anchors):
             raise GeneratorError(f"{anchors_dir}: duplicate anchor_id")
+        check_host_architectures(anchors_dir, anchors)
 
         # Axis order in the generated table is the §5 resolution order, and an
         # axis the order does not name is a table the compositor cannot place.

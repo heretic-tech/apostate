@@ -14,7 +14,7 @@ To pin a family, pass its id to `--fingerprint-anchor`. To pin a model, pass its
 
 ## Windows, Intel, Direct3D 11
 
-The family id is `windows-d3d11-intel-79dfeb5b4f99`. Windows personas draw from this family. It has 12 models. It was measured on Intel(R) UHD Graphics 630.
+The family id is `windows-d3d11-intel-79dfeb5b4f99`. Windows personas on an x86 host draw from this family. It has 12 models. It was measured on Intel(R) UHD Graphics 630.
 
 Every model's vendor string is `Google Inc. (Intel)`.
 
@@ -35,7 +35,7 @@ Every model's vendor string is `Google Inc. (Intel)`.
 
 ## Windows, NVIDIA, Direct3D 11
 
-The family id is `windows-d3d11-nvidia-0947761dfbe9`. Windows personas draw from this family. It has 45 models. It was measured on NVIDIA GeForce RTX 3070 Ti and NVIDIA RTX A4500.
+The family id is `windows-d3d11-nvidia-0947761dfbe9`. Windows personas on an x86 host draw from this family. It has 45 models. It was measured on NVIDIA GeForce RTX 3070 Ti and NVIDIA RTX A4500.
 
 Every model's vendor string is `Google Inc. (NVIDIA)`.
 
@@ -86,6 +86,16 @@ Every model's vendor string is `Google Inc. (NVIDIA)`.
 | NVIDIA GeForce RTX 5070 | 1.3% | no | `ANGLE (NVIDIA, NVIDIA GeForce RTX 5070 (0x00002F04) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
 | NVIDIA GeForce RTX 5060 Ti | 1.3% | no | `ANGLE (NVIDIA, NVIDIA GeForce RTX 5060 Ti (0x00002D04) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
 | NVIDIA GeForce RTX 5060 | 1.3% | no | `ANGLE (NVIDIA, NVIDIA GeForce RTX 5060 (0x00002D05) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+
+## Windows, Qualcomm, Direct3D 11
+
+The family id is `windows-d3d11-qualcomm-6388f9914f3f`. Windows personas on an ARM host draw from this family. It has 1 model. It was measured on Qualcomm(R) Adreno(TM) X2-90 GPU.
+
+Every model's vendor string is `Google Inc. (Qualcomm)`.
+
+| Model | Share | Measured | Renderer string |
+| --- | --- | --- | --- |
+| Qualcomm(R) Adreno(TM) X2-90 GPU | 100% | yes | `ANGLE (Qualcomm, Qualcomm(R) Adreno(TM) X2-90 GPU (0x36334630) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
 
 ## macOS, Apple, Metal
 

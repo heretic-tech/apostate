@@ -3,7 +3,7 @@
  "conditioned_on": [
   "anchor"
  ],
- "description": "WebGL unmasked vendor and renderer identity, conditioned on the resolved anchor. An option is either a MEASURED member of that anchor or an AUTHORED identity registered on it through its `member` block, which names the label the runtime reports, the measured member whose WebGPU adapter the identity carries (`webgpu_measured_on`) and, when the board's silicon generation differs from that member's, the architecture Dawn resolves from its PCI device id (`webgpu_architecture`) and, where Dawn lowers it for that id, the smallest subgroup size (`webgpu_subgroup_min_size`); each overrides its one adapter field and nothing else. scripts/generate-dispersion-tables.py folds registered identities into the anchor's compiled member table and hard-fails if an offered identity is neither measured nor registered, so the runtime membership check in Compose can never see an identity the catalogue did not account for. Rotation WITHIN an anchor is not bounded to the generation that anchor measured: on ANGLE/D3D11 the renderer string is the DXGI adapter description and every limit comes from the feature level plus per-vendor ANGLE flags, so the two Windows anchors sit 4 of 130 WebGL2 parameters apart on byte-identical extension lists and all four differences are the NVIDIA driver's vendor signature. Identity rotation is never valid ACROSS anchors: that is the failure the retired family catalogue shipped. The anchor a GPU-less host resolves is a HARDWARE anchor of the claimed platform, not the software one, so every default launch draws from a pool with per-seed entropy; see the swiftshader option set's note.",
+ "description": "WebGL unmasked vendor and renderer identity, conditioned on the resolved anchor. An option is either a MEASURED member of that anchor or an AUTHORED identity registered on it through its `member` block, which names the label the runtime reports, the measured member whose WebGPU adapter the identity carries (`webgpu_measured_on`) and, when the board's silicon generation differs from that member's, the architecture Dawn resolves from its PCI device id (`webgpu_architecture`) and, where Dawn lowers it for that id, the smallest subgroup size (`webgpu_subgroup_min_size`); each overrides its one adapter field and nothing else. scripts/generate-dispersion-tables.py folds registered identities into the anchor's compiled member table and hard-fails if an offered identity is neither measured nor registered, so the runtime membership check in Compose can never see an identity the catalogue did not account for. Rotation WITHIN an anchor is not bounded to the generation that anchor measured: on ANGLE/D3D11 the renderer string is the DXGI adapter description and every limit comes from the feature level plus per-vendor ANGLE flags, so the Intel and NVIDIA Windows anchors sit 4 of 130 WebGL2 parameters apart on byte-identical extension lists and all four differences are the NVIDIA driver's vendor signature, and the Qualcomm anchor sits 1 of 130 from the Intel one on the same extension lists, MAX_SAMPLES 8 against 16. Identity rotation is never valid ACROSS anchors: that is the failure the retired family catalogue shipped. The anchor a GPU-less host resolves is a HARDWARE anchor of the claimed platform, not the software one, so every default launch draws from a pool with per-seed entropy; see the swiftshader option set's note.",
  "label": "gpu_identity",
  "option_sets": [
   {
@@ -1798,6 +1798,37 @@
       }
      },
      "weight": 5
+    }
+   ]
+  },
+  {
+   "key": {
+    "anchor": "windows-d3d11-qualcomm-6388f9914f3f"
+   },
+   "options": [
+    {
+     "evidence": "physical-ground-truth",
+     "id": "d3d11-qualcomm-adreno-x2-90-gpu",
+     "note": "Measured identity strings on anchor windows-d3d11-qualcomm-6388f9914f3f (Windows / ANGLE/D3D11), a Snapdragon X2 Elite (X2E88100) laptop on Windows 11 ARM64. Measured on Chromium 152.0.7977.82 against release pin 152.0.7977.83: same major, different patch. The anchor carries host_architecture arm, so it is drawn only on an ARM host, and its one measured member is the only identity it offers. media.hw_decode_codecs is the capture's own decodingInfo() answer in codecs.media of resources/fingerprints/raw/windows-qualcomm-adreno-x2-90-20260927T185251Z.json: powerEfficient true for H.264, VP9, HEVC and AV1, in both reads. Without the list patch 0132 answers false for AV1, because its generation rule names no Qualcomm architecture.",
+     "requires": {
+      "anchor": "windows-d3d11-qualcomm-6388f9914f3f"
+     },
+     "source": "corpus/anchors/windows-d3d11-qualcomm-6388f9914f3f.json#Qualcomm(R) Adreno(TM) X2-90 GPU",
+     "value": {
+      "gpu": {
+       "unmasked_renderer": "ANGLE (Qualcomm, Qualcomm(R) Adreno(TM) X2-90 GPU (0x36334630) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+       "unmasked_vendor": "Google Inc. (Qualcomm)"
+      },
+      "media": {
+       "hw_decode_codecs": [
+        "h264",
+        "vp9",
+        "hevc",
+        "av1"
+       ]
+      }
+     },
+     "weight": 100
     }
    ]
   }
