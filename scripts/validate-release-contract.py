@@ -445,7 +445,14 @@ def validate_schema_document(path: pathlib.Path) -> None:
 
 
 def check_schemas() -> None:
-    paths = [*SCHEMA_PATHS.values(), ROOT / "config" / "profile.schema.json"]
+    # The pip and npm packages ship their own copies of the profile schema,
+    # and those copies are what an installed package validates against.
+    # scripts/sync-packages.py --check keeps them byte-identical to config/.
+    paths = [
+        *SCHEMA_PATHS.values(),
+        ROOT / "python" / "apostate" / "assets" / "profile.schema.json",
+        ROOT / "npm" / "assets" / "profile.schema.json",
+    ]
     for path in paths:
         validate_schema_document(path)
         print(f"ok    schema   {path.relative_to(ROOT)}")
