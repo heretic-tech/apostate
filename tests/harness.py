@@ -15,6 +15,7 @@ with what the page read.
 from __future__ import annotations
 
 import base64
+import binascii
 import json
 import os
 import platform
@@ -165,6 +166,36 @@ class Probe:
     seconds: float
 
 
+def _linux_process(pid: int) -> tuple[int, int, str] | None:
+    """One process's pid, parent and full command line on Linux.
+
+    Chromium's children rewrite their process title, and the kernel then
+    returns only the first 4096 bytes of it from /proc/<pid>/cmdline, which
+    cuts --apostate-profile short. The title itself is whole in the process's
+    memory, which an ancestor such as this test process may read.
+    """
+    try:
+        fields = (Path("/proc") / str(pid) / "stat").read_text().rsplit(")", 1)[1].split()
+        ppid = int(fields[1])
+        raw = (Path("/proc") / str(pid) / "cmdline").read_bytes()
+    except (OSError, ValueError, IndexError):
+        return None
+    if len(raw) >= 4096:
+        try:
+            # proc(5) fields 48 to 51: arg_start, arg_end, env_start, env_end.
+            arg_start, arg_end, env_end = int(fields[45]), int(fields[46]), int(fields[48])
+            with open(f"/proc/{pid}/mem", "rb", buffering=0) as memory:
+                memory.seek(arg_start)
+                area = memory.read(env_end - arg_start)
+            # An argument area that still ends in a NUL was never rewritten,
+            # and the kernel returned it whole.
+            if area[arg_end - arg_start - 1:arg_end - arg_start] != b"\0":
+                raw = area.split(b"\0", 1)[0]
+        except (OSError, ValueError, IndexError, OverflowError):
+            pass
+    return pid, ppid, raw.replace(b"\0", b" ").decode("utf-8", "replace").strip()
+
+
 def _processes() -> list[tuple[int, int, str]]:
     if os.name == "nt":
         output = subprocess.run(
@@ -176,6 +207,14 @@ def _processes() -> list[tuple[int, int, str]]:
             parts = line.split("\t", 2)
             if len(parts) == 3 and parts[0].isdigit() and parts[1].isdigit():
                 rows.append((int(parts[0]), int(parts[1]), parts[2]))
+        return rows
+    if sys.platform.startswith("linux"):
+        rows = []
+        for entry in Path("/proc").iterdir():
+            if entry.name.isdigit():
+                row = _linux_process(int(entry.name))
+                if row:
+                    rows.append(row)
         return rows
     output = subprocess.run(["ps", "-Awwo", "pid=,ppid=,args="], capture_output=True, text=True, check=False).stdout
     rows = []
@@ -202,11 +241,19 @@ def _descendants(rows: list[tuple[int, int, str]], root: int) -> list[str]:
 
 
 def composed_profile(browser_pid: int) -> dict[str, Any] | None:
-    """The profile a browser composed, from its first child's --apostate-profile."""
+    """The profile a browser composed, from a child's --apostate-profile.
+
+    On Linux, zygote children write their process title over the zygote's
+    argv, which cuts the switch short. The GPU and network processes keep
+    their full command line, so a token that does not decode is skipped.
+    """
     for command in _descendants(_processes(), browser_pid):
         for token in command.split():
             if token.startswith("--apostate-profile="):
-                payload = json.loads(base64.b64decode(token.split("=", 1)[1]))
+                try:
+                    payload = json.loads(base64.b64decode(token.split("=", 1)[1], validate=True))
+                except (ValueError, binascii.Error):
+                    continue
                 return payload.get("device_profile", payload)
     return None
 
@@ -253,6 +300,27 @@ def _is_root() -> bool:
     return hasattr(os, "geteuid") and os.geteuid() == 0
 
 
+def _sandbox_unavailable() -> bool:
+    """Whether Chromium's Linux sandbox cannot start here, as the packages assume.
+
+    It refuses root, Docker's default seccomp profile blocks the user
+    namespaces it needs, and Ubuntu 24.04 restricts them through AppArmor.
+    """
+    if not sys.platform.startswith("linux"):
+        return False
+    if _is_root() or Path("/.dockerenv").exists():
+        return True
+    for setting, blocked in (("kernel/apparmor_restrict_unprivileged_userns", "1"),
+                             ("kernel/unprivileged_userns_clone", "0"),
+                             ("user/max_user_namespaces", "0")):
+        try:
+            if (Path("/proc/sys") / setting).read_text().strip() == blocked:
+                return True
+        except OSError:
+            continue
+    return False
+
+
 def _font_candidates() -> tuple[list[str], list[str]]:
     packs = json.loads((TABLES / "font_packs.json").read_text())
     families: set[str] = set()
@@ -290,7 +358,7 @@ def _run_bare(server: ProbeServer, binary: str, launch: Launch, token: str, url:
             *switches(launch)]
     if not launch.headed:
         args.append("--headless=new")
-    if _is_root():
+    if _sandbox_unavailable():
         args.append("--no-sandbox")
     args.append(url)
     env = dict(os.environ)

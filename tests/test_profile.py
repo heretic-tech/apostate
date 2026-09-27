@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 import gaps
-from harness import TABLES, WINDOWS_ALIASES
+from harness import TABLES, WINDOWS_ALIASES, host_facts
 
 PLATFORMS = {"windows": "Windows", "macos": "macOS", "linux": "Linux"}
 UA_TOKENS = {"windows": "Windows NT 10.0; Win64; x64", "macos": "Macintosh; Intel Mac OS X", "linux": "X11; Linux x86_64"}
@@ -88,10 +88,15 @@ def _device_memory(total_bytes):
 def test_cpu_and_memory(case, record):
     profile = profile_of(case)
     window = case.values["window"]
-    compare(record, {
-        "hardwareConcurrency": (window["hardwareConcurrency"], profile["cpu"]["logical_cores"]),
-        "deviceMemory": (window["deviceMemory"], _device_memory(profile["memory"]["total_bytes"])),
-    })
+    pairs = {"hardwareConcurrency": (window["hardwareConcurrency"], profile["cpu"]["logical_cores"])}
+    if "memory" in profile:
+        pairs["deviceMemory"] = (window["deviceMemory"], _device_memory(profile["memory"]["total_bytes"]))
+        compare(record, pairs)
+        return
+    # No memory option of the persona fits this host, so the page reads the host's own.
+    pairs["deviceMemory is the host's"] = (window["deviceMemory"], _device_memory(host_facts()["memory_bytes"]))
+    compare(record, pairs)
+    gaps.expect(record, "host-cap")
 
 
 def test_screen(case, record):
@@ -247,3 +252,12 @@ def test_network_battery_theme_and_keyboard(case, record):
     if battery.get("present") is False:
         pairs["battery"] = ((page["battery"]["charging"], page["battery"]["level"], page["battery"]["chargingTime"]), (True, 1, 0))
     compare(record, pairs)
+
+
+def test_desktop_pointer_and_hover(case, record):
+    """Every persona is a desktop, so the page sees a mouse: (pointer: fine) and (hover: hover)."""
+    profile_of(case)
+    media = case.values["page"]["media"]
+    pairs = {"(pointer: fine)": (media["pointerFine"], True), "(hover: hover)": (media["hover"], True)}
+    gap = "host-pointer" if case.launch.mode == "bare" else None
+    compare(record, pairs, gap, allowed=set(pairs))

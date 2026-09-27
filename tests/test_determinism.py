@@ -63,7 +63,11 @@ def test_the_package_serves_the_same_machine(persona_seed, probes, record):
     record.update(profile_differences=profile_differences, page_differences=page_differences[:50])
     assert profile_differences == []
     inner = bare.values["page"]["screen"]["innerHeight"], package.values["page"]["screen"]["innerHeight"]
-    if [item.split(":")[0] for item in page_differences] == ["page.screen.innerHeight"] and inner[1] - inner[0] == 56:
+    fields = {item.split(":")[0] for item in page_differences}
+    pointer = {"page.media.pointerFine", "page.media.hover"}
+    if fields & pointer and fields <= pointer | {"page.screen.innerHeight"}:
+        gaps.expect(record, "host-pointer")
+    if fields == {"page.screen.innerHeight"} and inner[1] - inner[0] == 56:
         gaps.expect(record, "api-keys-infobar")
     assert page_differences == []
 

@@ -7,6 +7,29 @@ description: "Dated results of the Apostate test suite: the offline checks and p
 
 Each section is the newest run of the [test suite](/testing/overview) on one host. The raw result files are in [`tests/results/`](https://github.com/heretic-tech/apostate/blob/main/tests/results). Live results depend on the network the run used; the table names it.
 
+## Debian GNU/Linux 13 (trixie) aarch64, 14 cores, 16 GiB
+
+| | |
+| --- | --- |
+| Date | 2026-09-27 |
+| Apostate | 0.4.3, Chromium 152.0.7977.83 |
+| Personas | windows, macos, linux, seeds 42, 1337 |
+| Launch modes | bare, package, headless |
+| Network | Docker container on a Mac, residential broadband, no proxy |
+| Result file | [`2026-09-27-linux-arm64.json`](https://github.com/heretic-tech/apostate/blob/main/tests/results/2026-09-27-linux-arm64.json) |
+
+### Offline checks
+
+| Checks | Tests | Result |
+| --- | --- | --- |
+| [No automation traces](https://github.com/heretic-tech/apostate/blob/main/tests/test_automation.py) | 72 | 72 passed |
+| [Every context agrees](https://github.com/heretic-tech/apostate/blob/main/tests/test_contexts.py) | 36 | 36 passed |
+| [The page reads the composed machine](https://github.com/heretic-tech/apostate/blob/main/tests/test_profile.py) | 168 | 136 passed, 24 known gap, 8 skipped |
+| [Same seed, same machine](https://github.com/heretic-tech/apostate/blob/main/tests/test_determinism.py) | 30 | 24 passed, 6 known gap |
+| [Host mode](https://github.com/heretic-tech/apostate/blob/main/tests/test_host_mode.py) | 1 | 1 passed |
+
+Known gaps met on this host: `host-cap`, `host-pointer`, `linux-headless-webgpu`. [Known gaps](/known-gaps) describes each.
+
 ## macOS 26.6.2 arm64, Apple M4 Max, 14 cores, 36 GiB
 
 | | |

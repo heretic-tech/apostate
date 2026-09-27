@@ -1,22 +1,21 @@
 {
   "suite": "apostate",
-  "date": "2026-09-27T17:54:30+00:00",
+  "date": "2026-09-27T18:36:09+00:00",
   "versions": {
     "package": "0.4.3",
     "chromium": "152.0.7977.83"
   },
   "binary": "installed",
   "host": {
-    "os": "Darwin",
-    "release": "25.6.0",
-    "machine": "arm64",
+    "os": "Linux",
+    "release": "7.0.14-orbstack-00380-ga7e0a2dc9535",
+    "machine": "aarch64",
     "cores": 14,
     "python": "3.14.7",
-    "memory_bytes": 38654705664,
-    "os_version": "macOS 26.6.2",
-    "cpu": "Apple M4 Max"
+    "memory_bytes": 16818978816,
+    "os_version": "Debian GNU/Linux 13 (trixie)"
   },
-  "network": "residential broadband, no proxy",
+  "network": "Docker container on a Mac, residential broadband, no proxy",
   "options": {
     "personas": [
       "windows",
@@ -32,1129 +31,266 @@
       "package"
     ],
     "headed": false,
-    "live": true
+    "live": false
   },
   "summary": {
-    "passed": 313,
-    "failed": 1,
-    "xfailed": 33,
-    "skipped": 8
+    "passed": 269,
+    "failed": 0,
+    "xfailed": 30,
+    "skipped": 44
   },
   "results": [
     {
       "test": "live/test_live.py::test_detector[sannysoft-apostate-windows]",
-      "outcome": "passed",
-      "seconds": 2.67,
-      "details": {
-        "detector": "sannysoft",
-        "url": "https://bot.sannysoft.com",
-        "browser": "apostate-windows",
-        "criterion": "no failed row in the intoli and fpscanner tables",
-        "ready": true,
-        "passed": true,
-        "passed_rows": 31,
-        "failed": [],
-        "warn": []
-      }
+      "outcome": "skipped",
+      "seconds": 0.0,
+      "details": {},
+      "message": "Skipped: live tier: pass --live"
     },
     {
       "test": "live/test_live.py::test_detector[deviceandbrowserinfo-apostate-windows]",
-      "outcome": "passed",
-      "seconds": 4.54,
-      "details": {
-        "detector": "deviceandbrowserinfo",
-        "url": "https://deviceandbrowserinfo.com/are_you_a_bot",
-        "browser": "apostate-windows",
-        "criterion": "isBot is false",
-        "ready": true,
-        "passed": true,
-        "isBot": false,
-        "flags": []
-      }
+      "outcome": "skipped",
+      "seconds": 0.0,
+      "details": {},
+      "message": "Skipped: live tier: pass --live"
     },
     {
       "test": "live/test_live.py::test_detector[rebrowser-apostate-windows]",
-      "outcome": "passed",
-      "seconds": 1.52,
-      "details": {
-        "detector": "rebrowser",
-        "url": "https://bot-detector.rebrowser.net",
-        "browser": "apostate-windows",
-        "criterion": "no red test",
-        "ready": true,
-        "passed": true,
-        "red": [],
-        "green": [
-          "bypassCsp",
-          "navigatorWebdriver",
-          "pwInitScripts",
-          "runtimeEnableLeak",
-          "useragent",
-          "viewport"
-        ]
-      }
+      "outcome": "skipped",
+      "seconds": 0.0,
+      "details": {},
+      "message": "Skipped: live tier: pass --live"
     },
     {
       "test": "live/test_live.py::test_detector[creepjs-apostate-windows]",
-      "outcome": "passed",
-      "seconds": 1.97,
-      "details": {
-        "detector": "creepjs",
-        "url": "https://abrahamjuliot.github.io/creepjs/",
-        "browser": "apostate-windows",
-        "criterion": "0% headless and 0% stealth",
-        "ready": true,
-        "passed": true,
-        "like_headless": 19,
-        "headless": 0,
-        "stealth": 0
-      }
+      "outcome": "skipped",
+      "seconds": 0.0,
+      "details": {},
+      "message": "Skipped: live tier: pass --live"
     },
     {
       "test": "live/test_live.py::test_detector[browserscan-apostate-windows]",
-      "outcome": "passed",
-      "seconds": 1.43,
-      "details": {
-        "detector": "browserscan",
-        "url": "https://www.browserscan.net/bot-detection",
-        "browser": "apostate-windows",
-        "criterion": "test result Normal",
-        "ready": true,
-        "passed": true,
-        "result": "Normal"
-      }
+      "outcome": "skipped",
+      "seconds": 0.0,
+      "details": {},
+      "message": "Skipped: live tier: pass --live"
     },
     {
       "test": "live/test_live.py::test_detector[fingerprint-scan-apostate-windows]",
-      "outcome": "passed",
-      "seconds": 7.98,
-      "details": {
-        "detector": "fingerprint-scan",
-        "url": "https://fingerprint-scan.com",
-        "browser": "apostate-windows",
-        "criterion": "bot score, reported only",
-        "ready": true,
-        "passed": null,
-        "score": 30,
-        "categories": {
-          "Hardware / OS": "MEDIUM",
-          "Browser": "MEDIUM",
-          "Network / proxy": "LOW"
-        }
-      }
+      "outcome": "skipped",
+      "seconds": 0.0,
+      "details": {},
+      "message": "Skipped: live tier: pass --live"
     },
     {
       "test": "live/test_live.py::test_detector[iphey-apostate-windows]",
-      "outcome": "xfailed",
-      "seconds": 6.91,
-      "details": {
-        "detector": "iphey",
-        "url": "https://iphey.com",
-        "browser": "apostate-windows",
-        "criterion": "verdict Trustworthy",
-        "ready": true,
-        "passed": false,
-        "verdict": "Unreliable",
-        "signals": [
-          "Detected an inconsistent browser fingerprint (roadmap)",
-          "Detected an inconsistent browser fingerprint (butterfly)"
-        ],
-        "known_gap": {
-          "id": "font-filter-iphey",
-          "reason": "iphey.com flags every composed persona, the macOS persona on a Mac included, as 'inconsistent browser fingerprint (roadmap)'. The trigger is the font filter: the same profile without its fonts section passes.",
-          "link": "https://docs.apostate.dev/known-gaps#iphey-and-the-font-filter"
-        }
-      },
-      "message": ""
+      "outcome": "skipped",
+      "seconds": 0.0,
+      "details": {},
+      "message": "Skipped: live tier: pass --live"
     },
     {
       "test": "live/test_live.py::test_detector[recaptcha-v3-apostate-windows]",
-      "outcome": "passed",
-      "seconds": 2.5,
-      "details": {
-        "detector": "recaptcha-v3",
-        "url": "https://recaptcha-demo.appspot.com/recaptcha-v3-request-scores.php",
-        "browser": "apostate-windows",
-        "criterion": "score of 0.5 or more",
-        "ready": true,
-        "passed": true,
-        "score": 0.9
-      }
+      "outcome": "skipped",
+      "seconds": 0.0,
+      "details": {},
+      "message": "Skipped: live tier: pass --live"
     },
     {
       "test": "live/test_live.py::test_detector[turnstile-seleniumbase-apostate-windows]",
-      "outcome": "passed",
-      "seconds": 5.2,
-      "details": {
-        "detector": "turnstile-seleniumbase",
-        "url": "https://seleniumbase.io/apps/turnstile",
-        "browser": "apostate-windows",
-        "criterion": "Turnstile token within 30 s",
-        "ready": true,
-        "passed": true,
-        "clicked": true,
-        "seconds": 4.6
-      }
+      "outcome": "skipped",
+      "seconds": 0.0,
+      "details": {},
+      "message": "Skipped: live tier: pass --live"
     },
     {
       "test": "live/test_live.py::test_detector[turnstile-managed-apostate-windows]",
-      "outcome": "passed",
-      "seconds": 4.75,
-      "details": {
-        "detector": "turnstile-managed",
-        "url": "https://peet.ws/turnstile-test/managed.html",
-        "browser": "apostate-windows",
-        "criterion": "Turnstile token within 30 s",
-        "ready": true,
-        "passed": true,
-        "clicked": true,
-        "seconds": 4.6
-      }
+      "outcome": "skipped",
+      "seconds": 0.0,
+      "details": {},
+      "message": "Skipped: live tier: pass --live"
     },
     {
       "test": "live/test_live.py::test_detector[turnstile-non-interactive-apostate-windows]",
-      "outcome": "passed",
-      "seconds": 1.62,
-      "details": {
-        "detector": "turnstile-non-interactive",
-        "url": "https://peet.ws/turnstile-test/non-interactive.html",
-        "browser": "apostate-windows",
-        "criterion": "Turnstile token within 30 s",
-        "ready": true,
-        "passed": true,
-        "clicked": false,
-        "seconds": 1.5
-      }
+      "outcome": "skipped",
+      "seconds": 0.0,
+      "details": {},
+      "message": "Skipped: live tier: pass --live"
     },
     {
       "test": "live/test_live.py::test_detector[fingerprintjs-apostate-windows]",
-      "outcome": "passed",
-      "seconds": 4.34,
-      "details": {
-        "detector": "fingerprintjs",
-        "url": "https://demo.fingerprint.com/playground",
-        "browser": "apostate-windows",
-        "criterion": "no bot, tampering, anti-detect, virtual machine, developer tools or incognito flag",
-        "ready": true,
-        "passed": true,
-        "browser_flags": [],
-        "suspect_score": 4,
-        "bot": "not_detected",
-        "tampering": false,
-        "tampering_ml_score": 0.6453,
-        "anti_detect_browser": false,
-        "anomaly_score": 0,
-        "virtual_machine": false,
-        "developer_tools": false,
-        "incognito": false,
-        "rare_device": false,
-        "vpn": false,
-        "proxy": true,
-        "timezone_mismatch": false
-      }
+      "outcome": "skipped",
+      "seconds": 0.0,
+      "details": {},
+      "message": "Skipped: live tier: pass --live"
     },
     {
       "test": "live/test_live.py::test_detector[sannysoft-apostate-macos]",
-      "outcome": "passed",
-      "seconds": 2.16,
-      "details": {
-        "detector": "sannysoft",
-        "url": "https://bot.sannysoft.com",
-        "browser": "apostate-macos",
-        "criterion": "no failed row in the intoli and fpscanner tables",
-        "ready": true,
-        "passed": true,
-        "passed_rows": 31,
-        "failed": [],
-        "warn": []
-      }
+      "outcome": "skipped",
+      "seconds": 0.0,
+      "details": {},
+      "message": "Skipped: live tier: pass --live"
     },
     {
       "test": "live/test_live.py::test_detector[deviceandbrowserinfo-apostate-macos]",
-      "outcome": "passed",
-      "seconds": 4.33,
-      "details": {
-        "detector": "deviceandbrowserinfo",
-        "url": "https://deviceandbrowserinfo.com/are_you_a_bot",
-        "browser": "apostate-macos",
-        "criterion": "isBot is false",
-        "ready": true,
-        "passed": true,
-        "isBot": false,
-        "flags": []
-      }
+      "outcome": "skipped",
+      "seconds": 0.0,
+      "details": {},
+      "message": "Skipped: live tier: pass --live"
     },
     {
       "test": "live/test_live.py::test_detector[rebrowser-apostate-macos]",
-      "outcome": "passed",
-      "seconds": 1.51,
-      "details": {
-        "detector": "rebrowser",
-        "url": "https://bot-detector.rebrowser.net",
-        "browser": "apostate-macos",
-        "criterion": "no red test",
-        "ready": true,
-        "passed": true,
-        "red": [],
-        "green": [
-          "bypassCsp",
-          "navigatorWebdriver",
-          "pwInitScripts",
-          "runtimeEnableLeak",
-          "useragent",
-          "viewport"
-        ]
-      }
+      "outcome": "skipped",
+      "seconds": 0.0,
+      "details": {},
+      "message": "Skipped: live tier: pass --live"
     },
     {
       "test": "live/test_live.py::test_detector[creepjs-apostate-macos]",
-      "outcome": "passed",
-      "seconds": 1.32,
-      "details": {
-        "detector": "creepjs",
-        "url": "https://abrahamjuliot.github.io/creepjs/",
-        "browser": "apostate-macos",
-        "criterion": "0% headless and 0% stealth",
-        "ready": true,
-        "passed": true,
-        "like_headless": 31,
-        "headless": 0,
-        "stealth": 0
-      }
+      "outcome": "skipped",
+      "seconds": 0.0,
+      "details": {},
+      "message": "Skipped: live tier: pass --live"
     },
     {
       "test": "live/test_live.py::test_detector[browserscan-apostate-macos]",
-      "outcome": "passed",
-      "seconds": 1.21,
-      "details": {
-        "detector": "browserscan",
-        "url": "https://www.browserscan.net/bot-detection",
-        "browser": "apostate-macos",
-        "criterion": "test result Normal",
-        "ready": true,
-        "passed": true,
-        "result": "Normal"
-      }
+      "outcome": "skipped",
+      "seconds": 0.0,
+      "details": {},
+      "message": "Skipped: live tier: pass --live"
     },
     {
       "test": "live/test_live.py::test_detector[fingerprint-scan-apostate-macos]",
-      "outcome": "passed",
-      "seconds": 7.21,
-      "details": {
-        "detector": "fingerprint-scan",
-        "url": "https://fingerprint-scan.com",
-        "browser": "apostate-macos",
-        "criterion": "bot score, reported only",
-        "ready": true,
-        "passed": null,
-        "score": 15,
-        "categories": {
-          "Hardware / OS": "LOW",
-          "Browser": "MEDIUM",
-          "Network / proxy": "LOW"
-        }
-      }
+      "outcome": "skipped",
+      "seconds": 0.0,
+      "details": {},
+      "message": "Skipped: live tier: pass --live"
     },
     {
       "test": "live/test_live.py::test_detector[iphey-apostate-macos]",
-      "outcome": "xfailed",
-      "seconds": 7.73,
-      "details": {
-        "detector": "iphey",
-        "url": "https://iphey.com",
-        "browser": "apostate-macos",
-        "criterion": "verdict Trustworthy",
-        "ready": true,
-        "passed": false,
-        "verdict": "Unreliable",
-        "signals": [
-          "Detected an inconsistent browser fingerprint (roadmap)"
-        ],
-        "known_gap": {
-          "id": "font-filter-iphey",
-          "reason": "iphey.com flags every composed persona, the macOS persona on a Mac included, as 'inconsistent browser fingerprint (roadmap)'. The trigger is the font filter: the same profile without its fonts section passes.",
-          "link": "https://docs.apostate.dev/known-gaps#iphey-and-the-font-filter"
-        }
-      },
-      "message": ""
+      "outcome": "skipped",
+      "seconds": 0.0,
+      "details": {},
+      "message": "Skipped: live tier: pass --live"
     },
     {
       "test": "live/test_live.py::test_detector[recaptcha-v3-apostate-macos]",
-      "outcome": "passed",
-      "seconds": 1.59,
-      "details": {
-        "detector": "recaptcha-v3",
-        "url": "https://recaptcha-demo.appspot.com/recaptcha-v3-request-scores.php",
-        "browser": "apostate-macos",
-        "criterion": "score of 0.5 or more",
-        "ready": true,
-        "passed": true,
-        "score": 0.9
-      }
+      "outcome": "skipped",
+      "seconds": 0.0,
+      "details": {},
+      "message": "Skipped: live tier: pass --live"
     },
     {
       "test": "live/test_live.py::test_detector[turnstile-seleniumbase-apostate-macos]",
-      "outcome": "passed",
-      "seconds": 4.9,
-      "details": {
-        "detector": "turnstile-seleniumbase",
-        "url": "https://seleniumbase.io/apps/turnstile",
-        "browser": "apostate-macos",
-        "criterion": "Turnstile token within 30 s",
-        "ready": true,
-        "passed": true,
-        "clicked": true,
-        "seconds": 4.6
-      }
+      "outcome": "skipped",
+      "seconds": 0.0,
+      "details": {},
+      "message": "Skipped: live tier: pass --live"
     },
     {
       "test": "live/test_live.py::test_detector[turnstile-managed-apostate-macos]",
-      "outcome": "passed",
-      "seconds": 5.24,
-      "details": {
-        "detector": "turnstile-managed",
-        "url": "https://peet.ws/turnstile-test/managed.html",
-        "browser": "apostate-macos",
-        "criterion": "Turnstile token within 30 s",
-        "ready": true,
-        "passed": true,
-        "clicked": true,
-        "seconds": 5.1
-      }
+      "outcome": "skipped",
+      "seconds": 0.0,
+      "details": {},
+      "message": "Skipped: live tier: pass --live"
     },
     {
       "test": "live/test_live.py::test_detector[turnstile-non-interactive-apostate-macos]",
-      "outcome": "passed",
-      "seconds": 1.63,
-      "details": {
-        "detector": "turnstile-non-interactive",
-        "url": "https://peet.ws/turnstile-test/non-interactive.html",
-        "browser": "apostate-macos",
-        "criterion": "Turnstile token within 30 s",
-        "ready": true,
-        "passed": true,
-        "clicked": false,
-        "seconds": 1.5
-      }
+      "outcome": "skipped",
+      "seconds": 0.0,
+      "details": {},
+      "message": "Skipped: live tier: pass --live"
     },
     {
       "test": "live/test_live.py::test_detector[fingerprintjs-apostate-macos]",
-      "outcome": "passed",
-      "seconds": 2.43,
-      "details": {
-        "detector": "fingerprintjs",
-        "url": "https://demo.fingerprint.com/playground",
-        "browser": "apostate-macos",
-        "criterion": "no bot, tampering, anti-detect, virtual machine, developer tools or incognito flag",
-        "ready": true,
-        "passed": true,
-        "browser_flags": [],
-        "suspect_score": 4,
-        "bot": "not_detected",
-        "tampering": false,
-        "tampering_ml_score": 0.0343,
-        "anti_detect_browser": false,
-        "anomaly_score": 0,
-        "virtual_machine": false,
-        "developer_tools": false,
-        "incognito": false,
-        "rare_device": false,
-        "vpn": false,
-        "proxy": true,
-        "timezone_mismatch": false
-      }
+      "outcome": "skipped",
+      "seconds": 0.0,
+      "details": {},
+      "message": "Skipped: live tier: pass --live"
     },
     {
       "test": "live/test_live.py::test_detector[sannysoft-apostate-linux]",
-      "outcome": "passed",
-      "seconds": 2.2,
-      "details": {
-        "detector": "sannysoft",
-        "url": "https://bot.sannysoft.com",
-        "browser": "apostate-linux",
-        "criterion": "no failed row in the intoli and fpscanner tables",
-        "ready": true,
-        "passed": true,
-        "passed_rows": 31,
-        "failed": [],
-        "warn": []
-      }
+      "outcome": "skipped",
+      "seconds": 0.0,
+      "details": {},
+      "message": "Skipped: live tier: pass --live"
     },
     {
       "test": "live/test_live.py::test_detector[deviceandbrowserinfo-apostate-linux]",
-      "outcome": "passed",
-      "seconds": 4.6,
-      "details": {
-        "detector": "deviceandbrowserinfo",
-        "url": "https://deviceandbrowserinfo.com/are_you_a_bot",
-        "browser": "apostate-linux",
-        "criterion": "isBot is false",
-        "ready": true,
-        "passed": true,
-        "isBot": false,
-        "flags": []
-      }
+      "outcome": "skipped",
+      "seconds": 0.0,
+      "details": {},
+      "message": "Skipped: live tier: pass --live"
     },
     {
       "test": "live/test_live.py::test_detector[rebrowser-apostate-linux]",
-      "outcome": "passed",
-      "seconds": 1.49,
-      "details": {
-        "detector": "rebrowser",
-        "url": "https://bot-detector.rebrowser.net",
-        "browser": "apostate-linux",
-        "criterion": "no red test",
-        "ready": true,
-        "passed": true,
-        "red": [],
-        "green": [
-          "bypassCsp",
-          "navigatorWebdriver",
-          "pwInitScripts",
-          "runtimeEnableLeak",
-          "useragent",
-          "viewport"
-        ]
-      }
+      "outcome": "skipped",
+      "seconds": 0.0,
+      "details": {},
+      "message": "Skipped: live tier: pass --live"
     },
     {
       "test": "live/test_live.py::test_detector[creepjs-apostate-linux]",
-      "outcome": "passed",
-      "seconds": 1.25,
-      "details": {
-        "detector": "creepjs",
-        "url": "https://abrahamjuliot.github.io/creepjs/",
-        "browser": "apostate-linux",
-        "criterion": "0% headless and 0% stealth",
-        "ready": true,
-        "passed": true,
-        "like_headless": 31,
-        "headless": 0,
-        "stealth": 0
-      }
+      "outcome": "skipped",
+      "seconds": 0.0,
+      "details": {},
+      "message": "Skipped: live tier: pass --live"
     },
     {
       "test": "live/test_live.py::test_detector[browserscan-apostate-linux]",
-      "outcome": "passed",
-      "seconds": 1.27,
-      "details": {
-        "detector": "browserscan",
-        "url": "https://www.browserscan.net/bot-detection",
-        "browser": "apostate-linux",
-        "criterion": "test result Normal",
-        "ready": true,
-        "passed": true,
-        "result": "Normal"
-      }
+      "outcome": "skipped",
+      "seconds": 0.0,
+      "details": {},
+      "message": "Skipped: live tier: pass --live"
     },
     {
       "test": "live/test_live.py::test_detector[fingerprint-scan-apostate-linux]",
-      "outcome": "passed",
-      "seconds": 7.19,
-      "details": {
-        "detector": "fingerprint-scan",
-        "url": "https://fingerprint-scan.com",
-        "browser": "apostate-linux",
-        "criterion": "bot score, reported only",
-        "ready": true,
-        "passed": null,
-        "score": 100,
-        "categories": {
-          "Hardware / OS": "MEDIUM",
-          "Browser": "MEDIUM",
-          "Network / proxy": "MEDIUM"
-        }
-      }
+      "outcome": "skipped",
+      "seconds": 0.0,
+      "details": {},
+      "message": "Skipped: live tier: pass --live"
     },
     {
       "test": "live/test_live.py::test_detector[iphey-apostate-linux]",
-      "outcome": "xfailed",
-      "seconds": 6.45,
-      "details": {
-        "detector": "iphey",
-        "url": "https://iphey.com",
-        "browser": "apostate-linux",
-        "criterion": "verdict Trustworthy",
-        "ready": true,
-        "passed": false,
-        "verdict": "Unreliable",
-        "signals": [
-          "Detected an inconsistent browser fingerprint (roadmap)"
-        ],
-        "known_gap": {
-          "id": "font-filter-iphey",
-          "reason": "iphey.com flags every composed persona, the macOS persona on a Mac included, as 'inconsistent browser fingerprint (roadmap)'. The trigger is the font filter: the same profile without its fonts section passes.",
-          "link": "https://docs.apostate.dev/known-gaps#iphey-and-the-font-filter"
-        }
-      },
-      "message": ""
+      "outcome": "skipped",
+      "seconds": 0.0,
+      "details": {},
+      "message": "Skipped: live tier: pass --live"
     },
     {
       "test": "live/test_live.py::test_detector[recaptcha-v3-apostate-linux]",
-      "outcome": "passed",
-      "seconds": 1.46,
-      "details": {
-        "detector": "recaptcha-v3",
-        "url": "https://recaptcha-demo.appspot.com/recaptcha-v3-request-scores.php",
-        "browser": "apostate-linux",
-        "criterion": "score of 0.5 or more",
-        "ready": true,
-        "passed": true,
-        "score": 0.9
-      }
+      "outcome": "skipped",
+      "seconds": 0.0,
+      "details": {},
+      "message": "Skipped: live tier: pass --live"
     },
     {
       "test": "live/test_live.py::test_detector[turnstile-seleniumbase-apostate-linux]",
-      "outcome": "passed",
-      "seconds": 4.89,
-      "details": {
-        "detector": "turnstile-seleniumbase",
-        "url": "https://seleniumbase.io/apps/turnstile",
-        "browser": "apostate-linux",
-        "criterion": "Turnstile token within 30 s",
-        "ready": true,
-        "passed": true,
-        "clicked": true,
-        "seconds": 4.6
-      }
+      "outcome": "skipped",
+      "seconds": 0.0,
+      "details": {},
+      "message": "Skipped: live tier: pass --live"
     },
     {
       "test": "live/test_live.py::test_detector[turnstile-managed-apostate-linux]",
-      "outcome": "passed",
-      "seconds": 4.76,
-      "details": {
-        "detector": "turnstile-managed",
-        "url": "https://peet.ws/turnstile-test/managed.html",
-        "browser": "apostate-linux",
-        "criterion": "Turnstile token within 30 s",
-        "ready": true,
-        "passed": true,
-        "clicked": true,
-        "seconds": 4.6
-      }
+      "outcome": "skipped",
+      "seconds": 0.0,
+      "details": {},
+      "message": "Skipped: live tier: pass --live"
     },
     {
       "test": "live/test_live.py::test_detector[turnstile-non-interactive-apostate-linux]",
-      "outcome": "passed",
-      "seconds": 1.63,
-      "details": {
-        "detector": "turnstile-non-interactive",
-        "url": "https://peet.ws/turnstile-test/non-interactive.html",
-        "browser": "apostate-linux",
-        "criterion": "Turnstile token within 30 s",
-        "ready": true,
-        "passed": true,
-        "clicked": false,
-        "seconds": 1.5
-      }
+      "outcome": "skipped",
+      "seconds": 0.0,
+      "details": {},
+      "message": "Skipped: live tier: pass --live"
     },
     {
       "test": "live/test_live.py::test_detector[fingerprintjs-apostate-linux]",
-      "outcome": "failed",
-      "seconds": 3.38,
-      "details": {
-        "detector": "fingerprintjs",
-        "url": "https://demo.fingerprint.com/playground",
-        "browser": "apostate-linux",
-        "criterion": "no bot, tampering, anti-detect, virtual machine, developer tools or incognito flag",
-        "ready": true,
-        "passed": false,
-        "browser_flags": [
-          "tampering",
-          "anti_detect_browser"
-        ],
-        "suspect_score": 18,
-        "bot": "not_detected",
-        "tampering": true,
-        "tampering_ml_score": 0.9955,
-        "anti_detect_browser": true,
-        "anomaly_score": 1,
-        "virtual_machine": false,
-        "developer_tools": false,
-        "incognito": false,
-        "rare_device": false,
-        "vpn": false,
-        "proxy": true,
-        "timezone_mismatch": false
-      },
-      "message": "AssertionError: fingerprintjs: no bot, tampering, anti-detect, virtual machine, developer tools or incognito flag failed: {'ready': True, 'passed': False, 'browser_flags': ['tampering', 'anti_detect_browser'], 'suspect_score': 18, 'bot': 'not_detected', 'tampering': True, 'tampering_ml_score': 0.9955, 'anti_detect_browser': True, 'anomaly_score': 1, 'virtual_machine': False, 'developer_tools': False, 'incognito': False, 'rare_device': False, 'vpn': False, 'proxy': True, 'timezone_mismatch': False}\nassert False"
-    },
-    {
-      "test": "live/test_live.py::test_detector[sannysoft-control-playwright]",
-      "outcome": "passed",
-      "seconds": 2.11,
-      "details": {
-        "detector": "sannysoft",
-        "url": "https://bot.sannysoft.com",
-        "browser": "control-playwright",
-        "criterion": "no failed row in the intoli and fpscanner tables",
-        "ready": true,
-        "passed": false,
-        "passed_rows": 18,
-        "failed": [
-          "User Agent",
-          "WebDriver",
-          "Chrome",
-          "Permissions",
-          "Plugins Length",
-          "Plugins is of type PluginArray",
-          "WebGL Renderer",
-          "HEADCHR_UA",
-          "HEADCHR_CHROME_OBJ",
-          "HEADCHR_PERMISSIONS",
-          "HEADCHR_IFRAME",
-          "CHR_MEMORY"
-        ],
-        "warn": [
-          "HEADCHR_PLUGINS"
-        ],
-        "control": true
-      }
-    },
-    {
-      "test": "live/test_live.py::test_detector[deviceandbrowserinfo-control-playwright]",
-      "outcome": "passed",
-      "seconds": 5.26,
-      "details": {
-        "detector": "deviceandbrowserinfo",
-        "url": "https://deviceandbrowserinfo.com/are_you_a_bot",
-        "browser": "control-playwright",
-        "criterion": "isBot is false",
-        "ready": true,
-        "passed": false,
-        "isBot": true,
-        "flags": [
-          "hasBotUserAgent",
-          "hasInconsistentTimingResolution",
-          "hasWebdriverInFrameTrue",
-          "hasWebdriverTrue",
-          "isAutomatedWithCDP",
-          "isAutomatedWithCDPInWebWorker"
-        ],
-        "control": true
-      }
-    },
-    {
-      "test": "live/test_live.py::test_detector[rebrowser-control-playwright]",
-      "outcome": "passed",
-      "seconds": 0.48,
-      "details": {
-        "detector": "rebrowser",
-        "url": "https://bot-detector.rebrowser.net",
-        "browser": "control-playwright",
-        "criterion": "no red test",
-        "ready": true,
-        "passed": false,
-        "red": [
-          "navigatorWebdriver",
-          "useragent",
-          "viewport"
-        ],
-        "green": [
-          "pwInitScripts",
-          "runtimeEnableLeak"
-        ],
-        "control": true
-      }
-    },
-    {
-      "test": "live/test_live.py::test_detector[creepjs-control-playwright]",
-      "outcome": "passed",
-      "seconds": 1.29,
-      "details": {
-        "detector": "creepjs",
-        "url": "https://abrahamjuliot.github.io/creepjs/",
-        "browser": "control-playwright",
-        "criterion": "0% headless and 0% stealth",
-        "ready": true,
-        "passed": false,
-        "like_headless": 94,
-        "headless": 100,
-        "stealth": 0,
-        "control": true
-      }
-    },
-    {
-      "test": "live/test_live.py::test_detector[browserscan-control-playwright]",
-      "outcome": "passed",
-      "seconds": 1.18,
-      "details": {
-        "detector": "browserscan",
-        "url": "https://www.browserscan.net/bot-detection",
-        "browser": "control-playwright",
-        "criterion": "test result Normal",
-        "ready": true,
-        "passed": false,
-        "result": "Robot",
-        "control": true
-      }
-    },
-    {
-      "test": "live/test_live.py::test_detector[fingerprint-scan-control-playwright]",
-      "outcome": "passed",
-      "seconds": 6.99,
-      "details": {
-        "detector": "fingerprint-scan",
-        "url": "https://fingerprint-scan.com",
-        "browser": "control-playwright",
-        "criterion": "bot score, reported only",
-        "ready": true,
-        "passed": null,
-        "score": 100,
-        "categories": {
-          "Hardware / OS": "HIGH",
-          "Browser": "HIGH",
-          "Network / proxy": "MEDIUM"
-        },
-        "control": true
-      }
-    },
-    {
-      "test": "live/test_live.py::test_detector[iphey-control-playwright]",
-      "outcome": "passed",
-      "seconds": 6.9,
-      "details": {
-        "detector": "iphey",
-        "url": "https://iphey.com",
-        "browser": "control-playwright",
-        "criterion": "verdict Trustworthy",
-        "ready": true,
-        "passed": false,
-        "verdict": "Unreliable",
-        "signals": [
-          "Detected an inconsistent browser fingerprint (wine)",
-          "Detected an automated browser environment signal (jungle)",
-          "Detected an automated browser environment signal (diver)"
-        ],
-        "control": true
-      }
-    },
-    {
-      "test": "live/test_live.py::test_detector[recaptcha-v3-control-playwright]",
-      "outcome": "passed",
-      "seconds": 1.47,
-      "details": {
-        "detector": "recaptcha-v3",
-        "url": "https://recaptcha-demo.appspot.com/recaptcha-v3-request-scores.php",
-        "browser": "control-playwright",
-        "criterion": "score of 0.5 or more",
-        "ready": true,
-        "passed": true,
-        "score": 0.9,
-        "control": true
-      }
-    },
-    {
-      "test": "live/test_live.py::test_detector[turnstile-seleniumbase-control-playwright]",
-      "outcome": "passed",
-      "seconds": 30.52,
-      "details": {
-        "detector": "turnstile-seleniumbase",
-        "url": "https://seleniumbase.io/apps/turnstile",
-        "browser": "control-playwright",
-        "criterion": "Turnstile token within 30 s",
-        "ready": true,
-        "passed": false,
-        "clicked": false,
-        "control": true
-      }
-    },
-    {
-      "test": "live/test_live.py::test_detector[turnstile-managed-control-playwright]",
-      "outcome": "passed",
-      "seconds": 30.27,
-      "details": {
-        "detector": "turnstile-managed",
-        "url": "https://peet.ws/turnstile-test/managed.html",
-        "browser": "control-playwright",
-        "criterion": "Turnstile token within 30 s",
-        "ready": true,
-        "passed": false,
-        "clicked": false,
-        "control": true
-      }
-    },
-    {
-      "test": "live/test_live.py::test_detector[turnstile-non-interactive-control-playwright]",
-      "outcome": "passed",
-      "seconds": 1.63,
-      "details": {
-        "detector": "turnstile-non-interactive",
-        "url": "https://peet.ws/turnstile-test/non-interactive.html",
-        "browser": "control-playwright",
-        "criterion": "Turnstile token within 30 s",
-        "ready": true,
-        "passed": true,
-        "clicked": false,
-        "seconds": 1.5,
-        "control": true
-      }
-    },
-    {
-      "test": "live/test_live.py::test_detector[fingerprintjs-control-playwright]",
-      "outcome": "passed",
-      "seconds": 3.4,
-      "details": {
-        "detector": "fingerprintjs",
-        "url": "https://demo.fingerprint.com/playground",
-        "browser": "control-playwright",
-        "criterion": "no bot, tampering, anti-detect, virtual machine, developer tools or incognito flag",
-        "ready": true,
-        "passed": false,
-        "browser_flags": [
-          "virtual_machine",
-          "developer_tools",
-          "incognito",
-          "bot"
-        ],
-        "suspect_score": 43,
-        "bot": "bad",
-        "tampering": false,
-        "tampering_ml_score": 0,
-        "anti_detect_browser": false,
-        "anomaly_score": 0,
-        "virtual_machine": true,
-        "developer_tools": true,
-        "incognito": true,
-        "rare_device": true,
-        "vpn": false,
-        "proxy": true,
-        "timezone_mismatch": false,
-        "control": true
-      }
-    },
-    {
-      "test": "live/test_live.py::test_detector[sannysoft-control-chrome]",
-      "outcome": "passed",
-      "seconds": 2.36,
-      "details": {
-        "detector": "sannysoft",
-        "url": "https://bot.sannysoft.com",
-        "browser": "control-chrome",
-        "criterion": "no failed row in the intoli and fpscanner tables",
-        "ready": true,
-        "passed": false,
-        "passed_rows": 27,
-        "failed": [
-          "User Agent",
-          "WebDriver",
-          "HEADCHR_UA",
-          "CHR_MEMORY"
-        ],
-        "warn": [],
-        "control": true
-      }
-    },
-    {
-      "test": "live/test_live.py::test_detector[deviceandbrowserinfo-control-chrome]",
-      "outcome": "passed",
-      "seconds": 4.84,
-      "details": {
-        "detector": "deviceandbrowserinfo",
-        "url": "https://deviceandbrowserinfo.com/are_you_a_bot",
-        "browser": "control-chrome",
-        "criterion": "isBot is false",
-        "ready": true,
-        "passed": false,
-        "isBot": true,
-        "flags": [
-          "hasBotUserAgent",
-          "hasInconsistentTimingResolution",
-          "hasWebdriverInFrameTrue",
-          "hasWebdriverTrue",
-          "isAutomatedWithCDP",
-          "isAutomatedWithCDPInWebWorker"
-        ],
-        "control": true
-      }
-    },
-    {
-      "test": "live/test_live.py::test_detector[rebrowser-control-chrome]",
-      "outcome": "passed",
-      "seconds": 1.55,
-      "details": {
-        "detector": "rebrowser",
-        "url": "https://bot-detector.rebrowser.net",
-        "browser": "control-chrome",
-        "criterion": "no red test",
-        "ready": true,
-        "passed": false,
-        "red": [
-          "navigatorWebdriver",
-          "viewport"
-        ],
-        "green": [
-          "bypassCsp",
-          "pwInitScripts",
-          "runtimeEnableLeak",
-          "useragent"
-        ],
-        "control": true
-      }
-    },
-    {
-      "test": "live/test_live.py::test_detector[creepjs-control-chrome]",
-      "outcome": "passed",
-      "seconds": 1.39,
-      "details": {
-        "detector": "creepjs",
-        "url": "https://abrahamjuliot.github.io/creepjs/",
-        "browser": "control-chrome",
-        "criterion": "0% headless and 0% stealth",
-        "ready": true,
-        "passed": false,
-        "like_headless": 44,
-        "headless": 100,
-        "stealth": 0,
-        "control": true
-      }
-    },
-    {
-      "test": "live/test_live.py::test_detector[browserscan-control-chrome]",
-      "outcome": "passed",
-      "seconds": 1.33,
-      "details": {
-        "detector": "browserscan",
-        "url": "https://www.browserscan.net/bot-detection",
-        "browser": "control-chrome",
-        "criterion": "test result Normal",
-        "ready": true,
-        "passed": false,
-        "result": "Robot",
-        "control": true
-      }
-    },
-    {
-      "test": "live/test_live.py::test_detector[fingerprint-scan-control-chrome]",
-      "outcome": "passed",
-      "seconds": 8.28,
-      "details": {
-        "detector": "fingerprint-scan",
-        "url": "https://fingerprint-scan.com",
-        "browser": "control-chrome",
-        "criterion": "bot score, reported only",
-        "ready": true,
-        "passed": null,
-        "score": 100,
-        "categories": {
-          "Hardware / OS": "LOW",
-          "Browser": "HIGH",
-          "Network / proxy": "MEDIUM"
-        },
-        "control": true
-      }
-    },
-    {
-      "test": "live/test_live.py::test_detector[iphey-control-chrome]",
-      "outcome": "passed",
-      "seconds": 6.92,
-      "details": {
-        "detector": "iphey",
-        "url": "https://iphey.com",
-        "browser": "control-chrome",
-        "criterion": "verdict Trustworthy",
-        "ready": true,
-        "passed": false,
-        "verdict": "Unreliable",
-        "signals": [
-          "Detected an automated browser environment signal (jungle)",
-          "Detected an automated browser environment signal (diver)"
-        ],
-        "control": true
-      }
-    },
-    {
-      "test": "live/test_live.py::test_detector[recaptcha-v3-control-chrome]",
-      "outcome": "passed",
-      "seconds": 2.67,
-      "details": {
-        "detector": "recaptcha-v3",
-        "url": "https://recaptcha-demo.appspot.com/recaptcha-v3-request-scores.php",
-        "browser": "control-chrome",
-        "criterion": "score of 0.5 or more",
-        "ready": true,
-        "passed": true,
-        "score": 0.9,
-        "control": true
-      }
-    },
-    {
-      "test": "live/test_live.py::test_detector[turnstile-seleniumbase-control-chrome]",
-      "outcome": "passed",
-      "seconds": 30.55,
-      "details": {
-        "detector": "turnstile-seleniumbase",
-        "url": "https://seleniumbase.io/apps/turnstile",
-        "browser": "control-chrome",
-        "criterion": "Turnstile token within 30 s",
-        "ready": true,
-        "passed": false,
-        "clicked": false,
-        "control": true
-      }
-    },
-    {
-      "test": "live/test_live.py::test_detector[turnstile-managed-control-chrome]",
-      "outcome": "passed",
-      "seconds": 30.32,
-      "details": {
-        "detector": "turnstile-managed",
-        "url": "https://peet.ws/turnstile-test/managed.html",
-        "browser": "control-chrome",
-        "criterion": "Turnstile token within 30 s",
-        "ready": true,
-        "passed": false,
-        "clicked": false,
-        "control": true
-      }
-    },
-    {
-      "test": "live/test_live.py::test_detector[turnstile-non-interactive-control-chrome]",
-      "outcome": "passed",
-      "seconds": 1.68,
-      "details": {
-        "detector": "turnstile-non-interactive",
-        "url": "https://peet.ws/turnstile-test/non-interactive.html",
-        "browser": "control-chrome",
-        "criterion": "Turnstile token within 30 s",
-        "ready": true,
-        "passed": true,
-        "clicked": false,
-        "seconds": 1.5,
-        "control": true
-      }
-    },
-    {
-      "test": "live/test_live.py::test_detector[fingerprintjs-control-chrome]",
-      "outcome": "passed",
-      "seconds": 3.42,
-      "details": {
-        "detector": "fingerprintjs",
-        "url": "https://demo.fingerprint.com/playground",
-        "browser": "control-chrome",
-        "criterion": "no bot, tampering, anti-detect, virtual machine, developer tools or incognito flag",
-        "ready": true,
-        "passed": false,
-        "browser_flags": [
-          "developer_tools",
-          "incognito",
-          "bot"
-        ],
-        "suspect_score": 29,
-        "bot": "bad",
-        "tampering": false,
-        "tampering_ml_score": 0,
-        "anti_detect_browser": false,
-        "anomaly_score": 0,
-        "virtual_machine": false,
-        "developer_tools": true,
-        "incognito": true,
-        "rare_device": true,
-        "vpn": false,
-        "proxy": true,
-        "timezone_mismatch": false,
-        "control": true
-      }
+      "outcome": "skipped",
+      "seconds": 0.0,
+      "details": {},
+      "message": "Skipped: live tier: pass --live"
     },
     {
       "test": "test_automation.py::test_webdriver_is_false_in_every_context[windows-42-bare]",
@@ -2230,8 +1366,8 @@
       "seconds": 0.0,
       "details": {
         "canvas": [
-          "2168b32440b29de97a652d3ba9c1b7ce6971a52b21423e5c51fb130d50dd4f2c",
-          "2168b32440b29de97a652d3ba9c1b7ce6971a52b21423e5c51fb130d50dd4f2c"
+          "4891b4715360b3755bbbb331be484c7e584bb45e5c100cd6375ad512fd4dc05e",
+          "4891b4715360b3755bbbb331be484c7e584bb45e5c100cd6375ad512fd4dc05e"
         ],
         "audio": [
           "98e8293126b10d2a13fd3cd497c27e1f3bee7fb0453e7edb35a833d27798d1ae",
@@ -2245,8 +1381,8 @@
       "seconds": 0.0,
       "details": {
         "canvas": [
-          "2168b32440b29de97a652d3ba9c1b7ce6971a52b21423e5c51fb130d50dd4f2c",
-          "2168b32440b29de97a652d3ba9c1b7ce6971a52b21423e5c51fb130d50dd4f2c"
+          "4891b4715360b3755bbbb331be484c7e584bb45e5c100cd6375ad512fd4dc05e",
+          "4891b4715360b3755bbbb331be484c7e584bb45e5c100cd6375ad512fd4dc05e"
         ],
         "audio": [
           "98e8293126b10d2a13fd3cd497c27e1f3bee7fb0453e7edb35a833d27798d1ae",
@@ -2260,8 +1396,8 @@
       "seconds": 0.0,
       "details": {
         "canvas": [
-          "2168b32440b29de97a652d3ba9c1b7ce6971a52b21423e5c51fb130d50dd4f2c",
-          "2168b32440b29de97a652d3ba9c1b7ce6971a52b21423e5c51fb130d50dd4f2c"
+          "4891b4715360b3755bbbb331be484c7e584bb45e5c100cd6375ad512fd4dc05e",
+          "4891b4715360b3755bbbb331be484c7e584bb45e5c100cd6375ad512fd4dc05e"
         ],
         "audio": [
           "98e8293126b10d2a13fd3cd497c27e1f3bee7fb0453e7edb35a833d27798d1ae",
@@ -2275,8 +1411,8 @@
       "seconds": 0.0,
       "details": {
         "canvas": [
-          "2168b32440b29de97a652d3ba9c1b7ce6971a52b21423e5c51fb130d50dd4f2c",
-          "2168b32440b29de97a652d3ba9c1b7ce6971a52b21423e5c51fb130d50dd4f2c"
+          "4891b4715360b3755bbbb331be484c7e584bb45e5c100cd6375ad512fd4dc05e",
+          "4891b4715360b3755bbbb331be484c7e584bb45e5c100cd6375ad512fd4dc05e"
         ],
         "audio": [
           "98e8293126b10d2a13fd3cd497c27e1f3bee7fb0453e7edb35a833d27798d1ae",
@@ -2290,8 +1426,8 @@
       "seconds": 0.0,
       "details": {
         "canvas": [
-          "2168b32440b29de97a652d3ba9c1b7ce6971a52b21423e5c51fb130d50dd4f2c",
-          "2168b32440b29de97a652d3ba9c1b7ce6971a52b21423e5c51fb130d50dd4f2c"
+          "3410ef88772b0b780fa06d65171129c7b1997404b52de8c43714ecfc10a7a1f7",
+          "3410ef88772b0b780fa06d65171129c7b1997404b52de8c43714ecfc10a7a1f7"
         ],
         "audio": [
           "98e8293126b10d2a13fd3cd497c27e1f3bee7fb0453e7edb35a833d27798d1ae",
@@ -2305,8 +1441,8 @@
       "seconds": 0.0,
       "details": {
         "canvas": [
-          "2168b32440b29de97a652d3ba9c1b7ce6971a52b21423e5c51fb130d50dd4f2c",
-          "2168b32440b29de97a652d3ba9c1b7ce6971a52b21423e5c51fb130d50dd4f2c"
+          "3410ef88772b0b780fa06d65171129c7b1997404b52de8c43714ecfc10a7a1f7",
+          "3410ef88772b0b780fa06d65171129c7b1997404b52de8c43714ecfc10a7a1f7"
         ],
         "audio": [
           "98e8293126b10d2a13fd3cd497c27e1f3bee7fb0453e7edb35a833d27798d1ae",
@@ -2320,8 +1456,8 @@
       "seconds": 0.0,
       "details": {
         "canvas": [
-          "2168b32440b29de97a652d3ba9c1b7ce6971a52b21423e5c51fb130d50dd4f2c",
-          "2168b32440b29de97a652d3ba9c1b7ce6971a52b21423e5c51fb130d50dd4f2c"
+          "3410ef88772b0b780fa06d65171129c7b1997404b52de8c43714ecfc10a7a1f7",
+          "3410ef88772b0b780fa06d65171129c7b1997404b52de8c43714ecfc10a7a1f7"
         ],
         "audio": [
           "98e8293126b10d2a13fd3cd497c27e1f3bee7fb0453e7edb35a833d27798d1ae",
@@ -2335,8 +1471,8 @@
       "seconds": 0.0,
       "details": {
         "canvas": [
-          "2168b32440b29de97a652d3ba9c1b7ce6971a52b21423e5c51fb130d50dd4f2c",
-          "2168b32440b29de97a652d3ba9c1b7ce6971a52b21423e5c51fb130d50dd4f2c"
+          "3410ef88772b0b780fa06d65171129c7b1997404b52de8c43714ecfc10a7a1f7",
+          "3410ef88772b0b780fa06d65171129c7b1997404b52de8c43714ecfc10a7a1f7"
         ],
         "audio": [
           "98e8293126b10d2a13fd3cd497c27e1f3bee7fb0453e7edb35a833d27798d1ae",
@@ -2350,8 +1486,8 @@
       "seconds": 0.0,
       "details": {
         "canvas": [
-          "2168b32440b29de97a652d3ba9c1b7ce6971a52b21423e5c51fb130d50dd4f2c",
-          "2168b32440b29de97a652d3ba9c1b7ce6971a52b21423e5c51fb130d50dd4f2c"
+          "4891b4715360b3755bbbb331be484c7e584bb45e5c100cd6375ad512fd4dc05e",
+          "4891b4715360b3755bbbb331be484c7e584bb45e5c100cd6375ad512fd4dc05e"
         ],
         "audio": [
           "98e8293126b10d2a13fd3cd497c27e1f3bee7fb0453e7edb35a833d27798d1ae",
@@ -2365,8 +1501,8 @@
       "seconds": 0.0,
       "details": {
         "canvas": [
-          "2168b32440b29de97a652d3ba9c1b7ce6971a52b21423e5c51fb130d50dd4f2c",
-          "2168b32440b29de97a652d3ba9c1b7ce6971a52b21423e5c51fb130d50dd4f2c"
+          "4891b4715360b3755bbbb331be484c7e584bb45e5c100cd6375ad512fd4dc05e",
+          "4891b4715360b3755bbbb331be484c7e584bb45e5c100cd6375ad512fd4dc05e"
         ],
         "audio": [
           "98e8293126b10d2a13fd3cd497c27e1f3bee7fb0453e7edb35a833d27798d1ae",
@@ -2380,8 +1516,8 @@
       "seconds": 0.0,
       "details": {
         "canvas": [
-          "2168b32440b29de97a652d3ba9c1b7ce6971a52b21423e5c51fb130d50dd4f2c",
-          "2168b32440b29de97a652d3ba9c1b7ce6971a52b21423e5c51fb130d50dd4f2c"
+          "4891b4715360b3755bbbb331be484c7e584bb45e5c100cd6375ad512fd4dc05e",
+          "4891b4715360b3755bbbb331be484c7e584bb45e5c100cd6375ad512fd4dc05e"
         ],
         "audio": [
           "98e8293126b10d2a13fd3cd497c27e1f3bee7fb0453e7edb35a833d27798d1ae",
@@ -2395,8 +1531,8 @@
       "seconds": 0.0,
       "details": {
         "canvas": [
-          "2168b32440b29de97a652d3ba9c1b7ce6971a52b21423e5c51fb130d50dd4f2c",
-          "2168b32440b29de97a652d3ba9c1b7ce6971a52b21423e5c51fb130d50dd4f2c"
+          "4891b4715360b3755bbbb331be484c7e584bb45e5c100cd6375ad512fd4dc05e",
+          "4891b4715360b3755bbbb331be484c7e584bb45e5c100cd6375ad512fd4dc05e"
         ],
         "audio": [
           "98e8293126b10d2a13fd3cd497c27e1f3bee7fb0453e7edb35a833d27798d1ae",
@@ -2407,7 +1543,7 @@
     {
       "test": "test_determinism.py::test_same_seed_same_machine[windows-42]",
       "outcome": "passed",
-      "seconds": 1.27,
+      "seconds": 0.84,
       "details": {
         "profile_differences": [],
         "page_differences": []
@@ -2416,7 +1552,7 @@
     {
       "test": "test_determinism.py::test_same_seed_same_machine[windows-1337]",
       "outcome": "passed",
-      "seconds": 1.29,
+      "seconds": 0.85,
       "details": {
         "profile_differences": [],
         "page_differences": []
@@ -2425,7 +1561,7 @@
     {
       "test": "test_determinism.py::test_same_seed_same_machine[macos-42]",
       "outcome": "passed",
-      "seconds": 1.37,
+      "seconds": 0.67,
       "details": {
         "profile_differences": [],
         "page_differences": []
@@ -2434,7 +1570,7 @@
     {
       "test": "test_determinism.py::test_same_seed_same_machine[macos-1337]",
       "outcome": "passed",
-      "seconds": 1.39,
+      "seconds": 0.69,
       "details": {
         "profile_differences": [],
         "page_differences": []
@@ -2443,7 +1579,7 @@
     {
       "test": "test_determinism.py::test_same_seed_same_machine[linux-42]",
       "outcome": "passed",
-      "seconds": 1.32,
+      "seconds": 0.66,
       "details": {
         "profile_differences": [],
         "page_differences": []
@@ -2452,7 +1588,7 @@
     {
       "test": "test_determinism.py::test_same_seed_same_machine[linux-1337]",
       "outcome": "passed",
-      "seconds": 1.27,
+      "seconds": 0.64,
       "details": {
         "profile_differences": [],
         "page_differences": []
@@ -2465,15 +1601,17 @@
       "details": {
         "profile_differences": [],
         "page_differences": [
+          "page.media.hover: false != true",
+          "page.media.pointerFine: false != true",
           "page.screen.innerHeight: 889 != 945"
         ],
         "known_gap": {
-          "id": "api-keys-infobar",
-          "reason": "A launch without a driver shows Chromium's 'Google API keys are missing' bar on its first tab, which takes 56 px from innerHeight. Google Chrome never shows it.",
-          "link": "https://docs.apostate.dev/known-gaps#a-bar-on-the-first-tab"
+          "id": "host-pointer",
+          "reason": "A launch without Playwright or Patchright reports the host's pointer and hover media features. A server with no mouse reports (pointer: none) and (hover: none) under a desktop persona.",
+          "link": "https://docs.apostate.dev/known-gaps#pointer-and-hover-come-from-the-driver-or-the-host"
         }
       },
-      "message": ""
+      "message": "known gap host-pointer: A launch without Playwright or Patchright reports the host's pointer and hover media features. A server with no mouse reports (pointer: none) and (hover: none) under a desktop persona. https://docs.apostate.dev/known-gaps#pointer-and-hover-come-from-the-driver-or-the-host"
     },
     {
       "test": "test_determinism.py::test_the_package_serves_the_same_machine[windows-1337]",
@@ -2482,15 +1620,17 @@
       "details": {
         "profile_differences": [],
         "page_differences": [
+          "page.media.hover: false != true",
+          "page.media.pointerFine: false != true",
           "page.screen.innerHeight: 889 != 945"
         ],
         "known_gap": {
-          "id": "api-keys-infobar",
-          "reason": "A launch without a driver shows Chromium's 'Google API keys are missing' bar on its first tab, which takes 56 px from innerHeight. Google Chrome never shows it.",
-          "link": "https://docs.apostate.dev/known-gaps#a-bar-on-the-first-tab"
+          "id": "host-pointer",
+          "reason": "A launch without Playwright or Patchright reports the host's pointer and hover media features. A server with no mouse reports (pointer: none) and (hover: none) under a desktop persona.",
+          "link": "https://docs.apostate.dev/known-gaps#pointer-and-hover-come-from-the-driver-or-the-host"
         }
       },
-      "message": ""
+      "message": "known gap host-pointer: A launch without Playwright or Patchright reports the host's pointer and hover media features. A server with no mouse reports (pointer: none) and (hover: none) under a desktop persona. https://docs.apostate.dev/known-gaps#pointer-and-hover-come-from-the-driver-or-the-host"
     },
     {
       "test": "test_determinism.py::test_the_package_serves_the_same_machine[macos-42]",
@@ -2499,15 +1639,17 @@
       "details": {
         "profile_differences": [],
         "page_differences": [
+          "page.media.hover: false != true",
+          "page.media.pointerFine: false != true",
           "page.screen.innerHeight: 1220 != 1276"
         ],
         "known_gap": {
-          "id": "api-keys-infobar",
-          "reason": "A launch without a driver shows Chromium's 'Google API keys are missing' bar on its first tab, which takes 56 px from innerHeight. Google Chrome never shows it.",
-          "link": "https://docs.apostate.dev/known-gaps#a-bar-on-the-first-tab"
+          "id": "host-pointer",
+          "reason": "A launch without Playwright or Patchright reports the host's pointer and hover media features. A server with no mouse reports (pointer: none) and (hover: none) under a desktop persona.",
+          "link": "https://docs.apostate.dev/known-gaps#pointer-and-hover-come-from-the-driver-or-the-host"
         }
       },
-      "message": ""
+      "message": "known gap host-pointer: A launch without Playwright or Patchright reports the host's pointer and hover media features. A server with no mouse reports (pointer: none) and (hover: none) under a desktop persona. https://docs.apostate.dev/known-gaps#pointer-and-hover-come-from-the-driver-or-the-host"
     },
     {
       "test": "test_determinism.py::test_the_package_serves_the_same_machine[macos-1337]",
@@ -2516,15 +1658,17 @@
       "details": {
         "profile_differences": [],
         "page_differences": [
+          "page.media.hover: false != true",
+          "page.media.pointerFine: false != true",
           "page.screen.innerHeight: 650 != 706"
         ],
         "known_gap": {
-          "id": "api-keys-infobar",
-          "reason": "A launch without a driver shows Chromium's 'Google API keys are missing' bar on its first tab, which takes 56 px from innerHeight. Google Chrome never shows it.",
-          "link": "https://docs.apostate.dev/known-gaps#a-bar-on-the-first-tab"
+          "id": "host-pointer",
+          "reason": "A launch without Playwright or Patchright reports the host's pointer and hover media features. A server with no mouse reports (pointer: none) and (hover: none) under a desktop persona.",
+          "link": "https://docs.apostate.dev/known-gaps#pointer-and-hover-come-from-the-driver-or-the-host"
         }
       },
-      "message": ""
+      "message": "known gap host-pointer: A launch without Playwright or Patchright reports the host's pointer and hover media features. A server with no mouse reports (pointer: none) and (hover: none) under a desktop persona. https://docs.apostate.dev/known-gaps#pointer-and-hover-come-from-the-driver-or-the-host"
     },
     {
       "test": "test_determinism.py::test_the_package_serves_the_same_machine[linux-42]",
@@ -2533,15 +1677,17 @@
       "details": {
         "profile_differences": [],
         "page_differences": [
+          "page.media.hover: false != true",
+          "page.media.pointerFine: false != true",
           "page.screen.innerHeight: 1965 != 2021"
         ],
         "known_gap": {
-          "id": "api-keys-infobar",
-          "reason": "A launch without a driver shows Chromium's 'Google API keys are missing' bar on its first tab, which takes 56 px from innerHeight. Google Chrome never shows it.",
-          "link": "https://docs.apostate.dev/known-gaps#a-bar-on-the-first-tab"
+          "id": "host-pointer",
+          "reason": "A launch without Playwright or Patchright reports the host's pointer and hover media features. A server with no mouse reports (pointer: none) and (hover: none) under a desktop persona.",
+          "link": "https://docs.apostate.dev/known-gaps#pointer-and-hover-come-from-the-driver-or-the-host"
         }
       },
-      "message": ""
+      "message": "known gap host-pointer: A launch without Playwright or Patchright reports the host's pointer and hover media features. A server with no mouse reports (pointer: none) and (hover: none) under a desktop persona. https://docs.apostate.dev/known-gaps#pointer-and-hover-come-from-the-driver-or-the-host"
     },
     {
       "test": "test_determinism.py::test_the_package_serves_the_same_machine[linux-1337]",
@@ -2550,15 +1696,17 @@
       "details": {
         "profile_differences": [],
         "page_differences": [
+          "page.media.hover: false != true",
+          "page.media.pointerFine: false != true",
           "page.screen.innerHeight: 1233 != 1289"
         ],
         "known_gap": {
-          "id": "api-keys-infobar",
-          "reason": "A launch without a driver shows Chromium's 'Google API keys are missing' bar on its first tab, which takes 56 px from innerHeight. Google Chrome never shows it.",
-          "link": "https://docs.apostate.dev/known-gaps#a-bar-on-the-first-tab"
+          "id": "host-pointer",
+          "reason": "A launch without Playwright or Patchright reports the host's pointer and hover media features. A server with no mouse reports (pointer: none) and (hover: none) under a desktop persona.",
+          "link": "https://docs.apostate.dev/known-gaps#pointer-and-hover-come-from-the-driver-or-the-host"
         }
       },
-      "message": ""
+      "message": "known gap host-pointer: A launch without Playwright or Patchright reports the host's pointer and hover media features. A server with no mouse reports (pointer: none) and (hover: none) under a desktop persona. https://docs.apostate.dev/known-gaps#pointer-and-hover-come-from-the-driver-or-the-host"
     },
     {
       "test": "test_determinism.py::test_different_seeds_give_different_machines[windows]",
@@ -2602,9 +1750,9 @@
     {
       "test": "test_determinism.py::test_persistent_profile_keeps_its_machine[windows]",
       "outcome": "passed",
-      "seconds": 4.99,
+      "seconds": 3.16,
       "details": {
-        "identity": "515b555f56c3...",
+        "identity": "26822cd1b9a1...",
         "differences": [
           [],
           []
@@ -2614,9 +1762,9 @@
     {
       "test": "test_determinism.py::test_persistent_profile_keeps_its_machine[macos]",
       "outcome": "passed",
-      "seconds": 5.15,
+      "seconds": 2.67,
       "details": {
-        "identity": "1729b0cd5957...",
+        "identity": "710dbba767a0...",
         "differences": [
           [],
           []
@@ -2626,9 +1774,9 @@
     {
       "test": "test_determinism.py::test_persistent_profile_keeps_its_machine[linux]",
       "outcome": "passed",
-      "seconds": 4.87,
+      "seconds": 2.44,
       "details": {
-        "identity": "0379fe51673a...",
+        "identity": "70ef6d797c65...",
         "differences": [
           [],
           []
@@ -2638,9 +1786,9 @@
     {
       "test": "test_host_mode.py::test_host_mode_composes_nothing",
       "outcome": "passed",
-      "seconds": 1.41,
+      "seconds": 0.88,
       "details": {
-        "platform": "MacIntel",
+        "platform": "Linux x86_64",
         "cores": 14
       }
     },
@@ -2910,21 +2058,33 @@
     },
     {
       "test": "test_profile.py::test_cpu_and_memory[macos-42-bare]",
-      "outcome": "passed",
+      "outcome": "xfailed",
       "seconds": 0.0,
       "details": {
         "checked": 2,
-        "mismatched": {}
-      }
+        "mismatched": {},
+        "known_gap": {
+          "id": "host-cap",
+          "reason": "The host has less memory than every option the persona's machine offers, so the page reads the host's own navigator.deviceMemory next to the persona's GPU.",
+          "link": "https://docs.apostate.dev/known-gaps#cores-and-memory-are-capped-at-the-hosts"
+        }
+      },
+      "message": "known gap host-cap: The host has less memory than every option the persona's machine offers, so the page reads the host's own navigator.deviceMemory next to the persona's GPU. https://docs.apostate.dev/known-gaps#cores-and-memory-are-capped-at-the-hosts"
     },
     {
       "test": "test_profile.py::test_cpu_and_memory[macos-42-package]",
-      "outcome": "passed",
+      "outcome": "xfailed",
       "seconds": 0.0,
       "details": {
         "checked": 2,
-        "mismatched": {}
-      }
+        "mismatched": {},
+        "known_gap": {
+          "id": "host-cap",
+          "reason": "The host has less memory than every option the persona's machine offers, so the page reads the host's own navigator.deviceMemory next to the persona's GPU.",
+          "link": "https://docs.apostate.dev/known-gaps#cores-and-memory-are-capped-at-the-hosts"
+        }
+      },
+      "message": "known gap host-cap: The host has less memory than every option the persona's machine offers, so the page reads the host's own navigator.deviceMemory next to the persona's GPU. https://docs.apostate.dev/known-gaps#cores-and-memory-are-capped-at-the-hosts"
     },
     {
       "test": "test_profile.py::test_cpu_and_memory[macos-1337-bare]",
@@ -2946,39 +2106,63 @@
     },
     {
       "test": "test_profile.py::test_cpu_and_memory[linux-42-bare]",
-      "outcome": "passed",
+      "outcome": "xfailed",
       "seconds": 0.0,
       "details": {
         "checked": 2,
-        "mismatched": {}
-      }
+        "mismatched": {},
+        "known_gap": {
+          "id": "host-cap",
+          "reason": "The host has less memory than every option the persona's machine offers, so the page reads the host's own navigator.deviceMemory next to the persona's GPU.",
+          "link": "https://docs.apostate.dev/known-gaps#cores-and-memory-are-capped-at-the-hosts"
+        }
+      },
+      "message": "known gap host-cap: The host has less memory than every option the persona's machine offers, so the page reads the host's own navigator.deviceMemory next to the persona's GPU. https://docs.apostate.dev/known-gaps#cores-and-memory-are-capped-at-the-hosts"
     },
     {
       "test": "test_profile.py::test_cpu_and_memory[linux-42-package]",
-      "outcome": "passed",
+      "outcome": "xfailed",
       "seconds": 0.0,
       "details": {
         "checked": 2,
-        "mismatched": {}
-      }
+        "mismatched": {},
+        "known_gap": {
+          "id": "host-cap",
+          "reason": "The host has less memory than every option the persona's machine offers, so the page reads the host's own navigator.deviceMemory next to the persona's GPU.",
+          "link": "https://docs.apostate.dev/known-gaps#cores-and-memory-are-capped-at-the-hosts"
+        }
+      },
+      "message": "known gap host-cap: The host has less memory than every option the persona's machine offers, so the page reads the host's own navigator.deviceMemory next to the persona's GPU. https://docs.apostate.dev/known-gaps#cores-and-memory-are-capped-at-the-hosts"
     },
     {
       "test": "test_profile.py::test_cpu_and_memory[linux-1337-bare]",
-      "outcome": "passed",
+      "outcome": "xfailed",
       "seconds": 0.0,
       "details": {
         "checked": 2,
-        "mismatched": {}
-      }
+        "mismatched": {},
+        "known_gap": {
+          "id": "host-cap",
+          "reason": "The host has less memory than every option the persona's machine offers, so the page reads the host's own navigator.deviceMemory next to the persona's GPU.",
+          "link": "https://docs.apostate.dev/known-gaps#cores-and-memory-are-capped-at-the-hosts"
+        }
+      },
+      "message": "known gap host-cap: The host has less memory than every option the persona's machine offers, so the page reads the host's own navigator.deviceMemory next to the persona's GPU. https://docs.apostate.dev/known-gaps#cores-and-memory-are-capped-at-the-hosts"
     },
     {
       "test": "test_profile.py::test_cpu_and_memory[linux-1337-package]",
-      "outcome": "passed",
+      "outcome": "xfailed",
       "seconds": 0.0,
       "details": {
         "checked": 2,
-        "mismatched": {}
-      }
+        "mismatched": {},
+        "known_gap": {
+          "id": "host-cap",
+          "reason": "The host has less memory than every option the persona's machine offers, so the page reads the host's own navigator.deviceMemory next to the persona's GPU.",
+          "link": "https://docs.apostate.dev/known-gaps#cores-and-memory-are-capped-at-the-hosts"
+        }
+      },
+      "message": "known gap host-cap: The host has less memory than every option the persona's machine offers, so the page reads the host's own navigator.deviceMemory next to the persona's GPU. https://docs.apostate.dev/known-gaps#cores-and-memory-are-capped-at-the-hosts"
     },
     {
       "test": "test_profile.py::test_screen[windows-42-bare]",
@@ -3354,99 +2538,63 @@
     },
     {
       "test": "test_profile.py::test_webgl[windows-42-bare]",
-      "outcome": "xfailed",
+      "outcome": "passed",
       "seconds": 0.0,
       "details": {
         "extensions_not_in_profile": [],
         "profile_extensions_missing": [
-          "OVR_multiview2"
+          "EXT_disjoint_timer_query",
+          "EXT_disjoint_timer_query_webgl2",
+          "WEBGL_provoking_vertex"
         ],
         "checked": 27,
-        "mismatched": {
-          "limit MAX_UNIFORM_BLOCK_SIZE": {
-            "page": 16384,
-            "profile": 65536
-          }
-        },
-        "known_gap": {
-          "id": "apple-gpu-limits",
-          "reason": "On an Apple silicon host, a Windows or Linux persona reports the Apple GPU's value for WebGL MAX_UNIFORM_BLOCK_SIZE and for some WebGPU adapter limits and features.",
-          "link": "https://docs.apostate.dev/known-gaps#webgl-and-webgpu-limits-on-apple-silicon"
-        }
-      },
-      "message": ""
+        "mismatched": {}
+      }
     },
     {
       "test": "test_profile.py::test_webgl[windows-42-package]",
-      "outcome": "xfailed",
+      "outcome": "passed",
       "seconds": 0.0,
       "details": {
         "extensions_not_in_profile": [],
         "profile_extensions_missing": [
-          "OVR_multiview2"
+          "EXT_disjoint_timer_query",
+          "EXT_disjoint_timer_query_webgl2",
+          "WEBGL_provoking_vertex"
         ],
         "checked": 27,
-        "mismatched": {
-          "limit MAX_UNIFORM_BLOCK_SIZE": {
-            "page": 16384,
-            "profile": 65536
-          }
-        },
-        "known_gap": {
-          "id": "apple-gpu-limits",
-          "reason": "On an Apple silicon host, a Windows or Linux persona reports the Apple GPU's value for WebGL MAX_UNIFORM_BLOCK_SIZE and for some WebGPU adapter limits and features.",
-          "link": "https://docs.apostate.dev/known-gaps#webgl-and-webgpu-limits-on-apple-silicon"
-        }
-      },
-      "message": ""
+        "mismatched": {}
+      }
     },
     {
       "test": "test_profile.py::test_webgl[windows-1337-bare]",
-      "outcome": "xfailed",
+      "outcome": "passed",
       "seconds": 0.0,
       "details": {
         "extensions_not_in_profile": [],
         "profile_extensions_missing": [
-          "OVR_multiview2"
+          "EXT_disjoint_timer_query",
+          "EXT_disjoint_timer_query_webgl2",
+          "WEBGL_provoking_vertex"
         ],
         "checked": 27,
-        "mismatched": {
-          "limit MAX_UNIFORM_BLOCK_SIZE": {
-            "page": 16384,
-            "profile": 65536
-          }
-        },
-        "known_gap": {
-          "id": "apple-gpu-limits",
-          "reason": "On an Apple silicon host, a Windows or Linux persona reports the Apple GPU's value for WebGL MAX_UNIFORM_BLOCK_SIZE and for some WebGPU adapter limits and features.",
-          "link": "https://docs.apostate.dev/known-gaps#webgl-and-webgpu-limits-on-apple-silicon"
-        }
-      },
-      "message": ""
+        "mismatched": {}
+      }
     },
     {
       "test": "test_profile.py::test_webgl[windows-1337-package]",
-      "outcome": "xfailed",
+      "outcome": "passed",
       "seconds": 0.0,
       "details": {
         "extensions_not_in_profile": [],
         "profile_extensions_missing": [
-          "OVR_multiview2"
+          "EXT_disjoint_timer_query",
+          "EXT_disjoint_timer_query_webgl2",
+          "WEBGL_provoking_vertex"
         ],
         "checked": 27,
-        "mismatched": {
-          "limit MAX_UNIFORM_BLOCK_SIZE": {
-            "page": 16384,
-            "profile": 65536
-          }
-        },
-        "known_gap": {
-          "id": "apple-gpu-limits",
-          "reason": "On an Apple silicon host, a Windows or Linux persona reports the Apple GPU's value for WebGL MAX_UNIFORM_BLOCK_SIZE and for some WebGPU adapter limits and features.",
-          "link": "https://docs.apostate.dev/known-gaps#webgl-and-webgpu-limits-on-apple-silicon"
-        }
-      },
-      "message": ""
+        "mismatched": {}
+      }
     },
     {
       "test": "test_profile.py::test_webgl[macos-42-bare]",
@@ -3454,7 +2602,11 @@
       "seconds": 0.0,
       "details": {
         "extensions_not_in_profile": [],
-        "profile_extensions_missing": [],
+        "profile_extensions_missing": [
+          "EXT_disjoint_timer_query",
+          "EXT_disjoint_timer_query_webgl2",
+          "WEBGL_provoking_vertex"
+        ],
         "checked": 27,
         "mismatched": {}
       }
@@ -3465,7 +2617,11 @@
       "seconds": 0.0,
       "details": {
         "extensions_not_in_profile": [],
-        "profile_extensions_missing": [],
+        "profile_extensions_missing": [
+          "EXT_disjoint_timer_query",
+          "EXT_disjoint_timer_query_webgl2",
+          "WEBGL_provoking_vertex"
+        ],
         "checked": 27,
         "mismatched": {}
       }
@@ -3476,7 +2632,11 @@
       "seconds": 0.0,
       "details": {
         "extensions_not_in_profile": [],
-        "profile_extensions_missing": [],
+        "profile_extensions_missing": [
+          "EXT_disjoint_timer_query",
+          "EXT_disjoint_timer_query_webgl2",
+          "WEBGL_provoking_vertex"
+        ],
         "checked": 27,
         "mismatched": {}
       }
@@ -3487,571 +2647,283 @@
       "seconds": 0.0,
       "details": {
         "extensions_not_in_profile": [],
-        "profile_extensions_missing": [],
+        "profile_extensions_missing": [
+          "EXT_disjoint_timer_query",
+          "EXT_disjoint_timer_query_webgl2",
+          "WEBGL_provoking_vertex"
+        ],
         "checked": 27,
         "mismatched": {}
       }
     },
     {
       "test": "test_profile.py::test_webgl[linux-42-bare]",
-      "outcome": "xfailed",
+      "outcome": "passed",
       "seconds": 0.0,
       "details": {
         "extensions_not_in_profile": [],
         "profile_extensions_missing": [
-          "OVR_multiview2"
+          "EXT_disjoint_timer_query",
+          "EXT_disjoint_timer_query_webgl2"
         ],
         "checked": 27,
-        "mismatched": {
-          "limit MAX_UNIFORM_BLOCK_SIZE": {
-            "page": 16384,
-            "profile": 65536
-          }
-        },
-        "known_gap": {
-          "id": "apple-gpu-limits",
-          "reason": "On an Apple silicon host, a Windows or Linux persona reports the Apple GPU's value for WebGL MAX_UNIFORM_BLOCK_SIZE and for some WebGPU adapter limits and features.",
-          "link": "https://docs.apostate.dev/known-gaps#webgl-and-webgpu-limits-on-apple-silicon"
-        }
-      },
-      "message": ""
+        "mismatched": {}
+      }
     },
     {
       "test": "test_profile.py::test_webgl[linux-42-package]",
-      "outcome": "xfailed",
+      "outcome": "passed",
       "seconds": 0.0,
       "details": {
         "extensions_not_in_profile": [],
         "profile_extensions_missing": [
-          "OVR_multiview2"
+          "EXT_disjoint_timer_query",
+          "EXT_disjoint_timer_query_webgl2"
         ],
         "checked": 27,
-        "mismatched": {
-          "limit MAX_UNIFORM_BLOCK_SIZE": {
-            "page": 16384,
-            "profile": 65536
-          }
-        },
-        "known_gap": {
-          "id": "apple-gpu-limits",
-          "reason": "On an Apple silicon host, a Windows or Linux persona reports the Apple GPU's value for WebGL MAX_UNIFORM_BLOCK_SIZE and for some WebGPU adapter limits and features.",
-          "link": "https://docs.apostate.dev/known-gaps#webgl-and-webgpu-limits-on-apple-silicon"
-        }
-      },
-      "message": ""
+        "mismatched": {}
+      }
     },
     {
       "test": "test_profile.py::test_webgl[linux-1337-bare]",
-      "outcome": "xfailed",
+      "outcome": "passed",
       "seconds": 0.0,
       "details": {
         "extensions_not_in_profile": [],
         "profile_extensions_missing": [
-          "OVR_multiview2"
+          "EXT_disjoint_timer_query",
+          "EXT_disjoint_timer_query_webgl2"
         ],
         "checked": 27,
-        "mismatched": {
-          "limit MAX_UNIFORM_BLOCK_SIZE": {
-            "page": 16384,
-            "profile": 65536
-          }
-        },
-        "known_gap": {
-          "id": "apple-gpu-limits",
-          "reason": "On an Apple silicon host, a Windows or Linux persona reports the Apple GPU's value for WebGL MAX_UNIFORM_BLOCK_SIZE and for some WebGPU adapter limits and features.",
-          "link": "https://docs.apostate.dev/known-gaps#webgl-and-webgpu-limits-on-apple-silicon"
-        }
-      },
-      "message": ""
+        "mismatched": {}
+      }
     },
     {
       "test": "test_profile.py::test_webgl[linux-1337-package]",
-      "outcome": "xfailed",
+      "outcome": "passed",
       "seconds": 0.0,
       "details": {
         "extensions_not_in_profile": [],
         "profile_extensions_missing": [
-          "OVR_multiview2"
+          "EXT_disjoint_timer_query",
+          "EXT_disjoint_timer_query_webgl2"
         ],
         "checked": 27,
-        "mismatched": {
-          "limit MAX_UNIFORM_BLOCK_SIZE": {
-            "page": 16384,
-            "profile": 65536
-          }
-        },
-        "known_gap": {
-          "id": "apple-gpu-limits",
-          "reason": "On an Apple silicon host, a Windows or Linux persona reports the Apple GPU's value for WebGL MAX_UNIFORM_BLOCK_SIZE and for some WebGPU adapter limits and features.",
-          "link": "https://docs.apostate.dev/known-gaps#webgl-and-webgpu-limits-on-apple-silicon"
-        }
-      },
-      "message": ""
+        "mismatched": {}
+      }
     },
     {
       "test": "test_profile.py::test_webgpu[windows-42-bare]",
       "outcome": "xfailed",
       "seconds": 0.0,
       "details": {
-        "checked": 41,
-        "mismatched": {
-          "limit maxStorageBuffersInFragmentStage": {
-            "page": 10,
-            "profile": 16
-          },
-          "limit maxStorageBuffersInVertexStage": {
-            "page": 10,
-            "profile": 16
-          },
-          "limit maxStorageBuffersPerShaderStage": {
-            "page": 10,
-            "profile": 16
-          }
+        "webgpu": {
+          "available": true,
+          "adapter": null
         },
         "known_gap": {
-          "id": "apple-gpu-limits",
-          "reason": "On an Apple silicon host, a Windows or Linux persona reports the Apple GPU's value for WebGL MAX_UNIFORM_BLOCK_SIZE and for some WebGPU adapter limits and features.",
-          "link": "https://docs.apostate.dev/known-gaps#webgl-and-webgpu-limits-on-apple-silicon"
+          "id": "linux-headless-webgpu",
+          "reason": "On Linux, navigator.gpu.requestAdapter() returns null in headless mode, although the persona claims a WebGPU adapter. Headed launches as a regular user serve it.",
+          "link": "https://docs.apostate.dev/known-gaps#webgpu-in-headless-mode-on-linux"
         }
       },
-      "message": ""
+      "message": "known gap linux-headless-webgpu: On Linux, navigator.gpu.requestAdapter() returns null in headless mode, although the persona claims a WebGPU adapter. Headed launches as a regular user serve it. https://docs.apostate.dev/known-gaps#webgpu-in-headless-mode-on-linux"
     },
     {
       "test": "test_profile.py::test_webgpu[windows-42-package]",
       "outcome": "xfailed",
       "seconds": 0.0,
       "details": {
-        "checked": 41,
-        "mismatched": {
-          "limit maxStorageBuffersInFragmentStage": {
-            "page": 10,
-            "profile": 16
-          },
-          "limit maxStorageBuffersInVertexStage": {
-            "page": 10,
-            "profile": 16
-          },
-          "limit maxStorageBuffersPerShaderStage": {
-            "page": 10,
-            "profile": 16
-          }
+        "webgpu": {
+          "available": true,
+          "adapter": null
         },
         "known_gap": {
-          "id": "apple-gpu-limits",
-          "reason": "On an Apple silicon host, a Windows or Linux persona reports the Apple GPU's value for WebGL MAX_UNIFORM_BLOCK_SIZE and for some WebGPU adapter limits and features.",
-          "link": "https://docs.apostate.dev/known-gaps#webgl-and-webgpu-limits-on-apple-silicon"
+          "id": "linux-headless-webgpu",
+          "reason": "On Linux, navigator.gpu.requestAdapter() returns null in headless mode, although the persona claims a WebGPU adapter. Headed launches as a regular user serve it.",
+          "link": "https://docs.apostate.dev/known-gaps#webgpu-in-headless-mode-on-linux"
         }
       },
-      "message": ""
+      "message": "known gap linux-headless-webgpu: On Linux, navigator.gpu.requestAdapter() returns null in headless mode, although the persona claims a WebGPU adapter. Headed launches as a regular user serve it. https://docs.apostate.dev/known-gaps#webgpu-in-headless-mode-on-linux"
     },
     {
       "test": "test_profile.py::test_webgpu[windows-1337-bare]",
       "outcome": "xfailed",
       "seconds": 0.0,
       "details": {
-        "checked": 41,
-        "mismatched": {
-          "limit maxStorageBuffersInFragmentStage": {
-            "page": 10,
-            "profile": 16
-          },
-          "limit maxStorageBuffersInVertexStage": {
-            "page": 10,
-            "profile": 16
-          },
-          "limit maxStorageBuffersPerShaderStage": {
-            "page": 10,
-            "profile": 16
-          }
+        "webgpu": {
+          "available": true,
+          "adapter": null
         },
         "known_gap": {
-          "id": "apple-gpu-limits",
-          "reason": "On an Apple silicon host, a Windows or Linux persona reports the Apple GPU's value for WebGL MAX_UNIFORM_BLOCK_SIZE and for some WebGPU adapter limits and features.",
-          "link": "https://docs.apostate.dev/known-gaps#webgl-and-webgpu-limits-on-apple-silicon"
+          "id": "linux-headless-webgpu",
+          "reason": "On Linux, navigator.gpu.requestAdapter() returns null in headless mode, although the persona claims a WebGPU adapter. Headed launches as a regular user serve it.",
+          "link": "https://docs.apostate.dev/known-gaps#webgpu-in-headless-mode-on-linux"
         }
       },
-      "message": ""
+      "message": "known gap linux-headless-webgpu: On Linux, navigator.gpu.requestAdapter() returns null in headless mode, although the persona claims a WebGPU adapter. Headed launches as a regular user serve it. https://docs.apostate.dev/known-gaps#webgpu-in-headless-mode-on-linux"
     },
     {
       "test": "test_profile.py::test_webgpu[windows-1337-package]",
       "outcome": "xfailed",
       "seconds": 0.0,
       "details": {
-        "checked": 41,
-        "mismatched": {
-          "limit maxStorageBuffersInFragmentStage": {
-            "page": 10,
-            "profile": 16
-          },
-          "limit maxStorageBuffersInVertexStage": {
-            "page": 10,
-            "profile": 16
-          },
-          "limit maxStorageBuffersPerShaderStage": {
-            "page": 10,
-            "profile": 16
-          }
+        "webgpu": {
+          "available": true,
+          "adapter": null
         },
         "known_gap": {
-          "id": "apple-gpu-limits",
-          "reason": "On an Apple silicon host, a Windows or Linux persona reports the Apple GPU's value for WebGL MAX_UNIFORM_BLOCK_SIZE and for some WebGPU adapter limits and features.",
-          "link": "https://docs.apostate.dev/known-gaps#webgl-and-webgpu-limits-on-apple-silicon"
+          "id": "linux-headless-webgpu",
+          "reason": "On Linux, navigator.gpu.requestAdapter() returns null in headless mode, although the persona claims a WebGPU adapter. Headed launches as a regular user serve it.",
+          "link": "https://docs.apostate.dev/known-gaps#webgpu-in-headless-mode-on-linux"
         }
       },
-      "message": ""
+      "message": "known gap linux-headless-webgpu: On Linux, navigator.gpu.requestAdapter() returns null in headless mode, although the persona claims a WebGPU adapter. Headed launches as a regular user serve it. https://docs.apostate.dev/known-gaps#webgpu-in-headless-mode-on-linux"
     },
     {
       "test": "test_profile.py::test_webgpu[macos-42-bare]",
-      "outcome": "passed",
+      "outcome": "xfailed",
       "seconds": 0.0,
       "details": {
-        "checked": 41,
-        "mismatched": {}
-      }
+        "webgpu": {
+          "available": true,
+          "adapter": null
+        },
+        "known_gap": {
+          "id": "linux-headless-webgpu",
+          "reason": "On Linux, navigator.gpu.requestAdapter() returns null in headless mode, although the persona claims a WebGPU adapter. Headed launches as a regular user serve it.",
+          "link": "https://docs.apostate.dev/known-gaps#webgpu-in-headless-mode-on-linux"
+        }
+      },
+      "message": "known gap linux-headless-webgpu: On Linux, navigator.gpu.requestAdapter() returns null in headless mode, although the persona claims a WebGPU adapter. Headed launches as a regular user serve it. https://docs.apostate.dev/known-gaps#webgpu-in-headless-mode-on-linux"
     },
     {
       "test": "test_profile.py::test_webgpu[macos-42-package]",
-      "outcome": "passed",
+      "outcome": "xfailed",
       "seconds": 0.0,
       "details": {
-        "checked": 41,
-        "mismatched": {}
-      }
+        "webgpu": {
+          "available": true,
+          "adapter": null
+        },
+        "known_gap": {
+          "id": "linux-headless-webgpu",
+          "reason": "On Linux, navigator.gpu.requestAdapter() returns null in headless mode, although the persona claims a WebGPU adapter. Headed launches as a regular user serve it.",
+          "link": "https://docs.apostate.dev/known-gaps#webgpu-in-headless-mode-on-linux"
+        }
+      },
+      "message": "known gap linux-headless-webgpu: On Linux, navigator.gpu.requestAdapter() returns null in headless mode, although the persona claims a WebGPU adapter. Headed launches as a regular user serve it. https://docs.apostate.dev/known-gaps#webgpu-in-headless-mode-on-linux"
     },
     {
       "test": "test_profile.py::test_webgpu[macos-1337-bare]",
-      "outcome": "passed",
+      "outcome": "xfailed",
       "seconds": 0.0,
       "details": {
-        "checked": 41,
-        "mismatched": {}
-      }
+        "webgpu": {
+          "available": true,
+          "adapter": null
+        },
+        "known_gap": {
+          "id": "linux-headless-webgpu",
+          "reason": "On Linux, navigator.gpu.requestAdapter() returns null in headless mode, although the persona claims a WebGPU adapter. Headed launches as a regular user serve it.",
+          "link": "https://docs.apostate.dev/known-gaps#webgpu-in-headless-mode-on-linux"
+        }
+      },
+      "message": "known gap linux-headless-webgpu: On Linux, navigator.gpu.requestAdapter() returns null in headless mode, although the persona claims a WebGPU adapter. Headed launches as a regular user serve it. https://docs.apostate.dev/known-gaps#webgpu-in-headless-mode-on-linux"
     },
     {
       "test": "test_profile.py::test_webgpu[macos-1337-package]",
-      "outcome": "passed",
+      "outcome": "xfailed",
       "seconds": 0.0,
       "details": {
-        "checked": 41,
-        "mismatched": {}
-      }
+        "webgpu": {
+          "available": true,
+          "adapter": null
+        },
+        "known_gap": {
+          "id": "linux-headless-webgpu",
+          "reason": "On Linux, navigator.gpu.requestAdapter() returns null in headless mode, although the persona claims a WebGPU adapter. Headed launches as a regular user serve it.",
+          "link": "https://docs.apostate.dev/known-gaps#webgpu-in-headless-mode-on-linux"
+        }
+      },
+      "message": "known gap linux-headless-webgpu: On Linux, navigator.gpu.requestAdapter() returns null in headless mode, although the persona claims a WebGPU adapter. Headed launches as a regular user serve it. https://docs.apostate.dev/known-gaps#webgpu-in-headless-mode-on-linux"
     },
     {
       "test": "test_profile.py::test_webgpu[linux-42-bare]",
       "outcome": "xfailed",
       "seconds": 0.0,
       "details": {
-        "checked": 41,
-        "mismatched": {
-          "features": {
-            "page": [
-              "bgra8unorm-storage",
-              "clip-distances",
-              "core-features-and-limits",
-              "depth-clip-control",
-              "depth32float-stencil8",
-              "dual-source-blending",
-              "float32-blendable",
-              "float32-filterable",
-              "indirect-first-instance",
-              "primitive-index",
-              "rg11b10ufloat-renderable",
-              "shader-f16",
-              "subgroup-size-control",
-              "subgroups",
-              "texture-component-swizzle",
-              "texture-compression-bc",
-              "texture-compression-bc-sliced-3d",
-              "texture-formats-tier1",
-              "texture-formats-tier2",
-              "timestamp-query"
-            ],
-            "profile": [
-              "bgra8unorm-storage",
-              "clip-distances",
-              "core-features-and-limits",
-              "depth-clip-control",
-              "depth32float-stencil8",
-              "dual-source-blending",
-              "float32-blendable",
-              "float32-filterable",
-              "indirect-first-instance",
-              "primitive-index",
-              "rg11b10ufloat-renderable",
-              "subgroup-size-control",
-              "subgroups",
-              "texture-component-swizzle",
-              "texture-compression-bc",
-              "texture-compression-bc-sliced-3d",
-              "texture-formats-tier1",
-              "texture-formats-tier2",
-              "timestamp-query"
-            ]
-          },
-          "limit maxComputeWorkgroupStorageSize": {
-            "page": 32768,
-            "profile": 49152
-          },
-          "limit maxStorageBuffersInFragmentStage": {
-            "page": 10,
-            "profile": 16
-          },
-          "limit maxStorageBuffersInVertexStage": {
-            "page": 10,
-            "profile": 16
-          },
-          "limit maxStorageBuffersPerShaderStage": {
-            "page": 10,
-            "profile": 16
-          }
+        "webgpu": {
+          "available": true,
+          "adapter": null
         },
         "known_gap": {
-          "id": "apple-gpu-limits",
-          "reason": "On an Apple silicon host, a Windows or Linux persona reports the Apple GPU's value for WebGL MAX_UNIFORM_BLOCK_SIZE and for some WebGPU adapter limits and features.",
-          "link": "https://docs.apostate.dev/known-gaps#webgl-and-webgpu-limits-on-apple-silicon"
+          "id": "linux-headless-webgpu",
+          "reason": "On Linux, navigator.gpu.requestAdapter() returns null in headless mode, although the persona claims a WebGPU adapter. Headed launches as a regular user serve it.",
+          "link": "https://docs.apostate.dev/known-gaps#webgpu-in-headless-mode-on-linux"
         }
       },
-      "message": ""
+      "message": "known gap linux-headless-webgpu: On Linux, navigator.gpu.requestAdapter() returns null in headless mode, although the persona claims a WebGPU adapter. Headed launches as a regular user serve it. https://docs.apostate.dev/known-gaps#webgpu-in-headless-mode-on-linux"
     },
     {
       "test": "test_profile.py::test_webgpu[linux-42-package]",
       "outcome": "xfailed",
       "seconds": 0.0,
       "details": {
-        "checked": 41,
-        "mismatched": {
-          "features": {
-            "page": [
-              "bgra8unorm-storage",
-              "clip-distances",
-              "core-features-and-limits",
-              "depth-clip-control",
-              "depth32float-stencil8",
-              "dual-source-blending",
-              "float32-blendable",
-              "float32-filterable",
-              "indirect-first-instance",
-              "primitive-index",
-              "rg11b10ufloat-renderable",
-              "shader-f16",
-              "subgroup-size-control",
-              "subgroups",
-              "texture-component-swizzle",
-              "texture-compression-bc",
-              "texture-compression-bc-sliced-3d",
-              "texture-formats-tier1",
-              "texture-formats-tier2",
-              "timestamp-query"
-            ],
-            "profile": [
-              "bgra8unorm-storage",
-              "clip-distances",
-              "core-features-and-limits",
-              "depth-clip-control",
-              "depth32float-stencil8",
-              "dual-source-blending",
-              "float32-blendable",
-              "float32-filterable",
-              "indirect-first-instance",
-              "primitive-index",
-              "rg11b10ufloat-renderable",
-              "subgroup-size-control",
-              "subgroups",
-              "texture-component-swizzle",
-              "texture-compression-bc",
-              "texture-compression-bc-sliced-3d",
-              "texture-formats-tier1",
-              "texture-formats-tier2",
-              "timestamp-query"
-            ]
-          },
-          "limit maxComputeWorkgroupStorageSize": {
-            "page": 32768,
-            "profile": 49152
-          },
-          "limit maxStorageBuffersInFragmentStage": {
-            "page": 10,
-            "profile": 16
-          },
-          "limit maxStorageBuffersInVertexStage": {
-            "page": 10,
-            "profile": 16
-          },
-          "limit maxStorageBuffersPerShaderStage": {
-            "page": 10,
-            "profile": 16
-          }
+        "webgpu": {
+          "available": true,
+          "adapter": null
         },
         "known_gap": {
-          "id": "apple-gpu-limits",
-          "reason": "On an Apple silicon host, a Windows or Linux persona reports the Apple GPU's value for WebGL MAX_UNIFORM_BLOCK_SIZE and for some WebGPU adapter limits and features.",
-          "link": "https://docs.apostate.dev/known-gaps#webgl-and-webgpu-limits-on-apple-silicon"
+          "id": "linux-headless-webgpu",
+          "reason": "On Linux, navigator.gpu.requestAdapter() returns null in headless mode, although the persona claims a WebGPU adapter. Headed launches as a regular user serve it.",
+          "link": "https://docs.apostate.dev/known-gaps#webgpu-in-headless-mode-on-linux"
         }
       },
-      "message": ""
+      "message": "known gap linux-headless-webgpu: On Linux, navigator.gpu.requestAdapter() returns null in headless mode, although the persona claims a WebGPU adapter. Headed launches as a regular user serve it. https://docs.apostate.dev/known-gaps#webgpu-in-headless-mode-on-linux"
     },
     {
       "test": "test_profile.py::test_webgpu[linux-1337-bare]",
       "outcome": "xfailed",
       "seconds": 0.0,
       "details": {
-        "checked": 41,
-        "mismatched": {
-          "features": {
-            "page": [
-              "bgra8unorm-storage",
-              "clip-distances",
-              "core-features-and-limits",
-              "depth-clip-control",
-              "depth32float-stencil8",
-              "dual-source-blending",
-              "float32-blendable",
-              "float32-filterable",
-              "indirect-first-instance",
-              "primitive-index",
-              "rg11b10ufloat-renderable",
-              "shader-f16",
-              "subgroup-size-control",
-              "subgroups",
-              "texture-component-swizzle",
-              "texture-compression-bc",
-              "texture-compression-bc-sliced-3d",
-              "texture-formats-tier1",
-              "texture-formats-tier2",
-              "timestamp-query"
-            ],
-            "profile": [
-              "bgra8unorm-storage",
-              "clip-distances",
-              "core-features-and-limits",
-              "depth-clip-control",
-              "depth32float-stencil8",
-              "dual-source-blending",
-              "float32-blendable",
-              "float32-filterable",
-              "indirect-first-instance",
-              "primitive-index",
-              "rg11b10ufloat-renderable",
-              "subgroup-size-control",
-              "subgroups",
-              "texture-component-swizzle",
-              "texture-compression-bc",
-              "texture-compression-bc-sliced-3d",
-              "texture-formats-tier1",
-              "texture-formats-tier2",
-              "timestamp-query"
-            ]
-          },
-          "limit maxComputeWorkgroupStorageSize": {
-            "page": 32768,
-            "profile": 49152
-          },
-          "limit maxStorageBuffersInFragmentStage": {
-            "page": 10,
-            "profile": 16
-          },
-          "limit maxStorageBuffersInVertexStage": {
-            "page": 10,
-            "profile": 16
-          },
-          "limit maxStorageBuffersPerShaderStage": {
-            "page": 10,
-            "profile": 16
-          }
+        "webgpu": {
+          "available": true,
+          "adapter": null
         },
         "known_gap": {
-          "id": "apple-gpu-limits",
-          "reason": "On an Apple silicon host, a Windows or Linux persona reports the Apple GPU's value for WebGL MAX_UNIFORM_BLOCK_SIZE and for some WebGPU adapter limits and features.",
-          "link": "https://docs.apostate.dev/known-gaps#webgl-and-webgpu-limits-on-apple-silicon"
+          "id": "linux-headless-webgpu",
+          "reason": "On Linux, navigator.gpu.requestAdapter() returns null in headless mode, although the persona claims a WebGPU adapter. Headed launches as a regular user serve it.",
+          "link": "https://docs.apostate.dev/known-gaps#webgpu-in-headless-mode-on-linux"
         }
       },
-      "message": ""
+      "message": "known gap linux-headless-webgpu: On Linux, navigator.gpu.requestAdapter() returns null in headless mode, although the persona claims a WebGPU adapter. Headed launches as a regular user serve it. https://docs.apostate.dev/known-gaps#webgpu-in-headless-mode-on-linux"
     },
     {
       "test": "test_profile.py::test_webgpu[linux-1337-package]",
       "outcome": "xfailed",
       "seconds": 0.0,
       "details": {
-        "checked": 41,
-        "mismatched": {
-          "features": {
-            "page": [
-              "bgra8unorm-storage",
-              "clip-distances",
-              "core-features-and-limits",
-              "depth-clip-control",
-              "depth32float-stencil8",
-              "dual-source-blending",
-              "float32-blendable",
-              "float32-filterable",
-              "indirect-first-instance",
-              "primitive-index",
-              "rg11b10ufloat-renderable",
-              "shader-f16",
-              "subgroup-size-control",
-              "subgroups",
-              "texture-component-swizzle",
-              "texture-compression-bc",
-              "texture-compression-bc-sliced-3d",
-              "texture-formats-tier1",
-              "texture-formats-tier2",
-              "timestamp-query"
-            ],
-            "profile": [
-              "bgra8unorm-storage",
-              "clip-distances",
-              "core-features-and-limits",
-              "depth-clip-control",
-              "depth32float-stencil8",
-              "dual-source-blending",
-              "float32-blendable",
-              "float32-filterable",
-              "indirect-first-instance",
-              "primitive-index",
-              "rg11b10ufloat-renderable",
-              "subgroup-size-control",
-              "subgroups",
-              "texture-component-swizzle",
-              "texture-compression-bc",
-              "texture-compression-bc-sliced-3d",
-              "texture-formats-tier1",
-              "texture-formats-tier2",
-              "timestamp-query"
-            ]
-          },
-          "limit maxComputeWorkgroupStorageSize": {
-            "page": 32768,
-            "profile": 49152
-          },
-          "limit maxStorageBuffersInFragmentStage": {
-            "page": 10,
-            "profile": 16
-          },
-          "limit maxStorageBuffersInVertexStage": {
-            "page": 10,
-            "profile": 16
-          },
-          "limit maxStorageBuffersPerShaderStage": {
-            "page": 10,
-            "profile": 16
-          }
+        "webgpu": {
+          "available": true,
+          "adapter": null
         },
         "known_gap": {
-          "id": "apple-gpu-limits",
-          "reason": "On an Apple silicon host, a Windows or Linux persona reports the Apple GPU's value for WebGL MAX_UNIFORM_BLOCK_SIZE and for some WebGPU adapter limits and features.",
-          "link": "https://docs.apostate.dev/known-gaps#webgl-and-webgpu-limits-on-apple-silicon"
+          "id": "linux-headless-webgpu",
+          "reason": "On Linux, navigator.gpu.requestAdapter() returns null in headless mode, although the persona claims a WebGPU adapter. Headed launches as a regular user serve it.",
+          "link": "https://docs.apostate.dev/known-gaps#webgpu-in-headless-mode-on-linux"
         }
       },
-      "message": ""
+      "message": "known gap linux-headless-webgpu: On Linux, navigator.gpu.requestAdapter() returns null in headless mode, although the persona claims a WebGPU adapter. Headed launches as a regular user serve it. https://docs.apostate.dev/known-gaps#webgpu-in-headless-mode-on-linux"
     },
     {
       "test": "test_profile.py::test_fonts_are_the_personas[windows-42-bare]",
       "outcome": "passed",
       "seconds": 0.0,
       "details": {
-        "visible": 92,
+        "visible": 93,
         "allowlisted": 90,
-        "visible_of_allowlist": 88,
+        "visible_of_allowlist": 86,
         "leaked": []
       }
     },
@@ -4060,9 +2932,9 @@
       "outcome": "passed",
       "seconds": 0.0,
       "details": {
-        "visible": 92,
+        "visible": 93,
         "allowlisted": 90,
-        "visible_of_allowlist": 88,
+        "visible_of_allowlist": 86,
         "leaked": []
       }
     },
@@ -4071,9 +2943,9 @@
       "outcome": "passed",
       "seconds": 0.0,
       "details": {
-        "visible": 92,
+        "visible": 93,
         "allowlisted": 90,
-        "visible_of_allowlist": 88,
+        "visible_of_allowlist": 86,
         "leaked": []
       }
     },
@@ -4082,9 +2954,9 @@
       "outcome": "passed",
       "seconds": 0.0,
       "details": {
-        "visible": 92,
+        "visible": 93,
         "allowlisted": 90,
-        "visible_of_allowlist": 88,
+        "visible_of_allowlist": 86,
         "leaked": []
       }
     },
@@ -4093,9 +2965,9 @@
       "outcome": "passed",
       "seconds": 0.0,
       "details": {
-        "visible": 171,
+        "visible": 15,
         "allowlisted": 184,
-        "visible_of_allowlist": 171,
+        "visible_of_allowlist": 15,
         "leaked": []
       }
     },
@@ -4104,9 +2976,9 @@
       "outcome": "passed",
       "seconds": 0.0,
       "details": {
-        "visible": 171,
+        "visible": 15,
         "allowlisted": 184,
-        "visible_of_allowlist": 171,
+        "visible_of_allowlist": 15,
         "leaked": []
       }
     },
@@ -4115,9 +2987,9 @@
       "outcome": "passed",
       "seconds": 0.0,
       "details": {
-        "visible": 171,
+        "visible": 15,
         "allowlisted": 184,
-        "visible_of_allowlist": 171,
+        "visible_of_allowlist": 15,
         "leaked": []
       }
     },
@@ -4126,9 +2998,9 @@
       "outcome": "passed",
       "seconds": 0.0,
       "details": {
-        "visible": 171,
+        "visible": 15,
         "allowlisted": 184,
-        "visible_of_allowlist": 171,
+        "visible_of_allowlist": 15,
         "leaked": []
       }
     },
@@ -4137,9 +3009,9 @@
       "outcome": "passed",
       "seconds": 0.0,
       "details": {
-        "visible": 6,
+        "visible": 8,
         "allowlisted": 13,
-        "visible_of_allowlist": 6,
+        "visible_of_allowlist": 8,
         "leaked": []
       }
     },
@@ -4148,9 +3020,9 @@
       "outcome": "passed",
       "seconds": 0.0,
       "details": {
-        "visible": 6,
+        "visible": 8,
         "allowlisted": 13,
-        "visible_of_allowlist": 6,
+        "visible_of_allowlist": 8,
         "leaked": []
       }
     },
@@ -4159,9 +3031,9 @@
       "outcome": "passed",
       "seconds": 0.0,
       "details": {
-        "visible": 6,
+        "visible": 8,
         "allowlisted": 13,
-        "visible_of_allowlist": 6,
+        "visible_of_allowlist": 8,
         "leaked": []
       }
     },
@@ -4170,9 +3042,9 @@
       "outcome": "passed",
       "seconds": 0.0,
       "details": {
-        "visible": 6,
+        "visible": 8,
         "allowlisted": 13,
-        "visible_of_allowlist": 6,
+        "visible_of_allowlist": 8,
         "leaked": []
       }
     },
@@ -4554,91 +3426,39 @@
     },
     {
       "test": "test_profile.py::test_media_devices[windows-42-bare]",
-      "outcome": "xfailed",
+      "outcome": "passed",
       "seconds": 0.0,
       "details": {
         "checked": 3,
-        "mismatched": {
-          "audioinput": {
-            "page": 1,
-            "profile": 0
-          },
-          "videoinput": {
-            "page": 1,
-            "profile": 0
-          }
-        },
-        "known_gap": {
-          "id": "host-media-devices",
-          "reason": "A camera or microphone on the host stays listed when the persona claims none: the persona's device counts are a floor, not an exact count.",
-          "link": "https://docs.apostate.dev/known-gaps#cameras-and-microphones"
-        }
-      },
-      "message": ""
+        "mismatched": {}
+      }
     },
     {
       "test": "test_profile.py::test_media_devices[windows-42-package]",
-      "outcome": "xfailed",
+      "outcome": "passed",
       "seconds": 0.0,
       "details": {
         "checked": 3,
-        "mismatched": {
-          "audioinput": {
-            "page": 1,
-            "profile": 0
-          },
-          "videoinput": {
-            "page": 1,
-            "profile": 0
-          }
-        },
-        "known_gap": {
-          "id": "host-media-devices",
-          "reason": "A camera or microphone on the host stays listed when the persona claims none: the persona's device counts are a floor, not an exact count.",
-          "link": "https://docs.apostate.dev/known-gaps#cameras-and-microphones"
-        }
-      },
-      "message": ""
+        "mismatched": {}
+      }
     },
     {
       "test": "test_profile.py::test_media_devices[windows-1337-bare]",
-      "outcome": "xfailed",
+      "outcome": "passed",
       "seconds": 0.0,
       "details": {
         "checked": 3,
-        "mismatched": {
-          "videoinput": {
-            "page": 1,
-            "profile": 0
-          }
-        },
-        "known_gap": {
-          "id": "host-media-devices",
-          "reason": "A camera or microphone on the host stays listed when the persona claims none: the persona's device counts are a floor, not an exact count.",
-          "link": "https://docs.apostate.dev/known-gaps#cameras-and-microphones"
-        }
-      },
-      "message": ""
+        "mismatched": {}
+      }
     },
     {
       "test": "test_profile.py::test_media_devices[windows-1337-package]",
-      "outcome": "xfailed",
+      "outcome": "passed",
       "seconds": 0.0,
       "details": {
         "checked": 3,
-        "mismatched": {
-          "videoinput": {
-            "page": 1,
-            "profile": 0
-          }
-        },
-        "known_gap": {
-          "id": "host-media-devices",
-          "reason": "A camera or microphone on the host stays listed when the persona claims none: the persona's device counts are a floor, not an exact count.",
-          "link": "https://docs.apostate.dev/known-gaps#cameras-and-microphones"
-        }
-      },
-      "message": ""
+        "mismatched": {}
+      }
     },
     {
       "test": "test_profile.py::test_media_devices[macos-42-bare]",
@@ -4678,99 +3498,39 @@
     },
     {
       "test": "test_profile.py::test_media_devices[linux-42-bare]",
-      "outcome": "xfailed",
+      "outcome": "passed",
       "seconds": 0.0,
       "details": {
         "checked": 3,
-        "mismatched": {
-          "audioinput": {
-            "page": 1,
-            "profile": 0
-          },
-          "videoinput": {
-            "page": 1,
-            "profile": 0
-          }
-        },
-        "known_gap": {
-          "id": "host-media-devices",
-          "reason": "A camera or microphone on the host stays listed when the persona claims none: the persona's device counts are a floor, not an exact count.",
-          "link": "https://docs.apostate.dev/known-gaps#cameras-and-microphones"
-        }
-      },
-      "message": ""
+        "mismatched": {}
+      }
     },
     {
       "test": "test_profile.py::test_media_devices[linux-42-package]",
-      "outcome": "xfailed",
+      "outcome": "passed",
       "seconds": 0.0,
       "details": {
         "checked": 3,
-        "mismatched": {
-          "audioinput": {
-            "page": 1,
-            "profile": 0
-          },
-          "videoinput": {
-            "page": 1,
-            "profile": 0
-          }
-        },
-        "known_gap": {
-          "id": "host-media-devices",
-          "reason": "A camera or microphone on the host stays listed when the persona claims none: the persona's device counts are a floor, not an exact count.",
-          "link": "https://docs.apostate.dev/known-gaps#cameras-and-microphones"
-        }
-      },
-      "message": ""
+        "mismatched": {}
+      }
     },
     {
       "test": "test_profile.py::test_media_devices[linux-1337-bare]",
-      "outcome": "xfailed",
+      "outcome": "passed",
       "seconds": 0.0,
       "details": {
         "checked": 3,
-        "mismatched": {
-          "audioinput": {
-            "page": 1,
-            "profile": 0
-          },
-          "videoinput": {
-            "page": 1,
-            "profile": 0
-          }
-        },
-        "known_gap": {
-          "id": "host-media-devices",
-          "reason": "A camera or microphone on the host stays listed when the persona claims none: the persona's device counts are a floor, not an exact count.",
-          "link": "https://docs.apostate.dev/known-gaps#cameras-and-microphones"
-        }
-      },
-      "message": ""
+        "mismatched": {}
+      }
     },
     {
       "test": "test_profile.py::test_media_devices[linux-1337-package]",
-      "outcome": "xfailed",
+      "outcome": "passed",
       "seconds": 0.0,
       "details": {
         "checked": 3,
-        "mismatched": {
-          "audioinput": {
-            "page": 1,
-            "profile": 0
-          },
-          "videoinput": {
-            "page": 1,
-            "profile": 0
-          }
-        },
-        "known_gap": {
-          "id": "host-media-devices",
-          "reason": "A camera or microphone on the host stays listed when the persona claims none: the persona's device counts are a floor, not an exact count.",
-          "link": "https://docs.apostate.dev/known-gaps#cameras-and-microphones"
-        }
-      },
-      "message": ""
+        "mismatched": {}
+      }
     },
     {
       "test": "test_profile.py::test_network_battery_theme_and_keyboard[windows-42-bare]",
@@ -4877,6 +3637,204 @@
       "seconds": 0.0,
       "details": {
         "checked": 7,
+        "mismatched": {}
+      }
+    },
+    {
+      "test": "test_profile.py::test_desktop_pointer_and_hover[windows-42-bare]",
+      "outcome": "xfailed",
+      "seconds": 0.0,
+      "details": {
+        "checked": 2,
+        "mismatched": {
+          "(pointer: fine)": {
+            "page": false,
+            "profile": true
+          },
+          "(hover: hover)": {
+            "page": false,
+            "profile": true
+          }
+        },
+        "known_gap": {
+          "id": "host-pointer",
+          "reason": "A launch without Playwright or Patchright reports the host's pointer and hover media features. A server with no mouse reports (pointer: none) and (hover: none) under a desktop persona.",
+          "link": "https://docs.apostate.dev/known-gaps#pointer-and-hover-come-from-the-driver-or-the-host"
+        }
+      },
+      "message": "known gap host-pointer: A launch without Playwright or Patchright reports the host's pointer and hover media features. A server with no mouse reports (pointer: none) and (hover: none) under a desktop persona. https://docs.apostate.dev/known-gaps#pointer-and-hover-come-from-the-driver-or-the-host"
+    },
+    {
+      "test": "test_profile.py::test_desktop_pointer_and_hover[windows-42-package]",
+      "outcome": "passed",
+      "seconds": 0.0,
+      "details": {
+        "checked": 2,
+        "mismatched": {}
+      }
+    },
+    {
+      "test": "test_profile.py::test_desktop_pointer_and_hover[windows-1337-bare]",
+      "outcome": "xfailed",
+      "seconds": 0.0,
+      "details": {
+        "checked": 2,
+        "mismatched": {
+          "(pointer: fine)": {
+            "page": false,
+            "profile": true
+          },
+          "(hover: hover)": {
+            "page": false,
+            "profile": true
+          }
+        },
+        "known_gap": {
+          "id": "host-pointer",
+          "reason": "A launch without Playwright or Patchright reports the host's pointer and hover media features. A server with no mouse reports (pointer: none) and (hover: none) under a desktop persona.",
+          "link": "https://docs.apostate.dev/known-gaps#pointer-and-hover-come-from-the-driver-or-the-host"
+        }
+      },
+      "message": "known gap host-pointer: A launch without Playwright or Patchright reports the host's pointer and hover media features. A server with no mouse reports (pointer: none) and (hover: none) under a desktop persona. https://docs.apostate.dev/known-gaps#pointer-and-hover-come-from-the-driver-or-the-host"
+    },
+    {
+      "test": "test_profile.py::test_desktop_pointer_and_hover[windows-1337-package]",
+      "outcome": "passed",
+      "seconds": 0.0,
+      "details": {
+        "checked": 2,
+        "mismatched": {}
+      }
+    },
+    {
+      "test": "test_profile.py::test_desktop_pointer_and_hover[macos-42-bare]",
+      "outcome": "xfailed",
+      "seconds": 0.0,
+      "details": {
+        "checked": 2,
+        "mismatched": {
+          "(pointer: fine)": {
+            "page": false,
+            "profile": true
+          },
+          "(hover: hover)": {
+            "page": false,
+            "profile": true
+          }
+        },
+        "known_gap": {
+          "id": "host-pointer",
+          "reason": "A launch without Playwright or Patchright reports the host's pointer and hover media features. A server with no mouse reports (pointer: none) and (hover: none) under a desktop persona.",
+          "link": "https://docs.apostate.dev/known-gaps#pointer-and-hover-come-from-the-driver-or-the-host"
+        }
+      },
+      "message": "known gap host-pointer: A launch without Playwright or Patchright reports the host's pointer and hover media features. A server with no mouse reports (pointer: none) and (hover: none) under a desktop persona. https://docs.apostate.dev/known-gaps#pointer-and-hover-come-from-the-driver-or-the-host"
+    },
+    {
+      "test": "test_profile.py::test_desktop_pointer_and_hover[macos-42-package]",
+      "outcome": "passed",
+      "seconds": 0.0,
+      "details": {
+        "checked": 2,
+        "mismatched": {}
+      }
+    },
+    {
+      "test": "test_profile.py::test_desktop_pointer_and_hover[macos-1337-bare]",
+      "outcome": "xfailed",
+      "seconds": 0.0,
+      "details": {
+        "checked": 2,
+        "mismatched": {
+          "(pointer: fine)": {
+            "page": false,
+            "profile": true
+          },
+          "(hover: hover)": {
+            "page": false,
+            "profile": true
+          }
+        },
+        "known_gap": {
+          "id": "host-pointer",
+          "reason": "A launch without Playwright or Patchright reports the host's pointer and hover media features. A server with no mouse reports (pointer: none) and (hover: none) under a desktop persona.",
+          "link": "https://docs.apostate.dev/known-gaps#pointer-and-hover-come-from-the-driver-or-the-host"
+        }
+      },
+      "message": "known gap host-pointer: A launch without Playwright or Patchright reports the host's pointer and hover media features. A server with no mouse reports (pointer: none) and (hover: none) under a desktop persona. https://docs.apostate.dev/known-gaps#pointer-and-hover-come-from-the-driver-or-the-host"
+    },
+    {
+      "test": "test_profile.py::test_desktop_pointer_and_hover[macos-1337-package]",
+      "outcome": "passed",
+      "seconds": 0.0,
+      "details": {
+        "checked": 2,
+        "mismatched": {}
+      }
+    },
+    {
+      "test": "test_profile.py::test_desktop_pointer_and_hover[linux-42-bare]",
+      "outcome": "xfailed",
+      "seconds": 0.0,
+      "details": {
+        "checked": 2,
+        "mismatched": {
+          "(pointer: fine)": {
+            "page": false,
+            "profile": true
+          },
+          "(hover: hover)": {
+            "page": false,
+            "profile": true
+          }
+        },
+        "known_gap": {
+          "id": "host-pointer",
+          "reason": "A launch without Playwright or Patchright reports the host's pointer and hover media features. A server with no mouse reports (pointer: none) and (hover: none) under a desktop persona.",
+          "link": "https://docs.apostate.dev/known-gaps#pointer-and-hover-come-from-the-driver-or-the-host"
+        }
+      },
+      "message": "known gap host-pointer: A launch without Playwright or Patchright reports the host's pointer and hover media features. A server with no mouse reports (pointer: none) and (hover: none) under a desktop persona. https://docs.apostate.dev/known-gaps#pointer-and-hover-come-from-the-driver-or-the-host"
+    },
+    {
+      "test": "test_profile.py::test_desktop_pointer_and_hover[linux-42-package]",
+      "outcome": "passed",
+      "seconds": 0.0,
+      "details": {
+        "checked": 2,
+        "mismatched": {}
+      }
+    },
+    {
+      "test": "test_profile.py::test_desktop_pointer_and_hover[linux-1337-bare]",
+      "outcome": "xfailed",
+      "seconds": 0.0,
+      "details": {
+        "checked": 2,
+        "mismatched": {
+          "(pointer: fine)": {
+            "page": false,
+            "profile": true
+          },
+          "(hover: hover)": {
+            "page": false,
+            "profile": true
+          }
+        },
+        "known_gap": {
+          "id": "host-pointer",
+          "reason": "A launch without Playwright or Patchright reports the host's pointer and hover media features. A server with no mouse reports (pointer: none) and (hover: none) under a desktop persona.",
+          "link": "https://docs.apostate.dev/known-gaps#pointer-and-hover-come-from-the-driver-or-the-host"
+        }
+      },
+      "message": "known gap host-pointer: A launch without Playwright or Patchright reports the host's pointer and hover media features. A server with no mouse reports (pointer: none) and (hover: none) under a desktop persona. https://docs.apostate.dev/known-gaps#pointer-and-hover-come-from-the-driver-or-the-host"
+    },
+    {
+      "test": "test_profile.py::test_desktop_pointer_and_hover[linux-1337-package]",
+      "outcome": "passed",
+      "seconds": 0.0,
+      "details": {
+        "checked": 2,
         "mismatched": {}
       }
     }

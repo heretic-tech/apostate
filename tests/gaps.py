@@ -40,10 +40,22 @@ GAPS = {
         "persona claims a WebGPU adapter. Headed launches as a regular user serve it.",
         f"{DOCS}#webgpu-in-headless-mode-on-linux",
     ),
+    "host-cap": (
+        "The host has less memory than every option the persona's machine offers, so the page "
+        "reads the host's own navigator.deviceMemory next to the persona's GPU.",
+        f"{DOCS}#cores-and-memory-are-capped-at-the-hosts",
+    ),
+    "host-pointer": (
+        "A launch without Playwright or Patchright reports the host's pointer and hover media "
+        "features. A server with no mouse reports (pointer: none) and (hover: none) under a "
+        "desktop persona.",
+        f"{DOCS}#pointer-and-hover-come-from-the-driver-or-the-host",
+    ),
     "api-keys-infobar": (
-        "A launch without a driver shows Chromium's 'Google API keys are missing' bar on its first "
-        "tab, which takes 56 px from innerHeight. Google Chrome never shows it.",
-        f"{DOCS}#the-first-tab-of-a-bare-launch",
+        "The first tab of a launch without a driver shows Chromium's 'Google API keys are missing' "
+        "bar, or its bar for --no-sandbox where that flag is passed. Either takes 56 px from "
+        "innerHeight. Google Chrome shows neither.",
+        f"{DOCS}#a-bar-on-the-first-tab",
     ),
 }
 
