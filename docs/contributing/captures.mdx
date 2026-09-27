@@ -63,6 +63,24 @@ ssh -N -L 8777:127.0.0.1:8777 user@receiver-host
 
 To compare an Apostate build with a capture, open the same page in the build and point `--out` at a scratch directory, not at `resources/fingerprints/raw`.
 
+### Capture through a tunnel
+
+A device you reach only over the internet, such as one rented from a device cloud, can open the receiver through a quick tunnel, which gives it an HTTPS address:
+
+```bash
+python3 capture/server/receive.py --out quarantine --bind 127.0.0.1
+cloudflared tunnel --url http://127.0.0.1:8777
+```
+
+A capture that came through a tunnel carries the headers the tunnel added in `headers.echo` and `headers.echo_worker`, including the device's public IP address. Write it to a directory outside the repository, then publish it with `capture/publish-capture.py`. The script removes those headers, replaces the tunnel's host name with `capture.invalid`, runs the receiver's admission checks again, and writes the capture and its admission record into `resources/fingerprints/raw/`:
+
+```bash
+python3 capture/publish-capture.py quarantine/<sha256>.json --name windows-qualcomm-adreno-x1-85 --dry-run
+python3 capture/publish-capture.py quarantine/<sha256>.json --name windows-qualcomm-adreno-x1-85
+```
+
+The file is named after `--name` and the capture's UTC time. The admission record lists the headers removed. The tunnel can also rewrite `Accept-Encoding` and header casing, so the header probes of such a capture do not describe the device.
+
 ### What the receiver admits
 
 The receiver rejects a capture, answers HTTP 422 with the reason, and records the reason and every failed probe's error under `admissions/`, when:
