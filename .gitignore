@@ -42,3 +42,4 @@ venv/
 
 # Our own captures ARE the ground truth and are committed. Only vendor material
 # is excluded (above).
+.empryo
