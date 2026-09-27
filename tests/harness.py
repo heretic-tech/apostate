@@ -57,7 +57,7 @@ WINDOWS_ALIASES = {"Courier", "MS Sans Serif", "MS Serif", "Times", "Helvetica",
 #: Fonts a host commonly has that no persona lists.
 CANARY_FONTS = [
     "Menlo", "Helvetica Neue", "Apple Color Emoji", "SF Pro", "Avenir Next", "DejaVu Sans Mono",
-    "Liberation Mono", "Noto Color Emoji", "Ubuntu Mono", "Segoe UI Variable Display", "Consolas",
+    "Liberation Mono", "Noto Color Emoji", "Ubuntu Mono", "Consolas",
 ]
 
 

@@ -31,7 +31,7 @@ A Linux persona on an Apple silicon Mac was flagged too: suspect score 18 with `
 
 ### iphey and the font filter
 
-iphey.com rates every composed persona "Unreliable" with the signal "inconsistent browser fingerprint (roadmap)", the macOS persona on a Mac included. It flags the Windows persona with "(butterfly)" as well. Both come from the `fonts` section: removing it clears both, whether the Windows persona claims `arm` or `x86` (measured 2026-09-28 on an Apple silicon Mac, development build with the Adreno family). The same macOS profile without its `fonts` section is rated "Trustworthy", and so are `--fingerprint=host` and stock Google Chrome on the same Mac. A `fonts` section trips it even when it allows every font on the host. One symptom: under any font allowlist, `BlinkMacSystemFont`, the name Chrome on a Mac gives the system UI font, no longer resolves (measured 2026-09-28, Apostate 0.4.3, Apple silicon Mac).
+iphey.com rates every composed persona "Unreliable" with the signal "inconsistent browser fingerprint (roadmap)", the macOS persona on a Mac included. Up to 0.4.3 it also flags the Windows persona with "(butterfly)". Both come from the `fonts` section: removing it clears both, whether the Windows persona claims `arm` or `x86` (measured 2026-09-28 on an Apple silicon Mac, development build with the Adreno family). The butterfly signal was the names of two variable fonts. Windows 11 lists each named instance of Segoe UI Variable and Sitka as its own family, such as "Segoe UI Variable Display" and "Sitka Small", and never the base name. The 0.4.3 persona did the reverse. From 0.4.4 it lists the instances, and a Linux test with those names resolving no longer showed butterfly. Roadmap remains. The same macOS profile without its `fonts` section is rated "Trustworthy", and so are `--fingerprint=host` and stock Google Chrome on the same Mac. A `fonts` section trips it even when it allows every font on the host. One symptom: under any font allowlist, `BlinkMacSystemFont`, the name Chrome on a Mac gives the system UI font, no longer resolves (measured 2026-09-28, Apostate 0.4.3, Apple silicon Mac).
 
 **What to do.** Not fixed; the fix belongs in the browser's font filter. Other detectors in the [test suite](/testing/results) do not flag it.
 
@@ -39,11 +39,19 @@ iphey.com rates every composed persona "Unreliable" with the signal "inconsisten
 
 ### ARM hosts
 
-On Apple silicon and Linux arm64, a Windows or Linux persona reports the `arm` architecture in User-Agent Client Hints. A page can tell the CPU family from arithmetic, such as the sign of a computed NaN, and from Web Audio output, which the host CPU renders. `navigator.platform` stays `Linux x86_64`, which Chrome reports on every Linux CPU. The GPU stays a desktop Intel or NVIDIA one, because the release has no Windows-on-ARM GPU family. No real Windows machine pairs an ARM CPU with those GPUs. A real Windows-on-ARM laptop reports `arm` next to a Qualcomm Adreno GPU. A Snapdragon X2 Elite with an Adreno X2-90, captured in Chrome 154 and in Chromium 152 on 2026-09-27, read `Win32`, `arm`, 64-bit, and WebGL values equal to the Intel family's except `MAX_SAMPLES` (8 instead of 16). Its GPU values were the same in both versions. Claiming x86 instead is worse: the arithmetic shows ARM, and FingerprintJS Pro then flags `virtual_machine` (suspect score 34 with x86, 20 with arm, 2026-09-23, development build before 0.4.0). An Adreno family built from that machine, for Windows personas on ARM hosts, is planned.
+On Apple silicon and Linux arm64, a Windows or Linux persona reports the `arm` architecture in User-Agent Client Hints. A page can tell the CPU family from arithmetic, such as the sign of a computed NaN, and from Web Audio output, which the host CPU renders. Claiming x86 instead is worse. The arithmetic shows ARM, and FingerprintJS Pro then flags `virtual_machine` (suspect score 34 with x86, 20 with arm, 2026-09-23, development build before 0.4.0). `navigator.platform` stays `Linux x86_64`, which Chrome reports on every Linux CPU.
+
+In 0.4.3 and earlier, a Windows persona on an ARM host names a desktop Intel or NVIDIA GPU next to `arm`, a pair no real Windows machine has. From 0.4.4, it draws the Qualcomm Adreno family, the GPU a real Windows-on-ARM machine has. The family was measured in Chromium 152 on 2026-09-27 on three Windows 11 ARM64 machines: a Snapdragon X2 Elite laptop with an Adreno X2-90, a Snapdragon X Elite reference design with an Adreno X1-85, and a Snapdragon X Plus reference design with an Adreno X1-45. All three read `Win32`, `arm`, 64-bit, and the same WebGL values, which equal the Intel family's except `MAX_SAMPLES` (8 instead of 16). The X2-90 read the same GPU values in Chrome 154. A seed presents one of the three models, with equal odds.
+
+What a page can still see from 0.4.4:
+
+- The X2-90 machine has 18 cores and the X1-85 machine 12. On a host with fewer cores, a seed that presents one of them reports the host's own core count. Memory follows the same cap, with 32 GiB for the X2-90 and X1-85 and 16 GiB for the X1-45. [Hosts](/concepts/hosts#arm-hosts) has the counts for several host sizes.
+- The Adreno X1-45 reported no WebGPU adapter, so a seed that presents it has none. `navigator.gpu.requestAdapter()` returns `null`, as it did on the real machine.
+- A Linux persona on an ARM host still names a desktop NVIDIA GPU. No Linux GPU family was measured on ARM.
 
 A macOS persona always reports Apple silicon.
 
-**What to do.** Run Windows and Linux personas on an x86 Linux server or a Windows machine, and macOS personas on a Mac. [Hosts](/concepts/hosts#arm-hosts) has the details.
+**What to do.** For a Windows persona on an ARM host, use a host with at least 18 cores and 32 GiB, so every Adreno model presents its own counts. On a smaller host, pass the Adreno X1-45's renderer string from [GPU models](/reference/gpu-models#windows-qualcomm-direct3d-11) to `--fingerprint-gpu-renderer`. Its 8 cores and 16 GiB fit a host with 8 cores and 16 GiB. Run Linux personas on an x86 host.
 
 ### Cores and memory are capped at the host's
 

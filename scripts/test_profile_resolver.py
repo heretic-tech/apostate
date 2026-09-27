@@ -111,6 +111,16 @@ def _machine_class_platforms(catalogue: dict, tables: dict) -> dict[str, str]:
     return platforms
 
 
+#: The family names Windows gives the named instances of its variable fonts,
+#: which are what a Windows persona lists (patch 0156).
+WINDOWS_VARIABLE_INSTANCES = {
+    "Segoe UI Variable": ["Segoe UI Variable Display", "Segoe UI Variable Small",
+                          "Segoe UI Variable Text"],
+    "Sitka": ["Sitka Banner", "Sitka Display", "Sitka Heading", "Sitka Small",
+              "Sitka Subheading", "Sitka Text"],
+}
+
+
 class CatalogueIntegrityTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -233,7 +243,17 @@ class CatalogueIntegrityTests(unittest.TestCase):
                 families = option["value"]["fonts"]["enumeration_allowlist"]
                 self.assertEqual(sorted(families), families, option["id"])
                 self.assertEqual(sorted(required), required, option["id"])
-                self.assertLessEqual(set(required), set(families), option["id"])
+                # Windows lists a variable font by its named instances and never
+                # by the family the host installs (patch 0156), so an installed
+                # Segoe UI Variable or Sitka shows as its instances.
+                shown = set(families) | {
+                    family for family, instances in WINDOWS_VARIABLE_INSTANCES.items()
+                    if platform == "windows" and set(instances) <= set(families)}
+                self.assertLessEqual(set(required), shown, option["id"])
+                if platform == "windows":
+                    self.assertFalse(set(families) & set(WINDOWS_VARIABLE_INSTANCES),
+                                     f"{option['id']} lists a variable font by the name "
+                                     "Windows never shows")
                 if option["pack_kind"] == "optional":
                     self.assertEqual(required, families, option["id"])
                     self.assertTrue(1 <= option["weight"] <= 100)
@@ -241,7 +261,10 @@ class CatalogueIntegrityTests(unittest.TestCase):
                     self.assertTrue(required, "the core pack requires nothing")
                 if platform == "windows":
                     self.assertLessEqual(set(required), WINDOWS_11_FONTS_REPO, option["id"])
-                    self.assertLessEqual(set(families) - WINDOWS_11_FONTS_REPO,
+                    from_repo = WINDOWS_11_FONTS_REPO | {
+                        instance for family, instances in WINDOWS_VARIABLE_INSTANCES.items()
+                        if family in WINDOWS_11_FONTS_REPO for instance in instances}
+                    self.assertLessEqual(set(families) - from_repo,
                                          WINDOWS_FAMILIES_NOT_IN_REPO, option["id"])
 
     def test_media_labels_are_platform_correct(self) -> None:
@@ -971,8 +994,10 @@ class CompositionTests(unittest.TestCase):
     })
     GOLDEN_PROFILES = {
         # On this ARM host the Windows persona draws the Adreno family (patch
-        # 0154), whose machine has 18 cores, so the 14-core host serves no cpu
-        # section.
+        # 0154). This digest was taken when the family's one member was the
+        # 18-core X2-90, so the 14-core host served no cpu section. Seed 12345
+        # now draws the 12-core X1-85 and carries cpu, so the pin is stale
+        # until a native build refreshes it against GOLDEN_SECTIONS.
         "windows": ("fp-b0b97b3a3531b65ee50f45fc", GOLDEN_SECTIONS - {"cpu"},
                     "e9365784b9585a28d420b35831a419b0a8ec96a993b5602c85900b19e6711202"),
         "macos": ("fp-60eab51485a4a8465ce3c24a", GOLDEN_SECTIONS,

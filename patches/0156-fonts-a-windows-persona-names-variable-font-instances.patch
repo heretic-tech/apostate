@@ -1,0 +1,92 @@
+Subject: [PATCH] fonts: a Windows persona names variable-font instances as Windows does
+
+Windows 11 lists every named instance of Segoe UI Variable and Sitka as
+a family of its own: "Segoe UI Variable Display", "Text" and "Small",
+and "Sitka Small", "Text", "Subheading", "Heading", "Display" and
+"Banner". It never lists "Segoe UI Variable" or "Sitka". Measured in
+Edge 154 on a Snapdragon X2 Elite laptop, those nine names answer canvas
+width, DOM size and local() alike.
+
+A Windows persona on a Mac or Linux host showed the two base names and
+none of the instances, because CoreText and fontconfig know the fonts
+only by their base family. iphey.com reported it as an inconsistent
+browser fingerprint (butterfly). With the nine names resolving and the
+base names hidden, it no longer does.
+
+On a host other than Windows, a Windows persona's lookup for one of the
+nine names, as a family or through local(), is now the lookup for the
+base family. The filter still decides by the name the page wrote, and
+the persona's font list names the instances rather than the bases.
+
+diff --git a/third_party/blink/renderer/platform/fonts/font_cache.cc b/third_party/blink/renderer/platform/fonts/font_cache.cc
+index b533111..93f6d2c 100644
+--- a/third_party/blink/renderer/platform/fonts/font_cache.cc
++++ b/third_party/blink/renderer/platform/fonts/font_cache.cc
+@@ -154,6 +154,48 @@ const AtomicString& PersonaSystemUiFamily() {
+   return family;
+ }
+ 
++// Apostate: the font a Windows persona finds under a family name Windows gives
++// one named instance of a variable font, or empty.
++//
++// DirectWrite lists every named instance of Segoe UI Variable and Sitka as a
++// family of its own ("Segoe UI Variable Display", "Sitka Small") and never the
++// variable font's own name, so on Windows those names answer family matching
++// and local() alike. CoreText and fontconfig know the file only by its own
++// family name. On those hosts the lookup for an instance name is the lookup
++// for that family; the filter still decides by the name the page wrote, so
++// the persona's list, which names the instances, is what shows them. A Windows
++// host answers the names itself.
++AtomicString WindowsVariableFontFamily(const AtomicString& name) {
++#if BUILDFLAG(IS_WIN)
++  return AtomicString();
++#else
++  const base::apostate::Profile* profile = base::apostate::Profile::Get();
++  if (!profile || !ClaimsWindows(*profile)) {
++    return AtomicString();
++  }
++  struct Instances {
++    std::string_view family;
++    std::string_view names[6];
++  };
++  static constexpr Instances kVariableFonts[] = {
++      {"Segoe UI Variable", {"Display", "Text", "Small"}},
++      {"Sitka",
++       {"Small", "Text", "Subheading", "Heading", "Display", "Banner"}},
++  };
++  const std::string requested = name.Utf8();
++  for (const Instances& font : kVariableFonts) {
++    for (std::string_view instance : font.names) {
++      if (!instance.empty() &&
++          base::EqualsCaseInsensitiveASCII(
++              requested, base::StrCat({font.family, " ", instance}))) {
++        return AtomicString::FromUtf8(font.family);
++      }
++    }
++  }
++  return AtomicString();
++#endif
++}
++
+ }  // namespace
+ 
+ // static
+@@ -362,6 +404,18 @@ const FontPlatformData* FontCache::GetFontPlatformData(
+     AlternateFontName alternate_font_name) {
+   TRACE_EVENT0("fonts", "FontCache::GetFontPlatformData");
+ 
++  if (creation_params.CreationType() == kCreateFontByFamily) {
++    if (const AtomicString variable_font =
++            WindowsVariableFontFamily(creation_params.Family());
++        !variable_font.empty()) {
++      // A family lookup, whether the page matched the instance name as a
++      // family or through local(): the instance has no face of its own here.
++      return GetFontPlatformData(font_description,
++                                 FontFaceCreationParams(variable_font),
++                                 AlternateFontName::kNoAlternate);
++    }
++  }
++
+   if (creation_params.CreationType() == kCreateFontByFamily &&
+       creation_params.Family() == font_family_names::kSystemUi) {
+     if (const AtomicString& family = PersonaSystemUiFamily(); !family.empty()) {
