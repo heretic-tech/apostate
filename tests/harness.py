@@ -303,13 +303,19 @@ def _is_root() -> bool:
 def _sandbox_unavailable() -> bool:
     """Whether Chromium's Linux sandbox cannot start here, as the packages assume.
 
-    It refuses root, Docker's default seccomp profile blocks the user
+    It refuses root, container runtimes and seccomp filters block the user
     namespaces it needs, and Ubuntu 24.04 restricts them through AppArmor.
     """
     if not sys.platform.startswith("linux"):
         return False
-    if _is_root() or Path("/.dockerenv").exists():
+    if _is_root() or Path("/.dockerenv").exists() or Path("/run/.containerenv").exists():
         return True
+    try:
+        if any(line.split(":", 1)[1].strip() == "2"
+               for line in Path("/proc/self/status").read_text().splitlines() if line.startswith("Seccomp:")):
+            return True
+    except OSError:
+        pass
     for setting, blocked in (("kernel/apparmor_restrict_unprivileged_userns", "1"),
                              ("kernel/unprivileged_userns_clone", "0"),
                              ("user/max_user_namespaces", "0")):
