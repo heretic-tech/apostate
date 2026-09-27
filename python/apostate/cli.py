@@ -395,8 +395,27 @@ def _fonts(args: argparse.Namespace) -> int:
     return 0
 
 
+def _split_run(argv: list[str]) -> tuple[list[str], list[str] | None]:
+    """Split ``... run <browser args>`` so browser switches need no ``--``.
+
+    argparse reads ``run --fingerprint=42`` as an unknown option of this CLI.
+    Everything after the ``run`` command goes to the browser unparsed, as the
+    Node CLI does.
+    """
+    takes_value = {"--cache-dir", "--manifest", "--target"}
+    for index, item in enumerate(argv):
+        if item == "run" and (index == 0 or argv[index - 1] not in takes_value):
+            return argv[:index + 1], argv[index + 1:]
+        if not item.startswith("-") and (index == 0 or argv[index - 1] not in takes_value):
+            break  # another command
+    return argv, None
+
+
 def main(argv: list[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
+    own, browser_args = _split_run(sys.argv[1:] if argv is None else list(argv))
+    args = _parser().parse_args(own)
+    if browser_args is not None:
+        args.browser_args = browser_args
     try:
         if args.command == "clear":
             _manager(args).clear()

@@ -2157,3 +2157,27 @@ class MarlettFetchTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RunCommandTests(unittest.TestCase):
+    def test_browser_switches_need_no_separator(self) -> None:
+        own, forwarded = cli_module._split_run(["run", "--fingerprint=42", "--fingerprint-explain"])
+        self.assertEqual(own, ["run"])
+        self.assertEqual(forwarded, ["--fingerprint=42", "--fingerprint-explain"])
+
+    def test_separator_still_accepted(self) -> None:
+        self.assertEqual(cli_module._split_run(["run", "--", "--version"]), (["run"], ["--", "--version"]))
+
+    def test_global_options_before_run(self) -> None:
+        own, forwarded = cli_module._split_run(["--target", "linux-x64", "run", "--headless=new"])
+        self.assertEqual(own, ["--target", "linux-x64", "run"])
+        self.assertEqual(forwarded, ["--headless=new"])
+
+    def test_a_value_named_run_is_not_the_command(self) -> None:
+        own, forwarded = cli_module._split_run(["--cache-dir", "run", "run", "--x"])
+        self.assertEqual(own, ["--cache-dir", "run", "run"])
+        self.assertEqual(forwarded, ["--x"])
+
+    def test_other_commands_are_untouched(self) -> None:
+        self.assertEqual(cli_module._split_run(["fonts", "install", "windows"]),
+                         (["fonts", "install", "windows"], None))
