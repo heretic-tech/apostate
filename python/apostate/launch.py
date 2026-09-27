@@ -341,10 +341,9 @@ def _resolve_plan(config: LaunchConfig, *, resolver: Any = None, catalogue: Any 
             # still reported rather than hidden, because behind a proxy the
             # host's zone is the host's and not the exit's.
             geoip_warnings.append(
-                f"{exc}. No locale or timezone override is sent and none is invented, so the "
-                "launch keeps the host's own locale and timezone. Behind a proxy that is the "
-                "host's and not the exit's. Pass locale and timezone explicitly to guarantee "
-                "a match."
+                f"{exc}. No locale or timezone is sent, so the persona uses en-US and the "
+                "host's timezone. Behind a proxy that is the host's and not the exit's. Pass "
+                "locale and timezone to match the exit."
             )
         else:
             # Two different facts, so two different sentences. A timezone is
@@ -363,9 +362,8 @@ def _resolve_plan(config: LaunchConfig, *, resolver: Any = None, catalogue: Any 
             if (config.locale is None and not network_result.locale
                     and not network_result.languages):
                 geoip_warnings.append(
-                    "the GeoIP lookup returned no country, so no locale is derived; "
-                    "the host's own is served for that field. Pass locale explicitly "
-                    "to guarantee a match."
+                    "the GeoIP lookup returned no country, so no locale is derived and "
+                    "the persona uses en-US. Pass locale to match the exit."
                 )
         for warning in geoip_warnings:
             print(f"apostate: {warning}", file=sys.stderr)
@@ -1020,7 +1018,16 @@ def launch(*, fingerprint: int | str | None = None, fingerprint_platform: str | 
     launch_options = _persistent_options(plan, binary, "", playwright_options)
     display = _virtual_display(plan, launch_options["env"])
     playwright, context = _start_persistent(selection, launch_options, display)
-    return Browser(context, playwright, selection.name, display)
+    return _with_diagnostics(Browser(context, playwright, selection.name, display), plan)
+
+
+def _with_diagnostics(target: Any, plan: LaunchPlan) -> Any:
+    """Attach what the launch resolved, GeoIP warnings included, as ``apostate_diagnostics``."""
+    try:
+        target.apostate_diagnostics = plan.diagnostics
+    except (AttributeError, TypeError):
+        pass
+    return target
 
 
 def _context_owns_browser(context: Any, browser: Any) -> Any:
@@ -1094,7 +1101,7 @@ def launch_persistent_context(user_data_dir: str | Path, *, context_options: Map
                                          {**(context_options or {}), **options})
     display = _virtual_display(plan, launch_options["env"])
     playwright, context = _start_persistent(selection, launch_options, display)
-    return _own_driver(context, playwright, selection.name, display)
+    return _with_diagnostics(_own_driver(context, playwright, selection.name, display), plan)
 
 
 async def launch_async(**options: Any) -> AsyncBrowser:
@@ -1121,7 +1128,7 @@ async def launch_async(**options: Any) -> AsyncBrowser:
     launch_options = _persistent_options(plan, binary, "", options)
     display = _virtual_display(plan, launch_options["env"])
     playwright, context = await _start_persistent_async(selection, launch_options, display)
-    return AsyncBrowser(context, playwright, selection.name, display)
+    return _with_diagnostics(AsyncBrowser(context, playwright, selection.name, display), plan)
 
 
 async def _context_owns_browser_async(context: Any, browser: Any) -> Any:
@@ -1179,7 +1186,7 @@ async def launch_persistent_context_async(user_data_dir: str | Path, *, context_
                                          {**(context_options or {}), **options})
     display = _virtual_display(plan, launch_options["env"])
     playwright, context = await _start_persistent_async(selection, launch_options, display)
-    return await _own_driver_async(context, playwright, selection.name, display)
+    return _with_diagnostics(await _own_driver_async(context, playwright, selection.name, display), plan)
 
 
 __all__ = [

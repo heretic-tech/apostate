@@ -1700,9 +1700,8 @@ test("a country derives its locale for every territory, and the tag names no lis
   }
   assert.equal(config.locale, null);
   assert.deepEqual(warnings, [
-    "\u001b[33m[Apostate] the GeoIP lookup returned no country, so no locale is derived;"
-    + " the host's own is served for that field."
-    + " Pass locale explicitly to guarantee a match.\u001b[0m",
+    "\u001b[33m[Apostate] the GeoIP lookup returned no country, so no locale is derived"
+    + " and the persona uses en-US. Pass locale to match the exit.\u001b[0m",
   ]);
 });
 
@@ -1808,8 +1807,9 @@ test("no working GeoIP endpoint sends no override instead of a fabricated one", 
   assert.equal(config.timezone, null);
   const warning = warnings.join("\n");
   assert.match(warning, /every GeoIP endpoint failed: 4 attempts across 2 endpoints/);
-  assert.match(warning, /No locale or timezone override is sent and none is invented/);
-  assert.equal(/en-US|UTC/.test(warning.replace("GeoIP", "")), false);
+  assert.match(warning, /No locale or timezone is sent, so the persona uses en-US/);
+  // The launcher sends no invented value; en-US is the browser's own default, named in the text.
+  assert.equal(/UTC/.test(warning), false);
 });
 
 // One connection, one RFC 1928 handshake, one HTTP reply. Small enough to read

@@ -1603,7 +1603,7 @@ print(catalogue['browser_build'])
         self.assertIn("--fingerprint=4242", args)
         warning = plan.diagnostics["warnings"][0]
         self.assertIn("every GeoIP endpoint failed: 4 attempts across 2 endpoints", warning)
-        self.assertIn("No locale or timezone override is sent and none is invented", warning)
+        self.assertIn("No locale or timezone is sent, so the persona uses en-US", warning)
         self.assertIn(warning, stream.getvalue())
 
     def test_a_socks_credential_travels_in_the_envelope_and_not_to_the_driver(self) -> None:
@@ -1683,14 +1683,12 @@ print(catalogue['browser_build'])
                                                        "timezone": "Europe/Berlin"})
         self.assertEqual(
             plan.diagnostics["warnings"],
-            ["the GeoIP lookup returned no country, so no locale is derived; the "
-             "host's own is served for that field. Pass locale explicitly to "
-             "guarantee a match."])
+            ["the GeoIP lookup returned no country, so no locale is derived and the "
+         "persona uses en-US. Pass locale to match the exit."])
         self.assertEqual(
             stream.getvalue(),
-            "apostate: the GeoIP lookup returned no country, so no locale is derived; "
-            "the host's own is served for that field. Pass locale explicitly to "
-            "guarantee a match.\n")
+            "apostate: the GeoIP lookup returned no country, so no locale is derived and "
+            "the persona uses en-US. Pass locale to match the exit.\n")
 
     def test_the_cached_cdm_goes_into_an_apostate_install_and_nowhere_else(self) -> None:
         # A launch copies the cached CDM into the browser's preinstalled

@@ -1533,9 +1533,9 @@ async function prepareLaunch(options = {}) {
         : sanitizeErrorMessage(error?.message ?? error, canonical.proxy);
       geoipWarnings.push(
         `GeoIP lookup failed for ${redactProxy(canonical.proxy) ?? "the direct network"}: ${reason}. `
-        + "No locale or timezone override is sent and none is invented, so the launch keeps the "
-        + "host's own locale and timezone. Behind a proxy that is the host's and not the exit's. "
-        + "Pass locale and timezone explicitly to guarantee a match.",
+        + "No locale or timezone is sent, so the persona uses en-US and the host's timezone. "
+        + "Behind a proxy that is the host's and not the exit's. Pass locale and timezone to "
+        + "match the exit.",
       );
       console.warn(`\x1b[33m[Apostate] ${geoipWarnings[geoipWarnings.length - 1]}\x1b[0m`);
     } finally {
@@ -1567,8 +1567,8 @@ async function prepareLaunch(options = {}) {
     // a locale the provider was never asked for.
     if (askedForLocale && geoipResult.locale === null) {
       geoipWarnings.push(
-        "the GeoIP lookup returned no country, so no locale is derived; the host's own is "
-        + "served for that field. Pass locale explicitly to guarantee a match.",
+        "the GeoIP lookup returned no country, so no locale is derived and the persona uses "
+        + "en-US. Pass locale to match the exit.",
       );
       console.warn(`\x1b[33m[Apostate] ${geoipWarnings[geoipWarnings.length - 1]}\x1b[0m`);
     }
