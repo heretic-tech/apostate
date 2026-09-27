@@ -67,12 +67,11 @@ def _read_manifest(path: Path) -> dict[str, str]:
 def _series_runs(series_path: Path) -> list[tuple[str | None, list[tuple[int, str]]]]:
     """Split patches/series into runs of entries tagged with what documents them.
 
-    The series is the apply order, and that order is set by dependency rather
-    than by number: 0093 rewrites the branch of compose.cc 0091 reaches, so it
-    follows it, and 0084/0085 come last because they are authored on top of
-    the whole compose.cc chain.  Every such departure is explained by a
-    comment above the entries it applies to, so a run is the unit the
-    explanation covers, and these runs are what makes that documentation
+    The series is the apply order, and that order is not always the numeric
+    one: 0084 and 0085 sit after 0096 because they were written on top of the
+    compose.cc chain and appended there.  Every such departure is explained by
+    a comment directly above the entries it applies to, so a run is the unit
+    the explanation covers, and these runs are what makes that documentation
     machine-readable instead of decorative.
     """
     try:
@@ -167,16 +166,20 @@ def _check_apply_order(
 
     * every entry is a numbered patch and no number is used twice, so the
       series cannot silently grow a second 0093;
-    * an undocumented run of entries is in ascending numeric order, which
-      catches the accidental shuffle while leaving a deliberate reorder legal
-      as long as a comment says why;
+    * the undocumented entries, read in series order across blank lines, are
+      in ascending numeric order, which catches the accidental shuffle while
+      leaving a deliberate reorder legal as long as a comment says why.  A
+      blank line ends a run but does not restart the comparison, so an entry
+      cannot dodge the check by sitting in a run of its own;
     * a patch that needs a file must follow the patch that creates it, which
       is a real dependency edge derived from the diffs rather than from the
       filenames.
     """
     seen: dict[int, str] = {}
+    # The last undocumented entry.  A documented run is skipped, not reset
+    # to, so the entries on either side of it still have to be in order.
+    previous: tuple[int, str] | None = None
     for comment, run in runs:
-        previous: tuple[int, str] | None = None
         for line_number, name in run:
             match = re.fullmatch(r"([0-9]{4})-.+\.patch", name)
             if match is None:
@@ -201,7 +204,8 @@ def _check_apply_order(
                     "restore numeric order, or introduce these entries with a "
                     "comment naming the dependency that forces it."
                 )
-            previous = (number, name)
+            if comment is None:
+                previous = (number, name)
 
     order = {name: index for index, (_, name) in enumerate(
         (entry for _, run in runs for entry in run))}

@@ -1,5 +1,6 @@
 # Patches applied to the pinned Chromium checkout, in this order.
 # scripts/apply-patches.sh applies them; each patch header says what it changes.
+
 0001-net-socks5-rfc1929-auth.patch
 0002-embedder-support-no-headless-token.patch
 0003-content-no-automation-controlled-from-switches.patch
@@ -79,11 +80,20 @@
 0091-compose-detects-a-gpuless-host.patch
 0093-gpu-cluster-inherits-when-no-anchor-serves.patch
 0094-webshare-reports-a-cancelled-share.patch
+
+# 0092 was appended after 0093 and 0094, which were already in the series.
+# It shares no file with either, so this position changes nothing.
 0092-synthetic-capture-devices-produce-frames.patch
+
 0095-windows-script-fallback-table.patch
 0096-socks5-auth-netlog-events.patch
+
+# 0084 and 0085 were written on top of the compose.cc chain above and appended
+# after 0096. Neither needs this position: 0084 shares no file with 0086-0096,
+# and 0085 applies before or after 0091 and 0093 with the same compose.cc.
 0084-compose-the-profile-at-browser-startup.patch
 0085-per-field-fingerprint-overrides.patch
+
 0097-compose-assumes-font-provisioning.patch
 0099-font-enumeration-suffix-aware-matching.patch
 0100-blink-no-empty-root-window-rect.patch
@@ -97,7 +107,11 @@
 0108-gl-keep-the-software-webgl-fallback.patch
 0109-software-hevc-on-every-shipped-target.patch
 0111-locale-follows-the-launch-and-the-host.patch
+
+# 0110 was appended after 0111; the two were added to the series together.
+# They share no file, so this position changes nothing.
 0110-proxy-server-url-credentials.patch
+
 0112-gl-serve-the-anchor-capability-limits.patch
 0113-a-persistent-profile-keeps-one-identity.patch
 0114-composed-locale-never-the-host-shell.patch

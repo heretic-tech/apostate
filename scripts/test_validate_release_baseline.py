@@ -160,9 +160,9 @@ class ValidateReleaseBaselineTests(unittest.TestCase):
     def test_an_undocumented_reorder_fails_and_a_documented_one_passes(self):
         """The series is dependency-ordered, and that is what has to survive.
 
-        Numeric order is not the rule -- 0093 precedes 0092 in the real
-        series because it has to -- so the check is that a departure from it
-        was written down. An unexplained swap is indistinguishable from a bad
+        Numeric order is not the rule -- 0084 and 0085 follow 0096 in the
+        real series -- so the check is that a departure from it was written
+        down. An unexplained swap is indistinguishable from a bad
         merge; an explained one is the author's declared apply order.
         """
         temporary, root = _make_fixture()
@@ -188,6 +188,45 @@ class ValidateReleaseBaselineTests(unittest.TestCase):
             result = self.run_validator(root)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("out of numeric order", result.stderr)
+
+    def test_a_blank_line_alone_does_not_exempt_an_entry(self):
+        """A run of its own is not an explanation.
+
+        Removing the comment above a documented group leaves the group on
+        its own between blank lines. That has to fail like any other
+        unexplained reorder, so the comparison carries across runs.
+        """
+        temporary, root = _make_fixture()
+        with temporary:
+            series = root / "patches" / "series"
+            series.write_text("0002-second.patch\n\n0001-first.patch\n")
+            result = self.run_validator(root)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("0001-first.patch is out of numeric order after "
+                      "0002-second.patch", result.stderr)
+
+    def test_entries_around_a_documented_group_are_still_compared(self):
+        temporary, root = _make_fixture()
+        with temporary:
+            patches = root / "patches"
+            (patches / "0003-third.patch").write_bytes(b"third\n")
+            series = patches / "series"
+            series.write_text(
+                "0001-first.patch\n\n"
+                "# 0003 is placed early on purpose.\n"
+                "0003-third.patch\n\n"
+                "0002-second.patch\n")
+            documented = self.run_validator(root, "--series-only")
+            series.write_text(
+                "0002-second.patch\n\n"
+                "# 0003 is placed early on purpose.\n"
+                "0003-third.patch\n\n"
+                "0001-first.patch\n")
+            shuffled = self.run_validator(root, "--series-only")
+        self.assertEqual(documented.returncode, 0, documented.stderr)
+        self.assertNotEqual(shuffled.returncode, 0)
+        self.assertIn("0001-first.patch is out of numeric order after "
+                      "0002-second.patch", shuffled.stderr)
 
     def test_a_patch_cannot_be_listed_before_the_patch_that_creates_its_file(self):
         """The one dependency edge the diffs state outright.
