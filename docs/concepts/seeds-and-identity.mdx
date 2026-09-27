@@ -78,6 +78,7 @@ For a fresh machine on every run of a persistent context, give each run its own 
 
 **A catalogue change can move the machine.** The build compiles the catalogue tables into the browser. A release that edits a table re-draws the choices that table decides, and the choices that depend on them, for seeds and persistent profiles alike. Each choice has its own hash stream, so the other choices stay.
 
+- Apostate 0.4.4 adds a GPU family for Windows personas on ARM hosts. A Windows seed on an ARM host, such as an Apple silicon Mac, draws an Adreno GPU in 0.4.4, and with it a different core count and memory. Seeds on x86 hosts, and macOS and Linux seeds everywhere, draw the same options as in 0.4.3. The Windows font lists name Segoe UI Variable and Sitka by their instances in 0.4.4, for every Windows seed.
 - Apostate 0.4.3 uses the same tables as 0.4.2, so every seed presents the same machine in both.
 - Seeds from releases before 0.4.2 present different machines in 0.4.2 and later.
 - Recording the composed machine in the profile directory, so that table edits stop moving a persistent profile, is planned and not done yet.
