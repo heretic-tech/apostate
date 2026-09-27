@@ -2065,3 +2065,20 @@ test("an unknown timezone is refused before launch", async () => {
   await assert.rejects(resolveLaunchConfig({ timezone: "Mars/Olympus", geoip: false }), RangeError);
   assert.equal((await resolveLaunchConfig({ timezone: "Europe/Berlin", geoip: false })).timezone, "Europe/Berlin");
 });
+
+test("launches carry the first-run switches the Python package passes", async () => {
+  const root = await mkdtemp(join(tmpdir(), "apostate-node-first-run-"));
+  try {
+    const executable = join(root, "browser");
+    await writeFile(executable, "#!/bin/sh\nexit 0\n");
+    await chmod(executable, 0o755);
+    const fake = fakePlaywright();
+    const browser = await launch({ executablePath: executable, geoip: false, fingerprint: 42, _driverModule: fake.module });
+    const { args } = fake.launches[0].options;
+    assert.ok(args.includes("--no-first-run"));
+    assert.ok(args.includes("--no-default-browser-check"));
+    await browser.close();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

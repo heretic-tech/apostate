@@ -1743,6 +1743,11 @@ function buildLaunchArguments(config, resolution, { driverOwnsProfile = false } 
     args.push("--force-webrtc-ip-handling-policy=disable_non_proxied_udp");
   }
   if (config.headless && !hasSwitch(args, "--headless")) args.push("--headless=new");
+  // As the Python package does. Without them a headed first launch of a new
+  // profile can stop at a first-run dialog, which launchProcess() never clears.
+  for (const flag of ["--no-first-run", "--no-default-browser-check"]) {
+    if (!hasSwitch(args, flag)) args.push(flag);
+  }
   if (config.user_data_dir !== null && !driverOwnsProfile) args.push(`--user-data-dir=${config.user_data_dir}`);
   if (config.proxy !== null) args.push(`--proxy-server=${proxyEndpoint(config.proxy)}`);
   if (config.locale !== null && !hasSwitch(args, "--lang")) args.push(`--lang=${config.locale.split(",")[0]}`);
