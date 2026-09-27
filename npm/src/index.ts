@@ -79,7 +79,7 @@ const HOST_INHERITANCE_SEED = "host";
 const HOST_INHERITANCE_SEEDS = {
   host: true, off: true, false: true, "0": true, disable: true, disabled: true,
 };
-// docs/HOW_IT_WORKS.md: the compositor is the browser process's and is
+// docs/concepts/how-it-works.mdx: the compositor is the browser process's and is
 // the only implementation. The package does not compose; it hands the browser
 // the selectors and lets the browser process compose. Measured on the shipped
 // macos-arm64 artifact at 152.0.7977.83: --fingerprint=42 yields en-GB /
@@ -641,7 +641,7 @@ function cataloguePolicyIds(policies, family) {
 
 // The catalogue describes the browser process's composition model. The package
 // reads it to report the anchors, axes and policy ids it will compose from, and
-// never to compose: see docs/HOW_IT_WORKS.md.
+// never to compose: see docs/concepts/how-it-works.mdx.
 export function loadCatalogue(path = DEFAULT_CATALOGUE_PATH) {
   const cataloguePath = resolve(path);
   let parsed;
@@ -1472,7 +1472,7 @@ function posixLocale(tag) {
 // that moves Intl.DateTimeFormat, Intl.NumberFormat, Intl.Collator and
 // toLocaleString together with navigator.languages; --lang moves none of them,
 // measured on stock Chrome as well as on ours. It has no effect on an artifact
-// that ships one locale pak -- see docs/HOW_IT_WORKS.md and
+// that ships one locale pak -- see docs/concepts/how-it-works.mdx and
 // scripts/package-artifact.sh, which now ships the full set.
 function localeEnvironment(config, resolution) {
   const seed = config.fingerprint;
@@ -2461,7 +2461,7 @@ function artifactUrlFor(manifest, artifact) {
   if (typeof artifact.url === "string" && artifact.url) return artifact.url;
   if (typeof artifact.download_url === "string" && artifact.download_url) return artifact.download_url;
   const repository = manifest.repository ?? RELEASE_REPOSITORY;
-  // docs/RELEASE.md step 2: releases are tagged vMAJOR.MINOR.PATCH. The tag
+  // docs/contributing/releases.mdx step 2: releases are tagged vMAJOR.MINOR.PATCH. The tag
   // comes from the MANIFEST's package_version, which is the binary release's
   // identity -- v0.1.0 -- and not this launcher's.
   const tag = manifest.tag ?? `v${manifest.package_version ?? PACKAGE_VERSION}`;
@@ -3213,7 +3213,7 @@ function playwrightProxy(proxy) {
   //
   // The browser already has them: buildLaunchArguments puts them in the
   // --apostate-profile envelope, which is the route that keeps a credential
-  // out of NetLog, socket-pool group keys and error strings (docs/FLAGS.md,
+  // out of NetLog, socket-pool group keys and error strings (docs/reference/switches.mdx,
   // "The proxy"). Playwright, meanwhile, refuses to start at all when a
   // socks5 server carries a username -- "Browser does not support socks5
   // proxy authentication" -- because upstream Chromium has no way to supply

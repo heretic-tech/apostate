@@ -26,7 +26,7 @@ fi
 # Neither cross-built nor Windows binaries can be asked for their version, for
 # different reasons, so both are checked by reading the file instead.
 #
-# linux-arm64 is an x86_64-hosted cross-build (see docs/BUILD.md), so the
+# linux-arm64 is an x86_64-hosted cross-build (see docs/contributing/build.mdx), so the
 # binary cannot be executed on the machine that produced it. Check the machine
 # type of the ELF instead of asking it for its version.
 if [ "$TARGET" = linux-arm64 ]; then

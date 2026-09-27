@@ -35,7 +35,7 @@ import sys
 # registration was compiled by nothing the gate checked. At 152.0.7977.83 the
 # series patches 58 files outside this tuple -- 53 headers and 5 .asm, four of
 # the .asm include-only in exactly that way -- so they are neither verified
-# nor visible as absences. docs/BUILD.md records that gap; closing it means
+# nor visible as absences. docs/contributing/build.mdx records that gap; closing it means
 # putting each includer's object into a paid compile set, which is a coverage
 # decision rather than a bug fix.
 #

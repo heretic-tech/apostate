@@ -172,7 +172,7 @@ trap 'rm -f "$manifest_tmp"' EXIT
   echo "fresh_ancestor_sha256 = \"$fresh_ancestor_sha256\""
   if [ "${#windows_toolchain_lines[@]}" -gt 0 ]; then
     echo "# Resolved from the runner's own installation, not from a pin. See"
-    echo "# docs/BUILD.md, \"Provisioning\". Windows targets only."
+    echo "# docs/contributing/build.mdx, \"What the host needs\". Windows targets only."
     for line in "${windows_toolchain_lines[@]}"; do echo "$line"; done
   fi
   echo

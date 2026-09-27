@@ -80,7 +80,7 @@ def _playwright_proxy(value: str | Mapping[str, Any] | None) -> dict[str, Any] |
     The browser already has it: ``_native_args`` puts it in the
     ``--apostate-profile`` envelope, which is the route that keeps a
     credential out of NetLog, socket-pool group keys and error strings
-    (docs/FLAGS.md, "The proxy"). Playwright, meanwhile, refuses to start at
+    (docs/reference/switches.mdx, "The proxy credential"). Playwright, meanwhile, refuses to start at
     all when a socks server carries a username -- "Browser does not support
     socks5 proxy authentication" -- because upstream Chromium has no way to
     supply one. Handing the driver a credential it will not use, and failing
@@ -152,7 +152,7 @@ def _proxy_credentials(value: str | Mapping[str, Any] | None) -> dict[str, str] 
     """The proxy's credential, for the envelope rather than the command line.
 
     The endpoint goes on the command line credential-free and the credential
-    travels inside ``--apostate-profile``; docs/FLAGS.md "The proxy" is why.
+    travels inside ``--apostate-profile``; docs/reference/switches.mdx "The proxy credential" is why.
     This package used to have no such channel and handed the credential to the
     driver instead, which works for http and cannot work for SOCKS: Playwright
     refuses to start at all when a socks server carries a username, because
@@ -242,7 +242,7 @@ def _locale_environment(plan: LaunchPlan) -> dict[str, str]:
     that moves `Intl.DateTimeFormat`, `Intl.NumberFormat`, `Intl.Collator` and
     `toLocaleString` together with `navigator.languages`; `--lang` moves none
     of them, measured on stock Chrome as well as on ours. It has no effect on
-    an artifact that ships one locale pak -- see docs/HOW_IT_WORKS.md
+    an artifact that ships one locale pak -- see docs/concepts/how-it-works.mdx
     and scripts/package-artifact.sh, which now ships the full set.
     """
     if is_host_seed(plan.config.fingerprint):

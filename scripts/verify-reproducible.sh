@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build twice from clean and compare. This is the check that the build contract
-# in docs/BUILD.md is actually being honoured rather than merely intended.
+# in docs/contributing/build.mdx is actually being honoured rather than merely intended.
 source "$(dirname "$0")/lib.sh"
 
 if [ "$(uname -s)" = Linux ] && [ -z "${APOSTATE_BUILD_IMAGE_ID:-}" ]; then

@@ -56,7 +56,7 @@ name: series compile gate
 #
 # Nothing here is cached, and the checkout cannot be. It measures 28.1 GB on
 # Windows and about 50 GB on macOS, against a 10 GB GitHub Actions cache
-# ceiling; docs/BUILD.md records the same decision for the build workflows
+# ceiling; docs/contributing/build.mdx records the same decision for the build workflows
 # ("the workflow restores no build cache and adopts no existing output
 # directory"). Trimming the checkout with gclient custom_deps to fit would be
 # worse than paying for it: this gate's answers are statements about the build

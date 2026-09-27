@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Compile the dispersion tables and GPU anchors into C++ source.
 
-`docs/FINGERPRINTS.md` §10 rejects reading the tables from disk at runtime: a
+`docs/concepts/how-it-works.mdx` rules out reading the tables from disk at runtime: a
 data directory beside the executable is one more thing to lose, to mismatch
 against the binary, and to diverge per install. So the tables are compiled in,
 and this is the GN action that does it.

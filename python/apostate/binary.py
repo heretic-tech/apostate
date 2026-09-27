@@ -68,7 +68,7 @@ _MANIFEST_RESOURCE = "assets/release-manifest.json"
 #: installing something else.
 RELEASE_REPOSITORY = "heretic-tech/apostate"
 
-#: ``docs/RELEASE.md`` step 2: releases are tagged ``vMAJOR.MINOR.PATCH``.
+#: ``docs/contributing/releases.mdx`` step 2: releases are tagged ``vMAJOR.MINOR.PATCH``.
 def _release_tag(package_version: str) -> str:
     return "v" + str(package_version)
 

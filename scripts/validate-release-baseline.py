@@ -238,7 +238,7 @@ _REFRESH_NOTE = (
     "every patch edit invalidates it again. It rewrites only those two fields: "
     "MANIFEST.lock's [outputs] still describe binaries built from the earlier "
     "patch set, and the authoritative output-to-patch binding is the build "
-    "lineage record rather than this file. See docs/RELEASE.md."
+    "lineage record rather than this file. See docs/contributing/releases.mdx."
 )
 
 

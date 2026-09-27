@@ -834,7 +834,7 @@ class CompositionTests(unittest.TestCase):
         launch on an Asia/Bangkok host served America/New_York, Europe/London
         or Australia/Sydney depending on the seed -- a timezone uncorrelated
         with the exit IP by construction, which is a first-line correlation
-        check at every fraud vendor. docs/HOW_IT_WORKS.md conditions this
+        check at every fraud vendor. docs/concepts/how-it-works.mdx conditions this
         surface on "launch precedence, GeoIP" and gives it no option table.
         """
         host = {"host_timezone": "Asia/Bangkok", "host_languages": "th-TH,th"}
@@ -966,7 +966,7 @@ class CompositionTests(unittest.TestCase):
                 f"{len(sections)} sections and the composition now has "
                 f"{len(profile)}: {', '.join(sorted(moved))}. The digest was "
                 "produced by the C++ compositor, so only a build can refresh "
-                "it -- see docs/RELEASE.md, 'Refreshing the native golden "
+                "it -- see docs/contributing/releases.mdx, 'Refresh the golden "
                 "profile digests'. Recomputing it here would make the test "
                 "compare this module against itself."
             )

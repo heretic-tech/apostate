@@ -100,7 +100,7 @@ jobs:
           # only a build can refresh them. Everyday runs skip them with the
           # reason printed; a tag must not ship a resolver whose agreement
           # with the native compositor has never been checked at this
-          # catalogue revision. See docs/RELEASE.md.
+          # catalogue revision. See docs/contributing/releases.mdx.
           APOSTATE_REQUIRE_NATIVE_GOLDENS=1 python3 scripts/test_profile_resolver.py
       - name: Run Python package tests
         shell: bash

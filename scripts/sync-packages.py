@@ -40,7 +40,7 @@ Usage:
   --release   directory holding <archive> and <archive>.manifest.json pairs
   --tag       release tag the artifacts are published under; defaults to
               v<policy package_version>, which is the release the artifacts
-              in --release came from, in the form docs/RELEASE.md step 2 requires
+              in --release came from, in the form docs/contributing/releases.mdx step 2 requires
   --check     do not write; exit non-zero if either package is out of date.
               This is what CI runs to catch a release whose packages still
               carry the previous build's digests, or a schema edit that never

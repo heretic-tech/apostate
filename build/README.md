@@ -64,5 +64,5 @@ and leaves the rest of the build record alone. Without `--release` the same
 check reports the drift as a notice and exits zero, because between builds
 the digests are expected to be behind.
 
-See [`docs/RELEASE.md`](../docs/RELEASE.md) for artifact names, manifest
+See [`docs/contributing/releases.mdx`](../docs/contributing/releases.mdx) for artifact names, manifest
 fields, artifact verification, and the release-candidate gate.

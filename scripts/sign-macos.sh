@@ -2,7 +2,7 @@
 # Developer ID sign, notarize and staple the macOS app bundle.
 #
 # Writes to $WORKSPACE/signed/<target>/, never into out/. The build contract in
-# docs/BUILD.md is that build/MANIFEST.lock's [outputs] hashes describe what
+# docs/contributing/build.mdx is that build/MANIFEST.lock's [outputs] hashes describe what
 # ninja produced, and scripts/verify-reproducible.sh compares two builds
 # through those hashes. A signature is not reproducible -- it carries a
 # timestamp and a certificate -- so signing in place would make every

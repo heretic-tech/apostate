@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/apostate/apostate/config/launch.schema.json",
   "title": "Apostate canonical launch configuration",
-  "description": "The normalized launch contract shared by the CLI, Python package, and Node package. Profile selection precedence is explicit profile file > inline profile object > fingerprint seed plus platform persona > persisted seed for this user-data-dir > a newly drawn seed, persisted. Network localization precedence is explicit locale/timezone > GeoIP-derived locale/timezone > composed locale/timezone > host values. A launch resolves this configuration once before the browser process starts; adapters must not add per-call randomness and must not log proxy credentials. Composition itself runs in the browser process and is not reimplemented by an adapter (docs/FINGERPRINTS.md section 7).",
+  "description": "The normalized launch contract shared by the CLI, Python package, and Node package. Profile selection precedence is explicit profile file > inline profile object > fingerprint seed plus platform persona > persisted seed for this user-data-dir > a newly drawn seed, persisted. Network localization precedence is explicit locale/timezone > GeoIP-derived locale/timezone > composed locale/timezone > host values. A launch resolves this configuration once before the browser process starts; adapters must not add per-call randomness and must not log proxy credentials. Composition itself runs in the browser process and is not reimplemented by an adapter (docs/concepts/how-it-works.mdx).",
   "type": "object",
   "additionalProperties": false,
   "required": [
