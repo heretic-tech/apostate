@@ -1,0 +1,18 @@
+{
+  "capture_path": "resources/fingerprints/raw/windows-qualcomm-adreno-x1-85-20260927T221842Z.json",
+  "context": {
+    "automation_signals": [],
+    "automation_suspected": false,
+    "collector_sha256": "eadb67df2441d755fd86e37581190fd205d88e18a3ba1aa87a042ab81b2b78c1",
+    "device_pixel_ratio": 1.5,
+    "headed": true,
+    "label": "snapdragon-x-elite-crd8380x-chrome-152",
+    "secure_context": true,
+    "taken_at": "2026-09-27T22:18:42.105Z",
+    "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+  },
+  "decision": "accepted",
+  "raw_sha256": "45533a7e577783c1936171892fa9704670fe59a0a321884c616f3b0d60376151",
+  "reason": "capture passed admission checks; browser build 152.0.7977.82 differs from release pin 152.0.7977.83 (same-major). Received through a tunnel: the headers it added (Cdn-Loop, Cf-Connecting-Ip, Cf-Ew-Via, Cf-Ipcountry, Cf-Ray, Cf-Visitor, Cf-Warp-Tag-Id, Cf-Worker, X-Forwarded-For, X-Forwarded-Proto) were removed and its host name reads capture.invalid before admission. The tunnel may also rewrite Accept-Encoding and header casing, so headers.echo is not ground truth for this machine.",
+  "recorded_utc": "2026-09-27T23:11:03.902609+00:00"
+}
