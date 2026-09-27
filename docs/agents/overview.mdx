@@ -3,7 +3,7 @@ title: "AI agents"
 description: "Give Claude Code, Codex or your own agent a browser that runs headless and reads as a normal desktop machine."
 ---
 
-An agent that browses needs a browser the web treats as an ordinary visitor. Headless Chrome and stock Playwright announce themselves in dozens of small ways, and sites answer with challenges, empty pages or blocks. Apostate runs headless and presents a whole machine: a Windows, macOS or Linux persona whose GPU, screen, fonts, voices, locale and timezone agree with each other.
+An agent that browses needs a browser the web treats as an ordinary visitor. Headless Chromium driven by stock Playwright gives itself away: in the [test suite](/testing/results) it failed 12 rows on bot.sannysoft.com, and FingerprintJS Pro flagged it as a bot. Apostate runs headless and presents a Windows, macOS or Linux machine whose GPU, screen, fonts, voices, locale and timezone agree with each other.
 
 For an agent that means:
 
@@ -20,7 +20,7 @@ For an agent that means:
 | Setup | One line in the agent's MCP config | `pip install apostate` and a skill that shows the agent how |
 | Pages | [MCP server](/agents/mcp) | [Claude Code](/agents/claude-code#scripts-and-the-apostate-skill), [Codex](/agents/codex#scripts-and-skills) |
 
-Most agents benefit from both: the MCP server for the step-by-step work, and the skill so the agent can write a script when a task repeats.
+Most agents benefit from both. Use the MCP server for step-by-step work, and the skill so the agent can write a script when a task repeats.
 
 ## Pick your agent
 
