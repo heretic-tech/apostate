@@ -41,10 +41,11 @@ Usage:
   --tag       release tag the artifacts are published under; defaults to
               v<policy package_version>, which is the release the artifacts
               in --release came from, in the form docs/contributing/releases.mdx step 2 requires
-  --check     do not write; exit non-zero if either package is out of date.
-              This is what CI runs to catch a release whose packages still
-              carry the previous build's digests, or a schema edit that never
-              reached the packages.
+  --check     do not write; exit non-zero if either package is out of date,
+              or if the version sites break the rule above. This is what CI
+              runs to catch a release whose packages still carry the previous
+              build's digests, or a schema edit that never reached the
+              packages.
 
 Manifest output is byte-identical across runs: sorted keys, compact separators,
 UTF-8, one trailing newline. Asset output is a byte-for-byte copy.
@@ -226,25 +227,50 @@ def _sync(target: Path, payload: bytes, check: bool, stale: list[Path]) -> None:
     print(f"wrote {target.relative_to(REPO_ROOT)}")
 
 
-# Every place the package version is written. A release whose sites disagree
-# ships a package that downloads another release's browser.
+# Every place the package version is written. The first four are the
+# launcher's own version and must agree: a bump that reached some of them
+# ships a package that reports one version and fetches another's manifest.
+# The last is the binary release's version, which the module docstring's rule
+# lets the launcher run ahead of but never behind.
+POLICY_VERSION_SITE = ".github/release/artifact-policy.json"
 VERSION_SITES = (
     ("python/pyproject.toml", r'^version = "([^"]+)"'),
     ("python/apostate/config.py", r'^PACKAGE_VERSION = "([^"]+)"'),
     ("npm/package.json", r'^  "version": "([^"]+)"'),
     ("npm/src/index.ts", r'^export const PACKAGE_VERSION = "([^"]+)"'),
-    (".github/release/artifact-policy.json", r'"package_version": "([^"]+)"'),
+    (POLICY_VERSION_SITE, r'"package_version": "([^"]+)"'),
 )
 
 
 def version_disagreements() -> list[str]:
+    """What is wrong with the version sites, or an empty list.
+
+    The same rule build() applies under --release: the four launcher sites
+    name one MAJOR.MINOR.PATCH version, and it is at or above the policy's
+    package_version. A launcher-only release (0.1.1 installing the binaries
+    published as v0.1.0) passes; a partial bump or a launcher older than the
+    binaries it would install does not.
+    """
     found = {}
     for rel, pattern in VERSION_SITES:
         match = re.search(pattern, (REPO_ROOT / rel).read_text(encoding="utf-8"), re.M)
         found[rel] = match.group(1) if match else "missing"
-    if len(set(found.values())) == 1:
-        return []
-    return [f"{rel}: {version}" for rel, version in found.items()]
+    listing = [f"{rel}: {version}" for rel, version in found.items()]
+    launcher = {version for rel, version in found.items() if rel != POLICY_VERSION_SITE}
+    policy = found[POLICY_VERSION_SITE]
+    if len(launcher) != 1:
+        return ["package version differs between sites:", *listing]
+    if not all(_VERSION_RE.fullmatch(v) for v in found.values()):
+        return ["package version must be MAJOR.MINOR.PATCH at every site:", *listing]
+    (version,) = launcher
+    if _version_tuple(version) < _version_tuple(policy):
+        return [
+            f"package version {version} is older than the release policy's {policy}: "
+            "a launcher cannot ship binaries published after it",
+            *listing,
+        ]
+    return []
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
@@ -281,7 +307,7 @@ def main(argv: list[str] | None = None) -> int:
 
     mismatched = version_disagreements()
     if mismatched:
-        print("package version differs between sites:\n  " + "\n  ".join(mismatched), file=sys.stderr)
+        print("\n  ".join(mismatched), file=sys.stderr)
         return 1
     if stale:
         for path in stale:
