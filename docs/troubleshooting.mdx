@@ -1,0 +1,344 @@
+---
+title: "Troubleshooting"
+description: "Error messages and wrong values you may see, what causes each, and how to fix it."
+---
+
+Each entry starts with the message or value you see, then gives the cause and the fix. The Python package prints its warnings with an `apostate:` prefix and the Node package with `[Apostate]`, and the browser prefixes its own refusals with `apostate:`.
+
+When nothing here matches, run the same launch in [host mode](/concepts/personas#host-mode) to tell whether the persona or the host and network cause the problem, and read the `limitations` list of `--fingerprint-explain`.
+
+## Installing the browser
+
+<AccordionGroup>
+  <Accordion title="Release manifest is unpublished">
+    ```text
+    Release manifest is unpublished; Apostate binary artifacts are not available for acquisition. No release manifest for apostate-152.0.7977.83-linux-x64.tar.zst could be fetched. Tried: https://github.com/heretic-tech/apostate/releases/download/v0.4.3/apostate-152.0.7977.83-linux-x64.tar.zst.manifest.json, https://github.com/heretic-tech/apostate/releases/latest/download/apostate-152.0.7977.83-linux-x64.tar.zst.manifest.json
+    ```
+
+    **Cause.** The package holds no digest for this host's archive, and it could not fetch one from the GitHub release. The host has no route to `github.com`, or the release for this package version has no archive for this platform.
+
+    **Fix.** Check that the host can reach `github.com`. `apostate info` lists the URLs it tried under `manifest_urls_tried`. On a host with no internet access, follow [Offline installs](/installation#offline-installs).
+  </Accordion>
+
+  <Accordion title="Apostate does not ship a binary for this host">
+    ```text
+    apostate: unsupported host binary target: darwin-x86_64
+    ```
+
+    The Node package says `Apostate does not ship a binary for host darwin/x64; supported targets are linux-x64, linux-arm64, macos-arm64, windows-x64.`
+
+    **Cause.** The host is not one of the four supported platforms, for example an Intel Mac.
+
+    **Fix.** Run on Linux x64, Linux arm64, macOS on Apple silicon or Windows x64. See [Installation](/installation#requirements).
+  </Accordion>
+
+  <Accordion title="SHA-256 verification failed">
+    ```text
+    apostate: downloaded Apostate artifact failed SHA-256 verification: expected <digest>, got <digest>. The archive was not opened.
+    ```
+
+    The Node package says `SHA-256 mismatch for apostate-152.0.7977.83-<platform>.<ext>.`
+
+    **Cause.** The bytes downloaded are not the archive the manifest names. The download was cut short or damaged, a mirror set in `APOSTATE_DOWNLOAD_BASE_URL` serves other bytes, a network appliance rewrote the response, or `--manifest` names a different build.
+
+    **Fix.** Run `apostate install --force` to download again. Unset `APOSTATE_DOWNLOAD_BASE_URL` to rule out the mirror. Nothing was extracted, so the cache is unchanged.
+  </Accordion>
+
+  <Accordion title="Cannot read a .tar.zst archive (Linux)">
+    ```text
+    apostate: this Python cannot read a .tar.zst archive: upgrade to Python 3.14, run `pip install zstandard`, or install the `zstd` command line tool
+    ```
+
+    The Node package says `this system cannot read a .tar.zst archive: install the zstd command line tool, or a tar new enough to accept --zstd`.
+
+    **Cause.** The Linux archives are zstd-compressed, and nothing on the host can read them.
+
+    **Fix.** Install the `zstd` command, for example `sudo apt install zstd`, and run `apostate install` again.
+  </Accordion>
+
+  <Accordion title="Cannot download binary artifact through proxy (Node)">
+    ```text
+    BinaryDownloadError: Cannot download binary artifact through proxy socks5://proxy.example:1080 without a proxy-aware downloader.
+    ```
+
+    **Cause.** The Node package's first `launch()` was given a `proxy` and has no browser installed yet. It does not download the browser through the launch proxy.
+
+    **Fix.** Run `npx apostate install` once without the proxy, then launch with it.
+  </Accordion>
+
+  <Accordion title="A path you named has no browser">
+    ```text
+    apostate: APOSTATE_BINARY does not name a file: /opt/apostate/chrome
+    apostate: APOSTATE_BINARY names a directory with no browser inside it (expected Chromium.app, chrome or chrome.exe): /opt/apostate
+    ```
+
+    With `binary_path`, the Python package adds `Omit binary_path to let the package find an existing install, or download and verify the release artifact.` The Node package names `the configured path`.
+
+    **Cause.** `binary_path`, `executablePath` or `APOSTATE_BINARY` points somewhere that is not the browser.
+
+    **Fix.** Point it at the executable, a `Chromium.app` bundle, or the directory the archive unpacks to, such as `apostate-152.0.7977.83-linux-x64/`. Or unset it and let the package find or download the browser.
+  </Accordion>
+
+  <Accordion title="A browser you installed by hand is not found">
+    **Cause.** The well-known search passed it over. `apostate info` shows why:
+
+    ```bash
+    apostate info | jq .discovery.rejected
+    ```
+
+    The reasons are `no Apostate payload beside it (build/MANIFEST.lock or resources/profiles/catalogue.json)`, `reports Chromium <version>, not 152.0.7977.83`, `version could not be established` and `not executable`.
+
+    **Fix.** Move the whole extracted directory into a well-known location, not the browser alone: `build/MANIFEST.lock` and `resources/profiles/` must sit beside it. Or name it with `APOSTATE_BINARY`. [Installation](/installation#use-a-browser-you-already-have) lists the locations.
+  </Accordion>
+
+  <Accordion title="Executable doesn't exist, please run playwright install">
+    ```text
+    Executable doesn't exist at .../ms-playwright/chromium-.../chrome
+    Looks like Playwright was just installed or updated.
+    ```
+
+    **Cause.** The script called Playwright's or Patchright's own `launch()`, which looks for Playwright's Chromium, not Apostate.
+
+    **Fix.** Import `launch` from `apostate` or `@heretic-tech/apostate`. If you drive the binary yourself, pass `executable_path` (Node: `executablePath`) with the path `apostate path` prints. Do not run `playwright install`; it downloads a stock Chromium that presents your real machine.
+  </Accordion>
+
+  <Accordion title="No Playwright-compatible driver is installed">
+    ```text
+    no Playwright-compatible driver is installed. Patchright is a required
+    dependency of this package, so this is a partial install. Repair it:
+        pip install --force-reinstall patchright
+    ```
+
+    **Cause.** The Patchright package is missing or broken in this environment.
+
+    **Fix.** Run the command in the message. In Node, run `npm install patchright`.
+  </Accordion>
+
+  <Accordion title="Promise.withResolvers is not a function (Node 20)">
+    ```text
+    [Apostate] GeoIP lookup failed for the direct network: Promise.withResolvers is not a function. No locale or timezone override is sent and none is invented, ...
+    ```
+
+    **Cause.** The Node package runs on Node 20, which lacks `Promise.withResolvers`. The package uses it for the GeoIP lookup, Linux archive extraction, Widevine provisioning, `launchProcess()` and the Xvfb display, so all of these fail on Node 20.
+
+    **Fix.** Use Node 22 or later.
+  </Accordion>
+</AccordionGroup>
+
+## Launching
+
+<AccordionGroup>
+  <Accordion title="Xvfb is not installed">
+    ```text
+    apostate: Xvfb is not installed; install it (apt install xvfb) or pass headless=True
+    ```
+
+    **Cause.** A headed launch (`headless=False`) on a Linux host with no display. The packages start a private Xvfb display for it and need the `Xvfb` program.
+
+    **Fix.** Run `sudo apt install xvfb`, or launch headless. [Linux servers](/guides/linux-servers) has the details.
+  </Accordion>
+
+  <Accordion title="Missing X server or $DISPLAY">
+    **Cause.** The browser was started headed on a Linux host with no display, through `apostate run`, `launchProcess()` or the binary itself. Only the package launch functions start Xvfb.
+
+    **Fix.** Add `--headless=new`, or run it under Xvfb:
+
+    ```bash
+    xvfb-run -s "-screen 0 3840x2160x24" apostate run -- --fingerprint=42
+    ```
+  </Accordion>
+
+  <Accordion title="Running as root without --no-sandbox is not supported">
+    **Cause.** Chromium on Linux refuses to run as root with its sandbox on. Playwright and Patchright pass `--no-sandbox` by default, so this shows under Puppeteer, `launchProcess()`, `apostate run` and the binary itself, often in a container.
+
+    **Fix.** Run as a regular user. If you must run as root, add `--no-sandbox` to the switches.
+  </Accordion>
+
+  <Accordion title="Target page, context or browser has been closed, at launch">
+    ```text
+    native Apostate browser launch failed: BrowserType.launch_persistent_context: Target page, context or browser has been closed
+    [pid=36675][err] apostate: --fingerprint-hardware-concurrency=64 is above this host's 14 logical cores. A page can measure parallel throughput, so a count the machine cannot deliver is falsifiable in a way a lower count is not. Pass a value of 14 or less.
+    ```
+
+    **Cause.** The browser refused a switch and exited. The browser's log lines inside the error say which, after `apostate:`. Common refusals: a core count or memory size above the host's, a GPU renderer string not in the launch's GPU family, a screen smaller than `--window-size`, a seed with spaces or over 512 bytes, and a proxy credential the browser cannot parse.
+
+    **Fix.** Change the value the `apostate:` line names. [Switches](/reference/switches) lists what each switch accepts.
+  </Accordion>
+
+  <Accordion title="launch() cannot take a persistent profile">
+    ```text
+    apostate: launch() returns a Browser and cannot take a persistent profile (user_data_dir); use launch_persistent_context(user_data_dir, ...), which returns the context bound to that directory. The identity is stable there with no flag.
+    ```
+
+    The Node package refuses `userDataDir` in `launch()` and `--user-data-dir` in `args` the same way.
+
+    **Cause.** A user data directory makes a persistent context, and `launch()` returns a browser.
+
+    **Fix.** Call `launch_persistent_context(DIR, ...)` (Node: `launchPersistentContext(DIR, options)`). See [Seeds and identity](/concepts/seeds-and-identity#the-identity-file).
+  </Accordion>
+
+  <Accordion title="Host inheritance and a persona together">
+    ```text
+    host inheritance disables every layer below it, so a platform persona cannot be applied at the same time
+    ```
+
+    The browser says `apostate: --fingerprint names an off value, so no profile is composed and --fingerprint-platform cannot take effect.`
+
+    **Cause.** `fingerprint="host"` (or `off`, `false`, `0`, `disable`, `disabled`) turns composition off, so a persona, a GPU family or a per-field switch has nothing to change.
+
+    **Fix.** Drop one of the two: host mode for the real machine, or a seed and persona for a composed one.
+  </Accordion>
+
+  <Accordion title="A switch is not one this browser reads">
+    ```text
+    apostate: --fingerprint-screen-widht is not a switch this browser reads; Chromium would ignore it and leave that surface host-inherited. Supported: --apostate-profile, --fingerprint, ...
+    ```
+
+    **Cause.** A misspelt or unknown `--fingerprint*` switch in `args`. Chromium ignores unknown switches, so the packages refuse them, and also refuse a switch one or two letters away from a real one.
+
+    **Fix.** Correct the spelling. [Switches](/reference/switches) lists them all.
+  </Accordion>
+
+  <Accordion title="--fingerprint-noise=false turns readback noise ON">
+    **Cause.** `--fingerprint-noise` takes no value. The browser only checks whether it is present, so any value turns noise on, and the packages refuse values that read as off.
+
+    **Fix.** Leave the switch out to keep noise off.
+  </Accordion>
+
+  <Accordion title="An authored profile and a --fingerprint seed cannot be combined">
+    **Cause.** A written `profile` and `--fingerprint` in `args` in one launch. A profile that describes a device replaces composition, so the seed would be ignored.
+
+    **Fix.** Use one or the other. See [Custom profiles](/guides/custom-profiles).
+  </Accordion>
+
+  <Accordion title="Sync API inside the asyncio loop (Python)">
+    ```text
+    It looks like you are using Playwright Sync API inside the asyncio loop.
+    Please use the Async API instead.
+    ```
+
+    **Cause.** `launch()` was called where an asyncio loop is already running, such as a Jupyter notebook.
+
+    **Fix.** Use `launch_async()`, `launch_context_async()` or `launch_persistent_context_async()` with `await`.
+  </Accordion>
+
+  <Accordion title="Widevine is unavailable, launching without DRM">
+    **Cause.** The package could neither copy the Widevine module from a local Google Chrome nor download it from Google's update service. The browser runs without DRM.
+
+    **Fix.** [Widevine](/guides/widevine) covers installing the module yourself.
+  </Accordion>
+</AccordionGroup>
+
+## Proxies and network
+
+<AccordionGroup>
+  <Accordion title="net::ERR_SOCKS_CONNECTION_FAILED">
+    **Cause.** The SOCKS5 proxy refused the connection or the credentials. When the credentials are wrong, the GeoIP lookup before launch also warns `SOCKS5 proxy rejected the supplied credentials`.
+
+    **Fix.** Check the host, port, username and password. Percent-encode `/`, `%` and spaces in the credential as `%2F`, `%25` and `%20`. Test the proxy outside the browser:
+
+    ```bash
+    curl --proxy socks5h://user:pass@proxy.example:1080 https://example.com
+    ```
+  </Accordion>
+
+  <Accordion title="net::ERR_HTTP_RESPONSE_CODE_FAILURE behind an HTTP proxy">
+    **Cause.** The HTTP proxy kept answering `407 Proxy Authentication Required`, so the credentials were rejected. This is the error a page load gets against a proxy that refuses every credential.
+
+    **Fix.** Check the username and password, encoded as above.
+  </Accordion>
+
+  <Accordion title="Browser does not support socks5 proxy authentication">
+    **Cause.** A SOCKS5 credential reached Playwright or Patchright directly, through their own `proxy` option in `context_options` or in a script that drives the binary itself. The drivers refuse it before the browser starts.
+
+    **Fix.** Pass the proxy through the package's `proxy` option, which hands the credential to the browser and not to the driver. When you drive the binary yourself, put the credential in the switch instead of the driver's `proxy` option: `--proxy-server=socks5://user:pass@proxy.example:1080`. See [Proxies](/guides/proxies).
+  </Accordion>
+
+  <Accordion title="socks5h:// does not work">
+    **Cause.** `socks5h://` is not a Chromium proxy scheme. The Node package refuses it with `proxy must be a valid HTTP(S), SOCKS4, or SOCKS5 URL.`
+
+    **Fix.** Use `socks5://`. The browser already resolves host names on the proxy with it.
+  </Accordion>
+
+  <Accordion title="--proxy-server cannot be passed in args (Node)">
+    **Cause.** The Node package builds `--proxy-server` itself, splitting the endpoint from the credential.
+
+    **Fix.** Pass `proxy: "socks5://user:pass@proxy.example:1080"` instead.
+  </Accordion>
+
+  <Accordion title="GeoIP lookup failed">
+    ```text
+    apostate: GeoIP lookup failed for socks5://proxy.example:1080: every GeoIP endpoint failed: ... No locale or timezone override is sent and none is invented, so the launch keeps the host's own locale and timezone. Behind a proxy that is the host's and not the exit's. Pass locale and timezone explicitly to guarantee a match.
+    ```
+
+    **Cause.** Before launch, the package asks `ip-api.com`, `ipinfo.io`, `ipwho.is` and `ifconfig.co` over plain HTTP, through the proxy, for the exit's country and timezone. None answered within the time limit (20 seconds), because the proxy blocks port 80, rejected the credential, or the services were unreachable. The launch goes ahead with the host's timezone and the persona's default language, `en-US`. The Node package also puts the warning in `browser.apostateDiagnostics.warnings`.
+
+    **Fix.** Pass `locale` and `timezone` yourself when you know the exit's location. Raise `geoip_timeout` (Node: `geoipTimeoutMs`) for slow proxies. See [Locale and timezone](/guides/locale-and-timezone).
+  </Accordion>
+
+  <Accordion title="The GeoIP lookup resolved no timezone, or returned no country">
+    **Cause.** A service answered but left out the timezone or the country. The field it could not fill stays the host's timezone, or the persona's default language.
+
+    **Fix.** Pass the missing `timezone` or `locale` yourself.
+  </Accordion>
+</AccordionGroup>
+
+## Wrong values on a page
+
+<AccordionGroup>
+  <Accordion title="The language ignores --lang">
+    **Cause.** `--lang` has no effect on a persona. The persona's language comes from `--fingerprint-locale`, which the packages set from the `locale` option or from GeoIP. Without either, it is `en-US`.
+
+    **Fix.** Pass `locale="de-DE"` (Node: `locale: "de-DE"`), or `--fingerprint-locale=de-DE` to the binary.
+  </Accordion>
+
+  <Accordion title="navigator.languages has more entries than the locale you passed">
+    With `locale="de-DE"`, a page reads `navigator.languages` as `["de-DE", "de", "en-US", "en"]`.
+
+    **Cause.** A single tag sets the browser's language, and the language list is Chrome's own default for it, as on a real German Chrome.
+
+    **Fix.** To set the list exactly, pass a comma list: `locale="de-DE,de"` gives `["de-DE", "de"]`.
+  </Accordion>
+
+  <Accordion title="The timezone is the host's">
+    **Cause.** No timezone reached the browser: `geoip=False` with no `timezone`, or a GeoIP lookup that failed. The browser then keeps the host's timezone.
+
+    **Fix.** Pass `timezone="Europe/Berlin"` or another IANA name.
+  </Accordion>
+
+  <Accordion title="A Windows persona shows few fonts">
+    **Cause.** A persona shows only the fonts on its list that the host has installed, and nothing warns you. A Linux or macOS host has no Windows fonts until you install them.
+
+    **Fix.** Run `apostate fonts install windows`. It needs `git`, and on Linux `fc-cache` from fontconfig, and it prints any core Windows family still missing. [Fonts](/guides/fonts) covers macOS personas and checking.
+  </Accordion>
+
+  <Accordion title="The core count or memory differs from another host">
+    **Cause.** A persona never claims more cores or memory than the host has. On a smaller host, the seed's draw runs over fewer options, and when none fits, the page reads the host's own value.
+
+    **Fix.** See [the host cap](/concepts/seeds-and-identity#the-host-cap) for sizing, or pin both with `--fingerprint-hardware-concurrency` and `--fingerprint-device-memory`.
+  </Accordion>
+
+  <Accordion title="A persistent profile presents a different machine">
+    **Cause.** One of these changed: the persona (the default differs between hosts, and the identity file does not record it), the identity file (deleted, or replaced because it was not a valid seed), the host's size, or the catalogue tables in a new release.
+
+    **Fix.** Pass `fingerprint_platform` on every launch. Compare the `seed` and `catalogue` lines of `--fingerprint-explain` with a launch that looked right. [Seeds and identity](/concepts/seeds-and-identity) explains each.
+  </Accordion>
+
+  <Accordion title="prefers-color-scheme is always light">
+    **Cause.** Playwright and Patchright emulate a light color scheme by default, over the persona's theme.
+
+    **Fix.** See [Known gaps](/known-gaps#prefers-color-scheme-reads-light-under-playwright-and-patchright).
+  </Accordion>
+
+  <Accordion title="The screen is 800x600 with availHeight equal to height">
+    **Cause.** Headless host mode. With `--fingerprint=host` and no display, the page reads Chrome's own headless screen.
+
+    **Fix.** Use a seed, or launch headed.
+  </Accordion>
+
+  <Accordion title="The screen, window and viewport are all 1280x720 at pixel ratio 1">
+    **Cause.** Playwright's default viewport emulation, in a script that drives the binary itself. The packages turn it off; Python Playwright treats `viewport=None` as the 1280x720 default.
+
+    **Fix.** Pass `no_viewport=True` in Python or `viewport: null` in Node. See [Screen and window](/guides/screen-and-window).
+  </Accordion>
+</AccordionGroup>

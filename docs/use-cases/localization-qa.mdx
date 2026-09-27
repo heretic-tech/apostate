@@ -1,0 +1,141 @@
+---
+title: "Localization QA"
+description: "Open your site in several locales and timezones, save a screenshot of each, and print the languages, formats and html lang the page used."
+---
+
+You ship a site in several languages and want to check what visitors in each locale and timezone get: the language the server picks, date and number formats, and the rendered page. This walkthrough opens a page once per locale, saves a screenshot and prints what the page read.
+
+## What Apostate changes
+
+The `locale` option sets the browser's UI locale, `navigator.languages` and the `Accept-Language` header. The `timezone` option sets the timezone that `Intl` and `Date` use. The browser takes both at launch, so the request headers, the page and its workers agree. A Windows persona shows only the Windows fonts installed on the host, so a screenshot uses the fonts a Windows visitor has. [Locale and timezone](/guides/locale-and-timezone) covers both options.
+
+## Set up
+
+```bash
+pip install apostate
+apostate install
+apostate fonts install windows
+git clone https://github.com/heretic-tech/apostate.git
+cd apostate/examples/use-cases/localization-qa
+```
+
+On Linux and macOS hosts, install the Windows fonts before you compare screenshots. [Fonts](/guides/fonts) explains what the command installs.
+
+[`check_locales.py`](https://github.com/heretic-tech/apostate/blob/main/examples/use-cases/localization-qa/check_locales.py) opens a page for each region, reads what the page sees and saves a full-page screenshot. With no argument, it serves a local test page that picks its language from `Accept-Language` and shows dates, numbers, a price, a relative time and a list formatted by `Intl`.
+
+## The script
+
+Each region has a locale, a timezone and the name of an environment variable that may hold a proxy in that region:
+
+```python
+REGIONS = [
+    ("en-US", "America/New_York", "APOSTATE_PROXY_US"),
+    ("de-DE", "Europe/Berlin", "APOSTATE_PROXY_DE"),
+    ("ja-JP", "Asia/Tokyo", "APOSTATE_PROXY_JP"),
+    ("ar-EG", "Africa/Cairo", "APOSTATE_PROXY_EG"),
+]
+
+READ = """() => {
+    const instant = new Date(Date.UTC(2026, 0, 15, 12, 0));
+    return {
+        languages: navigator.languages.join(","),
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        htmlLang: document.documentElement.lang,
+        date: instant.toLocaleString(undefined, {dateStyle: "full", timeStyle: "short"}),
+        number: (1234567.891).toLocaleString(),
+    };
+}"""
+```
+
+One launch per region, with the same seed and persona each time:
+
+```python
+def check(url, locale, timezone, proxy):
+    with launch(fingerprint=42, fingerprint_platform="windows", locale=locale, timezone=timezone,
+                geoip=False, proxy=proxy) as browser:
+        page = browser.new_page()
+        response = page.goto(url)
+        values = page.evaluate(READ)
+        values["acceptLanguage"] = response.request.all_headers()["accept-language"]
+        page.screenshot(path=OUT / f"{locale}.png", full_page=True)
+    return values
+```
+
+The test page's server chooses its language the way many sites do, from the first supported language in `Accept-Language`:
+
+```python
+        wanted = [part.split(";")[0].strip()[:2] for part in self.headers.get("Accept-Language", "").split(",")]
+        lang = next((code for code in wanted if code in GREETINGS), "en")
+```
+
+## Run it
+
+```bash
+python3 check_locales.py
+```
+
+```text
+en-US  America/New_York  direct
+    languages       en-US,en
+    acceptLanguage  en-US,en;q=0.9
+    htmlLang        en
+    date            Thursday, January 15, 2026 at 7:00 AM
+    number          1,234,567.891
+    screenshot      out/en-US.png
+de-DE  Europe/Berlin  direct
+    languages       de-DE,de,en-US,en
+    acceptLanguage  de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7
+    htmlLang        de
+    date            Donnerstag, 15. Januar 2026 um 13:00
+    number          1.234.567,891
+    screenshot      out/de-DE.png
+ja-JP  Asia/Tokyo  direct
+    languages       ja,en-US,en
+    acceptLanguage  ja,en-US;q=0.9,en;q=0.8
+    htmlLang        ja
+    date            2026年1月15日木曜日 21:00
+    number          1,234,567.891
+    screenshot      out/ja-JP.png
+ar-EG  Africa/Cairo  direct
+    languages       ar,en-US,en
+    acceptLanguage  ar,en-US;q=0.9,en;q=0.8
+    htmlLang        ar
+    date            الخميس، 15 يناير 2026 في 2:00 م
+    number          1,234,567.891
+    screenshot      out/ar-EG.png
+```
+
+- `htmlLang` is the `lang` attribute of the page the server returned. On your site, it shows which translation each locale received.
+- `date` is the same instant, noon UTC on 15 January 2026, in each region's timezone and format.
+- `ja-JP` gives a language list that starts with `ja`, and `ar-EG` one that starts with `ar`, because Chrome's UI locale for these languages carries no region. [One tag or a list](/guides/locale-and-timezone#one-tag-or-a-list) shows how to pass an exact list instead.
+
+The screenshots are in `out/`, one per locale. Each is 1920 pixels wide, the width of the window seed 42 opens as a Windows persona.
+
+## Check your own site
+
+Pass the page's URL:
+
+```bash
+python3 check_locales.py https://example.com
+```
+
+The output has the same fields. `date` and `number` come from the browser, so they are the same for any page. `htmlLang` and the screenshots show what your site served.
+
+## Regions and proxies
+
+A site that chooses the language, currency or content from the visitor's IP address needs a visit from that region. Put a proxy in the region's variable, and that region's launch goes through it:
+
+```bash
+export APOSTATE_PROXY_DE="socks5://user:pass@proxy.example:1080"
+python3 check_locales.py https://example.com
+```
+
+The region's line then reads `de-DE  Europe/Berlin  through APOSTATE_PROXY_DE`. The script still passes the region's locale and timezone, so the package skips its GeoIP lookup. Use a proxy whose exit is in that region. [Proxies](/guides/proxies) covers proxy URLs and credentials.
+
+## Points for this job
+
+- **Seed and persona.** Every region uses seed 42 as Windows, so only the locale and timezone change between screenshots. To compare macOS rendering, change `fingerprint_platform` in `check()`.
+- **Fonts.** The host's font engine draws the glyphs, so glyph edges in a screenshot can differ slightly from a Windows machine's ([Known gaps](/known-gaps#text-is-drawn-by-the-hosts-font-engine)). Compare screenshots taken on one host with each other.
+- **Voices and keyboard.** A Windows persona lists English speech voices, and every persona reports a US keyboard layout, whatever the locale. [Known gaps](/known-gaps#windows-voices-are-english) covers both, for a site that uses either.
+- **Timezone names.** Pass IANA names such as `Asia/Tokyo`. The packages do not check them, and [Locale and timezone](/guides/locale-and-timezone#what-intl-shows) describes what an unknown name does.
+- **Headless.** The screenshots are taken headless, the default. A persona presents the same screen and window headless as headed ([Screen and window](/guides/screen-and-window#headless)).

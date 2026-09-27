@@ -1,0 +1,78 @@
+---
+title: "Hosts"
+description: "Which host suits which persona, what ARM hosts and GPU-less servers report, how host size caps cores and memory, and what stays the host's."
+---
+
+The host is the computer the browser runs on. A [persona](/concepts/personas) changes the values a page reads. It does not change how the host draws pixels, does arithmetic or lays out text, which fonts and devices it has, or how many cores and how much memory it can back. Some host and persona pairs therefore look like a real machine and some do not.
+
+## Pick a host for a persona
+
+| Host | Persona | Recommendation |
+| --- | --- | --- |
+| Windows x64 | Windows | The closest pair for a Windows persona. Fonts, text drawing, file path parsing and the Widevine module are Windows's own. The package install and Widevine are not yet verified on Windows hosts. |
+| Windows x64 | macOS | Avoid. The persona claims Apple silicon on an x86 CPU, `apostate fonts` cannot install macOS fonts on Windows, and Windows file path parsing stays on. |
+| Windows x64 | Linux | Avoid. Windows file path parsing stays on under any persona, and a page can read it with one call. |
+| Linux x64 | Windows | The usual server pair and the default on Linux. Install the Windows fonts. Text is drawn by FreeType and the Widevine module is the Linux one; [Known gaps](/known-gaps#the-linux-widevine-module-under-a-windows-persona) has what that costs. |
+| Linux x64 | Linux | Needs nothing installed. The persona names an NVIDIA RTX GPU. FingerprintJS Pro scored Linux personas `anomaly_score` 1 on a bare-metal x86 Linux server, as it scored stock Chrome there (4 of 4 runs, 2026-09-26, the build released as 0.4.3). |
+| Linux x64 | macOS | The least real Linux pair. The persona claims Apple silicon on an x86 CPU, needs 184 font families copied from a Mac, and its `serif`, `sans-serif` and `system-ui` fonts are the host's. |
+| Linux arm64 | Windows | Use an x86 host when you have one. The persona reports an ARM CPU next to a desktop Intel or NVIDIA GPU, a pair few real machines have. |
+| Linux arm64 | Linux | The same ARM CPU next to a desktop NVIDIA GPU. `navigator.platform` stays `Linux x86_64`, as Chrome reports on every Linux CPU. |
+| Linux arm64 | macOS | The CPU family matches the Apple silicon claim. The fonts and text drawing are Linux's. Not measured on a detector. |
+| macOS, Apple silicon | macOS | The closest pair for a macOS persona. |
+| macOS, Apple silicon | Windows | Fine for development and testing. The persona reports an ARM CPU next to a desktop GPU, WebGL limits above the Apple GPU's fail when used, and the Mac's own cameras and microphones show through. |
+| macOS, Apple silicon | Linux | The same ARM and WebGL limits as a Windows persona on a Mac. |
+
+There is no build for Intel Macs or 32-bit Windows. Do not run the Linux x64 build under x86 emulation on an ARM machine. In a Docker container under Rosetta on an Apple silicon Mac, FingerprintJS Pro reported `developer_tools` on every run, host mode included (measured 2026-09-23, development build before Apostate 0.4.0, Windows persona and host mode).
+
+## ARM hosts
+
+A page can tell the CPU family from arithmetic, such as the sign bit of a computed NaN, and from Web Audio output, which the host CPU renders. When a Windows persona on an Apple silicon Mac claimed an x86 CPU, FingerprintJS Pro flagged the session as `virtual_machine`, which reads as x86 Windows emulated on ARM. Claiming `arm` cleared the flag (measured 2026-09-23 on an Apple silicon Mac, development build before Apostate 0.4.0, Windows persona).
+
+So Windows and Linux personas report the host's CPU architecture in `Sec-CH-UA-Arch` and `navigator.userAgentData`. On an ARM host they report `arm`. No Windows-on-ARM GPU has been captured, so the GPU next to that `arm` is always a desktop Intel or NVIDIA part. macOS personas always report `arm`, which matches an ARM host and not an x86 one.
+
+For Windows and Linux personas, use an x86 Linux server or a Windows machine. For a macOS persona, use a Mac.
+
+## GPU-less servers
+
+A Linux server with no GPU runs every persona. The persona still names its GPU family's hardware, and WebGL reports the family's limits and extensions. The pixels are drawn by a software renderer, SwiftShader or Mesa's llvmpipe. WebGPU serves the persona's adapter with SwiftShader underneath.
+
+The browser treats a Linux host as GPU-less when it has no readable and writable DRM render node, or when you pass `--disable-gpu`. What changes:
+
+- A page that times drawing sees software speed.
+- A WebGPU feature or limit that SwiftShader cannot back fails when a page calls `requestDevice()` with it.
+- WebGL extensions that add methods, such as `WEBGL_provoking_vertex`, are missing when the software renderer lacks them.
+- A headed launch needs a display. The packages start Xvfb for you; install it with `sudo apt install xvfb`.
+
+[Linux servers](/guides/linux-servers) has the setup, and [GPU](/guides/gpu) covers the rendering.
+
+## Cores and memory
+
+A persona never claims more cores or memory than the host has. Options above the host's are dropped before the draw, and when no option fits, the page reads the host's own value. On a small server, most Windows personas report the server's own core count next to a desktop GPU.
+
+How often that happens, for 400 Windows seeds (0 to 399) composed with the 0.4.3 tables by `scripts/profile_resolver.py`, which matches the browser's compositor:
+
+| Host | Seeds showing the host's own cores or memory | Seeds with the cores and memory they get on a 128-core host |
+| --- | --- | --- |
+| 2 cores, 4 GiB | 400 | 0 |
+| 4 cores, 8 GiB | 225 | 6 |
+| 8 cores, 16 GiB | 64 | 82 |
+| 16 cores, 32 GiB | 0 | 265 |
+| 32 cores, 64 GiB | 0 | 381 |
+| 64 cores, 128 GiB | 0 | 400 |
+
+A host with 16 logical cores and 32 GiB never shows its own counts under a Windows persona. A host with 64 cores and 128 GiB can serve every option in the tables. Memory is compared with what the host's OS reports. [Seeds and identity](/concepts/seeds-and-identity#the-host-cap) explains how the cap moves a seed's machine between hosts.
+
+## What stays the host's
+
+These come from the host whatever the persona. [Known gaps](/known-gaps) has each one with what you can do about it.
+
+- Canvas, WebGL and WebGPU pixels, and how fast they are drawn.
+- Glyph shapes and metrics, drawn by FreeType on Linux, CoreText on macOS and DirectWrite on Windows.
+- Which fonts exist. A persona hides fonts; it cannot add one the host lacks.
+- CPU arithmetic and Web Audio output, which reveal the CPU family.
+- The hardware video encoders WebRTC offers.
+- Passkey capabilities from `PublicKeyCredential.getClientCapabilities()`.
+- The Widevine module and the first message it sends.
+- Cameras, microphones and speakers the host has.
+- File path parsing on a Windows host.
+- The height of the tab strip and toolbar at display scaling above 100%.

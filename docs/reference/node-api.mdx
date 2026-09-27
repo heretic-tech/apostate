@@ -1,0 +1,481 @@
+---
+title: "Node API"
+description: "Every export of the @heretic-tech/apostate Node package: launch functions and their options, binary management, profiles, Widevine, constants and error classes with their codes."
+---
+
+This page lists every export of the Node package 0.4.3. [Node](/guides/node) shows how to use them together.
+
+```bash
+npm install @heretic-tech/apostate
+```
+
+The package is an ES module and needs Node 20 or later. It depends on Patchright, the driver it launches the browser with. Playwright, `playwright-core`, Puppeteer and `puppeteer-core` are optional peers: install one to use it instead.
+
+Every function has a snake_case alias for code shared with the Python package: `launch_context`, `launch_persistent_context`, `launch_process`, `ensure_binary`, `binary_info`, `discover_binary`, `discovery_report`, `clear_cache`, `load_catalogue`, `ensure_widevine` and `provision_widevine`. `translateOptions` is an alias of `toCanonicalLaunchConfig`.
+
+## Launching
+
+Every launch function resolves the options, looks up the locale and timezone of the connection's exit, finds or downloads the browser, and starts it. They share [the launch options](#launch-options).
+
+### `launch`
+
+```typescript
+function launch(options?: LaunchOptions): Promise<any>
+```
+
+Returns the installed driver's `Browser`. Under Patchright or Playwright, it is Playwright's `Browser` with pages in a normal profile. The browser runs on a temporary profile that the driver deletes when the browser closes or the process exits. Under Puppeteer, it is Puppeteer's `Browser`, whose `newPage()` already uses the normal profile.
+
+Under Patchright and Playwright these members differ from Playwright's:
+
+| Member | What it does |
+| --- | --- |
+| `newPage()` | Opens a page in the launch's profile. The first call returns the blank page the browser opened with. Passing options throws `TypeError`. Pass them to `launch()` instead. |
+| `newContext(options)` | Opens an off-the-record context, as Playwright does. Sites can tell it from a normal profile. |
+| `contexts()` | The launch's profile first, then each context from `newContext()`. |
+| `pages()` | The pages open in the launch's profile. |
+| `close()` | Closes the browser, which deletes its profile, and stops the virtual display. `await using` works too. |
+
+Under every driver the result has three extra properties:
+
+| Property | Value |
+| --- | --- |
+| `apostateDriverName` | The driver that started it, such as `"patchright"`. |
+| `apostateExecutablePath` | The browser executable. |
+| `apostateDiagnostics` | `proxy` (redacted), `geoip` (`disabled`, `resolved`, `unresolved` or `explicit`), `profile_source`, `profile_id`, `profile_identity`, `warnings`, `catalogue_version` and `chromium_version`. |
+
+`launch()` refuses `userDataDir` with `ProfileResolutionError` (code `APOSTATE_USER_DATA_DIR_ON_LAUNCH`). Use `launchPersistentContext()` to keep a profile.
+
+The declared return type is `any`, because the package cannot name both drivers' types. Annotate the call site:
+
+```typescript
+const browser = (await launch()) as import("playwright-core").Browser;
+```
+
+### `launchPersistentContext`
+
+```typescript
+function launchPersistentContext(userDataDir: string, options?: LaunchOptions): Promise<any>
+```
+
+Creates `userDataDir` if it does not exist and launches on it. Under Patchright and Playwright it returns the `BrowserContext` bound to the directory. Under Puppeteer it returns the `Browser`. The first launch stores a seed in `userDataDir/apostate/identity`, and every later launch without `fingerprint` presents the same machine. [Seeds and identity](/concepts/seeds-and-identity) has the details.
+
+The result carries `apostateDriverName`, `apostateExecutablePath` and `apostateDiagnostics`. A `userDataDir` in `options` that names another directory throws `TypeError`.
+
+### `launchContext`
+
+```typescript
+function launchContext(options?: LaunchOptions): Promise<any>
+```
+
+Launches the browser and returns the context of its temporary profile: the persistent context under Playwright, `defaultBrowserContext()` under Puppeteer. It is a normal profile, not off-the-record. Closing it closes the browser. `apostateBrowser` holds the browser it came from.
+
+### `launchProcess`
+
+```typescript
+function launchProcess(options?: LaunchOptions): Promise<ApostateProcess>
+```
+
+Starts the browser with no driver attached. Use it to run the browser for a CDP client in another language, or with no automation at all. [Raw binary](/guides/raw-binary) shows it with `--remote-debugging-port`.
+
+It takes `cwd`, `stdio` (default `"ignore"`) and `env` for the child process, and passes `--user-data-dir` itself when `userDataDir` is set.
+
+### `ApostateProcess`
+
+```typescript
+class ApostateProcess {
+  readonly process: ChildProcess;
+  readonly executablePath: string;
+  readonly launchConfig: CanonicalLaunchConfig;
+  readonly diagnostics: Record<string, unknown>;
+  isConnected(): boolean;
+  close(): Promise<void>;
+}
+```
+
+`isConnected()` is true until the process exits or `close()` is called. `close()` sends `SIGTERM`, waits up to 5 seconds, then sends `SIGKILL`.
+
+### Launch options
+
+`LaunchOptions` is one object shared by every launch function. Several options have aliases, listed after the name.
+
+| Option | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `fingerprint` | `string`, `number` | none | The seed, sent as `--fingerprint`. A non-negative safe integer, or a string matching `[A-Za-z0-9][A-Za-z0-9._:-]*`. `"host"`, `"off"`, `"false"`, `"0"`, `"disable"` and `"disabled"` select host mode. Without it, the browser uses the identity file or a fresh seed. |
+| `fingerprintPlatform`, `fingerprint_platform` | `string` | none | The persona, sent as `--fingerprint-platform`: `windows`, `macos` or `linux`, or the aliases `win`, `win32`, `darwin`, `mac`, `osx`, `mac os`, `mac os x`, `os x`. Without it, the browser picks `macos` on a Mac and `windows` elsewhere. |
+| `profile` | object or `string` | none | A profile you wrote, as an object or the path of a JSON file. A string is a path when it ends in `.json`, contains `/` or `\`, starts with `.`, or is absolute. It is validated against the [profile schema](/reference/profile-schema) and sent as `--apostate-profile`, and the seed and persona are then ignored. |
+| `profilePath`, `profileFile`, `profile_file` | `string` | none | The path of a profile JSON file. |
+| `locale`, `fingerprintLocale`, `fingerprint_locale` | `string` | from GeoIP | Sent as `--fingerprint-locale`, and its first tag as `--lang`. One tag, such as `de-DE`, or a comma list, such as `de-DE,de`. |
+| `timezone`, `fingerprintTimezone`, `fingerprint_timezone` | `string` | from GeoIP | An IANA name, sent as `--fingerprint-timezone` and set as `TZ` in the browser's environment. |
+| `geoip` | `boolean` | `true` | Look up the exit before launch, through the proxy when there is one. It runs when `locale` or `timezone` is missing, and behind a proxy also to fill `--fingerprint-webrtc-ip`. |
+| `geoipTimeoutMs` | `number` | `20000` | Milliseconds the whole lookup may take. |
+| `geoipUrl` | `string` | none | Ask this one endpoint instead of `ip-api.com`, `ipinfo.io`, `ipwho.is` and `ifconfig.co`. |
+| `geoipResolver` | function | none | Your own lookup. It gets `{ proxy, proxy_redacted, signal, timeout_ms }` and returns a promise of an object with `timezone` and `country_code`, `locale` or `languages`, and optionally `ip`. |
+| `proxy` | `string` or `{ server, username, password }` | none | An `http`, `https`, `socks4` or `socks5` proxy URL, such as `socks5://user:pass@proxy.example:1080`. The endpoint goes to `--proxy-server` and the credential into `--apostate-profile`. Behind a proxy the package also passes `--force-webrtc-ip-handling-policy=disable_non_proxied_udp`, and `--fingerprint-webrtc-ip` with the exit address the lookup found. [Proxies](/guides/proxies) has the details. |
+| `headless` | `boolean` | `true` | Sends `--headless=new`. With `false` on a Linux host with no display, the package starts Xvfb for the browser. |
+| `args` | `string[]` | `[]` | Extra browser switches. See [refused switches](#refused-switches). |
+| `userDataDir`, `user_data_dir` | `string` | none | For `launchPersistentContext()` and `launchProcess()` only. |
+| `executablePath`, `binaryPath` | `string` | found or downloaded | The browser to run: the executable, a macOS `.app` bundle, or the directory the release archive unpacks to. |
+| `cacheDir`, `cache_dir` | `string` | per-OS cache | Where the browser is installed. `APOSTATE_CACHE_DIR` sets the default. |
+| `manifest` | object or `string` | the package's own | The release manifest, as an object, a file path or a URL. |
+| `manifestPath`, `manifestUrl` | `string` | none | The release manifest as a file path or a URL. |
+| `download` | function | none | `(url, { kind, proxy, proxy_redacted }) => Promise<Uint8Array \| ArrayBuffer \| string>`, called instead of `fetch` for the manifest and the archive. Needed to download through a proxy. |
+| `downloadTimeoutMs` | `number` | `30000` | Timeout for each download with the built-in `fetch`. |
+| `extract` | function | none | `(archive, destination, context) => Promise<string>`, called instead of the built-in extraction. It returns the directory that holds the extracted tree. |
+| `searchRoots` | `string[]` | per-OS locations | Replaces the well-known locations searched for an existing browser. |
+| `target` | `string` | this host | `linux-x64`, `linux-arm64`, `macos-arm64` or `windows-x64`. |
+| `driver` | `string` | first installed | One of [`DRIVERS`](#drivers). |
+| `env` | object | none | Merged over the environment the package builds, which sets `LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG` and `TZ` to the persona's locale and timezone. Host mode keeps yours. |
+| `ignoreDefaultArgs` | `boolean` or `string[]` | none | Passed to the driver. The package always adds `--disable-component-update`, so the Widevine CDM registers, unless `args` contains that switch. |
+| `defaultViewport` | object or `null` | `null` | Puppeteer only. `null` lets the window set the viewport. |
+| `cwd`, `stdio` | | | `launchProcess()` only. |
+
+Under Patchright and Playwright the package always passes `viewport: null`, so the window sets the viewport. Other Playwright or Puppeteer launch options are not passed through.
+
+`humanize: true` throws `UnsupportedFeatureError`.
+
+A failed GeoIP lookup does not throw. It prints a warning starting with `[Apostate]`, adds it to `apostateDiagnostics.warnings`, and sends no switch for the field it could not fill, so the persona uses `en-US` and the host's timezone there.
+
+### Refused switches
+
+These in `args` throw `ProfileResolutionError` before anything is downloaded:
+
+| Switch | Code | Use instead |
+| --- | --- | --- |
+| `--proxy-server` | `APOSTATE_PROXY_SWITCH_IN_ARGS` | the `proxy` option |
+| `--user-data-dir` | `APOSTATE_USER_DATA_DIR_SWITCH_IN_ARGS` | `launchPersistentContext(userDataDir, options)` |
+| `--fingerprint-noise=false`, or `0`, `no`, `off`, `disable`, `disabled` | `APOSTATE_NOISE_SWITCH_READS_BACKWARDS` | leave the switch out |
+| a `--fingerprint*` switch the browser does not read | `APOSTATE_UNKNOWN_FINGERPRINT_SWITCH` | a switch from [Switches](/reference/switches) |
+| a switch within two edits of a known one, such as `--fingeprint-platform` | `APOSTATE_MISSPELLED_FINGERPRINT_SWITCH` | the spelling the message names |
+
+### `driverInfo`
+
+```typescript
+function driverInfo(): Promise<{ preference_order: string[]; installed: string[]; selected: string | null; recommended: string }>
+```
+
+Reports which driver a launch would use, without starting a browser:
+
+```javascript
+{
+  preference_order: ['patchright', 'playwright', 'playwright-core', 'puppeteer', 'puppeteer-core'],
+  installed: ['patchright'],
+  selected: 'patchright',
+  recommended: 'patchright'
+}
+```
+
+### `DRIVERS`
+
+`["patchright", "playwright", "playwright-core", "puppeteer", "puppeteer-core"]`: the drivers the package can launch with, in preference order.
+
+## Binary management
+
+The launch functions call these for you. [Installation](/installation) explains the cache, discovery and verification.
+
+### `ensureBinary`
+
+```typescript
+function ensureBinary(options?: LaunchOptions | string): Promise<string>
+```
+
+Resolves to the path of a runnable browser executable. A string argument is a `binaryPath`. It looks in this order, and downloads only when nothing answers:
+
+1. `executablePath` or `binaryPath`, then `APOSTATE_BINARY`, taken as given. A path that holds no browser throws `MissingBinaryError`.
+2. This package's own install in the cache, when its record still matches the executable's SHA-256.
+3. The well-known locations: `/Applications` and `~/Applications` on macOS, `~/.cache/apostate` and `/opt/apostate` on Linux, `%LOCALAPPDATA%\apostate` on Windows. A browser found there is used only when an Apostate build record or catalogue sits beside it and it reports Chromium 152.0.7977.83.
+4. The release archive, downloaded, checked against the manifest's SHA-256 before it is opened, and extracted into the cache. `APOSTATE_KEEP_ARCHIVE` keeps the verified archive.
+
+It takes the [launch options](#launch-options) that concern the binary, plus `force: true` to reinstall even when a browser is found.
+
+<Warning>
+With `proxy` set and no `download` callback, the download throws `BinaryDownloadError`. A launch through a proxy on a machine without the browser fails this way. Run `npx apostate install` first.
+</Warning>
+
+### `binaryInfo`
+
+```typescript
+function binaryInfo(options?: LaunchOptions): Promise<Record<string, unknown>>
+```
+
+Resolves to what `apostate info` prints. It never throws for a missing release.
+
+| Key | Value |
+| --- | --- |
+| `available` | Whether a release archive for the target can be had. |
+| `target`, `platform` | The target. |
+| `package_version`, `chromium_version`, `catalogue_version` | This package's versions. |
+| `artifact`, `artifact_url`, `sha256` | The archive, where it downloads from, and its digest. |
+| `cache_dir`, `install_dir` | Where the browser is installed. |
+| `cache_hit` | Whether this package's own install is valid. |
+| `archive_retained` | Whether the verified archive was kept. |
+| `executable`, `executable_source` | The browser a launch would run now, and which of `argument`, `environment`, `cache` or `well-known` found it. |
+| `discovery` | The [`discoveryReport`](#discoveryreport). |
+| `manifest_source` | `baked`, `configured`, `release-tag` or `release-latest`. |
+| `manifest_url`, `manifest_urls_tried` | Where a fetched manifest came from. |
+| `manifest_trust`, `manifest_note` | `pinned` for a manifest inside the package, `transport-integrity` for one fetched from the release, and what that means. |
+| `reason` | Why a manifest could not be fetched, or `null`. |
+| `provenance` | The `gh attestation verify` command for the archive. |
+
+### `discoverBinary`
+
+```typescript
+function discoverBinary(options?: LaunchOptions | string): Promise<DiscoveredBinary | null>
+```
+
+The browser a launch would use without downloading, or `null`. It resolves to an object, not a path:
+
+```typescript
+interface DiscoveredBinary {
+  executable: string;
+  source: "argument" | "environment" | "cache" | "well-known";
+  chromium_version: string | null;
+  payload_root: string | null;
+}
+```
+
+### `discoveryReport`
+
+```typescript
+function discoveryReport(options?: LaunchOptions | string): Promise<DiscoveryReport>
+```
+
+The same search, with `order`, `searched`, `found` and `rejected`. Each entry of `rejected` has a `path` and a `reason`, such as `no Apostate payload beside it (build/MANIFEST.lock or resources/profiles/catalogue.json)` for a stock Chromium or `reports Chromium <version>, not 152.0.7977.83` for another build.
+
+### `clearCache`
+
+```typescript
+function clearCache(options?: LaunchOptions | string): Promise<void>
+```
+
+Deletes the cache directory. A string argument is a `cacheDir`. With `target`, it deletes only that target's install for this Chromium version. With `version`, it deletes only that Chromium version's directory.
+
+### `verifyArtifact`
+
+```typescript
+function verifyArtifact(archive: unknown, artifact: Record<string, unknown>): Promise<{ sha256: string }>
+```
+
+Hashes `archive` (bytes, an `ArrayBuffer` or an async iterable of bytes) and throws `BinaryIntegrityError` unless it matches `artifact.sha256`.
+
+### `expectedArtifactName`
+
+```typescript
+function expectedArtifactName(target: string): string
+```
+
+The release archive's file name for a target, such as `apostate-152.0.7977.83-linux-x64.tar.zst`. It is exported but not declared in `index.d.ts`.
+
+### `extractionFailureMessage`
+
+```typescript
+function extractionFailureMessage(kind: string, zstdPresent: boolean, detail: string): string
+```
+
+The message `BinaryExtractionError` carries when `tar` cannot read the archive. It is exported for the package's tests and not declared in `index.d.ts`.
+
+### `targetForHost`
+
+```typescript
+function targetForHost(platform?: string, architecture?: string): string
+```
+
+The release target for a Node `platform` and `arch`, by default this host's. Throws `UnsupportedPlatformError` for a host with no build, such as an Intel Mac.
+
+### `normalizeTarget`
+
+```typescript
+function normalizeTarget(target?: string | null): string
+```
+
+Returns the target in lower case, or this host's target when none is given. Throws `UnsupportedPlatformError` for any name that is not one of the four targets.
+
+## Profiles
+
+The browser composes the machine from the seed. These functions check options and profiles, and report which path a launch takes. [How it works](/concepts/how-it-works) explains composition.
+
+### `resolveProfile`
+
+```typescript
+function resolveProfile(options?: LaunchOptions): Record<string, unknown>
+```
+
+Decides the launch path without starting anything:
+
+```javascript
+> resolveProfile({ fingerprint: 42, fingerprintPlatform: "windows" })
+{
+  profile: null,
+  source: 'native-composed',
+  profileId: 'native-composed',
+  platform: 'windows',
+  identity: null,
+  catalogueVersion: 2,
+  chromiumVersion: '152.0.7977.83',
+  warnings: []
+}
+```
+
+`source` is `native-composed` for a seed or persona, `host-inherited` for host mode, and `explicit-profile` or `explicit-file` for a profile you wrote. `platform` is the persona the launch presents.
+
+### `resolveLaunchConfig`
+
+```typescript
+function resolveLaunchConfig(options?: LaunchOptions): Promise<CanonicalLaunchConfig>
+```
+
+The launch configuration after the GeoIP lookup, with `locale`, `timezone` and `webrtc_ip` filled in.
+
+### `toCanonicalLaunchConfig`
+
+```typescript
+function toCanonicalLaunchConfig(options?: LaunchOptions): CanonicalLaunchConfig
+```
+
+Checks the options and returns them in canonical form, without the lookup. Alias `translateOptions`.
+
+```typescript
+interface CanonicalLaunchConfig {
+  fingerprint: string | number | null;
+  fingerprint_platform: string | null;
+  profile: Record<string, unknown> | null;
+  locale: string | null;
+  timezone: string | null;
+  geoip: boolean;
+  proxy: string | null;
+  headless: boolean;
+  user_data_dir: string | null;
+  args: string[];
+}
+```
+
+### `validateProfile`
+
+```typescript
+function validateProfile(profile: Record<string, unknown>): Record<string, unknown>
+```
+
+Checks a profile against `config/profile.schema.json` and returns a copy. Throws `ProfileResolutionError` with the first problem, such as `profile.cpu.cores is not part of the schema.`
+
+### `loadCatalogue`
+
+```typescript
+function loadCatalogue(path?: string): CatalogueView
+```
+
+Reads the package's catalogue, or the one at `path`, and returns its shape: `catalogue_version`, `profile_schema_version`, `browser_build`, `model`, `anchors` (the GPU families, each with `id`, `platform`, `backend`, `members` and `rotation_status`), `axes` and `policies`.
+
+### `normalizePersona`
+
+```typescript
+function normalizePersona(value?: string | null): string | null
+```
+
+Returns `windows`, `macos`, `linux` or `null`, and maps the aliases. Throws `ProfileResolutionError` for anything else.
+
+### `hostPersona`
+
+```typescript
+function hostPersona(): string | null
+```
+
+The host's own platform: `windows`, `macos`, `linux`, or `null` on another OS. This is not the persona a default launch presents on Linux.
+
+### `defaultPersonaForHost`
+
+```typescript
+function defaultPersonaForHost(hostToken: string | null): string | null
+```
+
+The persona a launch with no `fingerprintPlatform` presents: `macos` for `macos`, `windows` for `windows` and for `linux`. An unknown token is returned unchanged.
+
+### `DEFAULT_PERSONA_BY_HOST`
+
+The frozen object `defaultPersonaForHost()` uses: `{ macos: "macos", windows: "windows", linux: "windows" }`.
+
+### `redactProxy`
+
+```typescript
+function redactProxy(proxy?: string | { server: string; username?: string; password?: string }): string | null
+```
+
+Removes the credential from a proxy: `socks5://user:pass@proxy.example:1080` gives `socks5://proxy.example:1080`.
+
+### `stableStringify`
+
+```typescript
+function stableStringify(value: unknown): string
+```
+
+JSON with sorted keys and non-ASCII characters escaped, the form the package encodes `--apostate-profile` in.
+
+## Widevine
+
+The browser ships without the Widevine CDM. A launch copies one from a local Google Chrome, or downloads it from Google's component update service and checks its SHA-256, then keeps it in the cache directory it shares with the Python package. [Widevine](/guides/widevine) explains when you need this.
+
+### `ensureWidevine`
+
+```typescript
+function ensureWidevine(executable: string, options?: { target?: string; cacheDir?: string; userDataDir?: string }): Promise<string | null>
+```
+
+Gives the browser at `executable` a CDM if it has none, and resolves to the browser's CDM directory. On Linux it also writes the CDM's location into `userDataDir`. It resolves to `null` when `executable` is not inside an Apostate install or no CDM could be had, and never rejects.
+
+### `provisionWidevine`
+
+```typescript
+function provisionWidevine(options?: { target?: string; cacheDir?: string; source?: string }): Promise<{
+  platform: string;
+  platform_verified: boolean;
+  source: string;
+  version: string | null;
+  store: string;
+  installed: string;
+}>
+```
+
+Installs a CDM into this package's browser now, replacing any it has, and rejects with `WidevineError` when none can be had. `source` is a `WidevineCdm` directory, with or without a version directory inside. `platform_verified` is `false` for `windows-x64`, where Widevine has not been tried. The Node CLI has no command for this. The Python CLI has `apostate provision-drm`.
+
+## Constants
+
+| Name | Value in 0.4.3 | Meaning |
+| --- | --- | --- |
+| `PACKAGE_VERSION` | `"0.4.3"` | This package's version. |
+| `CHROMIUM_VERSION` | `"152.0.7977.83"` | The browser build this package installs and speaks to. |
+| `CATALOGUE_VERSION` | `2` | The catalogue version the browser composes from. |
+| `DEFAULT_PERSONA_BY_HOST` | see [above](#default_persona_by_host) | The default persona per host. |
+| `DRIVERS` | see [above](#drivers) | Supported drivers in preference order. |
+
+## Errors
+
+Every error the package throws for its own reasons is an `ApostateError` with a `code` string and a `details` object. Messages never contain a proxy credential. Invalid option types, such as a `proxy` that is not a URL, throw a plain `TypeError`. [Errors](/reference/errors) lists the common messages and their fixes.
+
+| Class | Parent | `code` | Thrown when |
+| --- | --- | --- | --- |
+| `ApostateError` | `Error` | `APOSTATE_ERROR`, or `INVALID_PACKAGE_ASSET` when a file the package ships is missing | Base class. |
+| `UnsupportedPlatformError` | `ApostateError` | `UNSUPPORTED_PLATFORM` | The host or `target` has no release build. |
+| `ProfileResolutionError` | `ApostateError` | `PROFILE_RESOLUTION_FAILED`, or one of the codes below | An option, switch or profile is refused. |
+| `ManifestError` | `ApostateError` | `INVALID_RELEASE_MANIFEST` | The release manifest is missing or invalid. |
+| `UnpublishedArtifactError` | `ManifestError` | `UNPUBLISHED_ARTIFACT` | No release archive is published for the target. |
+| `MissingBinaryError` | `ApostateError` | `BINARY_NOT_FOUND` | `executablePath`, `binaryPath` or `APOSTATE_BINARY` names no browser. |
+| `BinaryIntegrityError` | `ApostateError` | `BINARY_HASH_MISMATCH` | A download does not match its SHA-256. |
+| `BinaryDownloadError` | `ApostateError` | `BINARY_DOWNLOAD_FAILED` | A download failed or timed out. |
+| `BinaryExtractionError` | `ApostateError` | `BINARY_EXTRACTION_FAILED` | The archive cannot be extracted safely, or `tar` cannot read it. |
+| `GeoIPError` | `ApostateError` | `GEOIP_LOOKUP_FAILED` | The GeoIP lookup meets an unsupported proxy scheme or a `geoipResolver` result that is not an object. A launch catches it and prints a warning instead. |
+| `BrowserLaunchError` | `ApostateError` | `BROWSER_LAUNCH_FAILED` | No driver is installed, Xvfb is missing, or the driver or browser failed to start. |
+| `WidevineError` | `ApostateError` | `WIDEVINE_NOT_FOUND` | `provisionWidevine()` could not install a CDM. |
+| `UnsupportedFeatureError` | `ApostateError` | `UNSUPPORTED_FEATURE` | `humanize: true` was passed. |
+
+`ProfileResolutionError` carries a specific `code` for each refusal:
+
+| `code` | Refused |
+| --- | --- |
+| `APOSTATE_USER_DATA_DIR_ON_LAUNCH` | `userDataDir` passed to `launch()`. |
+| `APOSTATE_USER_DATA_DIR_SWITCH_IN_ARGS` | `--user-data-dir` in `args`. |
+| `APOSTATE_PROXY_SWITCH_IN_ARGS` | `--proxy-server` in `args`. |
+| `APOSTATE_NOISE_SWITCH_READS_BACKWARDS` | `--fingerprint-noise` with an off value. |
+| `APOSTATE_UNKNOWN_FINGERPRINT_SWITCH` | A `--fingerprint*` switch the browser does not read. |
+| `APOSTATE_MISSPELLED_FINGERPRINT_SWITCH` | A misspelt known switch. `details.suggestion` names it. |
+| `APOSTATE_HOST_INHERITANCE_PERSONA` | Host mode together with `fingerprintPlatform`. |
+| `APOSTATE_ENVELOPE_SEED_CONFLICT` | A profile that describes a device together with `--fingerprint` in `args`. |
+| `APOSTATE_CATALOGUE_PROFILE_IDS_RETIRED` | A `profile` string that is not a path, or `profileId`. Catalogue profile ids no longer exist. |
+| `PROFILE_RESOLUTION_FAILED` | Anything else, such as a profile that does not match the schema or an invalid seed. |

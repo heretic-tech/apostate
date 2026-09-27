@@ -1,0 +1,313 @@
+---
+title: "Node"
+description: "Launch Apostate from Node with its entry points, options, diagnostics, drivers including Puppeteer, launchProcess and errors."
+---
+
+The Node package (`@heretic-tech/apostate` on npm) finds or downloads the browser, looks up the proxy's exit, and starts the browser through Patchright, a Playwright build. It returns the driver's own objects, so the rest of your script is ordinary Playwright or Puppeteer code. The package is an ES module, loaded with `import`. [Installation](/installation) covers `npm install @heretic-tech/apostate`, the supported Node versions and the browser download.
+
+## Launch a browser
+
+```javascript
+import { launch } from "@heretic-tech/apostate";
+
+const browser = await launch({
+  fingerprint: 42,
+  fingerprintPlatform: "windows",
+  locale: "de-DE",
+  timezone: "Europe/Berlin",
+});
+const page = await browser.newPage();
+await page.goto("https://example.com");
+console.log(await page.evaluate(() => ({
+  platform: navigator.platform,
+  languages: navigator.languages,
+  timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+})));
+await browser.close();
+```
+
+```text
+{
+  platform: 'Win32',
+  languages: [ 'de-DE', 'de', 'en-US', 'en' ],
+  timeZone: 'Europe/Berlin'
+}
+```
+
+`fingerprint` is the seed. The same seed and persona give the same machine on every launch. `fingerprintPlatform` is the persona, the operating system the browser presents. [Personas](/concepts/personas) and [Seeds and identity](/concepts/seeds-and-identity) explain both.
+
+Under Patchright or Playwright, `launch()` returns Playwright's `Browser`. The browser runs on a temporary normal profile, which is deleted when the browser closes. `newPage()` opens pages in that profile. The first call returns the blank tab the browser started with.
+
+<Warning>
+`newContext()` opens an off-the-record context, as it does in Playwright, and sites can tell an off-the-record context from a normal profile. Open pages with `newPage()`.
+</Warning>
+
+`newPage()` takes no options, because every page shares the one profile.
+
+## Entry points
+
+| Function | Playwright drivers return | Puppeteer returns |
+| --- | --- | --- |
+| `launch()` | `Browser`, on a temporary profile | `Browser` |
+| `launchContext()` | The temporary profile's `BrowserContext` | The default `BrowserContext` |
+| `launchPersistentContext(userDataDir)` | A `BrowserContext` bound to the directory | A `Browser` with that user data directory |
+| `launchProcess()` | The browser process, with no driver | The same |
+
+```javascript
+import { launchContext, launchPersistentContext } from "@heretic-tech/apostate";
+
+// The temporary profile's own context. Closing it closes the browser.
+const context = await launchContext({ fingerprint: 42, fingerprintPlatform: "windows" });
+const page = await context.newPage();
+await page.goto("https://example.com");
+await context.close();
+
+// A context bound to a directory. Cookies, storage and the machine stay there.
+const account = await launchPersistentContext("./profiles/shop-account", { fingerprintPlatform: "windows" });
+const accountPage = await account.newPage();
+await accountPage.goto("https://example.com");
+console.log(await accountPage.evaluate(() => [navigator.hardwareConcurrency, screen.width, screen.height]));
+await account.close();
+```
+
+```text
+[ 12, 1920, 1080 ]
+```
+
+The first `launchPersistentContext()` with a directory stores a seed in `DIR/apostate/identity`, and every later launch with that directory presents the same machine. `launch()` refuses `userDataDir`.
+
+## Options
+
+| Option | Default | Effect |
+| --- | --- | --- |
+| `fingerprint` | A new seed per launch | The seed, a non-negative integer or a string of `A-Z a-z 0-9 . _ : -`. `"host"` turns the persona off. |
+| `fingerprintPlatform` | `macos` on a Mac, `windows` on Windows and Linux | `windows`, `macos` or `linux`. |
+| `locale` | From GeoIP, else `en-US` | One tag such as `de-DE`, or a list such as `de-DE,de`. |
+| `timezone` | From GeoIP, else the host's | An IANA name such as `Europe/Berlin`. |
+| `geoip` | `true` | Look up the exit's country and timezone before the browser starts. |
+| `geoipTimeoutMs` | `20000` | Milliseconds for the whole lookup. |
+| `geoipResolver` | The built-in lookup | Your own lookup function. |
+| `proxy` | None | A proxy URL, or an object with `server`, `username` and `password`. |
+| `headless` | `true` | `false` opens a window. On a Linux host with no display, the package starts Xvfb. |
+| `args` | None | Extra browser switches. An unknown or misspelt `--fingerprint*` switch, `--proxy-server` and `--user-data-dir` are refused. |
+| `profile` | None | A profile you wrote, as an object or a JSON file path. |
+| `driver` | The first one installed | `patchright`, `playwright`, `playwright-core`, `puppeteer` or `puppeteer-core`. |
+| `executablePath` | Found or downloaded | The browser to run. |
+| `cacheDir` | The per-user cache | Where the browser is installed. |
+
+[Proxies](/guides/proxies), [Locale and timezone](/guides/locale-and-timezone), [Custom profiles](/guides/custom-profiles) and [Linux servers](/guides/linux-servers) cover the options in use. [Node API](/reference/node-api) lists every export and option, and [Switches](/reference/switches) lists what `args` accepts.
+
+## Driver options
+
+Three options go through to the driver:
+
+- `env` is added over the browser's environment, which the package gives `LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG` and `TZ` ([Locale and timezone](/guides/locale-and-timezone#environment-variables)). Your entries win.
+- `ignoreDefaultArgs` removes switches the driver adds by default. The package adds `--disable-component-update` to the list, so the driver does not pass that switch ([Widevine](/guides/widevine#keep-component-updates-on)).
+- `defaultViewport` goes to Puppeteer. The package passes `null` unless you set it.
+
+The package passes no other driver option. Under Playwright drivers the viewport is off, so the page gets the persona's real window size. To set a viewport on one page, call `page.setViewportSize()`. [Screen and window](/guides/screen-and-window#viewport) has what a viewport of your own changes.
+
+```javascript
+import { launch } from "@heretic-tech/apostate";
+
+const browser = await launch({
+  fingerprint: 42,
+  fingerprintPlatform: "windows",
+  env: { APOSTATE_DEMO: "1" },              // added to the browser's environment
+  ignoreDefaultArgs: ["--hide-scrollbars"], // a switch the driver adds by default
+});
+const page = await browser.newPage();
+await page.setViewportSize({ width: 1280, height: 720 }); // a page-level viewport, if you need one
+await browser.close();
+```
+
+## Diagnostics
+
+The object `launch()` or `launchPersistentContext()` returns carries three extra properties. A context from `launchContext()` carries its browser as `context.apostateBrowser`, which has them.
+
+| Property | Holds |
+| --- | --- |
+| `apostateDiagnostics` | How the launch was resolved, and its warnings |
+| `apostateExecutablePath` | The browser executable that ran |
+| `apostateDriverName` | The driver that started it |
+
+For the launch at the top of this page, `browser.apostateDiagnostics` is:
+
+```text
+{
+  proxy: null,
+  geoip: 'explicit',
+  profile_source: 'native-composed',
+  profile_id: 'native-composed',
+  profile_identity: null,
+  warnings: [],
+  catalogue_version: 2,
+  chromium_version: '152.0.7977.83'
+}
+```
+
+`geoip` is `resolved` when the lookup answered, `unresolved` when it failed, `disabled` with `geoip: false`, and `explicit` when no lookup was needed because you passed `locale` and `timezone` and no proxy. `proxy` is the proxy URL without its credential. `warnings` lists the launch's warnings:
+
+- A launch with no seed warns that its machine changes on every launch.
+- A profile you wrote warns that nothing checks its coherence.
+- A failed GeoIP lookup warns that the locale or timezone was not set. GeoIP warnings are also printed with `console.warn`, prefixed `[Apostate]`.
+
+To see the whole machine a launch presents, run `--fingerprint-explain` ([Verify](/guides/verify)):
+
+```bash
+npx apostate run -- --fingerprint=42 --fingerprint-platform=windows --fingerprint-explain
+```
+
+## Drivers
+
+Patchright is installed with the package and is the default. The package also drives `playwright`, `playwright-core`, `puppeteer` and `puppeteer-core`. It uses the first one installed, in that order, or the one you name with `driver`. None of them needs to download a browser. `driverInfo()` reports what is installed and which driver a launch would use:
+
+```javascript
+import { driverInfo } from "@heretic-tech/apostate";
+
+console.log(await driverInfo());
+```
+
+```text
+{
+  preference_order: [
+    'patchright',
+    'playwright',
+    'playwright-core',
+    'puppeteer',
+    'puppeteer-core'
+  ],
+  installed: [ 'patchright', 'playwright-core', 'puppeteer-core' ],
+  selected: 'patchright',
+  recommended: 'patchright'
+}
+```
+
+[Detection](/concepts/detection) has what a page can see of each driver.
+
+### Puppeteer
+
+```bash
+npm install puppeteer-core
+```
+
+```javascript
+import { launch } from "@heretic-tech/apostate";
+
+const browser = await launch({
+  driver: "puppeteer-core",
+  fingerprint: 42,
+  fingerprintPlatform: "windows",
+});
+const page = await browser.newPage();
+await page.goto("https://example.com");
+console.log(await page.evaluate(() => ({
+  platform: navigator.platform,
+  screen: [screen.width, screen.height, screen.availWidth, screen.availHeight],
+})));
+console.log(browser.apostateDriverName);
+await browser.close();
+```
+
+```text
+{ platform: 'Win32', screen: [ 1920, 1080, 1920, 1032 ] }
+puppeteer-core
+```
+
+Puppeteer's `newPage()` already opens pages in the browser's normal profile. Two things Puppeteer does are visible to a page, measured with `puppeteer-core` 25.12.0:
+
+- A stack trace from code you pass to `page.evaluate()` names your script's absolute path, percent-encoded after `pptr:evaluate;file`. Under Patchright the same trace names no file.
+- `page.exposeFunction("hello", ...)` also installs a global named `puppeteer_hello`.
+
+Both come from the driver, and the browser cannot remove them. Use Patchright when a page may look for them.
+
+## launchProcess
+
+`launchProcess()` starts the browser with no driver attached. It takes the same options as `launch()`, applies the persona, proxy and GeoIP the same way, and returns an `ApostateProcess`. Connect any client to it, for example over the DevTools protocol:
+
+```javascript
+import { launchProcess } from "@heretic-tech/apostate";
+import puppeteer from "puppeteer-core";
+
+const proc = await launchProcess({
+  fingerprint: 42,
+  fingerprintPlatform: "windows",
+  args: ["--remote-debugging-port=9222"],
+});
+
+// Wait for the DevTools endpoint, then connect any CDP client to it.
+for (let i = 0; i < 50; i++) {
+  try { await fetch("http://127.0.0.1:9222/json/version"); break; }
+  catch { await new Promise((resolve) => setTimeout(resolve, 100)); }
+}
+const browser = await puppeteer.connect({ browserURL: "http://127.0.0.1:9222" });
+const [page] = await browser.pages();
+await page.goto("https://example.com");
+console.log(await page.evaluate(() => navigator.platform));
+await browser.disconnect();
+await proc.close();
+```
+
+```text
+Win32
+```
+
+| Member | Holds |
+| --- | --- |
+| `process` | The Node `ChildProcess` |
+| `executablePath` | The browser executable |
+| `launchConfig` | The resolved options, including `args` |
+| `diagnostics` | The same object as `apostateDiagnostics` |
+| `isConnected()` | Whether the process is still running |
+| `close()` | Sends `SIGTERM`, then `SIGKILL` if the process is still running |
+
+`userDataDir` works here as an option. `stdio` and `cwd` go to Node's `spawn()`, and `stdio` defaults to `"ignore"`. A page served from a local or private network address can detect an open `--remote-debugging-port`. [Raw binary](/guides/raw-binary) covers other ways to connect.
+
+## Host mode
+
+`fingerprint: "host"` presents the host's own values and composes nothing. `"off"`, `"false"`, `"0"`, `"disable"` and `"disabled"` mean the same. Use it to tell whether a problem comes from the persona or from the host and network. Host mode refuses `fingerprintPlatform`, and the package sets no locale variables. Headless host mode reports an 800x600 screen ([Screen and window](/guides/screen-and-window#headless)).
+
+## Close the browser
+
+`await browser.close()` closes the browser, deletes its temporary profile, and stops any Xvfb display the package started. Closing a context from `launchContext()` closes its browser. The returned objects also work with `await using`, tested on Node 26:
+
+```javascript
+import { launch } from "@heretic-tech/apostate";
+
+{
+  await using browser = await launch({ fingerprint: 42, fingerprintPlatform: "windows" });
+  const page = await browser.newPage();
+  await page.goto("https://example.com");
+} // the browser closes here
+```
+
+## Errors
+
+Package errors are subclasses of `ApostateError` and carry a `code` and a `details` object. A malformed option value, such as a proxy URL that does not parse, throws a `TypeError` instead.
+
+| Class | `code` | Thrown when |
+| --- | --- | --- |
+| `ProfileResolutionError` | `APOSTATE_MISSPELLED_FINGERPRINT_SWITCH`, `APOSTATE_UNKNOWN_FINGERPRINT_SWITCH`, `APOSTATE_PROXY_SWITCH_IN_ARGS`, `APOSTATE_USER_DATA_DIR_ON_LAUNCH`, `APOSTATE_HOST_INHERITANCE_PERSONA`, `APOSTATE_ENVELOPE_SEED_CONFLICT`, `PROFILE_RESOLUTION_FAILED` | An option, switch or profile is refused before launch. |
+| `BrowserLaunchError` | `BROWSER_LAUNCH_FAILED` | No driver is installed, the driver name is unknown, Xvfb is missing, or the browser exited at startup. When the browser refused a switch, the message includes its `apostate:` line. |
+| `MissingBinaryError`, `BinaryDownloadError`, `BinaryIntegrityError`, `BinaryExtractionError`, `ManifestError`, `UnsupportedPlatformError` | Various | The browser could not be found, downloaded or verified ([Installation](/installation)). |
+| `WidevineError` | `WIDEVINE_NOT_FOUND` | Only from `provisionWidevine()`. A launch without Widevine prints a warning and continues. |
+
+```javascript
+import { ApostateError, launch } from "@heretic-tech/apostate";
+
+try {
+  const browser = await launch({ fingerprint: 42, args: ["--fingeprint-platform=windows"] });
+  await browser.close();
+} catch (error) {
+  if (!(error instanceof ApostateError)) throw error;
+  console.log(error.name, error.code);
+  console.log(error.message);
+}
+```
+
+```text
+ProfileResolutionError APOSTATE_MISSPELLED_FINGERPRINT_SWITCH
+--fingeprint-platform is not a switch this browser reads and looks like a typo of --fingerprint-platform; Chromium would ignore it and leave that surface host-inherited
+```
+
+A failed GeoIP lookup does not throw. It adds a warning and the launch continues. [Errors](/reference/errors) lists the common messages and what to do about each.

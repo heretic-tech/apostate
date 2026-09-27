@@ -1,0 +1,128 @@
+---
+title: "WebRTC"
+description: "Where WebRTC's UDP goes with and without a proxy, the two WebRTC switches, how the Python and Node packages differ, and a check that lists ICE candidates."
+---
+
+WebRTC opens UDP sockets outside the page's HTTP connections. A page can read the addresses in its ICE candidates, and a peer or STUN server sees the address the packets come from. Apostate decides where that UDP goes from the proxy setup.
+
+## Where UDP goes
+
+| Proxy setup | WebRTC UDP |
+| --- | --- |
+| No proxy | Sent directly from the host |
+| One SOCKS5 proxy | Relayed through the proxy, over a SOCKS5 UDP association |
+| HTTP, HTTPS or SOCKS4 proxy, a PAC script, per-scheme rules, or several proxies | No UDP socket is opened |
+
+Behind SOCKS5, the relay needs a proxy that supports UDP ASSOCIATE. A SOCKS5 proxy that refuses it gets no UDP, as an HTTP proxy does. The browser logs each refusal with its reason.
+
+With UDP relayed through SOCKS5, host candidates carry the relay's address, and a peer receives packets from the proxy's exit. With no UDP socket, the page gets no UDP candidates and ICE gathering still completes. QUIC traffic takes the same route through a SOCKS5 proxy.
+
+## The switches
+
+| Switch | Value | Effect |
+| --- | --- | --- |
+| `--fingerprint-webrtc-udp` | `direct` | Sends UDP from the host even behind a proxy. The peer sees the host's address. |
+| `--fingerprint-webrtc-udp` | `block` | Never opens a UDP socket. |
+| `--fingerprint-webrtc-ip` | An IP address | Writes this address into host and server-reflexive candidates, and their related addresses, in place of the real one. |
+
+`--fingerprint-webrtc-udp` with any other value is logged and treated as `block`. `--fingerprint-webrtc-ip` changes only the candidate text. The browser does not check the value, and packets still leave from the socket's real address, so a peer that receives them sees where they came from. Use it behind a SOCKS5 proxy, set to the exit's address, so the candidate text and the packets agree.
+
+## The packages
+
+The two packages differ behind a proxy:
+
+| | Python | Node |
+| --- | --- | --- |
+| `--fingerprint-webrtc-ip` | Not set | Set to the exit IP the GeoIP lookup returned |
+| `--force-webrtc-ip-handling-policy=disable_non_proxied_udp` | Not set | Set |
+
+Behind a SOCKS5 proxy, a Python launch shows an mDNS name (`<uuid>.local`) in its host candidate, as stock Chrome does, and a Node launch shows the exit IP. Both relay UDP through the proxy. The Node package runs the GeoIP lookup behind a proxy even when you pass `locale` and `timezone`, to learn the exit IP. With `geoip: false`, or when the lookup fails, it sets no `--fingerprint-webrtc-ip`.
+
+To set the address yourself, for example from Python, pass the switch in `args` with the exit's IP:
+
+```python
+from apostate import launch
+
+with launch(fingerprint=42, fingerprint_platform="windows",
+            proxy="socks5://user:pass@proxy.example:1080",
+            args=["--fingerprint-webrtc-ip=203.0.113.7"]) as browser:
+    page = browser.new_page()
+    page.goto("https://example.com")
+```
+
+A `--fingerprint-webrtc-ip` in `args` replaces the one the Node package would set.
+
+## List the ICE candidates
+
+This script gathers candidates against a public STUN server and prints them. It runs with `--fingerprint-webrtc-ip=203.0.113.7`, a documentation address, so the output shows no real address.
+
+<CodeGroup>
+```python Python
+from apostate import launch
+
+LIST_CANDIDATES = """async () => {
+    const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+    pc.createDataChannel("probe");
+    const found = [];
+    pc.onicecandidate = (event) => event.candidate && found.push(event.candidate.candidate);
+    await pc.setLocalDescription(await pc.createOffer());
+    await new Promise((done) => {
+        pc.onicegatheringstatechange = () => pc.iceGatheringState === "complete" && done();
+        setTimeout(done, 10000);
+    });
+    pc.close();
+    return found;
+}"""
+
+with launch(fingerprint=42, fingerprint_platform="windows",
+            args=["--fingerprint-webrtc-ip=203.0.113.7"]) as browser:
+    page = browser.new_page()
+    page.goto("https://example.com")
+    for candidate in page.evaluate(LIST_CANDIDATES):
+        print(candidate)
+```
+
+```javascript Node
+import { launch } from "@heretic-tech/apostate";
+
+const browser = await launch({
+  fingerprint: 42,
+  fingerprintPlatform: "windows",
+  args: ["--fingerprint-webrtc-ip=203.0.113.7"],
+});
+const page = await browser.newPage();
+await page.goto("https://example.com");
+const candidates = await page.evaluate(async () => {
+  const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+  pc.createDataChannel("probe");
+  const found = [];
+  pc.onicecandidate = (event) => event.candidate && found.push(event.candidate.candidate);
+  await pc.setLocalDescription(await pc.createOffer());
+  await new Promise((done) => {
+    pc.onicegatheringstatechange = () => pc.iceGatheringState === "complete" && done();
+    setTimeout(done, 10000);
+  });
+  pc.close();
+  return found;
+});
+for (const candidate of candidates) console.log(candidate);
+await browser.close();
+```
+</CodeGroup>
+
+```text
+candidate:4029357611 1 udp 2113937151 203.0.113.7 49434 typ host generation 0 ufrag 1AJj network-cost 999
+candidate:182797263 1 udp 2113939711 203.0.113.7 55703 typ host generation 0 ufrag 1AJj network-cost 999
+candidate:1616196371 1 udp 1677729535 203.0.113.7 49434 typ srflx raddr 203.0.113.7 rport 0 generation 0 ufrag 1AJj network-cost 999
+candidate:306696160 1 udp 1677732095 203.0.113.7 55703 typ srflx raddr 203.0.113.7 rport 0 generation 0 ufrag 1AJj network-cost 999
+```
+
+With `--fingerprint-webrtc-udp=block` in place of the address, the same script prints nothing.
+
+To check a proxied setup, remove the `args` line, add your `proxy`, and read each candidate:
+
+- `typ host` shows an mDNS name ending in `.local`, or the address `--fingerprint-webrtc-ip` set. It must not show the host's real address.
+- `typ srflx` is the address the STUN server saw. It must be the proxy's exit, the IP the [proxy check](/guides/proxies#check-the-exit-from-a-page) prints.
+- No candidates at all means the proxy carries no UDP. Pages that use WebRTC for calls then fail, and a page can see that WebRTC gathered nothing.
+
+[Verify](/guides/verify) covers checking a launch with public test pages.

@@ -1,0 +1,173 @@
+---
+title: "MCP server"
+description: "Run the Apostate MCP server and give any MCP client Playwright's browser tools on an Apostate browser."
+---
+
+`@heretic-tech/apostate-mcp` is an MCP server that gives an agent browser tools: navigate, snapshot, click, type, fill forms, manage tabs, take screenshots. The tools are [Playwright MCP](https://github.com/microsoft/playwright-mcp)'s. The browser behind them is launched by the Node package, so the agent gets what a script gets:
+
+- the Patchright driver, which does not enable the DevTools `Runtime` domain on pages
+- the persona you choose, kept in a persistent profile
+- the locale and timezone of your connection or proxy exit, looked up before launch
+- the persona's own window size, with no emulated viewport
+- Xvfb for a headed launch on a Linux host with no display
+
+The server speaks MCP over stdio. It starts the browser on the first tool call, so a client that only lists tools never launches one.
+
+## Install
+
+The server needs Node 22 or later. Download the browser once before an agent uses it, so the first tool call does not wait for a 160 to 200 MB download:
+
+```bash
+npx -y @heretic-tech/apostate install
+```
+
+Then add the server to your agent. The command every client runs is:
+
+```bash
+npx -y @heretic-tech/apostate-mcp --platform windows
+```
+
+<Tabs>
+  <Tab title="Claude Code">
+    ```bash
+    claude mcp add apostate -- npx -y @heretic-tech/apostate-mcp --platform windows
+    ```
+    [Claude Code](/agents/claude-code) covers scopes, permissions and headless runs.
+  </Tab>
+  <Tab title="Codex">
+    ```toml ~/.codex/config.toml
+    [mcp_servers.apostate]
+    command = "npx"
+    args = ["-y", "@heretic-tech/apostate-mcp", "--platform", "windows"]
+    startup_timeout_sec = 120
+    default_tools_approval_mode = "approve"
+    ```
+    [Codex](/agents/codex) explains each line.
+  </Tab>
+  <Tab title="Other clients">
+    ```json
+    {
+      "mcpServers": {
+        "apostate": {
+          "command": "npx",
+          "args": ["-y", "@heretic-tech/apostate-mcp", "--platform", "windows"]
+        }
+      }
+    }
+    ```
+    [Cursor, Gemini CLI and others](/agents/other-clients) lists where each client keeps this block.
+  </Tab>
+  <Tab title="From the repository">
+    Run the server from a clone instead of npm:
+
+    ```bash
+    git clone https://github.com/heretic-tech/apostate
+    cd apostate/mcp && npm install
+    ```
+
+    Then use `node` and the path to `cli.mjs` in place of `npx -y @heretic-tech/apostate-mcp`:
+
+    ```bash
+    claude mcp add apostate -- node /path/to/apostate/mcp/cli.mjs --platform windows
+    ```
+  </Tab>
+</Tabs>
+
+## Options
+
+| Option | Default | Effect |
+| --- | --- | --- |
+| `--platform <name>` | `macos` on a Mac, otherwise `windows` | Persona: `windows`, `macos` or `linux` |
+| `--fingerprint <seed>` | the seed stored in the profile | Seed for the machine. See [Seeds and identity](/concepts/seeds-and-identity) |
+| `--profile <name>` | `default` | Persistent profile, kept in the data directory below |
+| `--user-data-dir <dir>` | none | Persistent profile in this directory; overrides `--profile` |
+| `--isolated` | off | Temporary profile, deleted when the server stops |
+| `--proxy <url>` | none | `http://`, `https://` or `socks5://`, credential in the URL. `APOSTATE_PROXY` does the same |
+| `--locale <tag>` | from GeoIP | Locale, such as `de-DE` |
+| `--timezone <iana>` | from GeoIP | Timezone, such as `Europe/Berlin` |
+| `--no-geoip` | off | Skip the lookup. The persona uses `en-US` and the host's timezone |
+| `--headed` | off | Open a window. On Linux with no display the package starts Xvfb |
+| `--arg <switch>` | none | Extra browser switch, repeatable |
+| `--executable-path <path>` | the installed browser | Browser to run. `APOSTATE_BINARY` does the same |
+| `--caps <list>` | none | Extra Playwright MCP tool groups: `vision`, `pdf`, `network`, `storage`, `devtools`, `testing` |
+| `--output-dir <dir>` | `.playwright-mcp` in the working directory | Where snapshots, screenshots and PDFs go |
+
+Keep proxy credentials out of config files that go into version control: set `APOSTATE_PROXY` in the environment the client starts the server with.
+
+## Profiles
+
+A persistent profile keeps the machine, cookies and logins between sessions. The first launch draws a machine and stores its seed in the profile. Profiles live in:
+
+| Host | Directory |
+| --- | --- |
+| macOS | `~/Library/Application Support/apostate-mcp/profiles/<name>` |
+| Linux | `~/.local/share/apostate-mcp/profiles/<name>` |
+| Windows | `%LOCALAPPDATA%\apostate-mcp\profiles\<name>` |
+
+One browser can use a profile at a time. Give each agent that runs at the same time its own `--profile`, or use `--isolated` for throwaway sessions.
+
+## Tools
+
+With no `--caps`, the server offers these tools:
+
+| Group | Tools |
+| --- | --- |
+| Pages | `browser_navigate`, `browser_navigate_back`, `browser_tabs`, `browser_close`, `browser_resize`, `browser_wait_for` |
+| Reading | `browser_snapshot`, `browser_find`, `browser_take_screenshot`, `browser_console_messages`, `browser_network_requests`, `browser_network_request`, `browser_evaluate` |
+| Input | `browser_click`, `browser_type`, `browser_fill_form`, `browser_press_key`, `browser_hover`, `browser_drag`, `browser_drop`, `browser_select_option`, `browser_file_upload`, `browser_handle_dialog` |
+| Other | `browser_emulate_media`, `browser_run_code_unsafe` |
+
+A snapshot is the page's accessibility tree with a `ref` for each element. Click and type take a `target`, which is a ref from the latest snapshot or a selector.
+
+`browser_run_code_unsafe` runs arbitrary Playwright code, and `browser_emulate_media` overrides the persona's colour scheme. Deny both in the client's permissions unless the task needs them.
+
+## Check it works
+
+This starts the server over stdio, as a client does, and drives it with Claude Code in print mode:
+
+```bash
+claude -p "Use the apostate browser tools: open https://example.com, then evaluate navigator.platform, navigator.webdriver and (screen.availHeight < screen.height). Reply with those three values as JSON." \
+  --allowedTools "mcp__apostate__browser_navigate,mcp__apostate__browser_evaluate"
+```
+
+```json
+{
+  "navigator.platform": "Win32",
+  "navigator.webdriver": false,
+  "screen.availHeight < screen.height": true
+}
+```
+
+The last value is the Windows taskbar: the screen's available height is smaller than its height, as on a real Windows desktop.
+
+## Other MCP servers
+
+You can also point an MCP server you already use at the Apostate browser. These routes skip the package, so you set what it would have set yourself.
+
+<AccordionGroup>
+  <Accordion title="Playwright MCP with a config file">
+    Playwright MCP takes browser switches only from a config file. Copy [`examples/agents/mcp/playwright-mcp.json`](https://github.com/heretic-tech/apostate/blob/main/examples/agents/mcp/playwright-mcp.json), set `executablePath` to the output of `apostate path` and `userDataDir` to a directory of your choice, then run:
+
+    ```bash
+    npx @playwright/mcp@latest --config /path/to/playwright-mcp.json
+    ```
+
+    The config sets what the package would have: no emulated viewport or colour scheme, the locale environment, and `--disable-component-update` removed from Playwright's defaults. It also sets `GOOGLE_API_KEY=no`, which stops the first tab from showing Chromium's "Google API keys are missing" bar. Without a seed in `args`, the profile directory keeps its own machine. Playwright MCP uses Playwright, not Patchright, so the DevTools `Runtime` domain is enabled on pages.
+  </Accordion>
+  <Accordion title="Any client that attaches over CDP">
+    Start Apostate with a DevTools port and attach to it:
+
+    ```bash
+    GOOGLE_API_KEY=no LANGUAGE=en-US LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 \
+    apostate run -- --fingerprint-platform=windows --fingerprint-locale=en-US \
+      --fingerprint-timezone=America/New_York --headless=new \
+      --remote-debugging-port=9222 --user-data-dir="$HOME/.apostate/agent"
+    ```
+
+    ```bash
+    npx @playwright/mcp@latest --cdp-endpoint http://127.0.0.1:9222
+    ```
+
+    Chrome DevTools MCP attaches with `npx -y chrome-devtools-mcp@latest --browserUrl=http://127.0.0.1:9222 --no-usage-statistics`. Keep the port on `127.0.0.1`. [Use the binary directly](/guides/raw-binary) covers the rest of this route.
+  </Accordion>
+</AccordionGroup>

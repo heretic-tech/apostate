@@ -1,0 +1,84 @@
+---
+title: "browser-use"
+description: "Run browser-use agents on an Apostate browser, connected over CDP, with settings that keep browser-use's defaults off the persona."
+---
+
+[browser-use](https://github.com/browser-use/browser-use) drives Chrome over the DevTools protocol and lets a model decide each step. It can launch a browser itself, but its default switches change what a page sees, so start Apostate yourself and let browser-use connect to it.
+
+<Note>
+This page was tested with browser-use 0.13.10 and Apostate 0.4.3. browser-use changes quickly; check the names below against your version.
+</Note>
+
+## Why not let browser-use launch it
+
+browser-use adds its own switches to every browser it launches. Among them:
+
+| Switch | What a page sees |
+| --- | --- |
+| `--disable-speech-synthesis-api`, `--disable-speech-api` | `speechSynthesis` is missing, although the persona lists voices |
+| `--enable-network-information-downlink-max` | `navigator.connection.downlinkMax` exists, which desktop Chrome does not have |
+| `--disable-component-update` | Widevine and other preinstalled components do not load |
+
+It also emulates the viewport in headless mode, grants clipboard and notification permissions to every site, and draws highlight boxes into pages when it clicks. Starting the browser yourself and connecting over CDP avoids all of it.
+
+## The example
+
+[`examples/agents/browser-use/agent.py`](https://github.com/heretic-tech/apostate/blob/main/examples/agents/browser-use/agent.py) starts Apostate with a DevTools port and connects browser-use to it:
+
+```bash
+pip install apostate browser-use
+apostate install
+export ANTHROPIC_API_KEY=...
+python3 agent.py "Open https://example.com and say what the page is for."
+```
+
+`python3 agent.py --check` starts the browser and connects without calling a model:
+
+```text
+title example.com
+url https://example.com/
+```
+
+The two parts that matter:
+
+```python
+def start_apostate(port: int) -> subprocess.Popen:
+    env = dict(os.environ)
+    env.update(LANGUAGE="en-US", LANG="en_US.UTF-8", LC_ALL="en_US.UTF-8", LC_MESSAGES="en_US.UTF-8",
+               GOOGLE_API_KEY="no", GOOGLE_DEFAULT_CLIENT_ID="no", GOOGLE_DEFAULT_CLIENT_SECRET="no")
+    args = [
+        str(ensure_binary()),
+        f"--user-data-dir={PROFILE}",
+        "--fingerprint-platform=windows",
+        "--fingerprint-locale=en-US",
+        "--fingerprint-timezone=America/New_York",
+        f"--remote-debugging-port={port}",
+        "--headless=new",
+        "--no-first-run",
+        "--no-default-browser-check",
+    ]
+    ...
+
+def connect(port: int) -> Browser:
+    return Browser(
+        cdp_url=f"http://127.0.0.1:{port}",
+        headless=False,
+        no_viewport=True,
+        permissions=[],
+        highlight_elements=False,
+        keep_alive=True,
+    )
+```
+
+- The environment is what the Python package would set: the locale variables, and `GOOGLE_API_KEY=no`, which keeps Chromium's "Google API keys are missing" bar off the first tab.
+- The user data directory keeps the machine. Its first launch draws one and stores the seed; later launches present the same machine. Add `--fingerprint=SEED` to pin one instead.
+- `headless=False` stops browser-use from emulating a viewport. The browser is already headless.
+- `permissions=[]` and `highlight_elements=False` keep browser-use from granting permissions to every site and from injecting overlays.
+
+## Behind a proxy
+
+Add `--proxy-server=socks5://user:pass@proxy.example:1080` to `args`. Apostate takes the credential off the switch and answers the proxy's authentication itself. Set `--fingerprint-locale` and `--fingerprint-timezone` to the exit's, since this route skips the package's GeoIP lookup. [Proxies](/guides/proxies) and [Locale and timezone](/guides/locale-and-timezone) cover both.
+
+## Telemetry
+
+browser-use sends anonymous usage data unless `ANONYMIZED_TELEMETRY=false`. The example sets it and `BROWSER_USE_CLOUD_SYNC=false` before importing browser-use.

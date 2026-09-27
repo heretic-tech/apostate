@@ -1,0 +1,168 @@
+---
+title: "Contributing"
+description: "The repository layout, the rules a change follows, how to propose one, and the checks a pull request must pass."
+---
+
+Apostate's source is at [github.com/heretic-tech/apostate](https://github.com/heretic-tech/apostate) under GPL-3.0. Browser changes are patches to Chromium 152.0.7977.83. The Python and Node packages, the MCP server, the capture tools and this site are in the same repository.
+
+## Repository layout
+
+| Path | Holds |
+| --- | --- |
+| `patches/` | The Chromium changes, one file each, and `series`, the order they apply in |
+| `build/` | Pinned build inputs, and `MANIFEST.lock`, the record of the last build |
+| `scripts/` | Build, release and check scripts, the table generator `generate-dispersion-tables.py`, the Python copy of the compositor `profile_resolver.py`, and `measure-fpjs.py` |
+| `scripts/checks/` | Checks that run against a built browser |
+| `resources/profiles/` | The catalogue and its option tables |
+| `resources/fingerprints/raw/` | Captures of real machines |
+| `corpus/anchors/` | The GPU families |
+| `config/` | The profile and launch schemas, and the country-to-locale table GeoIP uses |
+| `capture/` | The collector page, the receiver and the tools that turn a capture into a profile |
+| `python/` | The Python package and its tests |
+| `npm/` | The Node package and its tests |
+| `mcp/` | The MCP server for AI agents |
+| `examples/` | Runnable scripts for both packages |
+| `tests/` | The browser test suite |
+| `release/` | The release manifest schema |
+| `.github/` | CI workflows, and `release/artifact-policy.json`, the release contract |
+| `docs/` | This site |
+| `.workspace/` | Not committed. The Chromium checkout, depot_tools and build output |
+
+## Rules for a change
+
+1. **Change the value where Chromium produces it.** Find the C++ that produces a value and patch it there. A change that injects a script, sets a DevTools override or redefines a JavaScript getter is not accepted. The core count, for example, is changed in `base::SysInfo::NumberOfProcessors()` and not in `navigator.hardwareConcurrency`, so the thread pools Chromium sizes from it agree with what a page reads.
+2. **Serve what the persona claims.** A persona that names a GPU gets that GPU family's WebGL and WebGPU values. A Windows persona gets Windows voices, fonts, system colours and screen layout. When the host cannot back a claim, the persona still serves the claimed value. It never falls back to the host's value and never serves null. Only [host mode](/concepts/how-it-works#host-mode) shows host values.
+3. **No per-call randomness.** Two reads of one value in a session return the same result. The same seed composes the same machine, and a persistent user data directory keeps its machine.
+4. **Measure the change.** A change is done when it is measured on the real target: the FingerprintJS Pro suspect score and flags ([FingerprintJS](/testing/fingerprintjs)), and a probe diff against a capture of the machine the persona claims ([Captures](/contributing/captures)). Report the numbers as measured, with the date, the Apostate version, the persona and the host.
+5. **Add no new tell.** A change must not add anything a page or the host can see that stock Chrome does not have: a command-line switch a page can read, a new Mojo interface, an unusual process name, a timing change.
+
+Three rules for the repository itself:
+
+- Browser changes are patch files in `patches/`, listed in `patches/series`. An edit in `.workspace/src` that no patch records is lost the next time the series is applied. [Patches](/contributing/patches) has the workflow.
+- Do not commit a third-party dataset, such as someone else's fingerprint corpus. Captures in `resources/fingerprints/raw/` are of machines the project measured itself.
+- Keep commits small. The message says what changed and why.
+
+## Propose a change
+
+Report a bug or propose a feature in an [issue](https://github.com/heretic-tech/apostate/issues). Include the host OS and CPU, the persona and seed, the output of `apostate --version`, and the `--fingerprint-explain` output for the launch:
+
+```bash
+apostate --version
+apostate run -- --fingerprint=42 --fingerprint-platform=windows --fingerprint-explain
+```
+
+The first command prints the package and browser versions, such as `apostate 0.4.3 (Chromium 152.0.7977.83)`.
+
+To send a change, fork the repository, commit on a branch and open a pull request against `main`. CI runs the checks below on every pull request, but it does not build Chromium. When your pull request changes a patch, say which targets you built and what you measured on them.
+
+## Checks on a pull request
+
+`.github/workflows/check.yml` runs eight jobs on every push to `main` and every pull request. None of them needs a Chromium checkout.
+
+| Job | Checks |
+| --- | --- |
+| release baseline validation | `patches/series` lists every patch once, in a valid order, and `build/MANIFEST.lock` names the Chromium version in `build/CHROMIUM_VERSION` |
+| patch header validation | Every hunk header's line counts match its body |
+| schema validation | The launch, profile and release manifest schemas are valid. The copies of the schema, catalogue, country-to-locale table and font packs in both packages match their sources, and the five version fields agree |
+| catalogue and resolver validation | The catalogue and its tables load, and `scripts/test_profile_resolver.py` passes |
+| GeoIP validation | `scripts/test_geoip.py`, with no network |
+| operational script tests | Every `scripts/test_*.py` |
+| Python package tests | `python/tests` |
+| Node package tests | `npm/test`, after `npm ci` |
+
+Run the same checks from the repository root with Python 3 and Node 20 or later:
+
+```bash
+python3 scripts/validate-release-baseline.py --root . --series-only
+python3 scripts/validate-release-baseline.py --root .
+python3 scripts/validate-patch-headers.py
+python3 scripts/validate-release-contract.py --check-schemas
+python3 scripts/sync-packages.py --check
+python3 scripts/profile_resolver.py --catalogue > /dev/null
+for f in scripts/test_*.py; do python3 "$f" > /dev/null 2>&1 || echo "FAILED: $f"; done
+python3 -m unittest discover python/tests
+npm ci --prefix npm
+npm --prefix npm test
+```
+
+On a clean checkout the validators print:
+
+```text
+release baseline valid
+release baseline valid
+134 patches: every hunk header matches its body
+ok    schema   config/launch.schema.json
+ok    schema   release/manifest.schema.json
+ok    schema   config/profile.schema.json
+ok    schema   config/profile.schema.json
+packages are current
+```
+
+The whole set took 34 seconds on an Apple M4 Max. When `sync-packages.py --check` reports a stale package copy, run `python3 scripts/sync-packages.py` to update both packages, and commit the result.
+
+## Test suites
+
+| Suite | Location | Tests | Run | In CI |
+| --- | --- | --- | --- | --- |
+| Python package | `python/tests/` | Launch options, switches, GeoIP, install and manifest checks, against fake drivers and local servers | `python3 -m unittest discover python/tests` | Yes |
+| Node package | `npm/test/` | The same contract for the Node package | `npm ci --prefix npm && npm --prefix npm test` | Yes |
+| Repository scripts | `scripts/test_*.py` | The resolver, GeoIP, release validators, patch tooling, capture decomposition | `python3 scripts/test_geoip.py`, one file per run | Yes |
+| MCP server | `mcp/test/` | Starts the server, launches the installed browser and drives a Windows persona through the MCP tools | `npm ci --prefix mcp && npm --prefix mcp test` | No |
+| Built browser | `scripts/checks/*.mjs` | See below | Node, with the path to a browser | No |
+| Browser test suite | `tests/` | What pages see, across personas and seeds | [Run the tests](/testing/run) | No |
+
+`scripts/checks/` holds two checks that need a built browser. Both use only Node's standard library and exit non-zero on a failure.
+
+`release-smoke.mjs` launches the browser headless for each persona and checks that `navigator.platform`, the User-Agent and the `Sec-CH-UA-Platform` header name the persona's OS, that `AudioContext.baseLatency` is the persona's (480, 256 and 512 frames at 48 kHz for Windows, macOS and Linux), that a Thai `LANG` in the environment does not reach `navigator.languages` or `Intl`, and that a persistent user data directory keeps one seed across launches. Pass a persona as the second argument to check only that one.
+
+```bash
+node scripts/checks/release-smoke.mjs "$(apostate path)"
+```
+
+```text
+ok   UA windows -- platform=Win32 ch="Windows" ua=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleW
+ok   AUDIO windows -- baseLatency=0.01 at 48000Hz = 480 frames, want 480
+ok   LOCALE windows -- languages=en-US,en intl=en-US
+...
+ok   IDENTITY stable per profile -- seeds=3b84e2833846
+ok   IDENTITY ephemeral without a profile -- loose=0acb567d8c40
+ok   IDENTITY file holds the seed
+
+all checks passed
+```
+
+`gl-caps-check.mjs` launches the browser once per GPU family with `--fingerprint-anchor` and checks that the WebGL limits a page reads are the ones measured for that family, that no two families serve identical limits, and that the renderer string is one the catalogue pairs with that family. It opens a window for each launch, so it needs a display. Its arguments are the browser path and the repository root:
+
+```bash
+node scripts/checks/gl-caps-check.mjs ./apostate-152.0.7977.83-linux-x64/chrome .
+```
+
+## Documentation changes
+
+The pages of this site are the `.mdx` files in `docs/`, and `docs/docs.json` lists them. [`docs/AGENTS.md`](https://github.com/heretic-tech/apostate/blob/main/docs/AGENTS.md) has the writing rules. Run the checks from `docs/` with the [Mintlify CLI](https://www.npmjs.com/package/mint):
+
+```bash
+mint validate
+mint broken-links --check-anchors --check-redirects
+mint a11y
+python3 ../scripts/generate-docs-reference.py --check
+```
+
+`mint dev` serves the site at http://localhost:3000.
+
+## Next steps
+
+<Columns cols={2}>
+  <Card title="Build from source" icon="hammer" href="/contributing/build">
+    Pinned inputs, host requirements and the build scripts.
+  </Card>
+  <Card title="Patches" icon="file-diff" href="/contributing/patches">
+    Write a patch, place it in the series and compile it.
+  </Card>
+  <Card title="Captures" icon="scan-search" href="/contributing/captures">
+    Record a real machine and turn the capture into data.
+  </Card>
+  <Card title="Releases" icon="package" href="/contributing/releases">
+    Tag a release, check it and publish the packages.
+  </Card>
+</Columns>

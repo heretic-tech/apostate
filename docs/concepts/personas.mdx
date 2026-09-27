@@ -1,0 +1,217 @@
+---
+title: "Personas"
+description: "What a persona is, the three platforms, the default on each host, and every value a persona sets with where it comes from."
+---
+
+A persona is the operating system a launch presents to web pages: Windows, macOS or Linux. From the persona and a [seed](/concepts/seeds-and-identity), the browser composes one machine of that kind, with an OS release, a GPU, cores and memory, a screen, fonts, voices, audio and media devices. Each value is served by the Chromium code that produces it, so the page, its workers, its iframes and the HTTP headers all read the same machine.
+
+## Choose a persona
+
+<CodeGroup>
+```python Python
+from apostate import launch
+
+browser = launch(fingerprint=42, fingerprint_platform="macos")
+```
+
+```javascript Node
+import { launch } from "@heretic-tech/apostate";
+
+const browser = await launch({ fingerprint: 42, fingerprintPlatform: "macos" });
+```
+</CodeGroup>
+
+The browser switch is `--fingerprint-platform=windows`, `macos` or `linux`. The packages refuse any other value. The browser logs an unknown value and uses the default persona.
+
+## The default persona
+
+When you name no persona, the browser picks one from the host:
+
+| Host | Persona |
+| --- | --- |
+| macOS | macOS |
+| Windows | Windows |
+| Linux | Windows |
+
+A Windows persona on a Linux or macOS host needs the Windows fonts installed there. [Fonts](/guides/fonts) has the command.
+
+Name the persona in every launch of a persistent profile you move between hosts. A directory created on a Mac and opened on a Linux server without `fingerprint_platform` presents a macOS machine on the Mac and a Windows machine on the server.
+
+## The three platforms
+
+Each platform draws from its own tables. The counts are those of catalogue version 2, the one in Apostate 0.4.3.
+
+| | Windows | macOS | Linux |
+| --- | --- | --- | --- |
+| OS releases | Windows 11 (two releases), Windows 10 22H2 | macOS 26.6.2, 26.5.0, 15.7.2 | Linux x86-64 |
+| GPU families | NVIDIA Direct3D 11 (45 models), Intel Direct3D 11 (12 models) | Apple Metal (12 models, M1 to M4) | NVIDIA Vulkan (11 models) |
+| Machines | desktop tower, small desktop, 15-inch laptop | MacBook Air, MacBook Pro, Mac mini, Mac Studio | desktop tower |
+| Screens | 1280x720 to 3440x1440, pixel ratio 1 to 1.5, taskbar at the bottom | each Mac's built-in display, Studio Display, external 1080p and 1440p, with menu bar and Dock | 1920x1080 to 3840x2160, GNOME, KDE or no panel |
+| Font families | 86 to 90 | 184 | 9, plus 4 from an optional Ubuntu pack |
+| Voices | 22, from a US or UK English install | 199 | 19 network voices |
+| Audio buffer | 480 frames | 256 frames | 512 frames |
+
+[GPU models](/reference/gpu-models) and [Font lists](/reference/font-lists) list every model and family.
+
+## What a persona sets
+
+Every row is served in the browser's C++, so every API and header that reads the value agrees. The section column names the part of the [profile](/reference/profile-schema) that carries it.
+
+| What a page reads | Section | Where the value comes from |
+| --- | --- | --- |
+| `navigator.userAgent`, the `User-Agent` header | `browser` | The OS release table. The version reads `Chrome/152.0.0.0`, as in Chrome's reduced User-Agent. |
+| `navigator.platform` | `platform` | The OS release table: `Win32`, `MacIntel` or `Linux x86_64`. |
+| `navigator.userAgentData`, `Sec-CH-UA-Platform`, `-Platform-Version`, `-Arch`, `-Bitness`, `-Model`, `-Form-Factors`, `-WoW64` | `platform` | The OS release table. Windows and Linux personas report the host's CPU architecture (`x86` or `arm`). macOS personas report `arm`. The brand list and full version are the build's own, with the `Google Chrome` brand. |
+| `navigator.hardwareConcurrency`, `navigator.cpuPerformance`, the browser's own thread pools | `cpu` | The core-count table, one list per GPU model. Never more than the host has. |
+| `navigator.deviceMemory`, the `Device-Memory` header, the heap limit in `performance.memory` | `memory` | The memory table, one list per GPU model. Never more than the host has. |
+| WebGL `UNMASKED_VENDOR_WEBGL`, `UNMASKED_RENDERER_WEBGL` | `gpu` | The GPU model table, within the GPU family. |
+| WebGL `getParameter()` limits such as `MAX_TEXTURE_SIZE`, `getSupportedExtensions()`, `getShaderPrecisionFormat()` | `gl_limits`, `gl_extensions`, `gl_precisions` | The GPU family, measured on real hardware. |
+| WebGPU `requestAdapter()`: `info.vendor`, `info.architecture`, subgroup sizes, `features`, `limits` | `webgpu` | The GPU family. The architecture and subgroup sizes follow the model. |
+| `screen.width`, `height`, `availWidth`, `availHeight`, `availLeft`, `availTop`, `devicePixelRatio`, `colorDepth`, `screen.isExtended`, the `color-gamut` and `dynamic-range` media queries | `screen` | The screen table, one list per machine, and the taskbar, menu bar or panel table, one list per OS release. |
+| Where a new window opens and how large it is | `screen` | The persona's work area. A Windows persona opens maximized. |
+| `document.fonts.check()`, text measured in canvas or CSS, `@font-face local()`, `queryLocalFonts()` | `fonts` | The font pack table, one list per OS release. Only families installed on the host can appear. |
+| `system-ui`, the CSS system font keywords such as `font: menu`, text with no `font-family` | none | The persona's platform. `system-ui` is `Segoe UI` for Windows and `DejaVu Sans` for Linux. A macOS persona keeps the build's own `system-ui`. |
+| `prefers-color-scheme`, CSS system colours such as `Highlight` and `ButtonFace` | `theme` | Light or dark, drawn by seed. The colours are the persona's platform defaults. The Playwright and Patchright drivers override the scheme to light; [Known gaps](/known-gaps#prefers-color-scheme-reads-light-under-playwright-and-patchright) has the fix. |
+| `speechSynthesis.getVoices()` | `speech` | The voice table, one list per OS release and language. US and UK English have measured lists; any other language gets the US list. |
+| `AudioContext.baseLatency`, `AudioContext.sampleRate` | `audio` | The platform's output buffer size. Every persona runs at 48 kHz. |
+| `navigator.mediaDevices.enumerateDevices()` | `media` | The device table, one list per machine, with cameras, microphones and speakers and their labels. The host's own devices are listed too; see [Known gaps](/known-gaps#host-cameras-microphones-and-speakers-show-through). |
+| `MediaCapabilities` `powerEfficient` | none | The persona's GPU. |
+| `navigator.keyboard.getLayoutMap()` | none | The US layout of the persona's platform. A profile you write can carry another in `keyboard.layout_map`. |
+| `navigator.connection` (`effectiveType`, `rtt`, `downlink`, `saveData`), the `ECT`, `RTT`, `Downlink` and `Save-Data` headers | `network` | One of three 4G connections. |
+| `navigator.getBattery()` | `battery` | The battery table, one list per machine. Desktops report no battery, as desktop Chrome does. |
+| `chrome.runtime` on web pages | `extensions` | Drawn by seed. A quarter of seeds show it, as on a Chrome with an extension that talks to web pages. |
+| `navigator.share()`, `navigator.canShare()` | none | Present for Windows and macOS personas. |
+| `new URL("c:/foo").protocol` and other Windows path forms | none | A Windows persona parses them as Windows Chrome does (`file:`). |
+| Timezone, `Intl` defaults, `navigator.language`, `navigator.languages`, `Accept-Language` | `locale` | Not the seed. The packages take them from the proxy's location, or from your `locale` and `timezone` options. See [Locale and timezone](/guides/locale-and-timezone). |
+| The `pointer` and `hover` media queries | `input` | Only a [profile you write](/guides/custom-profiles) sets them. Otherwise they are the host's, or a mouse under Playwright and Patchright in headless mode. |
+
+The machine is composed in a fixed order, and later choices depend on earlier ones. The core count and memory depend on the GPU model, and the screen, devices and battery depend on the machine, so a persona never pairs, for example, an Apple M4 Max with a MacBook Air screen. [How it works](/concepts/how-it-works) has the order.
+
+## Read a persona
+
+`--fingerprint-explain` prints the machine a launch would present and exits without opening a window. These are seed 42 for each platform, run on an Apple silicon Mac with 14 cores. On another host, the core count and memory can differ; [Seeds and identity](/concepts/seeds-and-identity#the-host-cap) explains why.
+
+```bash
+apostate run -- --fingerprint=42 --fingerprint-platform=windows --fingerprint-explain
+```
+
+<Tabs>
+  <Tab title="Windows">
+    ```text
+    surface                   layer             evidence               value
+    anchor                    anchor            physical-ground-truth  windows-d3d11-intel-79dfeb5b4f99
+    os_release                dispersion        physical-ground-truth  windows-11
+    gpu_identity              dispersion        catalogue-value        d3d11-intel-uhd-graphics-770-4680
+    webgpu                    anchor            physical-ground-truth  Intel(R) UHD Graphics 770
+    machine_class             dispersion        catalogue-value        win-sff-desktop
+    cpu                       dispersion        public-corpus          cores-12
+    memory                    dispersion        catalogue-value        gib-8
+    panel                     dispersion        public-corpus          fhd-1080p
+    furniture                 dispersion        physical-ground-truth  taskbar-bottom
+    font_packs/platform-core  dispersion        catalogue-value        core
+    media_topology            dispersion        catalogue-value        desktop-speakers-only
+    audio                     dispersion        physical-ground-truth  wasapi-shared-480
+    network                   dispersion        catalogue-value        4g-fast
+    battery                   dispersion        catalogue-value        absent
+    locale.application        composed-default  native-derived         en-US
+    locale.accept_languages   composed-default  native-derived         (the en-US bundle's default)
+    locale.timezone           host-inherited    host-inherited         (inherited)
+    voices                    dispersion        physical-ground-truth  windows-en-us
+    extensions                dispersion        physical-ground-truth  absent
+    theme                     dispersion        catalogue-value        dark
+    ```
+  </Tab>
+  <Tab title="macOS">
+    ```text
+    surface                   layer             evidence               value
+    anchor                    anchor            physical-ground-truth  macos-metal-apple-850a91233555
+    os_release                dispersion        catalogue-value        macos-26-5-0
+    gpu_identity              dispersion        physical-ground-truth  metal-apple-m4-max
+    webgpu                    anchor            physical-ground-truth  m4-max-chrome
+    machine_class             dispersion        catalogue-value        mac-mbp14-studio-display
+    cpu                       dispersion        physical-ground-truth  cores-14
+    memory                    dispersion        catalogue-value        gib-36
+    panel                     dispersion        catalogue-value        studio-display
+    furniture                 dispersion        catalogue-value        menubar-dock-autohide
+    font_packs/platform-core  dispersion        physical-ground-truth  core
+    media_topology            dispersion        catalogue-value        mbp-studio-display
+    audio                     dispersion        physical-ground-truth  coreaudio-256
+    network                   dispersion        catalogue-value        4g-typical
+    battery                   dispersion        catalogue-value        discharging-high
+    locale.application        composed-default  native-derived         en-US
+    locale.accept_languages   composed-default  native-derived         (the en-US bundle's default)
+    locale.timezone           host-inherited    host-inherited         (inherited)
+    voices                    dispersion        physical-ground-truth  macos-bundled
+    extensions                dispersion        physical-ground-truth  absent
+    theme                     dispersion        catalogue-value        light
+    ```
+  </Tab>
+  <Tab title="Linux">
+    ```text
+    surface                    layer             evidence               value
+    anchor                     anchor            physical-ground-truth  linux-vulkan-nvidia-adf287b8f0ee
+    os_release                 dispersion        physical-ground-truth  linux-x86-64
+    gpu_identity               dispersion        physical-ground-truth  vulkan-nvidia-geforce-rtx-4070-ti-super
+    webgpu                     anchor            physical-ground-truth  REAL-nvidia-4070ti-linux
+    machine_class              dispersion        catalogue-value        linux-desktop-tower
+    cpu                        dispersion        catalogue-value        cores-12
+    memory                     dispersion        catalogue-value        gib-32
+    panel                      dispersion        catalogue-value        uhd-2160
+    furniture                  dispersion        physical-ground-truth  gnome-topbar
+    font_packs/platform-core   dispersion        physical-ground-truth  core
+    font_packs/ubuntu-desktop  dispersion        catalogue-value        included
+    media_topology             dispersion        catalogue-value        pulse-hdmi-desktop
+    audio                      dispersion        catalogue-value        pulse-512
+    network                    dispersion        catalogue-value        4g-typical
+    battery                    dispersion        catalogue-value        absent
+    locale.application         composed-default  native-derived         en-US
+    locale.accept_languages    composed-default  native-derived         (the en-US bundle's default)
+    locale.timezone            host-inherited    host-inherited         (inherited)
+    voices                     dispersion        physical-ground-truth  linux-none
+    extensions                 dispersion        physical-ground-truth  absent
+    theme                      dispersion        catalogue-value        light
+    ```
+  </Tab>
+</Tabs>
+
+The report also prints a header with the seed and the host, notes under the locale rows, and a `limitations` list. [Seeds and identity](/concepts/seeds-and-identity#read-the-seed-lines) explains the header.
+
+The `layer` column says which step chose the value:
+
+| Layer | Meaning |
+| --- | --- |
+| `anchor` | Taken from the GPU family as a whole. |
+| `dispersion` | Drawn by seed from a table of options. |
+| `command-line` | Set by a switch, such as `--fingerprint-locale`. |
+| `composed-default` | No switch named it, so the persona's default applies. |
+| `host-inherited` | Left to the host. |
+
+The `evidence` column says where the option came from:
+
+| Evidence | Meaning |
+| --- | --- |
+| `physical-ground-truth` | Measured on a real machine this project captured. |
+| `public-corpus` | Weighted from a public collection of real browser sessions. |
+| `catalogue-value` | Written from vendor specifications and platform rules, not measured. |
+| `compatibility-capture` | Measured on a host with no GPU. Only the SwiftShader family has it. |
+| `native-derived` | Produced by the build itself. |
+| `operator` | Set by you, or by the packages from GeoIP. |
+| `host-inherited` | The host's own value. |
+
+## What stays the host's
+
+A persona changes values. It does not change how the host draws or computes. Canvas, WebGL and WebGPU pixels come from the host's GPU or software renderer, text is drawn by the host's font engine, a font appears only if it is installed, and CPU arithmetic and audio output follow the host's CPU. [Hosts](/concepts/hosts) says which host suits which persona, and [Known gaps](/known-gaps) lists every value a page can still read from the host.
+
+## Host mode
+
+`--fingerprint=host`, or `fingerprint="host"` in the packages, composes nothing. Every value is the host's own. `off`, `false`, `0`, `disable` and `disabled` mean the same, in any case. Use host mode to tell whether a problem comes from the persona or from the host and network under it.
+
+Host mode refuses a persona, a GPU family and every per-field switch, because nothing is composed for them to change:
+
+```text
+apostate: --fingerprint names an off value, so no profile is composed and --fingerprint-platform cannot take effect. Drop one of the two: --fingerprint=off for this machine's real fingerprint, or a seed for a composed one. --fingerprint-explain still works with either.
+```
+
+The packages refuse the same combination before the browser starts, with `host inheritance disables every layer below it, so a platform persona cannot be applied at the same time`.
+
+Headless host mode has no display to inherit, so a page reads Chrome's headless 800x600 screen with `availHeight` equal to `height`. A composed persona does not have this problem.

@@ -1,0 +1,9 @@
+/* Apostate brand: Funnel Display and Funnel Sans come from docs.json.
+   Fragment Mono is not a docs.json field, so it is loaded here for code. */
+@import url('https://fonts.googleapis.com/css2?family=Fragment+Mono&display=swap');
+
+code,
+pre,
+kbd {
+  font-family: 'Fragment Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}

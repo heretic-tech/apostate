@@ -1,0 +1,266 @@
+---
+title: "Locale and timezone"
+description: "How the packages set a persona's language, Intl formats and timezone from the proxy exit or from values you pass, and what a page reads."
+---
+
+A persona's languages and timezone are not drawn from the seed, because a drawn timezone would not match the proxy's exit. The packages set them in this order:
+
+1. The `locale` and `timezone` options, when you pass them.
+2. A GeoIP lookup of the exit, when `geoip` is on, which is the default.
+3. `en-US` and the host's timezone.
+
+The packages pass the first two to the browser as `--fingerprint-locale` and `--fingerprint-timezone`. For the defaults they pass neither switch.
+
+## The GeoIP lookup
+
+Before the browser starts, the package asks where the exit is. With a proxy, the exit is the proxy's. Without one, it is the host's own connection.
+
+- It asks `ip-api.com`, `ipinfo.io`, `ipwho.is` and `ifconfig.co`, in that order, over plain HTTP, through the proxy when there is one.
+- It tries each service twice, 5 seconds per try, and stops at the first answer that has both a country and a timezone.
+- The whole lookup may take 20 seconds. Change the limit with `geoip_timeout` in Python or `geoipTimeoutMs` in Node.
+
+The timezone is the IANA name the service returns. The locale comes from the country code, through [`config/country-locales.json`](https://github.com/heretic-tech/apostate/blob/main/config/country-locales.json). The table covers 257 territories. It gives each the tag of its main official language in a form Chrome lists, and English where desktop installs are English, as in India and Pakistan. Some entries:
+
+| Exit country | Locale |
+| --- | --- |
+| United States | `en-US` |
+| United Kingdom | `en-GB` |
+| Germany | `de-DE` |
+| Switzerland | `de-CH` |
+| France | `fr-FR` |
+| Belgium | `nl` |
+| Japan | `ja` |
+| Brazil | `pt-BR` |
+| India | `en-IN` |
+| Malaysia | `ms` |
+| Guatemala | `es-419` |
+
+GeoIP always gives one tag, never a list.
+
+## Set them yourself
+
+Pass both options to make a launch independent of the lookup. The Python package then skips it. The Node package still runs it behind a proxy, to learn the exit IP for WebRTC ([WebRTC](/guides/webrtc)).
+
+<CodeGroup>
+```python Python
+from apostate import launch
+
+READ = """() => {
+    const noon = new Date(Date.UTC(2026, 8, 27, 12, 0));
+    return {
+        language: navigator.language,
+        languages: navigator.languages,
+        intlLocale: Intl.DateTimeFormat().resolvedOptions().locale,
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        date: noon.toLocaleString(),
+        number: (1234567.891).toLocaleString(),
+    };
+}"""
+
+with launch(fingerprint=42, fingerprint_platform="windows",
+            locale="de-DE", timezone="Europe/Berlin") as browser:
+    page = browser.new_page()
+    response = page.goto("https://example.com")
+    for name, value in page.evaluate(READ).items():
+        print(f"{name:15} {value}")
+    print(f"{'Accept-Language':15} {response.request.all_headers()['accept-language']}")
+```
+
+```javascript Node
+import { launch } from "@heretic-tech/apostate";
+
+const browser = await launch({
+  fingerprint: 42,
+  fingerprintPlatform: "windows",
+  locale: "de-DE",
+  timezone: "Europe/Berlin",
+});
+const page = await browser.newPage();
+const response = await page.goto("https://example.com");
+const values = await page.evaluate(() => {
+  const noon = new Date(Date.UTC(2026, 8, 27, 12, 0));
+  return {
+    language: navigator.language,
+    languages: navigator.languages,
+    intlLocale: Intl.DateTimeFormat().resolvedOptions().locale,
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    date: noon.toLocaleString(),
+    number: (1234567.891).toLocaleString(),
+  };
+});
+for (const [name, value] of Object.entries(values)) console.log(name.padEnd(15), value);
+console.log("Accept-Language".padEnd(15), (await response.request().allHeaders())["accept-language"]);
+await browser.close();
+```
+</CodeGroup>
+
+```text
+language        de-DE
+languages       ['de-DE', 'de', 'en-US', 'en']
+intlLocale      de
+timeZone        Europe/Berlin
+date            27.9.2026, 14:00:00
+number          1.234.567,891
+Accept-Language de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7
+```
+
+With a proxy, pass values that match the exit. [`examples/python/locale_timezone.py`](https://github.com/heretic-tech/apostate/blob/main/examples/python/locale_timezone.py) and [`examples/node/locale-timezone.mjs`](https://github.com/heretic-tech/apostate/blob/main/examples/node/locale-timezone.mjs) run the same check.
+
+## One tag or a list
+
+The first tag becomes the browser's UI locale. What happens to the language list depends on the form you pass:
+
+- **One tag**, such as `de-DE`, sets only the UI locale. `navigator.languages` and the `Accept-Language` header are then Chrome's own default list for that UI locale, as on a real machine set to that language.
+- **A comma list**, such as `de-DE,de`, sets `navigator.languages` and `Accept-Language` exactly.
+
+The same launch as above, with three values of `locale`:
+
+| `locale` | `navigator.language` | `navigator.languages` | `Accept-Language` |
+| --- | --- | --- | --- |
+| `de-DE` | `de-DE` | `de-DE, de, en-US, en` | `de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7` |
+| `de-DE,de` | `de-DE` | `de-DE, de` | `de-DE,de;q=0.9` |
+| `ja-JP` | `ja` | `ja, en-US, en` | `ja,en-US;q=0.9,en;q=0.8` |
+
+Chrome's UI locale for Japanese is `ja`, so the tag `ja-JP` gives the same result as `ja`. Chrome's default lists include English after the local language. A real user who removed English from Chrome's language settings sends a list without it. Pass a list to match that.
+
+## What Intl shows
+
+The UI locale is `Intl`'s default locale. It decides date, time and number formats, collation, and the default calendar and hour cycle. `Intl.DateTimeFormat().resolvedOptions().locale` reports the UI locale as Chrome names it, such as `de` for `de-DE` and for `de-CH`, and `ja` for `ja-JP`. With `ja-JP` and `Asia/Tokyo`, the same noon UTC prints as `2026/9/27 21:00:00` and the number as `1,234,567.891`.
+
+The timezone sets `Intl.DateTimeFormat().resolvedOptions().timeZone`, `Date` offsets and every local time a page formats. Pass an IANA name such as `Europe/Berlin`. The packages do not check the name. A name the browser does not know leaves `Intl` reporting no timezone and `Date` running on UTC, which no real machine does.
+
+## Environment variables
+
+For a persona, the packages also set the browser's locale environment, so that the C library and every child process agree with the UI locale. They set:
+
+| Variable | Value for `de-DE`, `Europe/Berlin` | Value for `ja`, `Asia/Tokyo` |
+| --- | --- | --- |
+| `LANGUAGE` | `de-DE` | `ja` |
+| `LC_ALL` | `de_DE.UTF-8` | `ja.UTF-8` |
+| `LC_MESSAGES` | `de_DE.UTF-8` | `ja.UTF-8` |
+| `LANG` | `de_DE.UTF-8` | `ja.UTF-8` |
+| `TZ` | `Europe/Berlin` | `Asia/Tokyo` |
+
+The values come from the first tag, and `TZ` from the timezone when there is one. Without a locale, the four locale variables get `en-US` and `en_US.UTF-8`, so your shell's language never reaches a persona. Host mode sets none of them. An `env` you pass to the package is applied last, so your entries win.
+
+## Voices
+
+`speechSynthesis.getVoices()` lists the voices of the persona's platform, chosen by the first tag. The voice tables distinguish `en-US` and `en-GB`. Any other tag gets the `en-US` set.
+
+```python
+from apostate import launch
+
+LOCAL_VOICES = """async () => {
+    let voices = speechSynthesis.getVoices();
+    for (let i = 0; i < 20 && voices.length === 0; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        voices = speechSynthesis.getVoices();
+    }
+    return voices.filter((v) => v.localService).map((v) => v.name + (v.default ? " (default)" : ""));
+}"""
+
+for locale in ("en-US", "en-GB", "de-DE"):
+    with launch(fingerprint=42, fingerprint_platform="windows",
+                locale=locale, timezone="Europe/London") as browser:
+        page = browser.new_page()
+        page.goto("https://example.com")
+        print(locale, page.evaluate(LOCAL_VOICES))
+```
+
+```text
+en-US ['Microsoft David - English (United States) (default)', 'Microsoft Mark - English (United States)', 'Microsoft Zira - English (United States)']
+en-GB ['Microsoft George - English (United Kingdom) (default)', 'Microsoft Hazel - English (United Kingdom)', 'Microsoft Susan - English (United Kingdom)']
+de-DE ['Microsoft David - English (United States) (default)', 'Microsoft Mark - English (United States)', 'Microsoft Zira - English (United States)']
+```
+
+A Windows persona set to German lists English voices. [Known gaps](/known-gaps) tracks this.
+
+## --lang
+
+Chromium's `--lang` switch has no effect on a persona. The launch below still presents German:
+
+```python
+from apostate import launch
+
+with launch(fingerprint=42, fingerprint_platform="windows", locale="de-DE",
+            timezone="Europe/Berlin", args=["--lang=fr"]) as browser:
+    page = browser.new_page()
+    print(page.evaluate("navigator.languages"))
+```
+
+```text
+['de-DE', 'de', 'en-US', 'en']
+```
+
+Use the `locale` option, or `--fingerprint-locale` when you run the browser without the packages.
+
+## Without GeoIP
+
+`geoip=False` in Python or `geoip: false` in Node skips the lookup. A launch with no `locale` then presents `en-US`, and one with no `timezone` presents the host's timezone.
+
+```python
+from apostate import launch
+
+with launch(fingerprint=42, fingerprint_platform="windows", geoip=False) as browser:
+    page = browser.new_page()
+    print(page.evaluate("navigator.languages"))
+```
+
+```text
+['en-US', 'en']
+```
+
+Behind a proxy, the host's timezone is not the exit's. Pass `timezone` whenever you turn GeoIP off.
+
+## When the lookup fails
+
+A lookup that fails or times out does not stop the launch. The package sends no locale or timezone switch, so the persona presents `en-US` and the host's timezone, and it reports a warning:
+
+- The Python package prints it to stderr, prefixed `apostate: ` ([Python](/guides/python#warnings)).
+- The Node package prints it with `console.warn`, prefixed `[Apostate]`, adds it to `browser.apostateDiagnostics.warnings` and sets `apostateDiagnostics.geoip` to `unresolved` ([Node](/guides/node#diagnostics)).
+
+A lookup that answers without a timezone, or without a country, sets the field it has and warns about the other.
+
+## Your own lookup
+
+To use your own GeoIP service, pass a function. It receives the proxy URL and returns a two-letter country code and an IANA timezone. The package maps the country to a locale as above.
+
+<CodeGroup>
+```python Python
+from apostate import launch
+
+
+def my_lookup(proxy, timeout):
+    # Ask your own service where `proxy` exits. Return a country code and an IANA timezone.
+    return {"country_code": "DE", "timezone": "Europe/Berlin"}
+
+
+with launch(fingerprint=42, fingerprint_platform="windows", geoip_provider=my_lookup) as browser:
+    page = browser.new_page()
+    print(page.evaluate("[navigator.languages, Intl.DateTimeFormat().resolvedOptions().timeZone]"))
+```
+
+```javascript Node
+import { launch } from "@heretic-tech/apostate";
+
+const browser = await launch({
+  fingerprint: 42,
+  fingerprintPlatform: "windows",
+  // Ask your own service where `proxy` exits. Return a country code and an IANA timezone.
+  geoipResolver: async ({ proxy }) => ({ country_code: "DE", timezone: "Europe/Berlin" }),
+});
+const page = await browser.newPage();
+console.log(await page.evaluate(() => [navigator.languages, Intl.DateTimeFormat().resolvedOptions().timeZone]));
+await browser.close();
+```
+</CodeGroup>
+
+```text
+[['de-DE', 'de', 'en-US', 'en'], 'Europe/Berlin']
+```
+
+The result may also carry `locale` or `languages` to set the tag directly.
+
+## Without the packages
+
+The browser reads `--fingerprint-locale` and `--fingerprint-timezone` directly. Without them, a persona presents `en-US` and the host's timezone, never the host's language. The browser logs an unknown timezone passed as a switch and keeps the host's. [Switches](/reference/switches) lists both, and [Raw binary](/guides/raw-binary) covers running the browser yourself.

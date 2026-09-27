@@ -1,0 +1,162 @@
+---
+title: "Command line"
+description: "The apostate command from the Python and Node packages: every command and option, and where the two differ."
+---
+
+Both packages install a command named `apostate`. The Python package's runs as `apostate` or `python3 -m apostate`. The Node package's runs as `npx apostate`, or `apostate` when the package is installed globally. With both installed, `apostate` runs whichever comes first on `PATH`. They share the browser install in the cache directory, so installing with one serves the other.
+
+```bash
+apostate --version
+```
+
+```text
+apostate 0.4.3 (Chromium 152.0.7977.83)
+```
+
+## Global options
+
+| Option | Effect |
+| --- | --- |
+| `--cache-dir DIR` | Use `DIR` as the install cache instead of the per-OS default or `APOSTATE_CACHE_DIR`. |
+| `--manifest SRC` | Use this release manifest instead of the one inside the package. Python takes a JSON file path. Node takes a JSON file path or a URL. |
+| `--target TARGET` | `linux-x64`, `linux-arm64`, `macos-arm64` or `windows-x64`. Defaults to this host. |
+| `--version` | Print the package and Chromium versions. Node also takes `-v`. |
+| `--help`, `-h` | Print the usage. |
+
+In the Python CLI, global options go before the command, as in `apostate --cache-dir ./cache install`. The Node CLI reads them anywhere on the line before a `--`.
+
+## `install`
+
+```bash
+apostate install [--force] [--keep-archive]
+```
+
+Downloads the browser archive for the target, checks its SHA-256 against the release manifest before opening it, extracts it into the cache, and prints the executable's path. It then gives the browser a Widevine CDM, from a local Google Chrome or from Google's component update service. When a browser is already installed or found in a [well-known location](/installation), it downloads nothing and prints that path.
+
+| Option | Effect |
+| --- | --- |
+| `--force` | Download and install again, even when a browser is found. |
+| `--keep-archive` | Keep the verified archive beside the install, for `gh attestation verify`. Same as `APOSTATE_KEEP_ARCHIVE=1`. |
+
+## `path`
+
+```bash
+apostate path
+```
+
+Prints the path of the browser executable a launch would use, and installs it first when none is found. It does not install the Widevine CDM. A browser the package installed sits at `<cache>/152.0.7977.83/<target>/install/`, as `chrome` on Linux, `chrome.exe` on Windows and `Chromium.app/Contents/MacOS/Chromium` on macOS.
+
+## `info`
+
+```bash
+apostate info
+```
+
+Prints the install, discovery and manifest state as JSON, and never fails for a missing release. Run it when a launch downloads a browser you thought was installed. `discovery.rejected` says why each browser it found was passed over.
+
+The keys are the ones [`binary_info()`](/reference/python-api#binary_info) and [`binaryInfo()`](/reference/node-api#binaryinfo) return. The two CLIs differ in a few keys:
+
+| Python | Node |
+| --- | --- |
+| `cached` | `cache_hit` |
+| `reason`, only when no archive is available | `reason`, always present, `null` when nothing failed |
+| | `target`, the same as `platform` |
+
+## `clear`
+
+```bash
+apostate clear
+```
+
+Deletes the install cache. In the Python CLI it deletes the whole cache directory, including the stored Widevine CDM. In the Node CLI, `--target` limits it to that target's install.
+
+## `run`
+
+```bash
+apostate run [browser switches]
+```
+
+Runs the browser with the switches that follow `run`, installing it first when none is found. The browser owns the terminal, and its exit status is the command's.
+
+```bash
+apostate run --fingerprint=42 --fingerprint-platform=windows --fingerprint-explain
+```
+
+`run` passes the switches through unchanged. It adds no seed, GeoIP locale, timezone or proxy handling, which the packages' launch functions add. [Switches](/reference/switches) lists what to pass.
+
+- **Python.** From 0.4.4, everything after `run` goes to the browser. In 0.4.3, put `--` before the switches: `apostate run -- --fingerprint=42`. Without it, 0.4.3 prints its usage and exits with status 2. Every `--` on the line is dropped in both versions.
+- **Node.** Everything after `run` goes to the browser, except the CLI's own options (`--cache-dir`, `--manifest`, `--target`, `--from`, `--force`, `--keep-archive`, `--version`, `-v`, `--help`, `-h`), which the CLI reads wherever they are. Put `--` before browser switches with those names. `apostate run --version` prints the package version, and `apostate run -- --version` prints the browser's.
+
+With `--user-data-dir=DIR` among the switches, `run` also writes the Widevine CDM's location into `DIR` on Linux.
+
+## `fonts install windows`
+
+```bash
+apostate fonts install windows [--from DIR]
+```
+
+Installs the families of the Windows persona's core font pack into this user's font directory, `~/.local/share/fonts/apostate-windows` on Linux and `~/Library/Fonts/apostate-windows` on macOS. [Fonts](/guides/fonts) explains why a Windows persona needs them.
+
+- Without `--from`, it clones `github.com/MauCariApa-com/windows-11-fonts` with `git`, so `git` must be installed.
+- `--from DIR` takes the fonts from a Windows `Fonts` folder instead.
+- It installs only files whose family is in the core pack, and removes other files an earlier version put in the directory.
+- On Linux it runs `fc-cache -f`, so fontconfig must be installed.
+- It then lists the core families the host still lacks.
+- On a Windows host it does nothing, because the fonts are already there.
+
+From 0.4.4, it also downloads the Windows 11 Marlett, which the repository lacks, from the `liblaf/fonts` Win11 release. It reads only that file out of the release zip, about 80 KB, and installs it only when its SHA-256 matches. When that fails, it says so and installs the rest.
+
+## `fonts install macos`
+
+```bash
+apostate fonts install macos --from DIR
+```
+
+Installs the fonts that `fonts export-macos` wrote on a Mac into `~/.local/share/fonts/apostate-macos` on a Linux host, and runs `fc-cache -f`. `--from` is required. On a Mac it does nothing. On Windows it fails.
+
+## `fonts export-macos`
+
+```bash
+apostate fonts export-macos DIR
+```
+
+On a Mac, copies the system's font files into `DIR`, one file per name. Copy `DIR` to the Linux host and run `fonts install macos --from DIR` there. It fails on any other OS.
+
+## `provision-drm`
+
+Python only.
+
+```bash
+apostate provision-drm [--source DIR] [--list]
+```
+
+Installs a Widevine CDM into this package's browser now, replacing any it has, and prints the result as JSON. A launch does the same on its own when the browser has none. Unlike a launch, it fails when no CDM can be had. [Widevine](/guides/widevine) explains when to run it.
+
+| Option | Effect |
+| --- | --- |
+| `--source DIR` | Install the CDM from this `WidevineCdm` directory, with or without a version directory inside. Without it, the CDM comes from a local Google Chrome or Chromium profile, else from Google. |
+| `--list` | List the CDMs on this machine, one per line with version, size in bytes and path, and exit. It exits with status 1 when there are none. |
+
+On `windows-x64` it also prints `warning: Widevine has not been verified on windows-x64 yet` on stderr. In Node, call [`provisionWidevine()`](/reference/node-api#provisionwidevine).
+
+## Exit status
+
+| Status | Python | Node |
+| --- | --- | --- |
+| 0 | Success. | Success. |
+| 1 | An Apostate error, printed as `apostate: <message>`, or `provision-drm --list` found nothing. | Any error, printed as `apostate: <message>`, or no command given. |
+| 2 | Invalid usage, such as an unknown command or option. | An unknown command. |
+| 130 | Interrupted with Ctrl+C. | |
+
+For `run`, the status is the browser's. The Python CLI replaces its own process with the browser on Linux and macOS. The Node CLI exits with the browser's status, or 1 when a signal ended it.
+
+## Differences between the two CLIs
+
+| | Python | Node |
+| --- | --- | --- |
+| `provision-drm` | yes | no, use `provisionWidevine()` |
+| `--manifest` | file path | file path or URL |
+| Global options | before the command | anywhere before `--` |
+| `run` without `--` | from 0.4.4 | yes |
+| `clear --target` | ignored, deletes the whole cache | deletes that target only |
+| `info` | `cached` | `cache_hit`, `target`, `reason` |

@@ -1,0 +1,203 @@
+---
+title: "Screen and window"
+description: "The screen sizes, pixel ratios and taskbars each persona presents, where the window opens, why the packages turn off the driver's viewport, and the screen switches."
+---
+
+A persona presents the screen of its machine. The screen has a size, a pixel ratio, a colour depth, and a taskbar, Dock or panel that takes part of it. The browser serves these values in headless and headed mode alike, and the window opens where the persona's platform would open it.
+
+## Screen sizes
+
+The seed picks a machine class from the GPU model, then a screen for that class. Sizes are in CSS pixels, as `screen.width` and `screen.height` report them.
+
+| Persona | Machine | Screens (CSS pixels at pixel ratio) |
+| --- | --- | --- |
+| Windows | Desktop tower | 1920x1080, 2560x1440, 3440x1440, 1280x1024 and 1680x1050 at 1; 1536x864 and 2048x1152 at 1.25; 2560x1440 at 1.5 |
+| Windows | Small desktop | 1920x1080, 2560x1440 and 1440x900 at 1 |
+| Windows | 15-inch laptop | 1920x1080, 1366x768 and 2560x1440 at 1; 1536x864 and 2048x1152 at 1.25; 1280x720 at 1.5 |
+| macOS | MacBook Air 13 and 15 | 1470x956 and 1710x1112 at 2 |
+| macOS | MacBook Pro 14 and 16 | 1512x982 and 1728x1117 at 2, with HDR and 30-bit colour |
+| macOS | Studio Display | 2560x1440 at 2 |
+| macOS | Mac mini with another display | 1920x1080 and 2560x1440 at 1 |
+| Linux | Desktop tower | 1920x1080, 2560x1440, 2560x1080 and 3840x2160 at 1; 2560x1440 at 1.5 |
+
+A Windows screen of 1536x864 at 1.25 is a 1920x1080 panel at 125% scaling. The seed picks among these with the weights in [`resources/profiles/dispersion/panel.json`](https://github.com/heretic-tech/apostate/blob/main/resources/profiles/dispersion/panel.json).
+
+## Taskbar, Dock and panels
+
+The platform's furniture takes part of the screen, so the available area, `screen.availWidth` by `screen.availHeight`, is smaller than the screen. The one exception is a Linux persona with no panel.
+
+| Persona | Furniture | Taken from the screen |
+| --- | --- | --- |
+| Windows 11 | Taskbar at the bottom | 48 px of height |
+| Windows 10 | Taskbar at the bottom | 40 px of height |
+| macOS 26 | Menu bar, and the Dock at the bottom, left or right, or hidden | 33 px at the top, plus 86 px at the bottom or 79 px at the side |
+| macOS 15 | The same, with a shorter menu bar | 24 px at the top, plus the Dock |
+| Linux | GNOME top bar, a GNOME top bar with a dock, a KDE panel, or none | 32 px at the top, plus 72 px at the left with the dock; or 44 px at the bottom for KDE |
+
+A Windows persona always has a taskbar, so its `availHeight` is always less than its `height`. `screen.availTop` is the menu bar or top bar's height.
+
+## Where the window opens
+
+<CodeGroup>
+```python Python
+from apostate import launch
+
+GEOMETRY = """() => ({
+    screen: [screen.width, screen.height],
+    avail: [screen.availLeft, screen.availTop, screen.availWidth, screen.availHeight],
+    window: [screenX, screenY, outerWidth, outerHeight],
+    inner: [innerWidth, innerHeight],
+    pixelRatio: devicePixelRatio,
+})"""
+
+for platform in ("windows", "macos", "linux"):
+    with launch(fingerprint=42, fingerprint_platform=platform) as browser:
+        page = browser.new_page()
+        page.goto("https://example.com")
+        print(platform, page.evaluate(GEOMETRY))
+```
+
+```javascript Node
+import { launch } from "@heretic-tech/apostate";
+
+for (const platform of ["windows", "macos", "linux"]) {
+  const browser = await launch({ fingerprint: 42, fingerprintPlatform: platform });
+  const page = await browser.newPage();
+  await page.goto("https://example.com");
+  console.log(platform, await page.evaluate(() => ({
+    screen: [screen.width, screen.height],
+    avail: [screen.availLeft, screen.availTop, screen.availWidth, screen.availHeight],
+    window: [screenX, screenY, outerWidth, outerHeight],
+    inner: [innerWidth, innerHeight],
+    pixelRatio: devicePixelRatio,
+  })));
+  await browser.close();
+}
+```
+</CodeGroup>
+
+```text
+windows {'screen': [1920, 1080], 'avail': [0, 0, 1920, 1032], 'window': [0, 0, 1920, 1032], 'inner': [1920, 945], 'pixelRatio': 1}
+macos {'screen': [2560, 1440], 'avail': [0, 33, 2560, 1407], 'window': [22, 55, 1200, 1363], 'inner': [1200, 1276], 'pixelRatio': 2}
+linux {'screen': [3840, 2160], 'avail': [0, 32, 3840, 2128], 'window': [10, 42, 1905, 2108], 'inner': [1905, 2021], 'pixelRatio': 1}
+```
+
+A Windows persona opens maximized, filling the work area above the taskbar, as Windows Chrome does. macOS and Linux personas get their platform's default placement inside the work area. The window is placed from the persona, not measured from the host's display. On a headed launch the host display has to be at least as large, or the window manager may shrink the window.
+
+The browser's own frame, `outerHeight` minus `innerHeight`, comes from the host's browser layout. [Known gaps](/known-gaps) has where it differs from real Windows.
+
+## Viewport
+
+Playwright and Puppeteer emulate a viewport by default. Playwright's reports `screen`, `innerWidth` and the available area all as 1280x720 at a pixel ratio of 1, which no desktop does. So the packages turn the driver's viewport off: `no_viewport=True` in Python, `viewport: null` for Playwright and `defaultViewport: null` for Puppeteer in Node. The page then gets the persona's screen and the real window size.
+
+A viewport of your own replaces the persona's geometry. With `viewport={"width": 1280, "height": 720}`, the same Windows persona reports:
+
+```python
+from apostate import launch
+
+GEOMETRY = """() => ({
+    screen: [screen.width, screen.height],
+    avail: [screen.availWidth, screen.availHeight],
+    window: [outerWidth, outerHeight],
+    inner: [innerWidth, innerHeight],
+})"""
+
+with launch(fingerprint=42, fingerprint_platform="windows",
+            viewport={"width": 1280, "height": 720}) as browser:
+    page = browser.new_page()
+    page.goto("https://example.com")
+    print(page.evaluate(GEOMETRY))
+```
+
+```text
+{'screen': [1280, 720], 'avail': [1280, 720], 'window': [1282, 846], 'inner': [1280, 720]}
+```
+
+The screen shrinks to the viewport, the taskbar disappears, and the window is larger than the screen. To change the size a page sees, set the screen switches below or `--window-size` instead.
+
+## Headless
+
+Headless launches present the persona's screen and window, as the output above shows. Host mode has no persona geometry, so headless host mode reports Chrome's headless default:
+
+```text
+{'screen': [800, 600], 'avail': [0, 0, 800, 600], 'window': [22, 22, 756, 556], 'inner': [756, 469], 'pixelRatio': 1}
+```
+
+No real desktop has `availHeight` equal to `height` and an 800x600 screen. Run host mode headed, or use a seed.
+
+## Window size
+
+`--window-size=W,H` sets the window. The screen stays the persona's, and the window is no longer maximized:
+
+```python
+from apostate import launch
+
+with launch(fingerprint=42, fingerprint_platform="windows", args=["--window-size=1280,800"]) as browser:
+    page = browser.new_page()
+    page.goto("https://example.com")
+    print(page.evaluate("[screenX, screenY, outerWidth, outerHeight, screen.width, screen.height]"))
+```
+
+```text
+[22, 22, 1280, 800, 1920, 1080]
+```
+
+`--window-position=X,Y` moves the window.
+
+## Set the screen size
+
+`--fingerprint-screen-width` and `--fingerprint-screen-height` set the screen in CSS pixels, from 1 to 65535. The seed still picks everything else, and the browser works out the available area from the size you set.
+
+<CodeGroup>
+```python Python
+from apostate import launch
+
+with launch(
+    fingerprint=42,
+    fingerprint_platform="windows",
+    args=["--fingerprint-screen-width=2560", "--fingerprint-screen-height=1440"],
+) as browser:
+    page = browser.new_page()
+    page.goto("https://example.com")
+    print(page.evaluate("[screen.width, screen.height, screen.availWidth, screen.availHeight]"))
+```
+
+```javascript Node
+import { launch } from "@heretic-tech/apostate";
+
+const browser = await launch({
+  fingerprint: 42,
+  fingerprintPlatform: "windows",
+  args: ["--fingerprint-screen-width=2560", "--fingerprint-screen-height=1440"],
+});
+const page = await browser.newPage();
+await page.goto("https://example.com");
+console.log(await page.evaluate(() => [screen.width, screen.height, screen.availWidth, screen.availHeight]));
+await browser.close();
+```
+</CodeGroup>
+
+```text
+[2560, 1440, 2560, 1392]
+```
+
+Prefer a size from the tables above. `--fingerprint-explain` notes that a size you set has unknown prevalence and names the size the seed had picked. The browser refuses, and exits with status 1:
+
+- A screen smaller than `--window-size`:
+  ```text
+  apostate: the overridden screen is 1280x720, smaller than the --window-size this launch asked for (1366x768). A window larger than the screen it claims to be on is visible from JavaScript in one comparison.
+  ```
+- A screen too small for the persona's taskbar or menu bar:
+  ```text
+  apostate: the overridden screen is 1024x40, which the desktop furniture this seed drew does not fit inside (0+0 horizontal, 0+48 vertical). Choose a larger screen or a different seed.
+  ```
+- A value that is not a whole number from 1 to 65535:
+  ```text
+  apostate: --fingerprint-screen-width='0' is not a whole number between 1 and 65535.
+  ```
+
+Through the packages these raise `LaunchError` in Python and `BrowserLaunchError` in Node. The pixel ratio has no switch. It comes from the seed's screen, or from a [profile you write](/guides/custom-profiles).
+
+## Virtual displays
+
+With `headless=False` on a Linux host with no display, the package starts Xvfb for the browser. The virtual display is the size of the screen you set with both switches, or that a profile names. Otherwise it is 3840x2160, large enough for any screen a seed picks. [Linux servers](/guides/linux-servers) covers headed launches on a server.

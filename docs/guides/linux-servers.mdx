@@ -1,0 +1,174 @@
+---
+title: "Linux servers"
+description: "Run Apostate on a Linux server with no GPU and no display: libraries, fonts, headless and headed launches, root, and how the server's size shapes the persona."
+---
+
+Apostate runs on a Linux server with no GPU and no display. The persona's GPU values are served whatever the server renders with. The default persona on Linux is Windows, so a server needs the Windows fonts as well as the browser.
+
+## Set up the server
+
+<Steps>
+  <Step title="Install the system packages">
+    The `lib` packages are the libraries the browser links against. `fontconfig` and `git` are for the fonts, `xvfb` is for headed launches, `zstd` lets Python below 3.14 unpack the browser archive, and `python3-venv` is for the next step.
+
+    <Tabs>
+      <Tab title="Debian 13, Ubuntu 24.04">
+        ```bash
+        sudo apt-get update
+        sudo apt-get install --no-install-recommends \
+          libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 libatspi2.0-0t64 \
+          libcairo2 libcups2t64 libdbus-1-3 libexpat1 libgbm1 libglib2.0-0t64 \
+          libnspr4 libnss3 libpango-1.0-0 libx11-6 libxcb1 libxcomposite1 \
+          libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 \
+          ca-certificates fontconfig git xvfb zstd python3-venv
+        ```
+      </Tab>
+      <Tab title="Debian 12, Ubuntu 22.04">
+        ```bash
+        sudo apt-get update
+        sudo apt-get install --no-install-recommends \
+          libasound2 libatk-bridge2.0-0 libatk1.0-0 libatspi2.0-0 \
+          libcairo2 libcups2 libdbus-1-3 libexpat1 libgbm1 libglib2.0-0 \
+          libnspr4 libnss3 libpango-1.0-0 libx11-6 libxcb1 libxcomposite1 \
+          libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 \
+          ca-certificates fontconfig git xvfb zstd python3-venv
+        ```
+      </Tab>
+    </Tabs>
+
+    The libraries are what `ldd` reports missing for the 0.4.3 browser on a minimal image. With them, the browser started headless on Debian 12, Debian 13, Ubuntu 22.04 and Ubuntu 24.04 (arm64 containers, 2026-09-27).
+  </Step>
+
+  <Step title="Install the package and the browser">
+    <CodeGroup>
+    ```bash Python
+    python3 -m venv ~/apostate-venv
+    . ~/apostate-venv/bin/activate
+    pip install apostate
+    apostate install
+    ```
+
+    ```bash Node
+    npm install @heretic-tech/apostate
+    npx apostate install
+    ```
+    </CodeGroup>
+
+    On Debian 13 and Ubuntu 24.04, `pip install` outside a virtual environment fails with `externally-managed-environment`. The Node package needs Node 22 or later. [Installation](/installation) covers the cache and offline installs.
+  </Step>
+
+  <Step title="Install the Windows fonts">
+    <CodeGroup>
+    ```bash Python
+    apostate fonts install windows
+    ```
+
+    ```bash Node
+    npx apostate fonts install windows
+    ```
+    </CodeGroup>
+
+    A Windows persona shows only the Windows fonts installed on the host. The command installs them for the current user, so run it as the user that runs the browser. [Fonts](/guides/fonts) explains what it installs. To present the server's own OS instead, pass `fingerprint_platform="linux"` (Node: `fingerprintPlatform: "linux"`), which needs no fonts installed.
+  </Step>
+</Steps>
+
+## Headless launches
+
+`headless=True` (Node: `headless: true`) is the default and needs no display. The package passes `--headless=new`, which leaves `HeadlessChrome` out of the User-Agent.
+
+## Headed launches
+
+With `headless=False` on a host where neither `DISPLAY` nor `WAYLAND_DISPLAY` names a display, the package starts Xvfb, gives its display to the browser, and stops it when the browser closes. It takes the first free display from `:99` up and sets `DISPLAY` only in the browser's environment.
+
+<CodeGroup>
+```python Python
+from apostate import launch
+
+browser = launch(
+    fingerprint=42,
+    fingerprint_platform="windows",
+    locale="en-US",
+    timezone="America/New_York",
+    headless=False,
+)
+page = browser.new_page()
+page.goto("https://example.com")
+print(page.evaluate("[navigator.platform, screen.width, screen.height, outerHeight - innerHeight]"))
+browser.close()
+```
+
+```javascript Node
+import { launch } from "@heretic-tech/apostate";
+
+const browser = await launch({
+  fingerprint: 42,
+  fingerprintPlatform: "windows",
+  locale: "en-US",
+  timezone: "America/New_York",
+  headless: false,
+});
+const page = await browser.newPage();
+await page.goto("https://example.com");
+console.log(await page.evaluate(() => [navigator.platform, screen.width, screen.height, outerHeight - innerHeight]));
+await browser.close();
+```
+</CodeGroup>
+
+```text
+['Win32', 1920, 1080, 143]
+```
+
+The display is the size of the screen you set with `--fingerprint-screen-width` and `--fingerprint-screen-height`, or that a profile names, and 3840x2160 otherwise. Each headed launch has its own Xvfb, which used 37 MiB at 3840x2160 (PSS, Debian 13 container). Without Xvfb installed, a headed launch fails with:
+
+```text
+Xvfb is not installed; install it (apt install xvfb) or pass headless=True
+```
+
+To run the browser binary headed without the packages, start it under `xvfb-run`, which also needs the `xauth` package. [Raw binary](/guides/raw-binary#headed-without-a-display) has the command.
+
+### Headless or headed
+
+Two values a page can read differ between the modes. Measured on 2026-09-27 with 0.4.3 in a Debian 13 container (linux-arm64, no GPU), seed 42, Windows persona, run as a regular user:
+
+| Value | Headless | Headed under Xvfb |
+| --- | --- | --- |
+| `navigator.gpu.requestAdapter()` | `null` | the persona's adapter (`intel`, `gen-12lp`) |
+| `outerHeight - innerHeight` | 87 | 143, as on real Windows at 100% scaling |
+
+The same launches in an amd64 container gave the same WebGPU result. On a Mac, headless also read 87 for `outerHeight - innerHeight` and served the adapter.
+
+Run headed on a server when the pages you visit read WebGPU or the window size.
+
+## Run as a regular user
+
+Under root, `navigator.gpu.requestAdapter()` returned `null` in headed launches too (same container and date). Run the browser as a regular user. Run `apostate install` and `apostate fonts install windows` as that user too, because both install into the user's home directory.
+
+If you run as root anyway:
+
+- The packages work as they are. Their driver, Patchright or Playwright, passes `--no-sandbox` on every launch.
+- The browser binary run on its own exits with `Running as root without --no-sandbox is not supported. See https://crbug.com/638180.` Add `--no-sandbox` to its switches.
+
+## Server size
+
+A persona never claims more cores or memory than the host has. The browser counts the logical CPUs its process may run on and the physical memory the kernel reports. `--fingerprint-explain` prints both:
+
+```bash
+apostate run -- --fingerprint=42 --fingerprint-platform=windows --fingerprint-explain | grep "^  host"
+```
+
+```text
+  host platform       linux
+  host cores          2
+  host memory         16818978816 bytes
+  host backend        swiftshader (no DRM render node on this host, not probed)
+```
+
+On this 2-CPU host, seed 42 presents 2 cores. On a 14-core host the same seed presents 12. [Hosts](/concepts/hosts#cores-and-memory) shows how many seeds keep their own cores and memory on each server size.
+
+## x86 or arm64
+
+Use an x86 server for Windows and Linux personas. On an arm64 server they report `arm` in `Sec-CH-UA-Arch` next to a desktop Intel or NVIDIA GPU. [Hosts](/concepts/hosts#arm-hosts) explains why.
+
+## Check the server
+
+[Verify](/guides/verify) has a script that prints what a page, a worker and the request headers show. Run it on the server, with `--headed` for a headed launch.

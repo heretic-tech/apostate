@@ -1,0 +1,224 @@
+---
+title: "End-to-end tests"
+description: "Run your app's end-to-end tests in Apostate with a fixed seed, from pytest or Playwright Test, on your computer and on GitHub Actions."
+---
+
+Your app runs behind bot protection, and your end-to-end tests fail when it blocks the test browser. This walkthrough runs pytest tests in Apostate with a fixed seed, on your computer and on GitHub Actions, and shows the same tests in Playwright Test for Node.
+
+## What Apostate changes
+
+Bot protection looks for traces of automation, such as `HeadlessChrome` in the User-Agent, `navigator.webdriver` set to true, and the 800x600 screen of headless Chrome. Apostate's browser shows none of them and presents the persona's machine instead. [Detection](/concepts/detection#automation-traces) lists the traces and what the browser does about each. A fixed seed presents the same machine on every run and every host, so a failure reproduces.
+
+The example app stands in for your protection. It refuses a signup whose User-Agent contains `HeadlessChrome` or whose page reports `navigator.webdriver`.
+
+## Set up
+
+```bash
+pip install apostate pytest
+apostate install
+apostate fonts install windows
+git clone https://github.com/heretic-tech/apostate.git
+cd apostate/examples/use-cases/end-to-end-tests
+```
+
+`apostate fonts install windows` is for Linux and macOS hosts ([Fonts](/guides/fonts)). The folder holds:
+
+- [`app.py`](https://github.com/heretic-tech/apostate/blob/main/examples/use-cases/end-to-end-tests/app.py), the signup app.
+- [`conftest.py`](https://github.com/heretic-tech/apostate/blob/main/examples/use-cases/end-to-end-tests/conftest.py), the fixtures.
+- [`test_signup.py`](https://github.com/heretic-tech/apostate/blob/main/examples/use-cases/end-to-end-tests/test_signup.py), two tests.
+- [`e2e.yml`](https://github.com/heretic-tech/apostate/blob/main/examples/use-cases/end-to-end-tests/e2e.yml), a GitHub Actions workflow.
+- [`node/`](https://github.com/heretic-tech/apostate/tree/main/examples/use-cases/end-to-end-tests/node), the Playwright Test version.
+
+## The fixtures
+
+`conftest.py` starts the app, launches one browser for the test session and gives each test a new page:
+
+```python
+import os
+
+import pytest
+
+from apostate import launch
+from app import start
+
+
+@pytest.fixture(scope="session")
+def app_url():
+    """APP_URL when it is set, for example your staging site; the local app otherwise."""
+    if os.environ.get("APP_URL"):
+        yield os.environ["APP_URL"]
+        return
+    server = start()
+    yield f"http://127.0.0.1:{server.server_port}/"
+    server.shutdown()
+
+
+@pytest.fixture(scope="session")
+def browser():
+    # A fixed seed gives every run, on every host, the same machine, so a failure reproduces.
+    with launch(fingerprint=42, fingerprint_platform="windows",
+                locale="en-US", timezone="America/New_York", geoip=False) as browser:
+        yield browser
+
+
+@pytest.fixture
+def page(browser):
+    # Pages share the launch's one profile, so clear its cookies between tests.
+    browser.contexts[0].clear_cookies()
+    page = browser.new_page()
+    yield page
+    page.close()
+```
+
+The fixtures are named `browser` and `page`, so in a project that has the `pytest-playwright` plugin they replace the plugin's fixtures of the same names.
+
+## The tests
+
+```python
+from patchright.sync_api import expect
+
+
+def test_signup(page, app_url):
+    page.goto(app_url)
+    page.fill("#email", "e2e@example.test")
+    page.click("button[type=submit]")
+    expect(page.locator("#result")).to_have_text("Account created for e2e@example.test")
+
+
+def test_persona(page, app_url):
+    page.goto(app_url)
+    assert page.evaluate("navigator.platform") == "Win32"
+    assert page.evaluate("[screen.width, screen.height]") == [1920, 1080]
+```
+
+The pages come from Patchright, the package's default driver, so `expect` comes from `patchright.sync_api`. With `driver="playwright"`, import it from `playwright.sync_api`.
+
+## Run the tests
+
+```bash
+pytest -q
+```
+
+```text
+..                                                                       [100%]
+2 passed in 1.37s
+```
+
+To run the same tests against a site that is already running, such as staging, set `APP_URL`:
+
+```bash
+APP_URL=https://staging.example.com/ pytest -q
+```
+
+## GitHub Actions
+
+`e2e.yml` runs the tests on every push and pull request. Copy it to `.github/workflows/e2e.yml` in your repository:
+
+```yaml
+# A GitHub Actions workflow for these tests. Copy it to .github/workflows/e2e.yml
+# in your repository.
+name: e2e
+
+on: [push, pull_request]
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # A pinned version keeps the machine a seed gives from one run to the next.
+      # zstandard unpacks the Linux browser archive on Python older than 3.14.
+      - run: pip install apostate==0.4.3 pytest zstandard
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/apostate
+          key: apostate-0.4.3-${{ runner.os }}-${{ runner.arch }}
+      - run: apostate install
+      - run: apostate fonts install windows
+      - run: pytest
+```
+
+- The browser download for Linux x64 is 192 MB. The cache step keeps it in `~/.cache/apostate` between runs, and `apostate install` finds it there.
+- The Linux archive is zstd-compressed. Python 3.14 reads it, and older versions need the `zstandard` package or the `zstd` command ([Installation](/installation)).
+- The tests run headless, the default, so the runner needs no display.
+- A runner image without Chrome's shared libraries needs the packages that the [Docker example's Dockerfile](https://github.com/heretic-tech/apostate/blob/main/examples/docker/Dockerfile) installs.
+
+## Playwright Test for Node
+
+Patchright, the driver the Node package launches with, includes Playwright Test as `patchright/test`. The fixture file replaces Playwright Test's `page` with a page from Apostate:
+
+```javascript
+import { test as base, expect } from "patchright/test";
+import { launch } from "@heretic-tech/apostate";
+
+export const appUrl = process.env.APP_URL ?? "http://127.0.0.1:8767/";
+
+export const test = base.extend({
+  // One browser per worker. A fixed seed gives every run the same machine, so a failure reproduces.
+  apostate: [async ({}, use) => {
+    const browser = await launch({
+      fingerprint: 42,
+      fingerprintPlatform: "windows",
+      locale: "en-US",
+      timezone: "America/New_York",
+      geoip: false,
+    });
+    await use(browser);
+    await browser.close();
+  }, { scope: "worker" }],
+
+  // Replaces Playwright Test's own page, which would open in an off-the-record context.
+  page: async ({ apostate }, use) => {
+    await apostate.contexts()[0].clearCookies();
+    const page = await apostate.newPage();
+    await use(page);
+    await page.close();
+  },
+});
+
+export { expect };
+```
+
+`playwright.config.mjs` starts the Python app for the tests, unless `APP_URL` names a running site:
+
+```javascript
+import { defineConfig } from "patchright/test";
+
+export default defineConfig({
+  testDir: ".",
+  // The app under test. Set APP_URL to test a running site instead, such as staging.
+  webServer: process.env.APP_URL ? undefined : {
+    command: "python3 ../app.py 8767",
+    url: "http://127.0.0.1:8767/",
+    reuseExistingServer: true,
+  },
+});
+```
+
+The tests import `test` and `expect` from `./fixtures.mjs` instead of `patchright/test`. Run them with Patchright's test runner:
+
+```bash
+cd node
+npm install
+npx patchright test
+```
+
+```text
+Running 2 tests using 1 worker
+
+  ✓  1 signup.spec.mjs:3:1 › signup (153ms)
+  ✓  2 signup.spec.mjs:10:1 › persona (84ms)
+
+  2 passed (977ms)
+```
+
+## Points for this job
+
+- **Fixed seed.** Assert on values the seed decides, such as the platform, screen and GPU. The core count and memory are capped at the host's, so they can differ between your computer and a CI runner ([The host cap](/concepts/seeds-and-identity#the-host-cap)).
+- **Isolation.** All tests share one browser and its profile, and the fixtures clear cookies before each test. For a fresh profile per test, make `browser` a function-scoped fixture. Each test then launches its own browser, which is slower.
+- **New pages only.** Open pages with `new_page()`, not `new_context()`. [Python](/guides/python#launch-a-browser) explains why.
+- **Test keys.** Some bot protection products offer test keys for automated tests, such as Cloudflare Turnstile's test sitekeys. Those tests pass whatever the browser. Apostate is for the tests that go through your real protection, such as a staging site with production keys. [Test your own defenses](/use-cases/test-your-own-defenses) covers that.
+- **Headed runs.** On a Linux runner, `headless=False` needs Xvfb installed, and the package starts it ([Linux servers](/guides/linux-servers)).

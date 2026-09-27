@@ -1,0 +1,167 @@
+---
+title: "Fonts"
+description: "Which font families each persona shows, how to install them on the host, and how to check what a page sees."
+---
+
+Each persona shows pages a fixed list of font families for its platform and hides every other font on the host. The browser does not ship fonts. A family on the list shows up only if it is installed on the host, so installing the fonts is part of setting up a host.
+
+## What each persona shows
+
+Every persona gets its platform's core list. The Linux persona also has an optional list that the seed includes or leaves out. The same seed always gets the same lists.
+
+| Persona | Families |
+| --- | --- |
+| Windows 11 | 90: the fonts of a clean Windows 11 install, such as Segoe UI, Calibri, Cambria, Consolas, Arial, Times New Roman, Yu Gothic and Microsoft YaHei, and Marlett |
+| Windows 10 | 86: the Windows 11 list without Sans Serif Collection, Segoe Fluent Icons, Segoe UI Variable and SimSun-ExtG |
+| macOS | 184: the families of a real Mac (Apple M4 Max, macOS 26.6.2) |
+| Linux | 9: Arial, Courier, Courier New, DejaVu Sans, Helvetica, Liberation Sans, Noto Sans, Times, Times New Roman |
+| Linux, optional | 4 more for 54% of seeds, as on an Ubuntu desktop: Cantarell, Ubuntu, Ubuntu Condensed, Ubuntu Mono |
+
+[Font lists](/reference/font-lists) has every family of every list. The lists come from [`resources/profiles/dispersion/font_packs.json`](https://github.com/heretic-tech/apostate/blob/main/resources/profiles/dispersion/font_packs.json). The Windows lists have no Office fonts, because a few Office families without the rest of Office is a font list no real machine has.
+
+`--fingerprint-explain` names the lists a launch drew on its `font_packs` rows:
+
+```text
+font_packs/platform-core  dispersion        catalogue-value        core
+```
+
+### Other names on Windows
+
+A Windows persona also answers the other names Windows answers to, with the family Windows uses for each:
+
+| Name | Family |
+| --- | --- |
+| Courier | Courier New |
+| MS Sans Serif | Microsoft Sans Serif |
+| MS Serif, Times | Times New Roman |
+| Helvetica | Arial |
+| Franklin Gothic | Franklin Gothic Medium |
+| Arial Narrow | Arial at its normal width |
+
+A name shows only when its family is on the list and installed, and none of them reaches a host font of that name. On a Mac host, only Courier, MS Sans Serif, MS Serif and Times work this way. Helvetica, Franklin Gothic and Arial Narrow stay hidden there.
+
+## Install the fonts
+
+<Tabs>
+  <Tab title="Windows persona">
+    On a Linux or macOS host, run:
+
+    <CodeGroup>
+    ```bash Python
+    apostate fonts install windows
+    ```
+
+    ```bash Node
+    npx apostate fonts install windows
+    ```
+    </CodeGroup>
+
+    The command needs `git`. It does four things:
+
+    1. It clones [MauCariApa-com/windows-11-fonts](https://github.com/MauCariApa-com/windows-11-fonts) into a temporary directory.
+    2. It adds Marlett, which every Windows machine has and that repository lacks. It reads only `marlett.ttf` out of the [liblaf/fonts](https://github.com/liblaf/fonts/releases/tag/Win11) `Win11-English.zip` with HTTP range requests, about 80 KB of a 200 MB zip, and keeps the file only if its SHA-256 matches the one the command pins. If the download fails, it prints why and installs the rest.
+    3. It installs the files whose family is on the Windows list, and no others. A file counts by the family name Windows lists it under.
+    4. It lists the families the host still lacks.
+
+    On a Mac it installed 143 files and ended with `every core Windows family is installed`. When families are missing, it prints `still missing` and their names instead.
+
+    | Host | Directory |
+    | --- | --- |
+    | Linux | `~/.local/share/fonts/apostate-windows`, followed by `fc-cache -f` |
+    | macOS | `~/Library/Fonts/apostate-windows` |
+    | Windows | Nothing to do. The fonts are already there. |
+
+    Running the command again removes files in that directory that are not on the Windows list.
+
+    To take the fonts from a real Windows machine instead, copy its `C:\Windows\Fonts` folder to the host and install from it. This takes every family on the list, Marlett included, from that folder:
+
+    ```bash
+    apostate fonts install windows --from ~/windows-fonts
+    ```
+
+    Apostate does not ship these fonts. The repository and the zip have their own licences, and the command fetches them on your machine. The fonts are ordinary user fonts, so other programs on the host can use them.
+  </Tab>
+  <Tab title="macOS persona">
+    The macOS fonts have to come from a Mac. On a Mac you own, copy its font files into a directory:
+
+    ```bash
+    apostate fonts export-macos ~/mac-fonts
+    ```
+
+    This copies everything in `/System/Library/Fonts`, `/System/Library/Fonts/Supplemental` and `/Library/Fonts`, plus the fonts macOS keeps elsewhere: PingFang, and the downloaded fonts under `/System/Library/AssetsV2`. Copy the directory to the Linux host, then run:
+
+    ```bash
+    apostate fonts install macos --from ~/mac-fonts
+    ```
+
+    It installs the files into `~/.local/share/fonts/apostate-macos` and runs `fc-cache -f`. A macOS persona on a Mac needs nothing. The Node package runs the same commands as `npx apostate fonts ...`.
+  </Tab>
+  <Tab title="Linux persona">
+    Most Linux desktops already have DejaVu, Liberation and Noto. Arial, Courier New and Times New Roman come from the `ttf-mscorefonts-installer` package or from the Windows install on the first tab. The Ubuntu families come from the `fonts-ubuntu` and `fonts-cantarell` packages.
+  </Tab>
+</Tabs>
+
+A default launch on a Linux host is a Windows persona, so on a Linux server the Windows install is the one font step. [Linux servers](/guides/linux-servers) and [Docker](/guides/docker) include it.
+
+## If fonts are missing
+
+A page sees the families that are on the persona's list and installed on the host. A missing family is absent, and nothing warns you. The browser does not fake a font it does not have. A Windows persona on a Linux host with no Windows fonts shows almost no fonts, which no real Windows machine does. Check the host after every new setup.
+
+The host's font engine draws the glyphs, so even with the real Windows files, text metrics can differ slightly from Windows. [Known gaps](/known-gaps) covers this.
+
+## Check the fonts
+
+On a Linux host, `fc-list` shows what is installed:
+
+```bash
+fc-list | grep -i "segoe ui"
+```
+
+In the browser, `queryLocalFonts()` lists the families a page can see. It needs the `local-fonts` permission.
+
+<CodeGroup>
+```python Python
+from apostate import launch
+
+with launch(fingerprint=42, fingerprint_platform="windows", permissions=["local-fonts"]) as browser:
+    page = browser.new_page()
+    page.goto("https://example.com")
+    families = page.evaluate(
+        "async () => [...new Set((await queryLocalFonts()).map((font) => font.family))]")
+    print(len(families), families[:5])
+```
+
+```javascript Node
+import { launch } from "@heretic-tech/apostate";
+
+const browser = await launch({ fingerprint: 42, fingerprintPlatform: "windows" });
+await browser.contexts()[0].grantPermissions(["local-fonts"]);
+const page = await browser.newPage();
+await page.goto("https://example.com");
+const families = await page.evaluate(async () =>
+  [...new Set((await queryLocalFonts()).map((font) => font.family))]);
+console.log(families.length, families.slice(0, 5));
+await browser.close();
+```
+</CodeGroup>
+
+```text
+70 ['Arial', 'Bahnschrift', 'Calibri', 'Cambria', 'Cambria Math']
+```
+
+That output is from a Mac host with every Windows file installed. On a macOS host, families named after a weight, such as Segoe UI Light, Calibri Light and Yu Gothic Medium, do not list on their own, so a Windows persona lists 70 of its 90 families there (measured 2026-09-27, Apostate 0.4.3, macOS arm64 host). Compare the count and names with [Font lists](/reference/font-lists).
+
+`document.fonts.check()` cannot answer this. It returns `true` for any family name that no web font on the page uses, including names that do not exist. To test one family without the permission, compare text widths against the generic fallbacks:
+
+```javascript
+(names) => {
+  const ctx = document.createElement("canvas").getContext("2d");
+  const text = "mmmmmmmmmmlli10";
+  const width = (font) => { ctx.font = font; return ctx.measureText(text).width; };
+  return Object.fromEntries(names.map((name) => [name,
+    ["monospace", "serif", "sans-serif"].some(
+      (fallback) => width(`72px "${name}", ${fallback}`) !== width(`72px ${fallback}`))]));
+}
+```
+
+Passed to `page.evaluate()` with `["Segoe UI", "Menlo", "NoSuchFont"]` under a Windows persona, it returns `{'Segoe UI': True, 'Menlo': False, 'NoSuchFont': False}`. Menlo is installed on the Mac host, and the persona hides it.

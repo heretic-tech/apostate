@@ -1,0 +1,211 @@
+---
+title: "Custom profiles"
+description: "Write a profile of your own, launch it with --apostate-profile or the profile option, validate it, and know what the host fills in."
+---
+
+A profile is the JSON document of values a machine shows to web pages. A seed makes the browser compose one from measured tables. You can also write one yourself and launch it, and then the browser composes nothing.
+
+Write a profile when a seed cannot give you the machine you need: to replay a machine you captured, to hold one surface at a fixed value while you test a site, or to present a combination the catalogue does not offer. For everything else, use a seed. A composed machine is built from measured values, and a profile you write is only as coherent as you make it.
+
+## The schema
+
+The schema is [`config/profile.schema.json`](https://github.com/heretic-tech/apostate/blob/main/config/profile.schema.json), schema version 3. Every section is optional. Every object in it is closed, so an unknown field is an error.
+
+| Section | Sets |
+| --- | --- |
+| `platform`, `browser` | OS name and version, CPU architecture, `navigator.platform`, the User-Agent and Client Hints |
+| `cpu`, `memory` | Logical cores and installed memory, both capped at the host's |
+| `gpu`, `gl_limits`, `gl_extensions`, `gl_precisions`, `webgpu` | The WebGL vendor and renderer, WebGL limits, extensions and precision, and the WebGPU adapter |
+| `screen` | Screen size, available area, pixel ratio, colour depth, gamut, HDR, extra displays |
+| `window` | Window frame sizes, recorded only. The browser does not use them. |
+| `locale` | Timezone, UI locale and language list |
+| `theme`, `input`, `keyboard` | Dark mode and system colours, pointer type, keyboard layout |
+| `fonts`, `speech`, `audio`, `media` | Font families, voices, audio buffer size, cameras, microphones and speakers |
+| `network`, `battery`, `extensions` | `navigator.connection`, `navigator.getBattery()` and extension traces |
+
+[Profile schema](/reference/profile-schema) documents every field.
+
+## A minimal profile
+
+Save this as `profiles/laptop.json`:
+
+```json
+{
+  "cpu": {"logical_cores": 8},
+  "memory": {"total_bytes": 17179869184},
+  "screen": {
+    "width": 1536, "height": 864,
+    "avail_width": 1536, "avail_height": 816,
+    "device_pixel_ratio": 1.25, "color_depth": 24
+  },
+  "locale": {"application": "en-GB", "timezone": "Europe/London"}
+}
+```
+
+Launch it with the `profile` option. It takes a file path, a dict in Python or an object in Node:
+
+<CodeGroup>
+```python Python
+from apostate import launch
+
+READ = """() => ({
+    platform: navigator.platform,
+    cores: navigator.hardwareConcurrency,
+    memory: navigator.deviceMemory,
+    screen: [screen.width, screen.height, screen.availWidth, screen.availHeight],
+    pixelRatio: devicePixelRatio,
+    languages: navigator.languages,
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+})"""
+
+with launch(profile="./profiles/laptop.json", geoip=False) as browser:
+    page = browser.new_page()
+    page.goto("https://example.com")
+    for name, value in page.evaluate(READ).items():
+        print(f"{name:10} {value}")
+```
+
+```javascript Node
+import { launch } from "@heretic-tech/apostate";
+
+const browser = await launch({ profile: "./profiles/laptop.json", geoip: false });
+const page = await browser.newPage();
+await page.goto("https://example.com");
+const values = await page.evaluate(() => ({
+  platform: navigator.platform,
+  cores: navigator.hardwareConcurrency,
+  memory: navigator.deviceMemory,
+  screen: [screen.width, screen.height, screen.availWidth, screen.availHeight],
+  pixelRatio: devicePixelRatio,
+  languages: navigator.languages,
+  timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+}));
+for (const [name, value] of Object.entries(values)) console.log(name.padEnd(10), value);
+await browser.close();
+```
+</CodeGroup>
+
+```text
+platform   MacIntel
+cores      8
+memory     16
+screen     [1536, 864, 1536, 816]
+pixelRatio 1.25
+languages  ['en-GB', 'en-US', 'en']
+timeZone   Europe/London
+```
+
+The profile sets cores, memory, screen, languages and timezone. It has no `platform` section, so `navigator.platform` is the host's. This output is from a Mac.
+
+## Missing sections are the host's
+
+The browser composes nothing for a profile you write. A section you leave out keeps the host's value, not a persona's. That includes the host's User-Agent, GPU, fonts, voices and every other surface. The profile above, launched on a Linux server, presents that server's own User-Agent and GPU.
+
+To present a whole machine, fill every section. The next section starts from a composed machine.
+
+A `locale` section of `application` names one tag, and `navigator.languages` is then Chrome's default list for it, as with `--fingerprint-locale` ([Locale and timezone](/guides/locale-and-timezone#one-tag-or-a-list)). `accept_languages` sets the list exactly.
+
+## Start from a composed machine
+
+From a checkout of the repository, `scripts/profile_resolver.py` writes the whole profile a seed composes. It is a Python copy of the browser's compositor, checked against it with golden digests.
+
+```bash
+python3 scripts/profile_resolver.py --resolve --runtime-only \
+  --fingerprint 42 --fingerprint-platform windows > profiles/windows-42.json
+```
+
+The file validates against the schema and launches as the seed's machine. Edit the values you need and launch the file with `profile`. Run the script on the host you will launch on. It caps cores and memory at that host's and records its CPU architecture, as a launch does. The file has no `locale` section, so GeoIP or the `locale` and `timezone` options fill it.
+
+## GeoIP and a profile
+
+GeoIP runs for a profile as for a seed. Its answer, and the `locale` and `timezone` options, replace the profile's own locale and timezone. Pass `geoip=False` in Python or `geoip: false` in Node to keep the values in the file, as the example above does.
+
+## Seeds and switches do not apply
+
+A profile you write replaces composition, so the seed and the per-field switches have nothing to act on:
+
+- `--fingerprint` in `args` together with a profile is refused:
+  ```text
+  an authored profile and a --fingerprint seed cannot be combined: an --apostate-profile payload describing a device suppresses the browser's composition entirely, so the seed would be silently ignored and every surface the profile does not describe would stay host-inherited
+  ```
+  Python raises `ProfileError`, and Node raises `ProfileResolutionError` with the code `APOSTATE_ENVELOPE_SEED_CONFLICT`.
+- The `fingerprint` option is ignored with a profile.
+- `--fingerprint-platform` and the per-field switches such as `--fingerprint-hardware-concurrency` have no effect.
+
+`--fingerprint-explain` does not report a profile you wrote. Read the values from a page, as above.
+
+## Run it without the packages
+
+The browser takes the profile as base64-encoded JSON in `--apostate-profile`:
+
+```bash
+apostate run -- --apostate-profile="$(base64 < profiles/laptop.json | tr -d '\n')"
+```
+
+A value that is not base64 stops the launch:
+
+```text
+apostate: --apostate-profile is not base64-encoded profile JSON, so the profile it names cannot be loaded and this launch stops rather than composing a different device and presenting it as the one you asked for. It takes the encoded bytes, not a path and not raw JSON: --apostate-profile="$(base64 < profile.json | tr -d '\n')".
+```
+
+[Raw binary](/guides/raw-binary) covers running the browser yourself.
+
+## Validate a profile
+
+From a checkout of the repository, the release contract checker validates a file against the schema:
+
+```bash
+python3 scripts/validate-release-contract.py --kind profile profiles/laptop.json
+```
+
+```text
+ok    profile  profiles/laptop.json
+1/1 contract document(s) valid
+```
+
+A profile with a wrong type and an unknown field:
+
+```text
+FAIL  profile  profiles/bad.json
+        $.cpu.logical_cores: expected integer, got str
+        $.gpu: unexpected property 'renderer'
+0/1 contract document(s) valid
+```
+
+The packages validate a profile before every launch and export the same check:
+
+<CodeGroup>
+```python Python
+import json
+
+from apostate import ProfileError, validate_profile
+
+with open("profiles/laptop.json") as file:
+    profile = json.load(file)
+validate_profile(profile)
+
+try:
+    validate_profile({"cpu": {"logical_cores": "8"}})
+except ProfileError as exc:
+    print(exc)
+```
+
+```javascript Node
+import { readFileSync } from "node:fs";
+import { validateProfile } from "@heretic-tech/apostate";
+
+validateProfile(JSON.parse(readFileSync("./profiles/laptop.json", "utf8")));
+
+try {
+  validateProfile({ cpu: { logical_cores: "8" } });
+} catch (error) {
+  console.log(error.name, error.message);
+}
+```
+</CodeGroup>
+
+```text
+profile does not match config/profile.schema.json: $.cpu.logical_cores: expected integer
+```
+
+Node prints `ProfileResolutionError profile.cpu.logical_cores must be integer.` for the same profile. The schema checks types and fields, not coherence. Nothing checks that your GPU, screen and User-Agent belong to one machine.

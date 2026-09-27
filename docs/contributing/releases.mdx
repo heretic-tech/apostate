@@ -1,0 +1,175 @@
+---
+title: "Releases"
+description: "Tag a release, let CI build and check every platform, publish the draft, and put its digests into the packages."
+---
+
+A release is a GitHub release that holds one archive and one manifest per platform. Pushing a version tag starts `.github/workflows/release.yml`, which checks the tagged commit, builds every target and creates the release as a draft. You test the draft, publish it, and then publish the Python and Node packages by hand with the release's digests in them.
+
+## Cut a release
+
+<Steps>
+  <Step title="Prepare the last commit">
+    In the commit you will tag:
+
+    - Set the new version in all five places: `python/pyproject.toml`, `python/apostate/config.py`, `npm/package.json`, `npm/src/index.ts` and `.github/release/artifact-policy.json` (`package_version`).
+    - Refresh the patch digests in `build/MANIFEST.lock`. The command rewrites `patch_series_sha256` and `patch_contents_sha256` and nothing else, so run it after the last patch edit.
+    - If the composed profiles changed, [refresh the golden digests](#refresh-the-golden-profile-digests).
+
+    ```bash
+    python3 scripts/validate-release-baseline.py --refresh
+    python3 scripts/sync-packages.py --check
+    python3 scripts/validate-release-baseline.py --release
+    APOSTATE_REQUIRE_NATIVE_GOLDENS=1 python3 scripts/test_profile_resolver.py
+    ```
+
+    `sync-packages.py --check` fails and lists the five values while they differ:
+
+    ```text
+    package version differs between sites:
+      python/pyproject.toml: 0.4.3
+      python/apostate/config.py: 0.4.3
+      npm/package.json: 0.4.4
+      npm/src/index.ts: 0.4.3
+      .github/release/artifact-policy.json: 0.4.3
+    ```
+  </Step>
+
+  <Step title="Tag and push">
+    Tag that commit `vMAJOR.MINOR.PATCH` and push the tag:
+
+    ```bash
+    git tag -a v0.4.4 -m 'Apostate 0.4.4'
+    git push origin v0.4.4
+    ```
+  </Step>
+
+  <Step title="Wait for the build">
+    Each platform builds on its own runner, all at once, and takes hours. If one fails, re-run the failed jobs. The platforms that finished keep their artifacts for 7 days and are not rebuilt.
+  </Step>
+
+  <Step title="Test and publish the draft">
+    Download the archives, launch each on its platform, and launch the Linux archives in a GPU-less container as well. Then publish the release:
+
+    ```bash
+    gh release download v0.4.4 -D ./apostate-release
+    gh release edit v0.4.4 --draft=false
+    ```
+  </Step>
+
+  <Step title="Publish the packages">
+    Write the release's digests into both packages, commit, and publish them ([below](#publish-the-packages)).
+  </Step>
+</Steps>
+
+The repository variable `APOSTATE_BUILD_TARGETS`, a comma-separated list such as `macos-arm64,linux-x64`, limits a release to those platforms. Unset, it means all four. To rebuild an existing tag, run the workflow by hand with that tag as `release_tag` and `confirm` set to true:
+
+```bash
+gh workflow run release.yml -f release_tag=v0.4.4 -f confirm=true
+```
+
+The macOS build signs and notarizes when the six `APPLE_*` repository secrets are set ([Sign on macOS](/contributing/build#sign-on-macos)). Without them it publishes an unsigned macOS archive, and the job log says `sign-macos: no signing identity configured; the bundle stays unsigned`.
+
+## What CI checks
+
+`release.yml` runs four jobs.
+
+1. **Release gate**, on a hosted Ubuntu runner. The tag must match `vMAJOR.MINOR.PATCH` and name the checked-out commit. Then `scripts/validate-release-baseline.py --release` (the patch digests in `build/MANIFEST.lock` match the series), `scripts/test_profile_resolver.py` with `APOSTATE_REQUIRE_NATIVE_GOLDENS=1`, and the Python and Node package tests.
+2. **Setup** resolves the platforms from `APOSTATE_BUILD_TARGETS` with `scripts/resolve-build-targets.sh`.
+3. **Build** runs `.github/workflows/build-target.yml` once per platform: every step on [Build from source](/contributing/build#build-step-by-step) from an empty workspace, the resolver and baseline checks again, `scripts/smoke-binary.sh`, signing on macOS, packaging, upload, and a GitHub build-provenance attestation for the archive.
+4. **Publish** downloads every archive and manifest and runs `scripts/verify-release-inputs.sh`. It requires exactly one archive and one manifest per built platform, and checks each manifest's field set, its package and Chromium versions against the release policy, its `catalogue_version` and `source_revision` against the tagged commit, and its `sha256` against the archive. Then `gh release create --verify-tag --draft` creates the draft.
+
+`verify-release-inputs.sh` also runs outside CI, on any directory of archive and manifest pairs, such as a nightly build's artifacts. The second argument is the exact set of platforms the directory holds. Pass `any` as the revision to accept whatever commit the manifests name:
+
+```bash
+scripts/verify-release-inputs.sh ./artifacts linux-x64,macos-arm64 any
+```
+
+It prints `verified <platform>  <archive>` for each pair and `release inputs verified: <platforms>` at the end. It needs bash 4 or later.
+
+## Refresh the golden profile digests
+
+`scripts/test_profile_resolver.py` checks that the Python copy of the compositor, `scripts/profile_resolver.py`, composes the same bytes as the browser. It pins one SHA-256 per persona (`GOLDEN_PROFILES`) over the profile the browser composes for `--fingerprint=12345`, and the list of sections that profile has (`GOLDEN_SECTIONS`). Take the digests from a native build. Digests recomputed with the resolver would make the test compare it with itself.
+
+Cores and memory are capped at the host's, so use a host like `GOLDEN_HOST`, which is macOS on Apple silicon with 14 cores and 36 GiB. Every child process carries the composed profile in its `--apostate-profile` switch, so read it from `ps` while the browser runs. The loop picks the processes by their user data directory, so other Apostate browsers on the host do not interfere:
+
+```bash
+BIN=.workspace/src/out/macos-arm64/Chromium.app/Contents/MacOS/Chromium
+for p in windows macos linux; do
+  dir="$(mktemp -d)"
+  "$BIN" --headless=new --fingerprint=12345 --fingerprint-platform=$p \
+    --user-data-dir="$dir" about:blank >/dev/null 2>&1 & pid=$!
+  sleep 5
+  ps -Awwo args= | grep -F -- "$dir" | tr ' ' '\n' | grep -m1 '^--apostate-profile=' \
+    | cut -d= -f2- | base64 -d > native-$p.json
+  kill $pid; wait $pid 2>/dev/null
+  python3 - native-$p.json <<'PY'
+import hashlib, json, sys
+profile = json.load(open(sys.argv[1]))
+data = json.dumps(profile, sort_keys=True, separators=(",", ":"),
+                  ensure_ascii=False).encode("utf-8")
+print(sys.argv[1], sorted(profile))
+print(hashlib.sha256(data).hexdigest())
+PY
+done
+```
+
+Run on an Apple M4 Max with 14 cores and 36 GiB against the 0.4.3 release browser, it prints the digests the test holds:
+
+```text
+native-windows.json ['audio', 'battery', 'browser', 'cpu', 'extensions', 'fonts', 'gl_extensions', 'gl_limits', 'gl_precisions', 'gpu', 'id', 'media', 'memory', 'network', 'platform', 'screen', 'speech', 'theme', 'webgpu', 'window']
+293bf5bd0750fe708ce7d1f8ed424bdcee28819ef008b35bbbc5a0c911e611bd
+native-macos.json ['audio', 'battery', 'browser', 'cpu', 'extensions', 'fonts', 'gl_extensions', 'gl_limits', 'gl_precisions', 'gpu', 'id', 'media', 'memory', 'network', 'platform', 'screen', 'speech', 'theme', 'webgpu', 'window']
+3738d7b64c6b52da997aac166ad6343f365821075562e66bfa860c56f4ff4b5e
+native-linux.json ['audio', 'battery', 'browser', 'cpu', 'extensions', 'fonts', 'gl_extensions', 'gl_limits', 'gl_precisions', 'gpu', 'id', 'media', 'memory', 'network', 'platform', 'screen', 'speech', 'theme', 'webgpu', 'window']
+9172c6dc5887087376e019f0ccb495301817d8723722c57f14213687d9b3c2bf
+```
+
+Paste each digest and section list into the test. Without `APOSTATE_REQUIRE_NATIVE_GOLDENS`, a stale digest is skipped with a message. With it, the test fails, which is how the release gate runs it.
+
+## Archives and manifests
+
+Each platform gets one archive named `apostate-<chromium version>-<platform>`, `.tar.zst` for Linux and `.zip` for macOS and Windows:
+
+| Platform | Archive |
+| --- | --- |
+| `linux-x64` | `apostate-152.0.7977.83-linux-x64.tar.zst` |
+| `linux-arm64` | `apostate-152.0.7977.83-linux-arm64.tar.zst` |
+| `macos-arm64` | `apostate-152.0.7977.83-macos-arm64.zip` |
+| `windows-x64` | `apostate-152.0.7977.83-windows-x64.zip` |
+
+An archive holds the browser, the licence, `build/MANIFEST.lock` and the profile resources. Beside it is `<archive>.manifest.json`, with exactly the fields `release/manifest.schema.json` allows:
+
+| Field | Value |
+| --- | --- |
+| `package_version` | The release version from `.github/release/artifact-policy.json` |
+| `chromium_version` | `152.0.7977.83` |
+| `catalogue_version` | From `resources/profiles/catalogue.json` at the tagged commit |
+| `platform` | The target |
+| `artifact` | The archive name |
+| `sha256` | SHA-256 of the whole archive |
+| `source_revision` | The commit it was built from |
+| `patch_series_sha256` | SHA-256 of `patches/series` |
+| `build_manifest_sha256` | SHA-256 of the archive's `build/MANIFEST.lock` |
+
+Do not replace a published archive with different bytes. Cut a new version.
+
+## Publish the packages
+
+The packages download the browser and check it against a manifest they carry. To give them the new release's digests:
+
+```bash
+gh release download v0.4.4 -D ./apostate-release
+python3 scripts/sync-packages.py --release ./apostate-release --tag v0.4.4
+```
+
+`sync-packages.py` hashes every archive again, checks each manifest against the release policy, and writes `release-manifest.json` into `python/apostate/assets/` and `npm/assets/`. It also copies the profile schema, the catalogue, the country-to-locale table and the font packs into both packages. Commit the changes, then build and publish both packages. The Python commands need the `build` and `twine` packages from PyPI.
+
+```bash
+python3 -m build --outdir dist python
+twine upload dist/apostate-0.4.4*
+npm publish ./npm
+```
+
+## Verify a download
+
+Each release archive has a GitHub build-provenance attestation from its build job, and both packages check an archive's SHA-256 against its manifest before extracting it. [Verify a download](/installation#verify-a-download) has the commands for checking an archive and a signed macOS bundle.

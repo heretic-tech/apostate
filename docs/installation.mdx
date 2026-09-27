@@ -1,0 +1,197 @@
+---
+title: "Installation"
+description: "Install the Python or Node package and the browser, where the browser is cached, using a browser you already have, mirrors, offline installs, verifying downloads, updating and removing."
+---
+
+Apostate comes in two parts: a package for your language, and the browser, which the package downloads and checks. [Quickstart](/quickstart) is the short path. This page covers every other way to install.
+
+## Requirements
+
+| | Python package | Node package |
+| --- | --- | --- |
+| Name | `apostate` on PyPI | `@heretic-tech/apostate` on npm |
+| Runtime | Python 3.10 or later | Node 22 or later |
+| Driver it brings | Patchright | Patchright |
+| Other drivers it can use | Playwright | Playwright, `playwright-core`, Puppeteer, `puppeteer-core` |
+
+The browser runs on four hosts:
+
+| Host | Archive | Size |
+| --- | --- | --- |
+| Linux x64 | `apostate-152.0.7977.83-linux-x64.tar.zst` | 192 MB |
+| Linux arm64 | `apostate-152.0.7977.83-linux-arm64.tar.zst` | 195 MB |
+| macOS on Apple silicon | `apostate-152.0.7977.83-macos-arm64.zip` | 154 MB |
+| Windows x64 | `apostate-152.0.7977.83-windows-x64.zip` | 185 MB |
+
+There is no build for Intel Macs or 32-bit Windows. The packages' install path on Windows has only been tested against a test archive.
+
+On Linux, reading a `.tar.zst` archive needs one of these: Python 3.14 or later, the `zstandard` Python package, or the `zstd` command for the Python package; the `zstd` command, or a `tar` that accepts `--zstd`, for the Node package.
+
+## Install the package
+
+<CodeGroup>
+```bash Python
+pip install apostate
+```
+
+```bash Node
+npm install @heretic-tech/apostate
+```
+</CodeGroup>
+
+Both install Patchright, the driver the packages launch the browser with. To use Playwright instead, install it next to the package (`pip install "apostate[playwright]"`, or `npm install playwright`) and pass the `driver` option. [Detection](/concepts/detection#automation-traces) explains why Patchright is the default. Do not run `playwright install` or `patchright install`. They download Playwright's own Chromium, which Apostate never runs.
+
+## Download the browser
+
+The first launch downloads the browser. To do it ahead of time:
+
+<CodeGroup>
+```bash Python
+apostate install
+```
+
+```bash Node
+npx apostate install
+```
+</CodeGroup>
+
+`install` picks the archive for this host, downloads it from the GitHub release the package names, checks its SHA-256 before opening it, extracts the whole tree into the cache, adds the Widevine module, and prints the browser's path. A second run finds the install and downloads nothing.
+
+| Option | Effect |
+| --- | --- |
+| `--force` | Download and extract again, even when the cache is valid. |
+| `--keep-archive` | Keep the verified archive in the cache, for [attestation checks](#verify-a-download). |
+| `--cache-dir DIR` | Install into `DIR` instead of the default cache. |
+| `--manifest SRC` | Take the archive's digest from this manifest file instead of the one in the package. The Node CLI also takes a URL. |
+| `--target TARGET` | Install for another platform: `linux-x64`, `linux-arm64`, `macos-arm64` or `windows-x64`. |
+
+Both packages install a command named `apostate`. If both are installed, the one first on your `PATH` answers; `python3 -m apostate` always runs the Python one. Both use the same cache, so installing with one serves the other. [CLI](/reference/cli) lists every command.
+
+## The cache
+
+| Host | Default cache directory |
+| --- | --- |
+| macOS | `~/Library/Caches/apostate` |
+| Linux | `$XDG_CACHE_HOME/apostate`, or `~/.cache/apostate` |
+| Windows | `%LOCALAPPDATA%\apostate\cache` |
+
+`APOSTATE_CACHE_DIR`, the `cache_dir` option (Node: `cacheDir`) and `--cache-dir` override it. Inside it:
+
+```text
+apostate/
+├── 152.0.7977.83/
+│   └── macos-arm64/
+│       ├── install/        the extracted browser, with build/MANIFEST.lock and resources/profiles/
+│       └── install.json    the archive's digest and the browser executable's digest
+└── widevinecdm/            the Widevine module, fetched once per machine
+```
+
+Each launch hashes the browser executable and compares it with `install.json`. If they differ, or the package pins a different archive, the next launch installs again.
+
+## Use a browser you already have
+
+A launch looks for the browser in four places, in this order, and takes the first that answers:
+
+| Source | How |
+| --- | --- |
+| A path you name | `binary_path="/path/to/chrome"` (Node: `executablePath`) |
+| `APOSTATE_BINARY` | `export APOSTATE_BINARY=/path/to/chrome` |
+| The package's own install | whatever `apostate install` wrote to the cache |
+| Well-known locations | macOS: `/Applications` and `~/Applications`. Linux: `~/.cache/apostate` and `/opt/apostate`. Windows: `%LOCALAPPDATA%\apostate`. Each directory and one level below it. |
+
+A path you name, in either of the first two, can be the executable, a macOS `Chromium.app` bundle, or the directory the archive unpacks to, such as `apostate-152.0.7977.83-linux-x64/`. The first two are taken at your word. A path that names nothing is refused with `does not name a file`, and a directory with no browser inside with `names a directory with no browser inside it (expected Chromium.app, chrome or chrome.exe)`.
+
+The well-known search never adopts a stock Chrome or Chromium. A candidate counts only if `build/MANIFEST.lock` with this build's patch digests, or `resources/profiles/catalogue.json`, sits beside it, and its version is 152.0.7977.83. So if you extract an archive by hand and want it found, move the whole extracted directory into a well-known location, not only the browser out of it.
+
+`apostate info` prints what the search found and what it passed over, under `discovery`, with a reason for each rejected candidate. In code, `discovery_report()` (Node: `discoveryReport()`) returns the same.
+
+## Mirrors
+
+To fetch archives from your own server, set `APOSTATE_DOWNLOAD_BASE_URL` to the directory that holds them, with the release's file names:
+
+```bash
+APOSTATE_DOWNLOAD_BASE_URL=https://mirror.example/apostate apostate info | jq -r .artifact_url
+```
+
+```text
+https://mirror.example/apostate/apostate-152.0.7977.83-macos-arm64.zip
+```
+
+The digest never comes from the mirror. It comes from the manifest inside the package, so a mirror that serves different bytes fails the check and nothing is installed.
+
+## Offline installs
+
+On a host with no internet access, use one of these:
+
+- **Copy the cache.** Run `apostate install` on a connected machine of the same platform, copy its whole cache directory to the offline host, and point `APOSTATE_CACHE_DIR` at it, or put it at the default path. The copy carries the Widevine module.
+- **Unpack the archive.** Download the archive and its `.manifest.json` from the [release page](https://github.com/heretic-tech/apostate/releases), compare `shasum -a 256` of the archive with the manifest's `sha256`, and extract it on the offline host. Then set `APOSTATE_BINARY` to the extracted directory, or move that directory into a well-known location.
+
+Without network access and without a copied cache, the package cannot fetch Widevine unless Google Chrome is installed on the host. The browser then launches without DRM and prints one warning. [Widevine](/guides/widevine) covers installing a module you copied.
+
+## Verify a download
+
+Both packages hash the whole archive and compare it with a manifest's `sha256` before extracting anything. A mismatch stops the install and nothing is opened. Where the digest came from decides what the check proves, and `apostate info` reports it:
+
+```bash
+apostate info | jq '{manifest_source, manifest_trust, provenance}'
+```
+
+```json
+{
+  "manifest_source": "baked",
+  "manifest_trust": "pinned",
+  "provenance": "gh attestation verify apostate-152.0.7977.83-macos-arm64.zip --repo heretic-tech/apostate"
+}
+```
+
+| `manifest_source` | Digest from | `manifest_trust` | Catches |
+| --- | --- | --- | --- |
+| `baked` | the manifest inside the package | `pinned` | a damaged download and a replaced archive |
+| `configured` | the manifest you passed with `manifest` or `--manifest` | `pinned` | a damaged download and a replaced archive |
+| `release-tag` | the manifest published beside the archive in the release named after the package version | `transport-integrity` | a damaged download only |
+| `release-latest` | the manifest beside the archive in the latest release | `transport-integrity` | a damaged download only |
+
+A package fetches a manifest only when its own does not list the archive, and it says so on stderr before downloading. A fetched digest comes from the same place as the archive, so it cannot catch a replaced one.
+
+To check where an archive came from, verify its GitHub build-provenance attestation. Keep the archive when you install, then verify it with the [GitHub CLI](https://cli.github.com):
+
+```bash
+apostate install --force --keep-archive
+gh attestation verify apostate-152.0.7977.83-linux-x64.tar.zst --repo heretic-tech/apostate
+```
+
+The kept archive is in the cache, beside `install/`. `APOSTATE_KEEP_ARCHIVE=1` keeps it on every install.
+
+### macOS signing
+
+Releases since v0.2.0 are signed with a Developer ID, notarized and stapled, so a bundle downloaded with a web browser opens without a Gatekeeper prompt. To check a bundle:
+
+```bash
+spctl -a -t exec -vv Chromium.app
+xcrun stapler validate Chromium.app
+codesign -dv --verbose=4 Chromium.app
+```
+
+`spctl` prints `accepted` and `source=Notarized Developer ID`, `stapler` prints `The validate action worked!`, and `codesign` lists the Developer ID authority and `Notarization Ticket=stapled`.
+
+## Update
+
+<CodeGroup>
+```bash Python
+pip install --upgrade apostate
+```
+
+```bash Node
+npm install @heretic-tech/apostate@latest
+```
+</CodeGroup>
+
+The next launch, or `apostate install`, installs the archive the new package pins. A new Chromium version installs beside the old one in the cache. A seed keeps its machine across Chrome updates; a release that changes the catalogue tables can move it. [Seeds and identity](/concepts/seeds-and-identity#updates-and-catalogue-changes) explains how to check before you upgrade, and the [changelog](/changelog) lists what each release changed.
+
+## Remove
+
+```bash
+apostate clear
+```
+
+`clear` deletes the whole cache directory, every installed version and the Widevine module included. Then uninstall the package with `pip uninstall apostate` or `npm uninstall @heretic-tech/apostate`. Fonts that `apostate fonts install` added stay in `~/.local/share/fonts/apostate-*` on Linux and `~/Library/Fonts/apostate-*` on macOS; delete those directories to remove them.

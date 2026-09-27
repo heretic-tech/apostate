@@ -1,0 +1,152 @@
+---
+title: "Web archiving"
+description: "Capture a page as a visitor sees it, with a full-page screenshot, a PDF, the HTML, a HAR file and a manifest of SHA-256 hashes, for research or compliance records."
+---
+
+You keep records of web pages for research or compliance, and each record has to show the page as a visitor saw it and say how and when it was made. This walkthrough captures a page into a folder with a full-page screenshot, a PDF, the rendered HTML, a HAR file of the network traffic and a manifest with the SHA-256 of each file.
+
+## What Apostate changes
+
+Some sites answer automated or headless browsers with a challenge page or less content. Apostate presents a desktop machine without the automation traces those sites check for ([Detection](/concepts/detection#automation-traces)), so the capture shows the page a visitor on that machine gets. The manifest records the persona and seed, and a later capture with the same seed uses the same machine.
+
+## Set up
+
+```bash
+pip install apostate
+apostate install
+apostate fonts install windows
+git clone https://github.com/heretic-tech/apostate.git
+cd apostate/examples/use-cases/web-archiving
+```
+
+`apostate fonts install windows` is for Linux and macOS hosts ([Fonts](/guides/fonts)).
+
+[`archive.py`](https://github.com/heretic-tech/apostate/blob/main/examples/use-cases/web-archiving/archive.py) captures each URL you pass, and `https://example.com` when you pass none. Each capture goes into `out/<host>-<UTC time>/`.
+
+## The script
+
+```python
+def capture(url, locale, zone):
+    taken = datetime.now(timezone.utc)
+    folder = OUT / f"{urlsplit(url).hostname}-{taken:%Y%m%dT%H%M%SZ}"
+    folder.mkdir(parents=True)
+    proxy = os.environ.get("APOSTATE_PROXY")
+    # Behind a proxy, the package sets locale and timezone from the proxy's exit.
+    region = {} if proxy else {"locale": locale, "timezone": zone, "geoip": False}
+    with launch(fingerprint=SEED, fingerprint_platform=PERSONA, proxy=proxy, **region,
+                record_har_path=folder / "page.har") as browser:
+        page = browser.new_page()
+        response = page.goto(url, wait_until="networkidle")
+        page.screenshot(path=folder / "screenshot.png", full_page=True)
+        # page.pdf() works only in a headless browser, which is the default.
+        page.pdf(path=folder / "page.pdf", format="A4", print_background=True)
+        (folder / "page.html").write_text(page.content(), encoding="utf-8")
+        seen = page.evaluate("""() => ({
+            userAgent: navigator.userAgent,
+            language: navigator.language,
+            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        })""")
+        details = {"final_url": page.url, "status": response.status, "title": page.title(),
+                   "browser": browser.version}
+    # The HAR file is complete once the browser has closed.
+    manifest = {
+        "url": url,
+        **details,
+        "captured_at": taken.isoformat(timespec="seconds"),
+        "persona": PERSONA,
+        "seed": SEED,
+        "apostate": version("apostate"),
+        "proxy": bool(proxy),
+        **seen,
+        "files": {path.name: {"bytes": path.stat().st_size, "sha256": sha256(path)}
+                  for path in sorted(folder.iterdir())},
+    }
+    (folder / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    return folder, manifest
+```
+
+`record_har_path` is a Playwright option. `launch()` passes Playwright's launch and context options through ([Python](/guides/python#playwright-options)). Playwright writes the HAR file when the browser closes, so the script hashes the files after the `with` block.
+
+## Run it
+
+```bash
+python3 archive.py
+```
+
+```text
+https://example.com  200  Example Domain
+    out/example.com-20260927T172922Z/
+    page.har            3175 bytes  sha256 e7fafc00f1368a47...
+    page.html            559 bytes  sha256 7b6cd9a1d881c4a6...
+    page.pdf           21210 bytes  sha256 6f719987f8c6c7b1...
+    screenshot.png     19669 bytes  sha256 fffa31b6827477df...
+```
+
+`manifest.json` in the same folder:
+
+```json
+{
+  "url": "https://example.com",
+  "final_url": "https://example.com/",
+  "status": 200,
+  "title": "Example Domain",
+  "browser": "152.0.7977.83",
+  "captured_at": "2026-09-27T17:29:22+00:00",
+  "persona": "windows",
+  "seed": 42,
+  "apostate": "0.4.3",
+  "proxy": false,
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
+  "language": "en-US",
+  "timeZone": "America/New_York",
+  "files": {
+    "page.har": {
+      "bytes": 3175,
+      "sha256": "e7fafc00f1368a477cf512f00cf43b770c6b9fa53c8e0f7fb6326b29204d1328"
+    },
+    "page.html": {
+      "bytes": 559,
+      "sha256": "7b6cd9a1d881c4a69bf70b9babb5a4a90e38aa6f9933785508a38f665d4d4aab"
+    },
+    "page.pdf": {
+      "bytes": 21210,
+      "sha256": "6f719987f8c6c7b1a50e272891af31c8a1b69a3623ce60510468c5e3f01232c7"
+    },
+    "screenshot.png": {
+      "bytes": 19669,
+      "sha256": "fffa31b6827477dff5d36b105e4e7a5c6f2964d290018f19dd1b47c732b2a41b"
+    }
+  }
+}
+```
+
+To check a file later, hash it again and compare with the manifest. On macOS:
+
+```bash
+shasum -a 256 out/example.com-20260927T172922Z/page.pdf
+```
+
+```text
+6f719987f8c6c7b1a50e272891af31c8a1b69a3623ce60510468c5e3f01232c7  out/example.com-20260927T172922Z/page.pdf
+```
+
+On Linux, `sha256sum` prints the same.
+
+## What each file holds
+
+| File | Contents |
+| --- | --- |
+| `screenshot.png` | The whole page, from a full-page screenshot at the persona's window width |
+| `page.pdf` | The page as Chrome prints it, on A4 with backgrounds |
+| `page.html` | The document after its scripts ran, from `page.content()` |
+| `page.har` | Every request and response, with response bodies embedded. The HTML the server sent is here. |
+| `manifest.json` | The URL, the final URL and status, the time in UTC, the persona, seed and versions, what the page read, and the size and SHA-256 of every other file |
+
+## Points for this job
+
+- **Seed and persona.** The manifest records both, with the Apostate and browser versions. A later capture with the same seed, persona and version uses the same machine. A release that changes the catalogue tables can change it ([Seeds and identity](/concepts/seeds-and-identity#updates-and-catalogue-changes)).
+- **Region.** With `APOSTATE_PROXY` set, every page loads through that proxy, and the package sets the locale and timezone from the proxy's exit. Without a proxy, `--locale` and `--timezone` set them. The manifest records the language and timezone the page read. [Proxies](/guides/proxies) covers proxy URLs.
+- **Integrity.** Anyone who can edit the folder can edit the manifest too. If a record has to hold up later, sign the manifest or store the folder where it cannot be changed.
+- **Many pages.** To archive many pages of one site, follow its terms and robots.txt and space the page loads. [Price monitoring](/use-cases/price-monitoring) shows both.
+- **Waiting.** `wait_until="networkidle"` waits until the network has been quiet for 500 ms. Content that loads on scroll or on a timer appears only if the script scrolls or waits for it before the screenshot.
+- **Headless.** `page.pdf()` works only headless, the default.

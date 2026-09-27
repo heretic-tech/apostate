@@ -1,0 +1,174 @@
+---
+title: "Seeds and identity"
+description: "How a seed selects a machine, how long a machine lasts, the identity file, what survives an update, the host cap on cores and memory, and how to pick seeds."
+---
+
+A seed is the value of `--fingerprint`, or the `fingerprint` option in the packages. The browser hashes it with the persona and draws every choice of the machine from that hash: GPU, cores, memory, screen, fonts, voices and the rest. The same seed and persona give the same machine on every launch, as long as the host can serve it and the catalogue tables stay the same. [Personas](/concepts/personas) lists what the machine covers.
+
+## Pass a seed
+
+<CodeGroup>
+```python Python
+from apostate import launch
+
+browser = launch(fingerprint=42, fingerprint_platform="windows")
+```
+
+```javascript Node
+import { launch } from "@heretic-tech/apostate";
+
+const browser = await launch({ fingerprint: 42, fingerprintPlatform: "windows" });
+```
+</CodeGroup>
+
+A seed is a non-negative integer or a string. The packages accept strings of letters, digits, `.`, `_`, `:` and `-` that start with a letter or a digit, such as `shop-account-7`. The browser accepts up to 512 bytes of printable ASCII with no spaces. `42` and `"42"` are the same seed.
+
+The persona is part of the hash. Seed 42 as Windows and seed 42 as Linux are unrelated machines.
+
+## How long a machine lasts
+
+| You launch with | The machine | It lasts |
+| --- | --- | --- |
+| a seed | the one the seed selects | on every launch and every host, until a release changes the catalogue tables |
+| a user data directory and no seed | bound to the directory | until you delete `DIR/apostate/identity`, or a release changes the catalogue tables |
+| neither | drawn from OS entropy | this launch only |
+
+`launch()` in both packages runs on a temporary profile that is deleted on close, so without a seed every `launch()` is a new machine. `launch_persistent_context(DIR)` (Node: `launchPersistentContext(DIR)`) passes `--user-data-dir=DIR` and keeps the machine with the cookies and logins in that directory.
+
+A seed outranks the directory. With both, the seed's machine is presented and the identity file is neither written nor read.
+
+## The identity file
+
+The first launch with a user data directory and no seed draws a seed from OS entropy and writes it to `DIR/apostate/identity`. Every later launch reads it back.
+
+<CodeGroup>
+```python Python
+from apostate import launch_persistent_context
+
+context = launch_persistent_context("./profiles/shop-account", fingerprint_platform="windows")
+```
+
+```javascript Node
+import { launchPersistentContext } from "@heretic-tech/apostate";
+
+const context = await launchPersistentContext("./profiles/shop-account", { fingerprintPlatform: "windows" });
+```
+</CodeGroup>
+
+```bash
+cat ./profiles/shop-account/apostate/identity
+```
+
+```text
+a34d4b3c7564d50ba8aa055d7f72248cbb4fe53358785aeca2385ae9b56d4d26
+```
+
+- The file holds one seed and a newline. Pass its content as `--fingerprint` anywhere to present the same machine without the directory.
+- Copying the directory copies the machine. Renaming or moving it changes nothing.
+- The file does not record the persona. Pass the same `fingerprint_platform` on every launch, because the default persona differs between hosts.
+- To bind a new directory to a seed you chose, write the seed into `DIR/apostate/identity` before the first launch. A directory holding `42` presents the same machine as `--fingerprint=42`.
+- A file that does not hold a valid seed is replaced with a new one, and `--fingerprint-explain` says so in its `limitations` list.
+- If the file cannot be read or written, that launch gets a one-off machine, the stored seed is left alone, and `--fingerprint-explain` says so.
+
+For a fresh machine on every run of a persistent context, give each run its own directory or delete `DIR/apostate/identity` between runs.
+
+## Updates and catalogue changes
+
+**A Chrome update keeps the machine.** The browser hashes the seed with three fixed epochs (profile schema 3, catalogue 2, Chromium 152.0.7977.83), not with the running build's versions. A later build draws the same options for the same seed. Only the browser version a page reads, in the User-Agent and Client Hints, moves with the build.
+
+**A catalogue change can move the machine.** The catalogue tables are compiled into the browser. A release that edits a table re-draws the choices that table decides, and the choices that depend on them, for seeds and persistent profiles alike. Each choice has its own hash stream, so the other choices stay.
+
+- Apostate 0.4.3 uses the same tables as 0.4.2, so every seed presents the same machine in both.
+- Seeds from releases before 0.4.2 present different machines in 0.4.2 and later.
+- Recording the composed machine in the profile directory, so that table edits stop moving a persistent profile, is planned and not done yet.
+
+To check whether two builds use the same tables, compare the `catalogue` line of `--fingerprint-explain`. The same table digest means the same draws:
+
+```text
+  catalogue           v2 (tables e6fb49ebe4d0b28b2e0b7f3d00b086d7c86a12d54d777f31200400cfb7b87766)
+```
+
+## The host cap
+
+A persona never claims more cores or more memory than the host has, because a page can measure both. Options the host cannot serve are removed before the draw, and the draw runs over the options left. So the same seed can present a different core count or memory size on a smaller host, even a count that host could serve. When no option fits, the page reads the host's own value.
+
+Seed 42 as Windows draws an Intel UHD Graphics 770, whose core-count table offers 12, 16, 20, 24 and 32. The count a page reads depends on the host:
+
+| Host logical cores | Seed 42 as Windows reports |
+| --- | --- |
+| fewer than 12 | the host's own count |
+| 12 to 19 | 12 |
+| 20 or more | 20 |
+
+Memory follows the same rule, against the memory the host's OS reports. The `host cores` and `host memory` lines of `--fingerprint-explain` show what the cap was on a launch.
+
+To present the same counts everywhere:
+
+- Run on hosts with at least as many cores and as much memory as the largest options. The largest in any table are 56 cores and 128 GiB.
+- Or pin them with `--fingerprint-hardware-concurrency` and `--fingerprint-device-memory` in `args`. A pinned value above the host's is refused:
+
+```text
+apostate: --fingerprint-hardware-concurrency=64 is above this host's 14 logical cores. A page can measure parallel throughput, so a count the machine cannot deliver is falsifiable in a way a lower count is not. Pass a value of 14 or less.
+```
+
+On a small server, most personas report the server's own core count next to a desktop GPU. [Hosts](/concepts/hosts) covers sizing.
+
+## Choose seeds
+
+- Use one seed per account or session you run, and store it with that account's other data. A string you already have, such as an account id, works if it fits the allowed characters.
+- Never give two accounts the same seed. They would present the same machine, and a site can link them by it.
+- Keep the seed and the persona together. Changing the persona changes the machine.
+- For a machine that lives with its cookies, prefer a persistent context. The identity file is the seed, and the directory is the one thing to back up.
+- The tables hold a finite number of hardware combinations, so two seeds can compose the same hardware. Check a seed with `--fingerprint-explain` before you assign it if that matters to you.
+
+[Many sessions](/guides/many-sessions) covers running many seeds at once.
+
+## Read the seed lines
+
+`--fingerprint-explain` prints the seed and where it came from at the top of its report. With a seed:
+
+```bash
+apostate run -- --fingerprint=42 --fingerprint-platform=windows --fingerprint-explain
+```
+
+```text
+  seed                42
+  seed source         --fingerprint (pinned by flag, identical on any machine)
+  reproduce with      --fingerprint=42
+  root                1f609a08ef7734f203ced27b8ed93efb5ef2652f3377a878e4ecee1b49fe6ce8
+```
+
+With a user data directory, on the first launch and on every later one:
+
+```bash
+apostate run -- --user-data-dir=./profiles/shop-account --fingerprint-platform=windows --fingerprint-explain
+```
+
+```text
+  seed                a34d4b3c7564d50ba8aa055d7f72248cbb4fe53358785aeca2385ae9b56d4d26
+  seed source         this profile's identity file (stable for this --user-data-dir)
+  identity file       ./profiles/shop-account/apostate/identity (created this launch)
+  reproduce with      --fingerprint=a34d4b3c7564d50ba8aa055d7f72248cbb4fe53358785aeca2385ae9b56d4d26
+```
+
+```text
+  identity file       ./profiles/shop-account/apostate/identity (read from disk)
+```
+
+With neither:
+
+```text
+  seed                8ca23ccda8e3b3d0770f8490aec9f00671556a21ae1d6f168fb67d2957994dc0
+  seed source         drawn from OS entropy for this launch only (ephemeral)
+  reproduce with      --fingerprint=8ca23ccda8e3b3d0770f8490aec9f00671556a21ae1d6f168fb67d2957994dc0
+```
+
+| Line | Meaning |
+| --- | --- |
+| `seed` | The seed this launch used. |
+| `seed source` | Where it came from: the switch, the identity file, or OS entropy. |
+| `identity file` | The file's path, and whether this launch created or read it. |
+| `reproduce with` | The switch that presents this machine again on any host that can serve it. |
+| `root` | The hash of the seed, the persona and the epochs. Two launches with the same root drew from the same starting point. |
+
+Running `--fingerprint-explain` with a user data directory creates the identity file if there is none, as a launch would.

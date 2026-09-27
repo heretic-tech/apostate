@@ -1,0 +1,211 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "palm",
+  "name": "Apostate",
+  "description": "Apostate is a Chromium build that presents a Windows, macOS or Linux machine you choose. Install it, pick a persona, and drive it from Python, Node or an AI agent.",
+  "colors": {
+    "primary": "#2536C8",
+    "light": "#8C98FF",
+    "dark": "#1C2AA6"
+  },
+  "appearance": {
+    "default": "light"
+  },
+  "favicon": "/images/favicon.svg",
+  "logo": {
+    "light": "/images/logo-light.svg",
+    "dark": "/images/logo-dark.svg",
+    "href": "https://apostate.dev"
+  },
+  "background": {
+    "color": {
+      "light": "#F1EFEA",
+      "dark": "#121418"
+    }
+  },
+  "fonts": {
+    "heading": {
+      "family": "Funnel Display",
+      "weight": 500
+    },
+    "body": {
+      "family": "Funnel Sans"
+    }
+  },
+  "styling": {
+    "eyebrows": "breadcrumbs",
+    "codeblocks": "system"
+  },
+  "icons": {
+    "library": "lucide"
+  },
+  "contextual": {
+    "options": ["copy", "view", "chatgpt", "claude", "cursor", "vscode"]
+  },
+  "search": {
+    "prompt": "Search the docs"
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Releases",
+        "href": "https://github.com/heretic-tech/apostate/releases"
+      }
+    ],
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/heretic-tech/apostate"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/heretic-tech/apostate",
+      "website": "https://apostate.dev"
+    }
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get started",
+            "pages": [
+              "index",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Concepts",
+            "pages": [
+              "concepts/personas",
+              "concepts/seeds-and-identity",
+              "concepts/how-it-works",
+              "concepts/hosts",
+              "concepts/detection"
+            ]
+          },
+          {
+            "group": "Configure",
+            "pages": [
+              "guides/python",
+              "guides/node",
+              "guides/proxies",
+              "guides/locale-and-timezone",
+              "guides/fonts",
+              "guides/gpu",
+              "guides/screen-and-window",
+              "guides/webrtc",
+              "guides/custom-profiles",
+              "guides/widevine"
+            ]
+          },
+          {
+            "group": "Run in production",
+            "pages": [
+              "guides/linux-servers",
+              "guides/docker",
+              "guides/many-sessions",
+              "guides/raw-binary",
+              "guides/verify"
+            ]
+          },
+          {
+            "group": "Help",
+            "pages": [
+              "troubleshooting",
+              "known-gaps"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "AI agents",
+        "groups": [
+          {
+            "group": "AI agents",
+            "pages": [
+              "agents/overview",
+              "agents/mcp",
+              "agents/claude-code",
+              "agents/codex",
+              "agents/other-clients",
+              "agents/browser-use",
+              "agents/stagehand",
+              "agents/claude-api",
+              "agents/servers"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Examples",
+        "groups": [
+          {
+            "group": "Examples",
+            "pages": [
+              "examples/index"
+            ]
+          },
+          {
+            "group": "Use cases",
+            "pages": [
+              "use-cases/test-your-own-defenses",
+              "use-cases/localization-qa",
+              "use-cases/price-monitoring",
+              "use-cases/ad-verification",
+              "use-cases/account-profiles",
+              "use-cases/end-to-end-tests",
+              "use-cases/web-archiving"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Test results",
+        "groups": [
+          {
+            "group": "Test suite",
+            "pages": [
+              "testing/overview",
+              "testing/results",
+              "testing/run",
+              "testing/fingerprintjs"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Reference",
+        "groups": [
+          {
+            "group": "Reference",
+            "pages": [
+              "reference/switches",
+              "reference/python-api",
+              "reference/node-api",
+              "reference/cli",
+              "reference/environment-variables",
+              "reference/profile-schema",
+              "reference/gpu-models",
+              "reference/font-lists",
+              "reference/errors",
+              "changelog"
+            ]
+          },
+          {
+            "group": "Contributing",
+            "pages": [
+              "contributing/overview",
+              "contributing/build",
+              "contributing/patches",
+              "contributing/captures",
+              "contributing/releases"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

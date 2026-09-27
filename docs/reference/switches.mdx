@@ -1,0 +1,298 @@
+---
+title: "Switches"
+description: "Every command-line switch Apostate adds to Chromium, with its value, default, refusals and precedence, and the Chromium switches that change how Apostate behaves."
+---
+
+A switch is a command-line argument to the browser. The Python and Node packages pass the seed, persona, locale and timezone switches from their options. Pass any other switch through the `args` option, or on the command line after `apostate run`. A page cannot read the command line.
+
+When the browser refuses a value, it prints `apostate: <reason>` on stderr and exits with status 1. A value that is logged and ignored instead is marked as such below.
+
+## All switches
+
+| Switch | Value | Default |
+| --- | --- | --- |
+| [`--fingerprint`](#fingerprint) | seed, or `host` | seed from the identity file, else a fresh seed |
+| [`--fingerprint-platform`](#fingerprint-platform) | `windows`, `macos`, `linux` | `macos` on a Mac, `windows` on Windows and Linux |
+| [`--fingerprint-anchor`](#fingerprint-anchor) | GPU family id | drawn by the seed |
+| [`--fingerprint-explain`](#fingerprint-explain) | none | off |
+| [`--fingerprint-gpu-vendor`](#per-field-switches) | WebGL vendor string | drawn by the seed |
+| [`--fingerprint-gpu-renderer`](#per-field-switches) | WebGL renderer string | drawn by the seed |
+| [`--fingerprint-hardware-concurrency`](#per-field-switches) | 1 to 4096 | drawn by the seed |
+| [`--fingerprint-device-memory`](#per-field-switches) | 1 to 4096, in GiB | drawn by the seed |
+| [`--fingerprint-screen-width`](#per-field-switches) | 1 to 65535, CSS pixels | drawn by the seed |
+| [`--fingerprint-screen-height`](#per-field-switches) | 1 to 65535, CSS pixels | drawn by the seed |
+| [`--fingerprint-locale`](#fingerprint-locale) | locale tag or Accept-Language list | `en-US` |
+| [`--fingerprint-timezone`](#fingerprint-timezone) | IANA timezone name | the host's timezone |
+| [`--fingerprint-webrtc-ip`](#fingerprint-webrtc-ip) | IP address | the real candidate address |
+| [`--fingerprint-webrtc-udp`](#fingerprint-webrtc-udp) | `direct`, `block` | follows the proxy |
+| [`--fingerprint-noise`](#fingerprint-noise) | none | off |
+| [`--apostate-profile`](#apostate-profile) | base64-encoded profile JSON | none |
+
+The Python and Node packages refuse a switch that starts with `--fingerprint` and is not in this table, and a switch within two edits of one in it, such as `--fingeprint-platform`. The browser itself ignores an unknown switch, as Chromium does.
+
+## Seed and persona
+
+### `--fingerprint`
+
+The seed for the whole machine. The same seed and persona give the same machine on every launch and every host. [Seeds and identity](/concepts/seeds-and-identity) explains how long a machine lasts.
+
+- **Value.** 1 to 512 bytes of printable ASCII without spaces (bytes `0x21` to `0x7E`). The Python and Node packages also take a non-negative integer, and accept a string only when it matches `[A-Za-z0-9][A-Za-z0-9._:-]*`.
+- **Host mode.** `host` presents the real machine and composes nothing. `off`, `false`, `0`, `disable` and `disabled` mean the same, in any letter case.
+- **Default.** With `--user-data-dir=DIR`, the seed stored in `DIR/apostate/identity`, which the first launch writes. Without it, a fresh seed from OS entropy for this launch only.
+- **Refused.** An empty value, more than 512 bytes, or a space or other byte outside printable ASCII:
+
+  ```text
+  apostate: --fingerprint was given a value that is empty, longer than 512 bytes or not printable ASCII, so the identity it names cannot be reproduced; pass --fingerprint=host to present this machine deliberately, or drop the switch for a fresh identity
+  ```
+
+- **Refused with host mode.** `--fingerprint-platform`, `--fingerprint-anchor` and every per-field switch, because nothing is composed for them to change:
+
+  ```text
+  apostate: --fingerprint names an off value, so no profile is composed and --fingerprint-platform cannot take effect. Drop one of the two: --fingerprint=off for this machine's real fingerprint, or a seed for a composed one. --fingerprint-explain still works with either.
+  ```
+
+  `--fingerprint-noise`, `--fingerprint-webrtc-ip`, `--fingerprint-webrtc-udp` and `--fingerprint-explain` are accepted with host mode. Noise does nothing there.
+
+### `--fingerprint-platform`
+
+The operating system the machine presents: `windows`, `macos` or `linux`. The persona decides the User-Agent, Client Hints, GPU family, fonts, voices, screen layout and system colours. [Personas](/concepts/personas) lists everything it covers.
+
+- **Default.** `macos` on a macOS host, `windows` on a Windows host and `windows` on a Linux host.
+- **Other values.** Logged and ignored, and the host's default persona applies. The Python and Node packages refuse any value except the three names and a few aliases, in any letter case. Both take `win`, `win32`, `darwin`, `mac` and `osx`. Python also takes `linux2`, and Node also takes `mac os`, `mac os x` and `os x`.
+
+### `--fingerprint-anchor`
+
+Pins the GPU family instead of letting the seed draw one. The value is a family id from [GPU models](/reference/gpu-models):
+
+| Family id | Family |
+| --- | --- |
+| `windows-d3d11-intel-79dfeb5b4f99` | Windows, Intel, Direct3D 11 |
+| `windows-d3d11-nvidia-0947761dfbe9` | Windows, NVIDIA, Direct3D 11 |
+| `macos-metal-apple-850a91233555` | macOS, Apple, Metal |
+| `linux-vulkan-nvidia-adf287b8f0ee` | Linux, NVIDIA, Vulkan |
+| `linux-swiftshader-google-6922d61bab83` | Linux, SwiftShader software renderer |
+
+- A persona draws only from the families of its own platform, and never draws SwiftShader. Only this switch selects SwiftShader.
+- A family from another platform is accepted. `--fingerprint-explain` lists the mismatch under `limitations`.
+- An id that is not in the table is logged, and the launch presents the host's values on every surface:
+
+  ```text
+  apostate: --fingerprint-anchor named 'nope', which is not in the compiled catalogue
+  apostate: the compiled catalogue cannot serve this launch; inheriting the host
+  ```
+
+### `--fingerprint-explain`
+
+Prints the composed machine to stdout and exits with status 0 without opening a window. The report goes nowhere else. Run it with the same switches as the launch you want to check:
+
+```bash
+apostate run -- --fingerprint=42 --fingerprint-platform=windows --fingerprint-locale=en-US --fingerprint-timezone=America/New_York --fingerprint-explain
+```
+
+```text
+apostate fingerprint composition
+
+  chromium            152.0.7977.83
+  profile schema      3
+  catalogue           v2 (tables e6fb49ebe4d0b28b2e0b7f3d00b086d7c86a12d54d777f31200400cfb7b87766)
+  platform persona    windows
+  host platform       macos
+  host cores          14
+  host memory         38654705664 bytes
+  host backend        metal (the platform default, not probed)
+  seed                42
+  seed source         --fingerprint (pinned by flag, identical on any machine)
+  reproduce with      --fingerprint=42
+  root                1f609a08ef7734f203ced27b8ed93efb5ef2652f3377a878e4ecee1b49fe6ce8
+
+surface                   layer             evidence               value
+anchor                    anchor            physical-ground-truth  windows-d3d11-intel-79dfeb5b4f99
+os_release                dispersion        physical-ground-truth  windows-11
+gpu_identity              dispersion        catalogue-value        d3d11-intel-uhd-graphics-770-4680
+cpu                       dispersion        public-corpus          cores-12
+memory                    dispersion        catalogue-value        gib-8
+panel                     dispersion        public-corpus          fhd-1080p
+locale.timezone           command-line      operator               America/New_York
+...
+```
+
+The header names the persona, the host and the seed. `seed source` says where the seed came from, and `reproduce with` is the switch that gives the same machine anywhere. Each row is one choice: `layer` is what decided it, `evidence` is where the value comes from, and a line starting with `!` explains the row. The report ends with a `limitations` list of what this launch cannot hide or apply.
+
+With a persistent user data directory the report also names the identity file:
+
+```text
+  seed source         this profile's identity file (stable for this --user-data-dir)
+  identity file       ./profiles/shop-account/apostate/identity (read from disk)
+```
+
+In host mode the report says that nothing is composed:
+
+```text
+apostate fingerprint composition
+
+  composition         disabled
+  seed source         none: the host is inherited
+```
+
+<Note>
+With an `--apostate-profile` that describes a device, `--fingerprint-explain` prints nothing in 0.4.3 and the browser starts as normal.
+</Note>
+
+## Per-field switches
+
+Each switch sets one value. The seed still draws everything else, so the machine stays consistent around the value you set.
+
+| Switch | Sets | Refused when |
+| --- | --- | --- |
+| `--fingerprint-gpu-vendor` | the WebGL unmasked vendor string | no model in the launch's GPU family has this vendor |
+| `--fingerprint-gpu-renderer` | the WebGL unmasked renderer string | no model in the launch's GPU family has this renderer |
+| `--fingerprint-hardware-concurrency` | `navigator.hardwareConcurrency` | not a whole number from 1 to 4096, or more than the host's logical cores |
+| `--fingerprint-device-memory` | installed memory, in GiB | not a whole number from 1 to 4096, or more than the host's installed memory |
+| `--fingerprint-screen-width` | `screen.width` | not a whole number from 1 to 65535, or the screen cannot hold the window or the taskbar |
+| `--fingerprint-screen-height` | `screen.height` | same as the width |
+
+**GPU strings.** Either switch narrows the seed's choice to the matching models of the family the launch uses, so the WebGL and WebGPU values still belong to that GPU. A string from another family is refused, and the error lists the models the family has:
+
+```text
+apostate: --fingerprint-gpu-renderer='foo' names a GPU identity that was not measured on the capability cluster this host can serve. The GL limits, extensions, shader precisions and WebGPU adapter all come from anchor 'macos-metal-apple-850a91233555', so a renderer from outside it would be contradicted by its own capability table. Servable on this host:
+  Google Inc. (Apple) / ANGLE (Apple, ANGLE Metal Renderer: Apple M1, Unspecified Version)
+  Google Inc. (Apple) / ANGLE (Apple, ANGLE Metal Renderer: Apple M1 Pro, Unspecified Version)
+  ...
+```
+
+To use a model from another family, add `--fingerprint-anchor` with that family's id. [GPU models](/reference/gpu-models) lists every vendor and renderer string.
+
+**Cores and memory.** A persona never claims more than the host has. Asking for more is refused:
+
+```text
+apostate: --fingerprint-hardware-concurrency=999 is above this host's 14 logical cores. A page can measure parallel throughput, so a count the machine cannot deliver is falsifiable in a way a lower count is not. Pass a value of 14 or less.
+apostate: --fingerprint-device-memory names 68719476736 bytes, which is above this host's 38654705664. A page can allocate until it fails, so claiming more memory than the machine has is falsifiable in a way claiming less is not.
+```
+
+A value outside the range is refused with `apostate: --fingerprint-device-memory='0' is not a whole number between 1 and 4096.` Chromium rounds the memory a page sees in `navigator.deviceMemory` to 2, 4, 8, 16 or 32.
+
+**Screen.** Width and height are independent. With only one of them set, the seed's value stays for the other. The available area (`availWidth`, `availHeight`) is worked out from the size and the persona's taskbar or menu bar. The screen is refused when it is smaller than `--window-size` or too small for the taskbar:
+
+```text
+apostate: the overridden screen is 1000x700, smaller than the --window-size this launch asked for (1200x800). A window larger than the screen it claims to be on is visible from JavaScript in one comparison.
+apostate: the overridden screen is 800x20, which the desktop furniture this seed drew does not fit inside (0+0 horizontal, 0+48 vertical). Choose a larger screen or a different seed.
+```
+
+`--fingerprint-explain` marks each overridden value and names the value the seed had drawn.
+
+## Locale and timezone
+
+The seed never draws the locale or the timezone. The Python and Node packages fill both switches from a GeoIP lookup of the connection's exit unless you pass `locale` and `timezone`. [Locale and timezone](/guides/locale-and-timezone) covers the lookup and what each value changes.
+
+### `--fingerprint-locale`
+
+- **One tag**, such as `de-DE`, sets the browser's UI locale. `Intl`, date and number formats and `navigator.language` follow it. `navigator.languages` and the `Accept-Language` header carry Chrome's own default list for that locale, such as `de-DE,de,en-US,en` for `de-DE`.
+- **A comma list**, such as `de-DE,de`, sets `navigator.languages` and `Accept-Language` exactly. Its first tag is the UI locale.
+- **Default.** `en-US`, never the host's language. Host mode keeps the host's.
+- The browser writes the UI locale into `LANGUAGE`, `LC_ALL`, `LC_MESSAGES` and `LANG` before it starts any other process. `--lang` has no effect on a persona.
+- The speech voices follow the first tag. A Windows persona lists its `en-GB` voice set for `en-GB` and its `en-US` set for every other tag.
+
+### `--fingerprint-timezone`
+
+An IANA timezone name, such as `Europe/Berlin`. `Intl`, `Date` and the timezone a page reads follow it.
+
+- **Default.** The host's timezone. Behind a proxy that is the host's timezone and not the exit's.
+- An unknown name is logged as `apostate: unknown timezone 'Mars/Olympus'; keeping the host zone`, and the host's timezone stays. The Python and Node packages also write the value into `TZ`, where an unknown name leaves a page with no timezone, so pass a valid name.
+
+## WebRTC
+
+[WebRTC](/guides/webrtc) explains what these do to calls and how to check for leaks.
+
+### `--fingerprint-webrtc-ip`
+
+An IP address written into the host and server-reflexive ICE candidates in place of the real address. The browser does not check the value. Packets still leave from the real socket, so a peer can read the real source address off the packets it receives.
+
+Behind a proxy, the Node package passes the exit address from its GeoIP lookup as this switch. The Python package does not.
+
+### `--fingerprint-webrtc-udp`
+
+Where WebRTC's UDP traffic goes.
+
+| Value | Effect |
+| --- | --- |
+| absent | Without a proxy, UDP goes direct. Behind one SOCKS5 proxy, UDP is relayed through it. Behind any other proxy setup (HTTP, HTTPS or SOCKS4 proxies, PAC, per-scheme rules, several proxies, or a SOCKS5 proxy that refuses UDP), no WebRTC UDP socket is opened. |
+| `direct` | UDP leaves from the host even behind a proxy, so a peer sees the host's address. |
+| `block` | No WebRTC UDP socket is ever opened. |
+
+Any other value is logged and treated as `block`.
+
+## Readback noise
+
+### `--fingerprint-noise`
+
+Changes canvas and WebGL pixel readback by at most one step per colour channel, on pixels at colour edges, so two personas on one host give different canvas hashes. Solid areas and alpha stay as rendered. The change depends only on the profile and the pixels, so the same seed reads back the same bytes every time, and `getImageData`, `toDataURL`, `toBlob`, `convertToBlob` and WebGL `readPixels` agree with each other.
+
+- **Default.** Off. It does nothing in host mode.
+- **Value.** None. The browser checks only whether the switch is present, so `--fingerprint-noise=false` turns noise on. The Python and Node packages refuse `false`, `0`, `no`, `off`, `disable` and `disabled` as its value.
+- A page can detect the change, for example by drawing one image at two scales and comparing them. Leave it off unless canvas hashes must differ between personas on one host.
+
+## A profile you wrote
+
+### `--apostate-profile`
+
+Runs a profile you wrote instead of composing one. The value is the profile JSON, base64-encoded. [Profile schema](/reference/profile-schema) lists every field, and [Custom profiles](/guides/custom-profiles) shows how to write one.
+
+```bash
+python3 scripts/validate-release-contract.py --kind profile profile.json
+./chrome --apostate-profile="$(base64 < profile.json | tr -d '\n')"
+```
+
+- Only the sections the profile includes change. Every other value is the host's.
+- `--fingerprint`, `--fingerprint-platform`, `--fingerprint-anchor` and the per-field switches have no effect, and the browser logs which ones it ignored. The Python and Node packages refuse a profile together with `--fingerprint` in `args`.
+- A value that does not decode is refused:
+
+  ```text
+  apostate: --apostate-profile is not base64-encoded profile JSON, so the profile it names cannot be loaded and this launch stops rather than composing a different device and presenting it as the one you asked for. It takes the encoded bytes, not a path and not raw JSON: --apostate-profile="$(base64 < profile.json | tr -d '\n')".
+  ```
+
+The browser also uses this switch itself. It passes the composed profile to every child process in it, and the packages use it to carry proxy credentials. A value that carries only credentials does not stop composition.
+
+## Precedence
+
+Strongest first:
+
+1. `--apostate-profile` describing a device: your profile, nothing composed.
+2. `--fingerprint=host`: the real machine, nothing composed.
+3. Per-field switches: one value each, on top of the seed's machine.
+4. `--fingerprint=SEED`.
+5. The seed in `DIR/apostate/identity`, when `--user-data-dir=DIR` is set.
+6. A fresh seed from OS entropy.
+
+`--fingerprint-platform` and `--fingerprint-anchor` choose the persona and GPU family that the seed composes, at levels 3 to 6. Host mode refuses them and every per-field switch rather than ranking above them.
+
+## Chromium switches that matter
+
+| Switch | With Apostate |
+| --- | --- |
+| `--user-data-dir=DIR` | Keeps cookies and storage, and binds the machine to `DIR` through `DIR/apostate/identity`. The Python and Node packages set it through `launch_persistent_context` and `launchPersistentContext`. |
+| `--proxy-server=URL` | Accepts a credential in the URL, such as `socks5://user:pass@proxy.example:1080`. See [the proxy credential](#the-proxy-credential). |
+| `--headless=new` | Runs headless. The User-Agent keeps the `Chrome` token instead of `HeadlessChrome`. The packages pass it when `headless` is on. |
+| `--window-size=W,H` | Sets the window size. A per-field screen smaller than it is refused. |
+| `--lang=TAG` | No effect on a persona's locale. Use `--fingerprint-locale`. |
+| `--use-angle=BACKEND` | Changes how the host renders and tells the composer which host backend to assume. The GPU a page is told about stays the persona's. |
+| `--disable-gpu` | The composer treats the host as having no GPU. A Linux host with no usable render node is treated the same way. |
+| `--remote-debugging-pipe` | CDP over a pipe, with no port. Playwright and Patchright use it. |
+| `--remote-debugging-port=N` | CDP over a TCP port. The browser closes requests to the port that come from web pages. |
+| `--force-webrtc-ip-handling-policy=disable_non_proxied_udp` | Chromium's own WebRTC policy. The Node package adds it behind a proxy. The Python package does not. |
+| `--disable-component-update` | Stops every preinstalled component from registering, the Widevine CDM included. The packages remove it from Playwright's default switches unless you pass it in `args`. |
+
+Launching the browser with `--enable-automation`, `--headless`, `--remote-debugging-pipe` or `--remote-debugging-port` leaves `navigator.webdriver` false.
+
+### The proxy credential
+
+Stock Chromium rejects a credential in `--proxy-server`. Apostate takes it off the switch before Chromium parses it, holds it in memory for the launch, and answers the proxy's authentication with it. It does not appear in NetLog, error messages, `chrome://version` or `--fingerprint-explain`. Child processes receive it inside their `--apostate-profile` value, so `ps` on the host shows it base64-encoded.
+
+- Schemes that take a credential are `http`, `https`, `socks4` and `socks5`, and a bare `host:port`, which means HTTP. Use `socks5://`, which already resolves names on the proxy. `socks5h://` is refused with a credential.
+- Percent-encode `/`, `%` and spaces in the credential (`%2F`, `%25`, `%20`).
+- Refused: a credential on `direct://`, `quic://` or `socks5h://`, a malformed percent escape, a NUL byte, invalid UTF-8, a username or password over 4096 bytes, two proxies with different credentials, and a credential in both the URL and `--apostate-profile`. For example:
+
+  ```text
+  apostate: --proxy-server names more than one credential. Launch-only credentials are held once, for the whole launch, so a per-proxy credential cannot be honoured and is refused rather than silently applied to every proxy in the value.
+  ```
+
+[Proxies](/guides/proxies) covers the packages' `proxy` option and the GeoIP lookup through the proxy.

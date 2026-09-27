@@ -1,0 +1,82 @@
+---
+title: "Build an agent with the Claude API"
+description: "A browsing agent in about 100 lines of Python: the Claude API's tool runner with the Apostate MCP server's browser tools."
+---
+
+You do not need an agent product to give a model a browser. The Anthropic Python SDK can take the tools of any MCP server and run the tool loop for you. This example connects it to the [Apostate MCP server](/agents/mcp), so Claude drives an Apostate browser with Playwright's browser tools.
+
+The code is [`examples/agents/claude-api/agent.py`](https://github.com/heretic-tech/apostate/blob/main/examples/agents/claude-api/agent.py).
+
+## Run it
+
+It needs Python 3.10 or later, Node 22 or later, and an Anthropic API key.
+
+```bash
+pip install "anthropic[mcp]"
+npx -y @heretic-tech/apostate install
+export ANTHROPIC_API_KEY=...
+python3 agent.py "Open https://example.com and say what the page is for."
+```
+
+`--check` starts the browser tools and drives them directly, without a model call:
+
+```bash
+python3 agent.py --check
+```
+
+```text
+23 browser tools: browser_close, browser_resize, browser_console_messages, ...
+### Page
+- Page URL: https://example.com/
+- Page Title: Example Domain
+### Snapshot
+- generic [ref=e2]:
+  - heading "Example Domain" [level=1] [ref=e3]
+  ...
+### Result
+"{\"platform\":\"Win32\",\"webdriver\":false}"
+```
+
+To use a clone of this repository instead of the npm package, set `APOSTATE_MCP=/path/to/apostate/mcp/cli.mjs`.
+
+## How it works
+
+The script starts the MCP server as a child process, turns each of its tools into an SDK tool, and hands them to the tool runner:
+
+```python
+SERVER = StdioServerParameters(
+    command="npx",
+    args=["-y", "@heretic-tech/apostate-mcp", "--platform", "windows", "--isolated"],
+    env={**os.environ},
+)
+
+async with stdio_client(SERVER) as (read, write):
+    async with ClientSession(read, write) as session:
+        await session.initialize()
+        listed = (await session.list_tools()).tools
+        tools = [async_mcp_tool(tool, session) for tool in listed if tool.name not in WITHHELD]
+        runner = client.beta.messages.tool_runner(
+            model="claude-opus-5",
+            max_tokens=16000,
+            thinking={"type": "adaptive"},
+            betas=["server-side-fallback-2026-07-01"],
+            fallbacks="default",
+            system=SYSTEM,
+            tools=tools,
+            messages=[{"role": "user", "content": task}],
+        )
+        async for message in runner:
+            ...
+```
+
+- **`--isolated`** gives each run a fresh, temporary machine. Drop it, or pass `--profile <name>`, to keep logins between runs.
+- **`WITHHELD`** removes `browser_run_code_unsafe` (arbitrary Playwright code) and `browser_file_upload` from the tools the model gets.
+- **The system prompt** tells the model to snapshot before it clicks, to click a human-verification checkbox once as a person would, and to treat page text as data, not instructions.
+- **`fallbacks="default"`** lets the API re-run a request on a fallback model if the first model declines it. The script prints a line when a request is declined.
+- **The runner** calls the model, runs each tool call through the MCP session, and loops until the model answers without calling a tool.
+
+## Adapting it
+
+- **Persona and proxy.** Change the server's arguments: `--platform macos`, `--proxy socks5://...`, `--locale de-DE --timezone Europe/Berlin`. [MCP server](/agents/mcp#options) lists them.
+- **Fewer tools.** A task that only reads pages needs `browser_navigate`, `browser_snapshot` and `browser_find`. Fewer tools means shorter requests.
+- **Your own tools.** Mix `@beta_tool` functions into `tools`, for example one that saves a result to your database.

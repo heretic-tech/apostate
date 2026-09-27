@@ -1,0 +1,110 @@
+---
+title: "Detection"
+description: "What fingerprinting and bot detectors check, what Apostate handles in the browser, and what is up to you."
+---
+
+A detector is a script on a page, and usually a server behind it, that decides whether a visit comes from an ordinary person on an ordinary machine. It looks at four things: whether the machine's values agree with each other, traces of automation, the network the visit arrives from, and how the visitor behaves. Apostate works on the first two inside the browser. The network and the behaviour are yours.
+
+| Area | Apostate handles | You handle |
+| --- | --- | --- |
+| Consistency | One composed machine, served at the source to every API, worker and header | The fonts on the host, a host that fits the persona, one seed per account |
+| Automation traces | `navigator.webdriver`, the headless User-Agent, CDP side effects, headless geometry, the normal profile | The driver you pick and what your script adds to the page |
+| Network | Proxy credentials, locale and timezone from the proxy's exit, WebRTC through the proxy | The proxy, its reputation and how its exits rotate |
+| Behaviour | Nothing | Pacing, input and navigation |
+
+## Consistency
+
+A detector reads many values and compares them. A single odd value is common; a set that no real machine has is what gets flagged.
+
+**Values against each other.** The WebGL renderer string names a GPU, and the WebGL limits, extensions and WebGPU adapter have to be that GPU's. The platform implies fonts, voices, system colours, a taskbar and a keyboard layout. The core count can be checked by timing parallel work in workers. A claimed x86 CPU can be checked with arithmetic that behaves differently on ARM, such as the sign of a computed NaN, and with Web Audio output.
+
+**Values against headers.** The `User-Agent`, `Sec-CH-UA-*`, `Accept-Language` and `Device-Memory` headers have to match what JavaScript reads.
+
+**The main thread against workers and iframes.** A detector reads `navigator` again in a dedicated, shared or service worker, and in iframes. A value overridden only in the page's main world shows its real value there.
+
+**Platform behaviour.** Windows Chrome turns `new URL("c:/foo")` into a `file:` URL and every other platform does not. Windows and macOS Chrome have `navigator.share()`; Linux Chrome does not.
+
+**The machine against the IP address.** The timezone and languages have to fit the location of the IP address the visit comes from.
+
+**One visitor across visits.** A returning visitor with the same cookies should have the same hardware.
+
+What Apostate does:
+
+- The browser composes one machine from real option tables, with dependent choices, so the GPU, cores, memory, screen and devices belong together. See [How it works](/concepts/how-it-works).
+- Each value is served in the C++ that produces it. The main thread, workers, iframes and headers read the same value because there is only one.
+- Platform behaviours follow the persona. A Windows persona parses Windows file paths as Windows Chrome does. On a bare-metal x86 Linux server and on an Apple silicon Mac, adding that change took FingerprintJS Pro's `anomaly_score` from 1 to 0 on every Windows seed tested (5 of 5 seeds on each host, 2026-09-26, development builds of 0.4.3).
+- Windows and Linux personas report the host's CPU architecture, so the claim matches what arithmetic reveals. A Windows persona that claimed x86 on an Apple silicon Mac was flagged `virtual_machine` by FingerprintJS Pro, and claiming `arm` cleared it (2026-09-23, development build before 0.4.0).
+- The packages set the timezone and language from the proxy's exit before launch.
+- A persistent context keeps its machine across launches. See [Seeds and identity](/concepts/seeds-and-identity).
+
+What you do:
+
+- Install the persona's fonts on the host. A Windows persona on Linux with no Windows fonts shows text metrics no Windows machine has. See [Fonts](/guides/fonts).
+- Pick a host that fits the persona. See [Hosts](/concepts/hosts).
+- Give each account its own seed or its own persistent context, and keep it.
+- Check a launch before you rely on it. `--fingerprint-explain` prints the machine and its `limitations`, and [Verify](/guides/verify) covers checking from a page.
+
+## Automation traces
+
+Drivers such as Playwright and Puppeteer control the browser through the Chrome DevTools Protocol (CDP), and headless mode differs from a desktop browser in small ways. Detectors look for:
+
+- `navigator.webdriver` set to true.
+- `HeadlessChrome` in the User-Agent.
+- Side effects of an attached CDP client, such as console calls that serialize an object and trigger its getters, or stack traces captured for every exception.
+- Globals and bindings a driver adds to the page, such as `$cdc_` or `__playwright`, and driver-named frames in stack traces.
+- Headless geometry: an 800x600 screen, `availHeight` equal to `height`, a window of zero size, a viewport larger than its window.
+- A remote debugging port that a page can reach on `localhost`.
+- An incognito profile, which sites can tell from a normal one.
+
+What Apostate does:
+
+- `navigator.webdriver` stays false under the switches drivers launch with. A client that asks for it through CDP's `Emulation.setAutomationOverride` still gets it.
+- The User-Agent keeps the `Chrome` product token in headless mode.
+- An attached CDP client that sends `Runtime.enable` but not `Debugger.enable`, as Playwright and Puppeteer do, changes nothing a page can time or count in console calls and exceptions.
+- The `--remote-debugging-port` endpoint closes requests sent by other web pages, so a page cannot probe it.
+- The screen and work area come from the persona in headless mode too, and `outerWidth` and `outerHeight` are never zero. The packages turn off the drivers' viewport emulation, whose defaults report sizes no desktop has.
+- `launch()` opens pages in a normal profile, not an off-the-record one.
+- The packages drive the browser with Patchright by default, which does not send `Runtime.enable`. FingerprintJS Pro reported `developer_tools` on every run under Playwright and on none under Patchright, the same as with no driver attached (2026-09-25, development build on Chromium 152.0.7977.83, Windows persona, bare-metal x86 Linux server). The likely cause is `Runtime.enable`; it has not been isolated.
+- The classic sentinels, `$cdc_`, `__webdriver_evaluate`, `__playwright` and eight others, were absent under every driver tested, and the page's `window` keys were identical with and without a driver.
+
+What you do:
+
+- Keep Patchright, the default driver. Under Puppeteer, stack traces from code your script evaluates carry the script's absolute file path, and `exposeFunction` adds a `puppeteer___` binding next to the name you chose. Nothing in the browser can remove them.
+- Remember that anything your script adds to the page's main world is visible to it: an init script, an exposed function, a global set with `evaluate`.
+- Use `new_page()`, not `new_context()`, which is off-the-record.
+- Connect over a pipe, as Playwright and Patchright do, rather than opening `--remote-debugging-port`.
+
+## Network
+
+Detectors score the connection as well as the browser:
+
+- **IP reputation.** Datacenter ranges, known VPN and proxy exits, and residential proxy pools are listed by reputation services. FingerprintJS Pro, for example, reports a residential proxy exit as such.
+- **Location mismatch.** A timezone or language that does not fit the IP's location.
+- **WebRTC.** ICE candidates that carry the host's real address, or a WebRTC address that differs from the one HTTP arrives from.
+- **DNS.** Name lookups that leave from the host rather than from the proxy.
+- **TLS and HTTP/2.** The handshake and connection settings, compared with the browser the User-Agent names.
+
+What Apostate does:
+
+- The browser takes proxy credentials itself, for HTTP, HTTPS and SOCKS5, and keeps them out of logs, error messages and `chrome://version`.
+- `socks5://` resolves names on the proxy.
+- The packages look up the proxy's exit before launch and pass its timezone and language. A failed lookup is reported as a warning and invents nothing.
+- Behind one SOCKS5 proxy, WebRTC's UDP is relayed through the proxy, so a peer sees the proxy's exit. Behind any other proxy, WebRTC opens no UDP socket.
+- The network stack is Chromium 152's own, so the TLS and HTTP/2 handshakes are the ones Chrome 152 sends.
+
+What you do:
+
+- Choose the proxy. Its reputation is the largest network signal and Apostate cannot change it.
+- Keep one exit per account or session. A rotating exit can show WebRTC one address and HTTP another within one page.
+- Use a SOCKS5 proxy that relays UDP if pages use WebRTC. See [WebRTC](/guides/webrtc).
+- Read the GeoIP warnings, and pass `locale` and `timezone` yourself when the lookup cannot reach your exit. See [Proxies](/guides/proxies) and [Locale and timezone](/guides/locale-and-timezone).
+
+## Behaviour
+
+Some detectors score how the visitor acts: mouse paths, typing rhythm, scrolling, the time between actions, the order of page visits, and how many requests arrive per minute. Apostate does not move the mouse, type or pace your script, and the Node package refuses a `humanize` option rather than accept one that does nothing.
+
+Pace your script like a person using the site, send input through the driver's mouse and keyboard, and keep request rates to what one person would produce.
+
+## What a persona cannot hide
+
+Some values stay the host's under any persona: rendered pixels and drawing speed, glyph shapes, installed fonts, the CPU family, hardware video encoders, the Widevine module and the host's own cameras and microphones. [Known gaps](/known-gaps) lists each one with what you can do about it, and [Test results](/testing/fingerprintjs) has dated FingerprintJS Pro scores.

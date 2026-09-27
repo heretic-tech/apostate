@@ -1,0 +1,222 @@
+---
+title: "Captures"
+description: "Record what a real machine's browser shows a web page, and turn captures into profiles, table entries and GPU families."
+---
+
+A capture is a JSON record of what a real machine's Chrome shows a web page: 49 probes covering `navigator` and screen values, canvas pixels, WebGL and WebGPU parameters, an offline audio render, fonts, media devices, request headers and more. Personas are built from captures and measured against them. The project's captures are in `resources/fingerprints/raw/`.
+
+The tools are in `capture/`:
+
+| Path | Does |
+| --- | --- |
+| `capture/collector/` | The collector page. No dependencies and no build step |
+| `capture/server/receive.py` | Serves the page, checks each submitted capture and writes the admitted ones to disk |
+| `capture/collect-unattended.py` | Takes a capture on a Linux host with no display |
+| `capture/take-capture.sh` | Takes a capture on a rented Linux GPU host and submits it to a remote receiver |
+| `capture/schema/capture.schema.json` | The capture format |
+| `capture/derive/to_profile.py` | Turns one capture into a profile |
+
+## Rules
+
+1. **Measure or record the failure.** Each probe returns `ok`, `value`, `error` and `duration_ms`. A probe that throws records its error and a `null` value. The collector has no fallback values.
+2. **Keep raw values.** A capture stores the canvas PNG and its RGBA pixels, a 2,000-sample slice of the offline audio render, full client-rect coordinates and every queried WebGL parameter. Hashes are computed from the stored values, never stored instead of them.
+3. **Read twice.** 40 of the 49 probes run a second time in the same session, and both results are kept, in `probes` and `repeat`. A field that differs between the two reads is one that moves on real hardware.
+4. **Record the context.** Each capture records when it was taken, the device label, the User-Agent, the SHA-256 of the `collector.js` that measured it, the device pixel ratio, whether the page was a secure context, whether a window was on screen, and any automation signals.
+5. **No automation.** Captures come from a normal headed browser that nothing drives: no CDP, WebDriver, Playwright or Puppeteer. The receiver rejects a capture with any automation signal.
+6. **Capture machines you are allowed to measure.** The repository holds only captures the project took itself. It does not redistribute anyone else's fingerprint corpus.
+
+## Take a capture
+
+<Steps>
+  <Step title="Start the receiver">
+    From the repository root:
+
+    ```bash
+    python3 capture/server/receive.py --out resources/fingerprints/raw
+    ```
+
+    It listens on port 8777 and prints two URLs, one for this machine and one for other devices on the network.
+  </Step>
+
+  <Step title="Open the page in a normal Chrome window">
+    Open the URL on the machine you are capturing, in Google Chrome or Chromium of the release's major version (152, from `build/CHROMIUM_VERSION`). Enter a device name, such as `thinkpad-t14-win11`, and click **Run capture**. Allow the window-management prompt. If you decline it, the `screen.details` probe fails and the receiver rejects the capture.
+  </Step>
+
+  <Step title="Read the result">
+    The page posts the capture to the receiver. The receiver writes an admitted capture to `<out>/<sha256>.json`, where the hash is of the submitted bytes, records its decision in `<out>/admissions/<sha256>.json`, and prints a summary that names every failed probe and every probe that differed between the two reads.
+  </Step>
+</Steps>
+
+The page runs only in a secure context. Plain `http` is a secure context on `localhost` and `127.0.0.1` only. To capture another device, either serve the receiver over TLS with `--cert` and `--key`, or forward the port over SSH and open `http://localhost:8777/` on the device:
+
+```bash
+ssh -N -L 8777:127.0.0.1:8777 user@receiver-host
+```
+
+| Option | Default | Effect |
+| --- | --- | --- |
+| `--out` | `resources/fingerprints/raw` | Where admitted captures and admission records are written |
+| `--port` | `8777` | Listening port |
+| `--bind` | `0.0.0.0` | Listening address |
+| `--once` | off | Exit after the first stored capture |
+| `--cert`, `--key` | none | TLS certificate chain and private key. Both or neither |
+
+To compare an Apostate build with a capture, open the same page in the build and point `--out` at a scratch directory, not at `resources/fingerprints/raw`.
+
+### What the receiver admits
+
+The receiver rejects a capture, answers HTTP 422 with the reason, and records the reason and every failed probe's error under `admissions/`, when:
+
+- `capture_version` is not 2, or the capture has fields the schema does not list.
+- `context.secure_context` is not `true`.
+- Any automation signal is present, or `navigator.webdriver` is not `false`.
+- The User-Agent or a brand list contains `Headless`, names another browser (Edge, Opera, Brave, Vivaldi, Firefox, Electron and others), or reports a Chrome major other than 152.
+- Any probe failed, or one of the 36 probes that must be read twice is missing from `probes` or `repeat`.
+
+It does not keep the body of a rejected capture. A second submission of the same bytes gets HTTP 409.
+
+## Capture a host with no display
+
+`--headless` does not work, because the receiver rejects a `Headless` User-Agent. `capture/collect-unattended.py` runs a real headed browser on a virtual X display instead. It starts Xvfb, starts the receiver on `127.0.0.1` for one capture, grants the window-management permission in a fresh profile, opens the page with `?auto=1` so it runs without a click, and prints the admission decision:
+
+```bash
+python3 capture/collect-unattended.py --label linux-server --out ./captures --chrome /opt/chrome152/opt/google/chrome/google-chrome
+```
+
+| Option | Default | Effect |
+| --- | --- | --- |
+| `--label` | required | Device name recorded in the capture |
+| `--out` | required | Directory the receiver writes to |
+| `--chrome` | first of `google-chrome`, `google-chrome-stable`, `chromium`, `chromium-browser` on `PATH` | Browser binary |
+| `--display` | `:99` | X display. An X server already on it is reused |
+| `--screen` | `1920x1080x24` | Xvfb screen geometry |
+| `--port` | a free port | Receiver port |
+| `--timeout` | `300` | Seconds to wait for the submission |
+| `-- FLAGS` | none | Extra browser switches, such as `-- --enable-logging=stderr` |
+
+It exits 0 when the capture is admitted, 1 when it is rejected and 2 when nothing was submitted in time.
+
+The browser must be Chrome 152. Google's apt repository serves only the newest stable Chrome, but older `.deb` files stay in its pool. Unpack one beside the installed browser and pass it with `--chrome`:
+
+```bash
+curl -O https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_152.0.7977.82-1_amd64.deb
+dpkg-deb -x google-chrome-stable_152.0.7977.82-1_amd64.deb /opt/chrome152
+```
+
+The exact patch release in `build/CHROMIUM_VERSION` is not always in the pool. In September 2026 the pool had 152.0.7977.82 and not 152.0.7977.83. Any release with the same major is admitted.
+
+Under Xvfb the only GL driver is Mesa llvmpipe, which Chrome's software-rendering blocklist disables WebGL and WebGPU for. The `webgl1` and `webgl2` probes then measure nothing and the capture is rejected. The script passes `--enable-unsafe-swiftshader`, which allows WebGL's software fallback, so those probes measure SwiftShader. On a host where a GPU works, that switch changes nothing. `--use-gl=angle --use-angle=swiftshader` would replace the GL driver and turn a GPU host's capture into a software one. A capture taken this way describes SwiftShader, not the host's GPU, and the script prints the renderer it measured.
+
+As root the script adds `--no-sandbox`, which is itself a change from a normal launch. Run it as a normal user where you can.
+
+## Capture a rented GPU host
+
+`capture/take-capture.sh` captures the GPU of a rented Linux machine with an NVIDIA card. It installs the libraries Chrome needs with `apt-get`, downloads Chrome for Testing, starts Xvfb and opens the page of a remote receiver with `?auto=1`. It launches with `--use-angle=vulkan` for hardware WebGL under Xvfb and `--enable-features=Vulkan` so WebGPU reports an adapter. It reads the submission's HTTP status from a Chrome net log and exits non-zero if the receiver refused the capture.
+
+```bash
+CHROME_VERSION=152.0.7977.83 PROBE=https://receiver.example:8777 ./capture/take-capture.sh rtx-4090
+```
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `PROBE` | the maintainers' receiver | Receiver URL. Use `https` with a certificate Chrome trusts, from `receive.py --cert --key` |
+| `CHROME_VERSION` | `153.0.8010.52` | Chrome for Testing version. The receiver in this repository admits only 152, so set it |
+| `WORK` | `~/.apostate-capture` | Working directory for Chrome, the profile, the logs and the net log |
+| `SCREEN` | `1920x1080x24` | Xvfb screen geometry |
+| `DISPLAY_NUM` | `99` | X display number |
+
+After it reports success, check the capture on the receiver: the User-Agent names the Chrome version you set, `automation_signals` is empty and `headed` is true, `webgl1` and `webgl2` name the real GPU rather than SwiftShader or llvmpipe, and the WebGPU adapters are objects, not `null`.
+
+## Switches change the measurement
+
+A capture describes the browser as launched.
+
+| Switch | Effect on a capture |
+| --- | --- |
+| `--headless` | Rejected. The User-Agent says `Headless` |
+| `--disable-gpu` | GPU information outside WebGL reads `Disabled`, while WebGL still reports a real ANGLE renderer. No real user runs this way |
+| `--enable-unsafe-swiftshader` | Allows WebGL's software fallback where no GPU works. No effect where one does |
+| `--use-angle=swiftshader` | Replaces the GL driver, so even a GPU host captures a software renderer |
+| `--no-sandbox` | Needed as root. A change from a normal launch |
+
+## Format
+
+The format is defined in `capture/schema/capture.schema.json`. A capture has four top-level fields:
+
+| Field | Holds |
+| --- | --- |
+| `capture_version` | `2` |
+| `context` | `taken_at`, `label`, `ua`, `collector_sha256`, `device_pixel_ratio`, `secure_context`, `headed`, `automation_suspected`, `automation_signals`, and optional `notes` |
+| `probes` | One record per probe: `ok`, `value`, `error`, `duration_ms`, and `encoding` when the value is encoded |
+| `repeat` | The second read of each probe that runs twice, in the same shape |
+
+Common fingerprint formats store a hash of each render. A hash can tell two devices apart but cannot reproduce what either one drew, so a capture stores the pixels and samples themselves.
+
+## From captures to profiles and tables
+
+### A profile from one capture
+
+`capture/derive/to_profile.py` turns one capture into a profile you can launch with `--apostate-profile` ([Custom profiles](/guides/custom-profiles)). Fields the capture does not have are left out, so those values stay the host's. It refuses a capture with automation signals.
+
+```bash
+python3 capture/derive/to_profile.py resources/fingerprints/raw/windows-chrome-20260910T140813Z.json --out windows-profile.json
+```
+
+```text
+WARNING: memory.total_bytes = 16 GiB is deviceMemory's bucket, NOT installed RAM. deviceMemory saturates, so the real machine may have more. Replace it with the true installed figure before using this profile: the incognito storage quota is derived from it and a bucketed value produces a quota no real machine of that size reports.
+WARNING: screen.displays[0] has no measured avail_left, avail_top; those workarea origins remain inherited
+wrote windows-profile.json
+```
+
+Without `--out` it prints the profile. `python3 scripts/validate-release-contract.py --kind profile windows-profile.json` checks the result against the profile schema.
+
+### Blocks
+
+`scripts/decompose-capture.py` applies the same admission checks as the receiver, then splits an admitted capture into six blocks: `platform`, `gpu`, `display`, `hardware`, `locale` and `theme`. Each block records the capture it came from and its SHA-256. A `gpu` block also carries `caps_sha256`, a hash of the WebGL and WebGPU capabilities without the renderer and vendor strings, so two GPUs with equal `caps_sha256` report the same capabilities.
+
+```bash
+python3 scripts/decompose-capture.py resources/fingerprints/raw/windows-chrome-20260910T140813Z.json --out blocks
+```
+
+```text
+decomposed windows-chrome-20260910T140813Z.json
+  platform  blocks/platform/windows-chrome-20260910T140813Z-d15555bdf3dd.json caps=d15555bdf3dd
+  gpu       blocks/gpu/windows-chrome-20260910T140813Z-d04eff68ce21.json caps=b89f9e214e54  renderer=ANGLE (Intel, Intel(R) UHD Graphics 630 (0x00009BC8) Direct3D11 vs_5_0 ps_5_0, D3D11)
+  display   blocks/display/windows-chrome-20260910T140813Z-84cf0ce5b523.json caps=84cf0ce5b523
+  hardware  blocks/hardware/windows-chrome-20260910T140813Z-b2898bae97e2.json caps=b2898bae97e2
+  locale    blocks/locale/windows-chrome-20260910T140813Z-e4c379c9cb8c.json caps=e4c379c9cb8c
+  theme     blocks/theme/windows-chrome-20260910T140813Z-abbb47b373e2.json caps=abbb47b373e2
+```
+
+`--evidence` sets the evidence class of the blocks, `physical-ground-truth` by default. `--evidence compatibility-capture` needs `--evidence-source`. A `gpu` block whose renderer is a software or virtual rasteriser (SwiftShader, llvmpipe, Microsoft Basic Render Driver, VMware and others) is skipped unless you pass `--allow-software-gpu`. The build does not read blocks. Use them to compare captures part by part.
+
+`navigator.deviceMemory` is a rounded bucket, not the installed memory, so the `hardware` block leaves it out. To record the real amount, put a file next to the capture with the same name and the extension `.memory`, holding the installed memory in GiB. `resources/fingerprints/raw/m4-max-chrome-20260908T163229Z.memory` holds `36`. `to_profile.py` does not read this file and takes the bucket, which is why it prints the memory warning above.
+
+### Table entries
+
+The options a seed draws from are in `resources/profiles/dispersion/*.json`, one file per choice ([How it works](/concepts/how-it-works#composing-a-machine)). The tables are edited by hand. Each option has an `id`, a `weight`, a `value`, an `evidence` class and a `source`, and can have `requires` and a `note`. An option whose value was measured in a capture has the evidence class `physical-ground-truth` and names the capture file in `source`. The `macos-bundled` option in `voices.json`, for example, cites `resources/fingerprints/raw/m4-max-chrome-20260908T163229Z.json`.
+
+| Evidence | Meaning |
+| --- | --- |
+| `physical-ground-truth` | Measured on a physical device the project holds |
+| `public-corpus` | Weighted from a public corpus of real browser sessions kept outside the repository. `source` names the corpus and the counts |
+| `catalogue-value` | Written by hand from platform facts, and labelled as such in the option's `note` |
+| `compatibility-capture` | Measured from a runtime that is not a consumer machine, such as SwiftShader |
+
+`scripts/generate-dispersion-tables.py` compiles the tables into the browser during the build, and CI checks them with `scripts/profile_resolver.py --catalogue` and `scripts/test_profile_resolver.py`. Changing an axis's options can change the machine an existing seed draws on that axis ([Seeds and identity](/concepts/seeds-and-identity#updates-and-catalogue-changes)). When the composed profiles change, the golden digests need a refresh from a native build ([Releases](/contributing/releases#refresh-the-golden-profile-digests)).
+
+### GPU families
+
+A GPU family is a file in `corpus/anchors/` with the schema `apostate/corpus/anchor/1`. It lists its member captures by path and SHA-256, the WebGL1, WebGL2 and WebGPU capabilities they share, their render digests and their evidence class. The five families are:
+
+| File | Measured on |
+| --- | --- |
+| `windows-d3d11-nvidia-0947761dfbe9.json` | NVIDIA GeForce RTX 3070 Ti, NVIDIA RTX A4500 |
+| `windows-d3d11-intel-79dfeb5b4f99.json` | Intel UHD Graphics 630 |
+| `macos-metal-apple-850a91233555.json` | Apple M4 Max |
+| `linux-vulkan-nvidia-adf287b8f0ee.json` | NVIDIA GeForce RTX 4070 Ti SUPER, RTX 4080 SUPER, RTX 3090, RTX PRO 4000 Blackwell |
+| `linux-swiftshader-google-6922d61bab83.json` | SwiftShader, as a `compatibility-capture` |
+
+The GPU models a persona can name are the options in `resources/profiles/dispersion/gpu_identity.json`, grouped by family ([GPU models](/reference/gpu-models)). A model measured in a family carries that family's evidence class. A model that was not measured has the evidence class `catalogue-value` and a `member` block. The block holds the `label` the browser reports, and can name `webgpu_measured_on`, the measured model whose WebGPU adapter it presents, and the `webgpu_architecture` and `webgpu_subgroup_min_size` that follow the model's chip generation. `generate-dispersion-tables.py` refuses a model that is neither measured nor registered this way, and refuses an unmeasured model that claims `physical-ground-truth`.
+
+No script in the repository builds a new GPU family from captures yet. The five families are committed data.

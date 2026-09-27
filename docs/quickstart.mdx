@@ -1,0 +1,155 @@
+---
+title: "Quickstart"
+description: "Install Apostate, launch a Windows persona and check what a page sees."
+---
+
+This page takes you from nothing to a running Windows persona in Python or Node. It needs Python 3.10 or later, or Node 20 or later, on Linux x64, Linux arm64, macOS on Apple silicon or Windows x64.
+
+<Steps>
+  <Step title="Install the package">
+    <CodeGroup>
+    ```bash Python
+    pip install apostate
+    ```
+
+    ```bash Node
+    npm install @heretic-tech/apostate
+    ```
+    </CodeGroup>
+
+    The package brings Patchright, the driver it launches the browser with. Do not run `playwright install`: Apostate brings its own browser.
+  </Step>
+
+  <Step title="Download the browser">
+    The first launch downloads the browser (about 150 MB) and checks its SHA-256. To do it now instead:
+
+    <CodeGroup>
+    ```bash Python
+    apostate install
+    ```
+
+    ```bash Node
+    npx apostate install
+    ```
+    </CodeGroup>
+
+    Both packages share one install in your user cache directory, so installing with one serves the other.
+  </Step>
+
+  <Step title="Install the Windows fonts (Linux and macOS hosts)">
+    A Windows persona shows only Windows fonts that are installed on the host. On Linux or macOS, install them once:
+
+    ```bash
+    apostate fonts install windows
+    ```
+
+    It needs `git`. On Windows the fonts are already there. [Fonts](/guides/fonts) explains what this installs and where.
+  </Step>
+
+  <Step title="Launch a persona">
+    <CodeGroup>
+    ```python Python
+    from apostate import launch
+
+    browser = launch(fingerprint=42, fingerprint_platform="windows")
+    page = browser.new_page()
+    page.goto("https://example.com")
+    print(page.evaluate("""() => ({
+        platform: navigator.platform,
+        cores: navigator.hardwareConcurrency,
+        screen: [screen.width, screen.height, screen.availWidth, screen.availHeight],
+    })"""))
+    browser.close()
+    ```
+
+    ```javascript Node
+    import { launch } from "@heretic-tech/apostate";
+
+    const browser = await launch({ fingerprint: 42, fingerprintPlatform: "windows" });
+    const page = await browser.newPage();
+    await page.goto("https://example.com");
+    console.log(await page.evaluate(() => ({
+      platform: navigator.platform,
+      cores: navigator.hardwareConcurrency,
+      screen: [screen.width, screen.height, screen.availWidth, screen.availHeight],
+    })));
+    await browser.close();
+    ```
+    </CodeGroup>
+
+    Seed 42 as a Windows persona is a desktop with 12 cores and a 1920x1080 screen whose taskbar takes 48 pixels:
+
+    ```text
+    {'platform': 'Win32', 'cores': 12, 'screen': [1920, 1080, 1920, 1032]}
+    ```
+
+    Before the launch, the package looked up your IP address and gave the persona the timezone and language of its location. Behind a proxy it looks up the proxy's exit instead. On a host with fewer than 12 cores the count is lower, because a persona never claims more cores than the host has.
+  </Step>
+
+  <Step title="Read the whole machine">
+    `--fingerprint-explain` prints every value the seed chose and exits without opening a window:
+
+    ```bash
+    apostate run -- --fingerprint=42 --fingerprint-platform=windows --fingerprint-explain
+    ```
+
+    ```text
+    platform persona    windows
+    seed                42
+    reproduce with      --fingerprint=42
+
+    surface                   layer             evidence               value
+    anchor                    anchor            physical-ground-truth  windows-d3d11-intel-79dfeb5b4f99
+    os_release                dispersion        physical-ground-truth  windows-11
+    gpu_identity              dispersion        catalogue-value        d3d11-intel-uhd-graphics-770-4680
+    machine_class             dispersion        catalogue-value        win-sff-desktop
+    cpu                       dispersion        public-corpus          cores-12
+    memory                    dispersion        catalogue-value        gib-8
+    panel                     dispersion        public-corpus          fhd-1080p
+    ...
+    ```
+  </Step>
+</Steps>
+
+## Keep a machine between runs
+
+The same seed gives the same machine on every launch and every host. To keep cookies and logins as well, launch a persistent context. The first launch draws a machine and stores its seed in the directory; every later launch presents the same machine.
+
+<CodeGroup>
+```python Python
+from apostate import launch_persistent_context
+
+context = launch_persistent_context("./profiles/shop-account", fingerprint_platform="windows")
+page = context.new_page()
+page.goto("https://example.com")
+context.close()
+```
+
+```javascript Node
+import { launchPersistentContext } from "@heretic-tech/apostate";
+
+const context = await launchPersistentContext("./profiles/shop-account", { fingerprintPlatform: "windows" });
+const page = await context.newPage();
+await page.goto("https://example.com");
+await context.close();
+```
+</CodeGroup>
+
+[Seeds and identity](/concepts/seeds-and-identity) covers how long a machine lasts.
+
+## Next steps
+
+<Columns cols={2}>
+  <Card title="Proxies" icon="network" href="/guides/proxies">
+    Route through an HTTP or SOCKS5 proxy, with the locale and timezone of its exit.
+  </Card>
+  <Card title="Linux servers" icon="server" href="/guides/linux-servers">
+    Run headless or headed on a server with no GPU and no display.
+  </Card>
+  <Card title="AI agents" icon="bot" href="/agents/overview">
+    Connect Claude Code, Codex or another agent to Apostate.
+  </Card>
+  <Card title="Examples" icon="code" href="/examples/index">
+    Runnable scripts for common jobs, in Python and Node.
+  </Card>
+</Columns>

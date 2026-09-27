@@ -1,0 +1,113 @@
+---
+title: "Cursor, Gemini CLI and others"
+description: "Where each MCP client keeps its server list, with the Apostate entry for Cursor, Gemini CLI, VS Code, OpenCode and Windsurf."
+---
+
+Every client starts the same command: `npx -y @heretic-tech/apostate-mcp` with the [server's options](/agents/mcp#options). Only the file and its shape differ. Download the browser first so the first tool call does not wait for it:
+
+```bash
+npx -y @heretic-tech/apostate install
+```
+
+The entries below follow each client's documentation. The [Claude Code](/agents/claude-code) and [Codex](/agents/codex) setups were run end to end. Every file is in [`examples/agents/mcp/`](https://github.com/heretic-tech/apostate/tree/main/examples/agents/mcp).
+
+## Cursor
+
+Project: `.cursor/mcp.json`. Everywhere: `~/.cursor/mcp.json`.
+
+```json .cursor/mcp.json
+{
+  "mcpServers": {
+    "apostate": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@heretic-tech/apostate-mcp", "--platform", "windows"]
+    }
+  }
+}
+```
+
+Cursor expands `${env:NAME}`, `${userHome}` and `${workspaceFolder}` in `command`, `args` and `env`.
+
+## Gemini CLI
+
+User: `~/.gemini/settings.json`. Project: `.gemini/settings.json`.
+
+```bash
+gemini mcp add -s user apostate npx -- -y @heretic-tech/apostate-mcp --platform windows
+```
+
+```json ~/.gemini/settings.json
+{
+  "mcpServers": {
+    "apostate": {
+      "command": "npx",
+      "args": ["-y", "@heretic-tech/apostate-mcp", "--platform", "windows"],
+      "timeout": 600000
+    }
+  }
+}
+```
+
+Gemini CLI withholds inherited environment variables whose names contain `KEY`, `TOKEN`, `SECRET`, `PASSWORD`, `AUTH` or `CREDENTIAL`. `APOSTATE_PROXY` is passed through. `"trust": true` skips the confirmation for every tool call.
+
+## VS Code
+
+Workspace: `.vscode/mcp.json`. VS Code uses a `servers` key, not `mcpServers`.
+
+```json .vscode/mcp.json
+{
+  "servers": {
+    "apostate": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@heretic-tech/apostate-mcp", "--platform", "windows"]
+    }
+  }
+}
+```
+
+Leave `sandboxEnabled` off for this server: a browser does not start in a sandbox.
+
+## OpenCode
+
+Project: `opencode.json`. Global: `~/.config/opencode/opencode.json`. OpenCode takes the command and its arguments as one array, and names the environment block `environment`.
+
+```json opencode.json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "apostate": {
+      "type": "local",
+      "command": ["npx", "-y", "@heretic-tech/apostate-mcp", "--platform", "windows"],
+      "enabled": true,
+      "timeout": 120000
+    }
+  }
+}
+```
+
+The default `timeout` is 5 seconds, which a first `npx` run exceeds.
+
+## Windsurf
+
+Windsurf is now Devin Desktop. Its Cascade agent reads `~/.config/devin/mcp_config.json` (`%APPDATA%\devin\mcp_config.json` on Windows):
+
+```json ~/.config/devin/mcp_config.json
+{
+  "mcpServers": {
+    "apostate": {
+      "command": "npx",
+      "args": ["-y", "@heretic-tech/apostate-mcp", "--platform", "windows"]
+    }
+  }
+}
+```
+
+## Any other client
+
+A client that runs stdio MCP servers needs three things from you:
+
+- the command: `npx` with `-y @heretic-tech/apostate-mcp` and the server's options
+- a startup or request timeout of at least a minute, for the first run
+- the environment variables Apostate reads, if the client filters them: `APOSTATE_PROXY`, `APOSTATE_BINARY`, and `DISPLAY` for headed runs on Linux

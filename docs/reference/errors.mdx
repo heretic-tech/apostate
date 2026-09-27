@@ -1,0 +1,288 @@
+---
+title: "Errors"
+description: "The error classes of the Python and Node packages, and the common messages from the packages and the browser, each with its cause and fix."
+---
+
+Errors come from three places:
+
+- **The browser** refuses a switch by printing `apostate: <reason>` on stderr and exiting with status 1. The packages report that as a failed launch.
+- **The Python package** raises a subclass of `ApostateError`. [Python API](/reference/python-api#exceptions) lists the classes.
+- **The Node package** throws a subclass of `ApostateError` with a `code` string. [Node API](/reference/node-api#errors) lists the classes and codes.
+
+Neither package puts a proxy credential into a message. [Troubleshooting](/troubleshooting) starts from symptoms instead of messages.
+
+## Error classes
+
+| Python | Node | `code` | Meaning |
+| --- | --- | --- | --- |
+| `ApostateError` | `ApostateError` | `APOSTATE_ERROR` | Base class of every package error. |
+| `ConfigurationError` | `ProfileResolutionError`, or `TypeError` for a wrong option type | `PROFILE_RESOLUTION_FAILED` and [specific codes](/reference/node-api#errors) | A launch option or switch is refused. |
+| `ProfileError` | `ProfileResolutionError` | `PROFILE_RESOLUTION_FAILED` and specific codes | A profile is malformed or conflicts with another option. |
+| `GeoIPError`, `GeoIPUnavailableError` | `GeoIPError` | `GEOIP_LOOKUP_FAILED` | A direct GeoIP call failed. A launch turns a failed lookup into a warning. |
+| `BinaryError` | | | Base class for install errors in Python. |
+| `BinaryError` | `UnsupportedPlatformError` | `UNSUPPORTED_PLATFORM` | The host has no release build. |
+| `BinaryNotFoundError` | `MissingBinaryError` | `BINARY_NOT_FOUND` | A named browser path holds no browser. |
+| `ManifestError` | `ManifestError` | `INVALID_RELEASE_MANIFEST` | The release manifest is missing or invalid. |
+| `UnpublishedArtifactError` | `UnpublishedArtifactError` | `UNPUBLISHED_ARTIFACT` | No archive is published for this target, or the release could not be reached. |
+| `IntegrityError` | `BinaryIntegrityError` | `BINARY_HASH_MISMATCH` | A download does not match its SHA-256. |
+| `BinaryError` | `BinaryDownloadError` | `BINARY_DOWNLOAD_FAILED` | A download failed. |
+| `UnsupportedArchiveError` | `BinaryExtractionError` | `BINARY_EXTRACTION_FAILED` | The archive cannot be extracted. |
+| `LaunchError` | `BrowserLaunchError` | `BROWSER_LAUNCH_FAILED` | The driver, Xvfb or the browser could not start. |
+| `WidevineError` | `WidevineError` | `WIDEVINE_NOT_FOUND` | Provisioning could not install a Widevine CDM. |
+| | `UnsupportedFeatureError` | `UNSUPPORTED_FEATURE` | `humanize: true` was passed. |
+
+## Switches and seeds
+
+### A value above the host
+
+```text
+apostate: --fingerprint-hardware-concurrency=999 is above this host's 14 logical cores. A page can measure parallel throughput, so a count the machine cannot deliver is falsifiable in a way a lower count is not. Pass a value of 14 or less.
+apostate: --fingerprint-device-memory names 68719476736 bytes, which is above this host's 38654705664. A page can allocate until it fails, so claiming more memory than the machine has is falsifiable in a way claiming less is not.
+```
+
+**Cause.** A per-field switch asked for more cores or memory than the host has. **Fix.** Pass a value at or below the host's, or leave the switch out and let the seed choose. A seed's own draw is lowered to the host's automatically.
+
+### Host mode with a persona or override
+
+```text
+apostate: --fingerprint names an off value, so no profile is composed and --fingerprint-platform cannot take effect. Drop one of the two: --fingerprint=off for this machine's real fingerprint, or a seed for a composed one. --fingerprint-explain still works with either.
+```
+
+The Python and Node packages refuse the same combination before launch with `host inheritance disables every layer below it, so a platform persona cannot be applied at the same time` (Node code `APOSTATE_HOST_INHERITANCE_PERSONA`).
+
+**Cause.** `--fingerprint=host` (or `off`, `false`, `0`, `disable`, `disabled`) together with `--fingerprint-platform`, `--fingerprint-anchor` or a per-field switch. **Fix.** Drop one of them.
+
+### A GPU string from another family
+
+```text
+apostate: --fingerprint-gpu-renderer='...' names a GPU identity that was not measured on the capability cluster this host can serve. ... Servable on this host:
+  Google Inc. (Apple) / ANGLE (Apple, ANGLE Metal Renderer: Apple M1, Unspecified Version)
+  ...
+```
+
+**Cause.** `--fingerprint-gpu-renderer` or `--fingerprint-gpu-vendor` names a model that is not in the GPU family this launch drew. **Fix.** Use a string from the list in the message, or add `--fingerprint-anchor` with the family that has the model. [GPU models](/reference/gpu-models) lists every family's strings.
+
+### A screen that cannot hold the window
+
+```text
+apostate: the overridden screen is 1000x700, smaller than the --window-size this launch asked for (1200x800). A window larger than the screen it claims to be on is visible from JavaScript in one comparison.
+apostate: the overridden screen is 800x20, which the desktop furniture this seed drew does not fit inside (0+0 horizontal, 0+48 vertical). Choose a larger screen or a different seed.
+```
+
+**Cause.** `--fingerprint-screen-width` or `--fingerprint-screen-height` is smaller than `--window-size`, or too small for the taskbar or menu bar. **Fix.** Pass a larger screen or a smaller window.
+
+### A seed the browser cannot use
+
+```text
+apostate: --fingerprint was given a value that is empty, longer than 512 bytes or not printable ASCII, so the identity it names cannot be reproduced; pass --fingerprint=host to present this machine deliberately, or drop the switch for a fresh identity
+```
+
+The packages refuse such a seed earlier: Python with `fingerprint string must match [A-Za-z0-9][A-Za-z0-9._:-]*` or `fingerprint must be at most 512 bytes; the binary rejects a longer seed`, Node with `fingerprint must be a non-negative safe integer or a stable non-empty string.`
+
+**Cause.** The seed is empty, over 512 bytes, or contains a space or a character outside ASCII. **Fix.** Use letters, digits, `.`, `_`, `:` and `-`, starting with a letter or digit, such as `shop-account-1`.
+
+### An unknown or misspelt switch
+
+```text
+--fingeprint-platform is not a switch this browser reads and looks like a typo of --fingerprint-platform; Chromium would ignore it and leave that surface host-inherited
+--fingerprint-cores is not a switch this browser reads; Chromium would ignore it and leave that surface host-inherited. Supported: --apostate-profile, --fingerprint, ...
+```
+
+Python raises `ConfigurationError`. Node throws `ProfileResolutionError` with code `APOSTATE_MISSPELLED_FINGERPRINT_SWITCH` or `APOSTATE_UNKNOWN_FINGERPRINT_SWITCH`.
+
+**Cause.** A switch in `args` starts with `--fingerprint` but is not one the browser reads, or is within two edits of one. The browser would ignore it without a word. **Fix.** Use the spelling from [Switches](/reference/switches).
+
+### Noise turned off with a value
+
+```text
+--fingerprint-noise=false turns readback noise ON. The switch is presence-gated: the binary tests whether it is there, not what it is set to, so any value enables it. Noise is off by default; omit the switch to keep it off.
+```
+
+**Cause.** `--fingerprint-noise` with `false`, `0`, `no`, `off`, `disable` or `disabled`. **Fix.** Leave the switch out. Noise is off by default.
+
+### An unknown GPU family or platform
+
+These are logged, not refused. The launch goes ahead.
+
+```text
+apostate: --fingerprint-anchor named 'nope', which is not in the compiled catalogue
+apostate: the compiled catalogue cannot serve this launch; inheriting the host
+apostate: --fingerprint-platform named 'beos', which is not one of windows, macos or linux; the host's platform was used
+```
+
+**Cause.** A family id or platform name the browser does not know. With an unknown family the launch presents the host's own values on every surface. With an unknown platform it presents the host's default persona. **Fix.** Use an id from [GPU models](/reference/gpu-models) and `windows`, `macos` or `linux`.
+
+## Launch options
+
+### A persistent profile passed to `launch()`
+
+```text
+launch() returns a Browser and cannot take a persistent profile (user_data_dir); use launch_persistent_context(user_data_dir, ...), which returns the context bound to that directory. The identity is stable there with no flag.
+```
+
+Node throws the same with code `APOSTATE_USER_DATA_DIR_ON_LAUNCH`, and with `APOSTATE_USER_DATA_DIR_SWITCH_IN_ARGS` for `--user-data-dir` in `args`.
+
+**Cause.** `user_data_dir` or `userDataDir` passed to `launch()`, or `--user-data-dir` in `args`. **Fix.** Call `launch_persistent_context(path, ...)` or `launchPersistentContext(path, options)`.
+
+### A proxy switch in `args` (Node)
+
+```text
+--proxy-server cannot be passed in args; this package emits it itself. Pass proxy: "socks5://user:pass@host:port" instead, which sends the endpoint on the command line and the credential in the launch envelope. ...
+```
+
+Code `APOSTATE_PROXY_SWITCH_IN_ARGS`. **Fix.** Pass the proxy URL as the `proxy` option.
+
+### Options passed to `new_page()`
+
+```text
+new_page() opens a page in the launch's own profile, which takes its options (viewport) from launch(); pass them there, or use new_context(...), which is off-the-record
+```
+
+Node throws a `TypeError` with the same text for `newPage()`.
+
+**Cause.** Page options such as `viewport` given to the browser's `new_page()`. **Fix.** Pass them to `launch()`, which gives them to the profile's context, or open an off-the-record context with `new_context(...)`.
+
+### A profile and a seed together
+
+```text
+an authored profile and a --fingerprint seed cannot be combined: an --apostate-profile payload describing a device suppresses the browser's composition entirely, so the seed would be silently ignored and every surface the profile does not describe would stay host-inherited
+```
+
+Node code `APOSTATE_ENVELOPE_SEED_CONFLICT`.
+
+**Cause.** A `profile` that describes a device, and `--fingerprint` in `args`. **Fix.** Use one or the other. A profile you write replaces composition.
+
+### A profile that does not match the schema
+
+```text
+profile does not match config/profile.schema.json: $.cpu.cores: additional property is not allowed
+```
+
+Node reports the first problem, such as `profile.cpu.cores is not part of the schema.`
+
+**Cause.** An unknown key, a wrong type or a value out of range. **Fix.** Check the field in [Profile schema](/reference/profile-schema).
+
+### A profile name instead of a path
+
+```text
+catalogue profile ids were retired with catalogue version 1; catalogue version 2 composes a profile from anchors and dispersion instead of offering families, so there is no catalogue profile named 'windows-desktop' to resolve
+```
+
+Node code `APOSTATE_CATALOGUE_PROFILE_IDS_RETIRED`.
+
+**Cause.** `profile` is a string that does not look like a path. A string counts as a path when it ends in `.json`, contains a slash, starts with `.` or is absolute. **Fix.** Pass the file's path, such as `./profiles/desktop.json`, or the profile as a dict or object. To pick a persona, use `fingerprint_platform`.
+
+### No driver installed
+
+```text
+no Playwright-compatible driver is installed. Patchright is a required
+dependency of this package, so this is a partial install. Repair it:
+    pip install --force-reinstall patchright
+```
+
+Node says `npm install patchright` and throws `BrowserLaunchError`.
+
+**Cause.** Patchright is missing or broken, which means a partial install. **Fix.** Reinstall it as the message says. Neither package needs `playwright install`.
+
+## Installing the browser
+
+[Installation](/installation) covers the cache, mirrors and offline installs.
+
+### Nothing to download
+
+```text
+Release manifest is unpublished; Apostate binary artifacts are not available for acquisition. No release manifest for apostate-152.0.7977.83-linux-x64.tar.zst could be fetched. Tried: https://github.com/heretic-tech/apostate/releases/download/v0.4.3/..., https://github.com/heretic-tech/apostate/releases/latest/download/...
+```
+
+**Cause.** The package has no pinned manifest for this target, and the release manifest could not be fetched, usually because GitHub is unreachable. **Fix.** Check that the host can reach `github.com`, or point `APOSTATE_BINARY` at a browser you unpacked yourself.
+
+### A download that does not match
+
+```text
+downloaded Apostate artifact failed SHA-256 verification: expected <digest>, got <digest>. The archive was not opened.
+```
+
+Node says `SHA-256 mismatch for apostate-152.0.7977.83-linux-x64.tar.zst.`
+
+**Cause.** The download was cut short or corrupted, or a mirror in `APOSTATE_DOWNLOAD_BASE_URL` serves other bytes. **Fix.** Run `apostate install` again, and check the mirror.
+
+### A host with no build
+
+```text
+unsupported host binary target: darwin-x86_64
+Apostate does not ship a binary for host darwin/x64; supported targets are linux-x64, linux-arm64, macos-arm64, windows-x64.
+```
+
+**Cause.** The host is not Linux x64, Linux arm64, macOS on Apple silicon or Windows x64, such as an Intel Mac. **Fix.** Run on a supported host.
+
+### No zstd on Linux
+
+```text
+this Python cannot read a .tar.zst archive: upgrade to Python 3.14, run `pip install zstandard`, or install the `zstd` command line tool
+this system cannot read a .tar.zst archive: install the `zstd` command line tool, or a tar new enough to accept --zstd (tar reported: ...).
+```
+
+**Cause.** The Linux archives are `.tar.zst`. Python before 3.14 and Node before 22.15 cannot decompress zstd on their own. **Fix.** Install `zstd` (`apt install zstd`), or use the newer runtime.
+
+### GNU tar and a zip archive (Node on Windows)
+
+```text
+this system's `tar` cannot read a zip archive, which usually means GNU tar is ahead of bsdtar on PATH: run `tar --version`, and use bsdtar or libarchive's tar for this archive (tar reported: ...).
+```
+
+**Cause.** The Node package extracts the Windows and macOS zip archives with `tar`, and GNU tar cannot read zip. **Fix.** Put Windows' own `tar.exe` (bsdtar) first on `PATH`.
+
+### Downloading through a proxy (Node)
+
+```text
+Cannot download binary artifact through proxy socks5://proxy.example:1080 without a proxy-aware downloader.
+```
+
+`BinaryDownloadError`, code `BINARY_DOWNLOAD_FAILED`.
+
+**Cause.** A launch with `proxy` on a machine without the browser. The Node package does not download through the proxy. **Fix.** Run `npx apostate install` once without the proxy, or pass a `download` function that fetches through it.
+
+### A named browser that is not there
+
+```text
+APOSTATE_BINARY does not name a file: /opt/apostate/chrome
+APOSTATE_BINARY names a directory with no browser inside it (expected Chromium.app, chrome or chrome.exe): /opt/apostate
+binary_path does not name a file: /opt/apostate/chrome. Omit binary_path to let the package find an existing install, or download and verify the release artifact.
+```
+
+Node says `the configured path` for `executablePath` and `binaryPath`.
+
+**Cause.** `APOSTATE_BINARY`, `binary_path` or `executablePath` names a path with no browser. **Fix.** Name the executable, the `.app` bundle or the directory the archive unpacks to, or unset the variable.
+
+## Running
+
+### Xvfb is missing
+
+```text
+Xvfb is not installed; install it (apt install xvfb) or pass headless=True
+```
+
+Node says `headless: true`.
+
+**Cause.** A launch with `headless` off on a Linux host with no display. The package starts Xvfb for it, and Xvfb is not installed. **Fix.** `apt install xvfb`, or launch headless. [Linux servers](/guides/linux-servers) has the details.
+
+### The GeoIP lookup failed
+
+A warning, not an error. The launch goes ahead. Version 0.4.3 prints:
+
+```text
+apostate: GeoIP lookup failed for socks5://127.0.0.1:9: every GeoIP endpoint failed: 1 attempt across 1 endpoint (3s budget exhausted); last error: cannot reach the SOCKS5 proxy socks5://127.0.0.1:9: [Errno 61] Connection refused. No locale or timezone override is sent and none is invented, so the launch keeps the host's own locale and timezone. Behind a proxy that is the host's and not the exit's. Pass locale and timezone explicitly to guarantee a match.
+```
+
+Node prints the same after `[Apostate]`. A similar warning says when the lookup answered without a country or a timezone.
+
+**Cause.** The lookup could not reach any endpoint, or the proxy refused the connection. The persona then uses `en-US` and the host's timezone, which behind a proxy is not the exit's. **Fix.** Check the proxy, or pass `locale` and `timezone` yourself. [Locale and timezone](/guides/locale-and-timezone) covers the lookup.
+
+### The browser did not start
+
+```text
+native Apostate browser launch failed: <driver message>
+Unable to launch Apostate Chromium through patchright: <driver message>.
+```
+
+**Cause.** The driver or the browser failed after the package handed over, for example because the browser refused a switch. The driver's message follows, with any proxy URL removed. **Fix.** Run the same switches with `apostate run ... --fingerprint-explain` to see the browser's own `apostate:` message.

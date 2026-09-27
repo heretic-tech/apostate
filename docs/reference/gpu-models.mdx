@@ -1,0 +1,139 @@
+---
+title: "GPU models"
+description: "Every GPU model each GPU family can present, with its WebGL vendor and renderer strings and its share of the family."
+---
+
+This page is generated from [`resources/profiles/dispersion/gpu_identity.json`](https://github.com/heretic-tech/apostate/blob/main/resources/profiles/dispersion/gpu_identity.json) and [`resources/profiles/catalogue.json`](https://github.com/heretic-tech/apostate/blob/main/resources/profiles/catalogue.json) by `scripts/generate-docs-reference.py`.
+
+A GPU family is a set of WebGL and WebGPU values measured on real hardware. Every model in a family presents that family's values, with its own vendor and renderer strings, which a page reads as `UNMASKED_VENDOR_WEBGL` and `UNMASKED_RENDERER_WEBGL`. A seed draws a family for the persona's platform and then a model from the family. [GPU](/guides/gpu) explains how to choose one.
+
+- **Share** is the model's weight as a share of its family: the fraction of seeds that draw the family and present this model.
+- **Measured** models were captured on a machine with that GPU. The other models are registered on the family, and present the family's measured values with their own strings.
+
+To pin a family, pass its id to `--fingerprint-anchor`. To pin a model, pass its renderer string to `--fingerprint-gpu-renderer`. A renderer string from another family is refused. [Switches](/reference/switches) has both.
+
+## Windows, Intel, Direct3D 11
+
+The family id is `windows-d3d11-intel-79dfeb5b4f99`. Windows personas draw from this family. It has 12 models. It was measured on Intel(R) UHD Graphics 630.
+
+Every model's vendor string is `Google Inc. (Intel)`.
+
+| Model | Share | Measured | Renderer string |
+| --- | --- | --- | --- |
+| Intel(R) UHD Graphics 630 | 14.3% | yes | `ANGLE (Intel, Intel(R) UHD Graphics 630 (0x00009BC8) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| Intel(R) UHD Graphics 630 | 4.8% | no | `ANGLE (Intel, Intel(R) UHD Graphics 630 (0x00009BC5) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| Intel(R) UHD Graphics 630 | 8.6% | no | `ANGLE (Intel, Intel(R) UHD Graphics 630 (0x00003E98) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| Intel(R) UHD Graphics 630 | 7.6% | no | `ANGLE (Intel, Intel(R) UHD Graphics 630 (0x00003E92) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| Intel(R) UHD Graphics 630 | 4.8% | no | `ANGLE (Intel, Intel(R) UHD Graphics 630 (0x00003E91) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| Intel(R) UHD Graphics 630 | 7.6% | no | `ANGLE (Intel, Intel(R) UHD Graphics 630 (0x00003E9B) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| Intel(R) UHD Graphics 770 | 9.5% | no | `ANGLE (Intel, Intel(R) UHD Graphics 770 (0x00004680) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| Intel(R) UHD Graphics 730 | 4.8% | no | `ANGLE (Intel, Intel(R) UHD Graphics 730 (0x00004682) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| Intel(R) UHD Graphics 620 | 8.6% | no | `ANGLE (Intel, Intel(R) UHD Graphics 620 (0x00005917) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| Intel(R) UHD Graphics 620 | 6.7% | no | `ANGLE (Intel, Intel(R) UHD Graphics 620 (0x00003EA0) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| Intel(R) Iris(R) Xe Graphics | 12.4% | no | `ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x00009A49) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| Intel(R) Iris(R) Xe Graphics | 10.5% | no | `ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x000046A6) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+
+## Windows, NVIDIA, Direct3D 11
+
+The family id is `windows-d3d11-nvidia-0947761dfbe9`. Windows personas draw from this family. It has 45 models. It was measured on NVIDIA GeForce RTX 3070 Ti and NVIDIA RTX A4500.
+
+Every model's vendor string is `Google Inc. (NVIDIA)`.
+
+| Model | Share | Measured | Renderer string |
+| --- | --- | --- | --- |
+| NVIDIA GeForce RTX 3060 Ti | 4.3% | no | `ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Ti (0x00002486) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce RTX 3070 | 4.8% | no | `ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 (0x00002484) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce RTX 3070 Ti | 5.3% | yes | `ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 Ti (0x00002482) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce RTX 3080 | 4.3% | no | `ANGLE (NVIDIA, NVIDIA GeForce RTX 3080 (0x00002206) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce RTX 3080 Ti | 2.1% | no | `ANGLE (NVIDIA, NVIDIA GeForce RTX 3080 Ti (0x00002208) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce RTX 3090 | 1.6% | no | `ANGLE (NVIDIA, NVIDIA GeForce RTX 3090 (0x00002204) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA RTX A2000 | 1.1% | no | `ANGLE (NVIDIA, NVIDIA RTX A2000 (0x00002531) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA RTX A4000 | 1.6% | no | `ANGLE (NVIDIA, NVIDIA RTX A4000 (0x000024B0) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA RTX A4500 | 1.6% | yes | `ANGLE (NVIDIA, NVIDIA RTX A4500 (0x00002232) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce RTX 4090 | 2.1% | no | `ANGLE (NVIDIA, NVIDIA GeForce RTX 4090 (0x00002684) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce RTX 4080 SUPER | 1.6% | no | `ANGLE (NVIDIA, NVIDIA GeForce RTX 4080 SUPER (0x00002702) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce RTX 4080 | 1.6% | no | `ANGLE (NVIDIA, NVIDIA GeForce RTX 4080 (0x00002704) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce RTX 4070 Ti SUPER | 1.6% | no | `ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 Ti SUPER (0x00002705) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce RTX 4070 Ti | 2.7% | no | `ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 Ti (0x00002782) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce RTX 4070 SUPER | 2.7% | no | `ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 SUPER (0x00002783) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce RTX 4070 | 4.3% | no | `ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 (0x00002786) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce RTX 4060 Ti | 3.7% | no | `ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Ti (0x00002803) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce RTX 4060 | 5.3% | no | `ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 (0x00002882) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce RTX 3060 | 6.4% | no | `ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 (0x00002503) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce RTX 3050 | 2.7% | no | `ANGLE (NVIDIA, NVIDIA GeForce RTX 3050 (0x00002507) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce RTX 2080 Ti | 1.1% | no | `ANGLE (NVIDIA, NVIDIA GeForce RTX 2080 Ti (0x00001E04) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce RTX 2080 SUPER | 1.1% | no | `ANGLE (NVIDIA, NVIDIA GeForce RTX 2080 SUPER (0x00001E81) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce RTX 2080 | 1.1% | no | `ANGLE (NVIDIA, NVIDIA GeForce RTX 2080 (0x00001E82) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce RTX 2070 SUPER | 1.6% | no | `ANGLE (NVIDIA, NVIDIA GeForce RTX 2070 SUPER (0x00001E84) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce RTX 2070 | 1.6% | no | `ANGLE (NVIDIA, NVIDIA GeForce RTX 2070 (0x00001F02) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce RTX 2060 SUPER | 1.3% | no | `ANGLE (NVIDIA, NVIDIA GeForce RTX 2060 SUPER (0x00001F06) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce RTX 2060 | 2.7% | no | `ANGLE (NVIDIA, NVIDIA GeForce RTX 2060 (0x00001F08) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce GTX 1660 Ti | 2.1% | no | `ANGLE (NVIDIA, NVIDIA GeForce GTX 1660 Ti (0x00002182) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce GTX 1660 SUPER | 2.7% | no | `ANGLE (NVIDIA, NVIDIA GeForce GTX 1660 SUPER (0x000021C4) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce GTX 1660 | 1.6% | no | `ANGLE (NVIDIA, NVIDIA GeForce GTX 1660 (0x00002184) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce GTX 1650 | 3.7% | no | `ANGLE (NVIDIA, NVIDIA GeForce GTX 1650 (0x00001F82) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce GTX 1080 Ti | 1.1% | no | `ANGLE (NVIDIA, NVIDIA GeForce GTX 1080 Ti (0x00001B06) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce GTX 1080 | 1.1% | no | `ANGLE (NVIDIA, NVIDIA GeForce GTX 1080 (0x00001B80) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce GTX 1070 Ti | 0.8% | no | `ANGLE (NVIDIA, NVIDIA GeForce GTX 1070 Ti (0x00001B82) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce GTX 1070 | 1.3% | no | `ANGLE (NVIDIA, NVIDIA GeForce GTX 1070 (0x00001B81) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce GTX 1060 6GB | 2.7% | no | `ANGLE (NVIDIA, NVIDIA GeForce GTX 1060 6GB (0x00001C03) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce GTX 1060 3GB | 1.3% | no | `ANGLE (NVIDIA, NVIDIA GeForce GTX 1060 3GB (0x00001C02) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce GTX 1050 Ti | 2.1% | no | `ANGLE (NVIDIA, NVIDIA GeForce GTX 1050 Ti (0x00001C82) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce GTX 1050 | 1.1% | no | `ANGLE (NVIDIA, NVIDIA GeForce GTX 1050 (0x00001C81) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce RTX 5090 | 0.8% | no | `ANGLE (NVIDIA, NVIDIA GeForce RTX 5090 (0x00002B85) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce RTX 5080 | 0.8% | no | `ANGLE (NVIDIA, NVIDIA GeForce RTX 5080 (0x00002C02) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce RTX 5070 Ti | 1.1% | no | `ANGLE (NVIDIA, NVIDIA GeForce RTX 5070 Ti (0x00002C05) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce RTX 5070 | 1.3% | no | `ANGLE (NVIDIA, NVIDIA GeForce RTX 5070 (0x00002F04) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce RTX 5060 Ti | 1.3% | no | `ANGLE (NVIDIA, NVIDIA GeForce RTX 5060 Ti (0x00002D04) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+| NVIDIA GeForce RTX 5060 | 1.3% | no | `ANGLE (NVIDIA, NVIDIA GeForce RTX 5060 (0x00002D05) Direct3D11 vs_5_0 ps_5_0, D3D11)` |
+
+## macOS, Apple, Metal
+
+The family id is `macos-metal-apple-850a91233555`. macOS personas draw from this family. It has 12 models. It was measured on Apple M4 Max.
+
+Every model's vendor string is `Google Inc. (Apple)`.
+
+| Model | Share | Measured | Renderer string |
+| --- | --- | --- | --- |
+| Apple M1 | 8% | no | `ANGLE (Apple, ANGLE Metal Renderer: Apple M1, Unspecified Version)` |
+| Apple M1 Pro | 7% | no | `ANGLE (Apple, ANGLE Metal Renderer: Apple M1 Pro, Unspecified Version)` |
+| Apple M1 Max | 4% | no | `ANGLE (Apple, ANGLE Metal Renderer: Apple M1 Max, Unspecified Version)` |
+| Apple M2 | 9% | no | `ANGLE (Apple, ANGLE Metal Renderer: Apple M2, Unspecified Version)` |
+| Apple M2 Pro | 7% | no | `ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Pro, Unspecified Version)` |
+| Apple M2 Max | 5% | no | `ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Max, Unspecified Version)` |
+| Apple M3 | 8% | no | `ANGLE (Apple, ANGLE Metal Renderer: Apple M3, Unspecified Version)` |
+| Apple M3 Pro | 6% | no | `ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro, Unspecified Version)` |
+| Apple M3 Max | 5% | no | `ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Max, Unspecified Version)` |
+| Apple M4 | 12% | no | `ANGLE (Apple, ANGLE Metal Renderer: Apple M4, Unspecified Version)` |
+| Apple M4 Pro | 9% | no | `ANGLE (Apple, ANGLE Metal Renderer: Apple M4 Pro, Unspecified Version)` |
+| Apple M4 Max | 20% | yes | `ANGLE (Apple, ANGLE Metal Renderer: Apple M4 Max, Unspecified Version)` |
+
+## Linux, NVIDIA, Vulkan
+
+The family id is `linux-vulkan-nvidia-adf287b8f0ee`. Linux personas draw from this family. It has 11 models. It was measured on NVIDIA GeForce RTX 4070 Ti SUPER, NVIDIA GeForce RTX 4080 SUPER, NVIDIA GeForce RTX 3090 and NVIDIA RTX PRO 4000 Blackwell.
+
+Every model's vendor string is `Google Inc. (NVIDIA)`.
+
+| Model | Share | Measured | Renderer string |
+| --- | --- | --- | --- |
+| NVIDIA GeForce RTX 4060 | 9.1% | no | `ANGLE (NVIDIA, Vulkan 1.4.312 (NVIDIA NVIDIA GeForce RTX 4060 (0x00002882)), NVIDIA)` |
+| NVIDIA GeForce RTX 4060 Ti | 9.1% | no | `ANGLE (NVIDIA, Vulkan 1.4.312 (NVIDIA NVIDIA GeForce RTX 4060 Ti (0x00002803)), NVIDIA)` |
+| NVIDIA GeForce RTX 4070 | 12.7% | no | `ANGLE (NVIDIA, Vulkan 1.4.312 (NVIDIA NVIDIA GeForce RTX 4070 (0x00002786)), NVIDIA)` |
+| NVIDIA GeForce RTX 4070 SUPER | 9.1% | no | `ANGLE (NVIDIA, Vulkan 1.4.312 (NVIDIA NVIDIA GeForce RTX 4070 SUPER (0x00002783)), NVIDIA)` |
+| NVIDIA GeForce RTX 4070 Ti | 7.3% | no | `ANGLE (NVIDIA, Vulkan 1.4.312 (NVIDIA NVIDIA GeForce RTX 4070 Ti (0x00002782)), NVIDIA)` |
+| NVIDIA GeForce RTX 4070 Ti SUPER | 12.7% | yes | `ANGLE (NVIDIA, Vulkan 1.4.312 (NVIDIA NVIDIA GeForce RTX 4070 Ti SUPER (0x00002705)), NVIDIA)` |
+| NVIDIA GeForce RTX 4080 | 5.5% | no | `ANGLE (NVIDIA, Vulkan 1.4.312 (NVIDIA NVIDIA GeForce RTX 4080 (0x00002704)), NVIDIA)` |
+| NVIDIA GeForce RTX 4080 SUPER | 9.1% | yes | `ANGLE (NVIDIA, Vulkan 1.4.312 (NVIDIA NVIDIA GeForce RTX 4080 SUPER (0x00002702)), NVIDIA)` |
+| NVIDIA GeForce RTX 4090 | 7.3% | no | `ANGLE (NVIDIA, Vulkan 1.4.312 (NVIDIA NVIDIA GeForce RTX 4090 (0x00002684)), NVIDIA)` |
+| NVIDIA GeForce RTX 3090 | 12.7% | yes | `ANGLE (NVIDIA, Vulkan 1.4.312 (NVIDIA NVIDIA GeForce RTX 3090 (0x00002204)), NVIDIA)` |
+| NVIDIA RTX PRO 4000 Blackwell | 5.5% | yes | `ANGLE (NVIDIA, Vulkan 1.4.312 (NVIDIA NVIDIA RTX PRO 4000 Blackwell (0x00002C34)), NVIDIA)` |
+
+## Linux, SwiftShader software renderer
+
+The family id is `linux-swiftshader-google-6922d61bab83`. A seed never draws this family. Only `--fingerprint-anchor` selects it. It has 1 model. It was measured on SwiftShader Device (Subzero).
+
+Every model's vendor string is `Google Inc. (Google)`.
+
+| Model | Share | Measured | Renderer string |
+| --- | --- | --- | --- |
+| SwiftShader Device (Subzero) | 100% | yes | `ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)` |

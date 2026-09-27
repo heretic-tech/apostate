@@ -1,0 +1,147 @@
+---
+title: "Many sessions"
+description: "Run many browsers at once from Python or Node, with one machine and one proxy per browser, and what each browser costs in memory."
+---
+
+One session is one browser. Every page in a browser shares its machine, its proxy and its storage, so run one browser for each account or job you keep apart.
+
+## One machine per browser
+
+Give each browser either its own seed or its own user data directory.
+
+- **A seed** fixes the machine. `launch(fingerprint=seed)` presents the same machine on every launch, with a temporary profile that is deleted on close.
+- **A user data directory** keeps the machine together with cookies and storage. `launch_persistent_context(directory)` with no seed draws a machine on the first launch and stores its seed in `directory/apostate/identity`. [Seeds and identity](/concepts/seeds-and-identity) covers both.
+
+Two browsers cannot use one user data directory at the same time. The second launch fails with:
+
+```text
+LaunchError native Apostate browser launch failed: BrowserType.launch_persistent_context: Failed to create a ProcessSingleton for your profile directory. This usually means that the profile is already in use by another instance of Chromium.
+```
+
+A context from `new_context()` is off-the-record and shares its browser's machine, so it does not make a second session. [Known gaps](/known-gaps#new_context-is-incognito) has the details.
+
+## Run browsers concurrently
+
+This runs one persistent session per directory, each through its own proxy, with at most four browsers open at a time.
+
+<CodeGroup>
+```python Python
+import asyncio
+
+from apostate import launch_persistent_context_async
+
+SESSIONS = {
+    "./profiles/account-1": "socks5://user:pass@proxy.example:1080",
+    "./profiles/account-2": "socks5://user:pass@proxy.example:1081",
+    "./profiles/account-3": "socks5://user:pass@proxy.example:1082",
+}
+
+READ = """() => {
+    const gl = document.createElement("canvas").getContext("webgl");
+    const info = gl.getExtension("WEBGL_debug_renderer_info");
+    return `${navigator.hardwareConcurrency} cores, ${screen.width}x${screen.height}, `
+        + gl.getParameter(info.UNMASKED_RENDERER_WEBGL);
+}"""
+
+
+async def run(directory, proxy, limit):
+    async with limit:
+        context = await launch_persistent_context_async(
+            directory, fingerprint_platform="windows", proxy=proxy)
+        try:
+            page = await context.new_page()
+            await page.goto("https://example.com")
+            return directory, await page.evaluate(READ)
+        finally:
+            await context.close()
+
+
+async def main():
+    limit = asyncio.Semaphore(4)
+    results = await asyncio.gather(
+        *(run(directory, proxy, limit) for directory, proxy in SESSIONS.items()))
+    for directory, machine in results:
+        print(directory, machine)
+
+
+asyncio.run(main())
+```
+
+```javascript Node
+import { launchPersistentContext } from "@heretic-tech/apostate";
+
+const sessions = {
+  "./profiles/account-1": "socks5://user:pass@proxy.example:1080",
+  "./profiles/account-2": "socks5://user:pass@proxy.example:1081",
+  "./profiles/account-3": "socks5://user:pass@proxy.example:1082",
+};
+
+function read() {
+  const gl = document.createElement("canvas").getContext("webgl");
+  const info = gl.getExtension("WEBGL_debug_renderer_info");
+  return `${navigator.hardwareConcurrency} cores, ${screen.width}x${screen.height}, `
+    + gl.getParameter(info.UNMASKED_RENDERER_WEBGL);
+}
+
+async function run(directory, proxy) {
+  const context = await launchPersistentContext(directory, { fingerprintPlatform: "windows", proxy });
+  try {
+    const page = await context.newPage();
+    await page.goto("https://example.com");
+    return [directory, await page.evaluate(read)];
+  } finally {
+    await context.close();
+  }
+}
+
+// At most four browsers at a time.
+const queue = Object.entries(sessions);
+const results = [];
+async function worker() {
+  while (queue.length > 0) results.push(await run(...queue.shift()));
+}
+await Promise.all(Array.from({ length: 4 }, worker));
+for (const [directory, machine] of results) console.log(directory, machine);
+```
+</CodeGroup>
+
+```text
+./profiles/account-1 8 cores, 2560x1440, ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Ti (0x00002486) Direct3D11 vs_5_0 ps_5_0, D3D11)
+./profiles/account-2 8 cores, 1536x864, ANGLE (Intel, Intel(R) UHD Graphics 620 (0x00005917) Direct3D11 vs_5_0 ps_5_0, D3D11)
+./profiles/account-3 12 cores, 1920x1080, ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 (0x00002882) Direct3D11 vs_5_0 ps_5_0, D3D11)
+```
+
+The first run draws the three machines, so yours differ. Every later run prints the same three lines.
+
+For sessions with fixed seeds and no stored profile, [`async_sessions.py`](https://github.com/heretic-tech/apostate/blob/main/examples/python/async_sessions.py) and [`many-sessions.mjs`](https://github.com/heretic-tech/apostate/blob/main/examples/node/many-sessions.mjs) launch seeds 1, 2 and 3 at once.
+
+## One proxy per browser
+
+`proxy` applies to the whole browser, so every page you open from it uses that exit. Before each launch, the package looks up the exit's location through that proxy and gives the persona its locale and timezone, so sessions behind different exits get different ones. When you know each exit's location, pass `locale` and `timezone` and the launch makes no lookup. [Proxies](/guides/proxies) covers proxy URLs and sticky exits.
+
+## Memory
+
+Memory per browser, each with one page open, headless, Windows persona, apostate 0.4.3, measured 2026-09-27:
+
+| Host | Page | Browsers | Per browser |
+| --- | --- | --- | --- |
+| Apple M4 Max, macOS 26.6, 36 GiB | example.com | 1 | 307 MiB |
+| | example.com | 5 | 336 MiB |
+| | example.com | 10 | 343 MiB |
+| | a Wikipedia article | 1 | 372 MiB |
+| | a Wikipedia article | 5 | 409 MiB |
+| Debian 13 container on that Mac, linux-arm64, 14 CPUs, 16 GiB | example.com | 1 | 455 MiB |
+| | example.com | 5 | 353 MiB |
+| | example.com | 10 | 338 MiB |
+| | a Wikipedia article | 5 | 420 MiB |
+
+On macOS the figure is the summed physical footprint that `footprint` reports for the browser's processes (7 per browser). On Linux it is the summed PSS from `/proc/PID/smaps_rollup` (9 to 11 processes per browser). Summed RSS counts shared pages once per process and reads 2.2 to 3.2 times higher. Ten browsers had launched and loaded example.com within 4.2 seconds on the Mac and 3.4 seconds in the container.
+
+A headed launch on a server adds its own Xvfb, 37 MiB at the default 3840x2160.
+
+## Limits
+
+- **Memory.** Plan for 350 to 450 MiB per browser on light pages, and measure your own pages.
+- **Cores.** Every browser's persona is capped at the host's logical CPU count, not a share of it. All the browsers run on the same CPUs.
+- **GeoIP.** Each launch without both `locale` and `timezone` makes one lookup, through its proxy. A failed lookup does not stop the launch; the persona then uses `en-US` and the host's timezone. [Locale and timezone](/guides/locale-and-timezone#when-the-lookup-fails) has the details.
+- **Displays.** Each headed launch on a server starts its own Xvfb, on the next free display number from `:99` up.

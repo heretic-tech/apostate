@@ -1,0 +1,58 @@
+---
+title: "Apostate"
+description: "A Chromium build that presents a Windows, macOS or Linux machine you choose, driven from Python, Node or an AI agent."
+---
+
+Apostate is an anti-detect browser: a build of Chromium 152 that presents a machine you choose to every web page it opens. You pick a persona (Windows, macOS or Linux) and a seed, and the browser composes a whole machine to match: the User-Agent and Client Hints, a GPU with its WebGL and WebGPU values, CPU cores and memory, the screen and taskbar, system fonts, speech voices, cameras and speakers, keyboard layout, locale and timezone.
+
+The values are changed in Chromium's C++ at the place each one is produced. No JavaScript is injected into pages and no DevTools override is set, so there is no patched getter or extra script for a page to find. Workers, iframes and HTTP headers read the same values as the main page.
+
+Apostate is free and open source under GPL-3.0. There is no account, licence key or paid tier.
+
+## What you get
+
+- **The browser.** Release archives for Linux x64, Linux arm64, macOS arm64 and Windows x64, built from pinned sources with the patches in the repository.
+- **A Python package** (`pip install apostate`) and **a Node package** (`npm install @heretic-tech/apostate`). Both download and verify the browser, look up the proxy's location, and return a Playwright browser driven through Patchright. The Node package also drives Puppeteer.
+- **A command line.** `apostate install`, `apostate run`, `apostate fonts install windows` and more.
+
+```python
+from apostate import launch
+
+browser = launch(fingerprint=42, fingerprint_platform="windows")
+page = browser.new_page()
+page.goto("https://example.com")
+print(page.evaluate("navigator.platform"))  # Win32, on any host
+browser.close()
+```
+
+## Start here
+
+<Columns cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Install the package, launch a Windows persona and check what a page sees.
+  </Card>
+  <Card title="AI agents" icon="bot" href="/agents/overview">
+    Give Claude Code, Codex or your own agent a browser that works headless on a server.
+  </Card>
+  <Card title="Personas" icon="monitor" href="/concepts/personas">
+    What a persona covers and where each value comes from.
+  </Card>
+  <Card title="Test results" icon="flask-conical" href="/testing/results">
+    The test suite, and dated results from public detectors.
+  </Card>
+</Columns>
+
+## How a launch works
+
+1. The package resolves your options: seed, persona, proxy, and a locale and timezone from the proxy's exit.
+2. The browser starts with switches such as `--fingerprint=42 --fingerprint-platform=windows`.
+3. Before any other process starts, the browser composes the machine from the seed and passes the same profile to every child process.
+4. Each value is served from the Chromium code that produces it, so every API that reads it agrees.
+
+`--fingerprint-explain` prints the machine a launch would present, without opening a window:
+
+```bash
+apostate run -- --fingerprint=42 --fingerprint-platform=windows --fingerprint-explain
+```
+
+[How it works](/concepts/how-it-works) has the details, and [Known gaps](/known-gaps) lists what a page can still tell.

@@ -1,0 +1,216 @@
+---
+title: "Test your own defenses"
+description: "Sign up on your own site under several personas, seeds and host mode, and compare what your backend and your bot protection recorded for each visit."
+---
+
+You run bot protection on your site and want to see what it records when a browser presents a given machine. This walkthrough submits a signup form once for each of four personas and seeds and once in host mode, then prints what the backend received. Run it against sites you operate or are engaged to test.
+
+## What Apostate changes
+
+Each launch presents one composed machine. The `User-Agent` and `Sec-CH-UA-*` headers, `navigator`, `navigator.userAgentData`, the screen and the WebGL renderer all describe the same Windows, macOS or Linux machine, so the checks a backend runs between headers and JavaScript agree. A seed selects the machine, and a run with the same seed presents the same values. Host mode (`fingerprint="host"`) presents the host's own values from the same browser build, which gives you a baseline. [Personas](/concepts/personas) lists every value a persona sets.
+
+## Set up
+
+```bash
+pip install apostate
+apostate install
+apostate fonts install windows
+git clone https://github.com/heretic-tech/apostate.git
+cd apostate/examples/use-cases/test-your-own-defenses
+```
+
+`apostate fonts install windows` is for Linux and macOS hosts. [Fonts](/guides/fonts) explains it. The folder holds two files:
+
+- [`signup_site.py`](https://github.com/heretic-tech/apostate/blob/main/examples/use-cases/test-your-own-defenses/signup_site.py) serves a signup page on `127.0.0.1`. The page's own script collects a probe and posts it with the form. The server appends the request headers and the probe to `out/visits.jsonl`.
+- [`compare.py`](https://github.com/heretic-tech/apostate/blob/main/examples/use-cases/test-your-own-defenses/compare.py) submits the form once per run and prints what the server recorded.
+
+## The probe
+
+The page reads values that bot protection scripts commonly read:
+
+```python
+PROBE = """async () => {
+    const gl = document.createElement("canvas").getContext("webgl");
+    const info = gl && gl.getExtension("WEBGL_debug_renderer_info");
+    const uaData = navigator.userAgentData;
+    const high = uaData
+        ? await uaData.getHighEntropyValues(["architecture", "platformVersion"])
+        : {};
+    return {
+        userAgent: navigator.userAgent,
+        platform: navigator.platform,
+        uaDataPlatform: uaData ? uaData.platform : null,
+        uaDataPlatformVersion: high.platformVersion || null,
+        architecture: high.architecture || null,
+        webdriver: navigator.webdriver,
+        cores: navigator.hardwareConcurrency,
+        memory: navigator.deviceMemory,
+        languages: navigator.languages,
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        screen: [screen.width, screen.height, screen.availWidth, screen.availHeight],
+        webglRenderer: info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : null,
+    };
+}"""
+```
+
+The server stores the probe next to these request headers:
+
+```python
+HEADERS = ("User-Agent", "Accept-Language", "Sec-CH-UA", "Sec-CH-UA-Mobile", "Sec-CH-UA-Platform")
+```
+
+## The runs
+
+`compare.py` launches one browser per run, fills in the form and waits for the server's answer:
+
+```python
+RUNS = {
+    "windows-42": {"fingerprint": 42, "fingerprint_platform": "windows"},
+    "windows-7": {"fingerprint": 7, "fingerprint_platform": "windows"},
+    "macos-42": {"fingerprint": 42, "fingerprint_platform": "macos"},
+    "linux-42": {"fingerprint": 42, "fingerprint_platform": "linux"},
+    "host": {"fingerprint": "host"},
+}
+
+# One region for every run and no GeoIP lookup. Behind a proxy, leave these
+# out and the package sets them from the proxy's exit.
+REGION = {"locale": "en-US", "timezone": "America/New_York", "geoip": False}
+
+
+def sign_up(url, run, options):
+    with launch(**options, **REGION) as browser:
+        page = browser.new_page()
+        page.goto(tagged(url, run))
+        page.fill("#email", f"{run}@example.test")
+        page.click("button[type=submit]")
+        page.wait_for_selector("#result:not(:empty)")
+```
+
+For each record, it runs the checks a backend can make on a single request:
+
+```python
+def checks(headers, probe):
+    """The cross-checks a backend can run on one request. Returns the ones that failed."""
+    failed = []
+    if headers["User-Agent"] != probe["userAgent"]:
+        failed.append("User-Agent header differs from navigator.userAgent")
+    if (headers["Sec-CH-UA-Platform"] or "").strip('"') != probe["uaDataPlatform"]:
+        failed.append("Sec-CH-UA-Platform differs from userAgentData.platform")
+    if os_of_user_agent(probe["userAgent"]) != os_of_platform(probe["platform"]):
+        failed.append("User-Agent OS differs from navigator.platform")
+    if "HeadlessChrome" in headers["User-Agent"]:
+        failed.append("HeadlessChrome in User-Agent")
+    if probe["webdriver"]:
+        failed.append("navigator.webdriver is true")
+    if probe["screen"] == [800, 600, 800, 600]:
+        failed.append("800x600 screen with no taskbar, the headless default")
+    return failed
+```
+
+## Run it
+
+```bash
+python3 compare.py
+```
+
+```text
+run         User-Agent OS  Sec-CH-UA-Platform  navigator.platform  cores  memory  screen                checks
+windows-42  Windows        "Windows"           Win32               12     8       1920x1080 avail 1032  pass
+windows-7   Windows        "Windows"           Win32               12     16      1536x864 avail 824    pass
+macos-42    macOS          "macOS"             MacIntel            14     32      2560x1440 avail 1407  pass
+linux-42    Linux          "Linux"             Linux x86_64        12     32      3840x2160 avail 2128  pass
+host        macOS          "macOS"             MacIntel            14     32      800x600 avail 600     800x600 screen with no taskbar, the headless default
+
+windows-42  ANGLE (Intel, Intel(R) UHD Graphics 770 (0x00004680) Direct3D11 vs_5_0 ps_5_0, D3D11)
+windows-7   ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x000046A6) Direct3D11 vs_5_0 ps_5_0, D3D11)
+macos-42    ANGLE (Apple, ANGLE Metal Renderer: Apple M4 Max, Unspecified Version)
+linux-42    ANGLE (NVIDIA, Vulkan 1.4.312 (NVIDIA NVIDIA GeForce RTX 4070 Ti SUPER (0x00002705)), NVIDIA)
+host        ANGLE (Apple, ANGLE Metal Renderer: Apple M4 Max, Unspecified Version)
+
+Full records: out/visits.jsonl
+```
+
+This output is from Apostate 0.4.3 on an Apple silicon Mac with 14 cores.
+
+- Every persona passes every check. Its headers and its JavaScript values name the same platform.
+- Seeds 42 and 7 are two different Windows machines, with different memory, screens and GPUs.
+- The `host` row is the Mac itself. Headless host mode reports Chrome's headless 800x600 screen with no taskbar, and the last check flags it. A persona reports its own screen in headless mode too.
+- Core and memory counts depend on the host as well as the seed. [The host cap](/concepts/seeds-and-identity#the-host-cap) explains how.
+
+Each line of `out/visits.jsonl` is one signup as your backend would log it. The `windows-42` record:
+
+```json
+{
+    "time": "2026-09-27T17:26:59+00:00",
+    "path": "/signup?run=windows-42",
+    "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Sec-CH-UA": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Google Chrome\";v=\"152\"",
+        "Sec-CH-UA-Mobile": "?0",
+        "Sec-CH-UA-Platform": "\"Windows\""
+    },
+    "email": "windows-42@example.test",
+    "probe": {
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
+        "platform": "Win32",
+        "uaDataPlatform": "Windows",
+        "uaDataPlatformVersion": "19.0.0",
+        "architecture": "arm",
+        "webdriver": false,
+        "cores": 12,
+        "memory": 8,
+        "languages": [
+            "en-US",
+            "en"
+        ],
+        "timeZone": "America/New_York",
+        "screen": [
+            1920,
+            1080,
+            1920,
+            1032
+        ],
+        "webglRenderer": "ANGLE (Intel, Intel(R) UHD Graphics 770 (0x00004680) Direct3D11 vs_5_0 ps_5_0, D3D11)"
+    }
+}
+```
+
+`architecture` is `arm` because a persona reports the host's CPU architecture, and this host is an Apple silicon Mac. [Detection](/concepts/detection#consistency) explains why.
+
+## Test your staging site
+
+Pass your own page with `--url`. The script opens it once per run with `?run=<name>` added to the URL, waits until the network is idle so that your detection script has run, and prints the time in UTC and what the browser presented:
+
+```bash
+python3 compare.py --url https://example.com/signup
+```
+
+```text
+17:27:10 UTC  https://example.com/signup?run=windows-42
+    Win32, 12 cores, 8 GB, America/New_York, ANGLE (Intel, Intel(R) UHD Graphics 770 (0x00004680) Direct3D11 vs_5_0 ps_5_0, D3D11)
+17:27:25 UTC  https://example.com/signup?run=windows-7
+    Win32, 12 cores, 16 GB, America/New_York, ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x000046A6) Direct3D11 vs_5_0 ps_5_0, D3D11)
+17:27:42 UTC  https://example.com/signup?run=macos-42
+    MacIntel, 14 cores, 32 GB, America/New_York, ANGLE (Apple, ANGLE Metal Renderer: Apple M4 Max, Unspecified Version)
+17:27:57 UTC  https://example.com/signup?run=linux-42
+    Linux x86_64, 12 cores, 32 GB, America/New_York, ANGLE (NVIDIA, Vulkan 1.4.312 (NVIDIA NVIDIA GeForce RTX 4070 Ti SUPER (0x00002705)), NVIDIA)
+17:28:10 UTC  https://example.com/signup?run=host
+    MacIntel, 14 cores, 32 GB, America/New_York, ANGLE (Apple, ANGLE Metal Renderer: Apple M4 Max, Unspecified Version)
+```
+
+Find each visit in your server logs and in your detection vendor's dashboard by its `run` parameter or its time, and read the verdict the vendor gave it: the score, the bot flag, the rule that fired. Compare the persona runs with the `host` run. Runs start 10 to 15 seconds apart. Change the 10 seconds with `--delay`.
+
+`--url` only loads the page. To submit your real form, copy `sign_up()` and change its selectors to your form's, with a test address your backend can clean up.
+
+<Note>
+Cloudflare Turnstile's test sitekeys give a fixed answer for every browser: `1x00000000000000000000AA` always passes and `2x00000000000000000000AB` always fails. To see how Turnstile treats a persona, use your real sitekey on a staging hostname that you added to the widget.
+</Note>
+
+## Points for this job
+
+- **Seeds.** Fixed seeds make each run repeatable, so a change in your rules shows as a different verdict for the same machine. To sample new machines instead, leave out `fingerprint`, and each launch draws one. [Seeds and identity](/concepts/seeds-and-identity) covers both.
+- **Proxies.** These runs come from `127.0.0.1` or from your own network. Bot protection weighs the IP address heavily ([Detection](/concepts/detection#network)). To include it in a test, add `proxy` to a run and remove `REGION` from its launch, so the package sets locale and timezone from the proxy's exit. [Proxies](/guides/proxies) covers proxy URLs.
+- **Behaviour.** `page.fill()` and `page.click()` send input with no mouse path and no typing rhythm. A product that scores behaviour sees that. [Detection](/concepts/detection#behaviour) covers what is up to your script.
+- **Headless or headed.** The runs are headless, the packages' default. On a Linux server, `headless=False` needs Xvfb installed ([Linux servers](/guides/linux-servers)).
+- **Public test pages.** [Verify](/guides/verify) lists public pages that report what a detector sees.

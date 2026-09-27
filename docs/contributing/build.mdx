@@ -1,0 +1,162 @@
+---
+title: "Build from source"
+description: "Build the Apostate browser for Linux, macOS or Windows from the pinned Chromium tag and the patch series."
+---
+
+Apostate is Chromium 152.0.7977.83 with the patches in `patches/` applied in the order `patches/series` lists them. Every input is pinned in `build/`, and every step is a script in `scripts/`. A full build takes hours, so compile the files a patch touches first with `scripts/checkfile.sh` ([Patches](/contributing/patches#check-a-patch-before-a-full-build)).
+
+## Targets
+
+| Target | Build host | How |
+| --- | --- | --- |
+| `linux-x64` | Linux x86_64 | In the pinned Docker container |
+| `linux-arm64` | Linux x86_64 | Cross-built in the same container |
+| `macos-arm64` | macOS on Apple silicon | Native |
+| `windows-x64` | Windows x64 | Native, against Visual Studio 2022 |
+
+An arm64 Linux machine cannot build either Linux target, because the container needs an x86_64 host. A `linux-arm64` build cannot run on the machine that built it, so `scripts/smoke-binary.sh` checks the ELF machine type of that binary instead of running it.
+
+## What the host needs
+
+- **Every host.** Python 3, Git, and free space in the workspace: 68 GB for `linux-x64`, `linux-arm64` and `macos-arm64`, 46 GB for `windows-x64`. `scripts/bootstrap.sh` stops below that and warns below 100 GB. After the checkout, `scripts/fetch-sources.sh` stops if less than 20 GB is left for build output.
+- **Linux.** Docker with a running daemon, `tar` that writes zstd, and `sudo` with `apt`, because `fetch-sources.sh` runs Chromium's `build/install-build-deps.sh` on the host.
+- **macOS.** Xcode or the Command Line Tools with the macOS 26.5 SDK (build 25F70), and `tar` that writes zstd. The build uses the pinned SDK even when a newer Xcode is active, because the Xcode 27.0 SDK's `libSystem.tbd` declares a target the bundled linker cannot parse.
+- **Windows.** Git for Windows (the scripts run in its bash), 7-Zip, Visual Studio 2022 with the C++ x64 toolset and ATL, the Windows 11 SDK 10.0.26100.7705 with Debugging Tools for Windows, and the Visual C++ Redistributable (x64). `scripts/provision-windows-toolchain.sh` installs the Visual Studio components and the SDK parts that are missing.
+
+`scripts/verify-host-tooling.sh` lists everything a target needs that the host lacks, in one run:
+
+```bash
+scripts/verify-host-tooling.sh macos-arm64
+```
+
+```text
+host tooling for macos-arm64 (Darwin arm64)
+  python3 present
+  git present
+  tar present
+  tar can write .tar.zst
+  xcodebuild present
+  xcrun present
+  plutil present
+host tooling complete for macos-arm64
+```
+
+## Pins
+
+| File | Pins |
+| --- | --- |
+| `build/CHROMIUM_VERSION` | Chromium tag `152.0.7977.83` |
+| `build/DEPOT_TOOLS_REVISION` | depot_tools commit `4bf5898c4b96e8f35b9912a2d65417ff7d8dcfce` |
+| `build/args/common.gni` | GN args for every target: official build, proprietary codecs, Widevine support without a bundled CDM, no field-trial testing config |
+| `build/args/<target>.gn` | GN args for one target |
+| `build/MAC_SDK_VERSION`, `build/MAC_SDK_BUILD` | macOS SDK `26.5`, build `25F70` |
+| `build/WINDOWS_SDK_VERSION` | Windows SDK directory version `10.0.26100.0`, which `configure.sh` checks against Chromium's `build/vs_toolchain.py` |
+| `build/WINDOWS_SDK_INSTALLER_URL`, `_VERSION`, `_SHA256` | The SDK installer `provision-windows-toolchain.sh` runs, revision `10.0.26100.7705` |
+| `build/WINDOWS_SDK_PACKAGES`, `build/WINDOWS_SDK_REQUIREMENTS` | SDK header and library packages by SHA-256, and the symbols and file versions that prove the SDK revision |
+| `build/WINDOWS_VS_COMPONENTS` | Visual Studio components, each with a file that proves it is installed |
+| `build/linux/Dockerfile` | The Linux container: Ubuntu by image digest and the apt snapshot of 2026-09-10 |
+| `build/widevine-local.json` | Version and hashes of the Widevine CDM `scripts/provision-widevine.py` accepts |
+| `patches/series` | Which patches apply, and in what order |
+
+`scripts/lib.sh` exports `DEPOT_TOOLS_UPDATE=0`, so depot_tools stays at its pinned commit. Do not run `gclient sync` yourself. `scripts/fetch-sources.sh` syncs to the pinned tag. `build/MANIFEST.lock` is output, not input. `scripts/build.sh` writes the inputs and output hashes of the last build into it.
+
+## Build step by step
+
+The checkout lives in `.workspace/` in the repository. Set `APOSTATE_WORKSPACE` to put it elsewhere. Set the target first. `bootstrap.sh` reads it for the disk check, and `fetch-sources.sh` writes it into `.gclient`, so a `linux-arm64` checkout also fetches the arm64 dependencies. Then run the scripts in order:
+
+```bash
+export APOSTATE_TARGET=linux-x64
+
+scripts/verify-host-tooling.sh $APOSTATE_TARGET
+scripts/bootstrap.sh                                # pinned depot_tools, disk check
+scripts/fetch-sources.sh                            # Chromium at the pinned tag, gclient sync, hooks
+scripts/apply-patches.sh                            # patches/series in order, no fuzz
+scripts/run-chromium-hooks.sh $APOSTATE_TARGET      # Linux targets only
+scripts/prepare-linux-sysroot.sh $APOSTATE_TARGET   # Linux targets only
+scripts/configure.sh $APOSTATE_TARGET               # common and target GN args, gn gen
+scripts/build.sh $APOSTATE_TARGET                   # ninja, then build/MANIFEST.lock
+scripts/smoke-binary.sh $APOSTATE_TARGET
+scripts/package-artifact.sh $APOSTATE_TARGET "$PWD/apostate-152.0.7977.83-$APOSTATE_TARGET.tar.zst"
+```
+
+On Windows, run `scripts/provision-windows-toolchain.sh` before `bootstrap.sh`.
+
+The browser is written to `.workspace/src/out/<target>/`: `chrome` on Linux, `Chromium.app` on macOS, `chrome.exe` on Windows. `build.sh` does not apply patches. After you change a patch, run `apply-patches.sh` again before you build.
+
+`package-artifact.sh` writes three things:
+
+- The archive. Its name must be one the release policy lists: `apostate-152.0.7977.83-<target>.tar.zst` for the Linux targets, `apostate-152.0.7977.83-<target>.zip` for macOS and Windows. Any other name is refused.
+- `<archive>.manifest.json` beside it, with the archive's SHA-256 and the fields a release manifest carries ([Releases](/contributing/releases#archives-and-manifests)).
+- The staging directory the archive was made from, named like the archive without its extension.
+
+The archive holds the browser, `LICENSE`, `build/MANIFEST.lock` and `resources/profiles/`. On macOS it packages the signed bundle when [`sign-macos.sh`](#sign-on-macos) produced one.
+
+### Settings
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `APOSTATE_TARGET` | This host's target | The target `bootstrap.sh` and `fetch-sources.sh` prepare for |
+| `APOSTATE_WORKSPACE` | `.workspace` in the repository | Where the checkout, depot_tools and output live |
+| `APOSTATE_JOBS` | 75% of the CPUs | ninja's job count |
+| `APOSTATE_FRESH_BUILD` | unset | `1` makes `configure.sh` delete `out/<target>` first, and `build.sh` records a fresh build |
+| `GOOGLE_API_KEY`, `GOOGLE_DEFAULT_CLIENT_ID`, `GOOGLE_DEFAULT_CLIENT_SECRET` | unset | Google API keys, read by GN when `configure.sh` runs |
+
+A build with `GOOGLE_API_KEY` lists Google's network speech voices and speaks through them. The key is compiled into the binary, and anyone who downloads the binary can extract it. On the Linux targets, `configure.sh` runs in the container, which does not receive these variables, so a Linux build has no keys.
+
+`scripts/apply-patches.sh --check` reports whether the series is applied without changing anything. It exits 0 when the series is applied or the tree is pristine, and 3 when a real run would reset and reapply. A normal run does nothing when the applied series is current. Otherwise it resets every file the series touches and applies the whole series again.
+
+## The Linux container
+
+On Linux, `configure.sh`, `build.sh`, `checkfile.sh`, `checkseries.sh`, `run-chromium-hooks.sh` and `verify-reproducible.sh` re-run themselves inside the container, so you call them the same way on every host. `scripts/in-linux-build-container.sh` builds a `linux/amd64` image from `build/linux/Dockerfile` and Chromium's own dependency installer at the pinned tag, then runs one repository script in it with the network off and only the repository and workspace mounted. The image tag is a hash of its inputs, so a change to any input builds a new image.
+
+```bash
+scripts/in-linux-build-container.sh --prepare
+scripts/in-linux-build-container.sh scripts/build.sh linux-x64
+```
+
+`--prepare` builds the image and runs nothing. It needs a fetched checkout, because the dependency installer comes from it. `--user UID:GID` runs the script as another user. Each run writes a receipt with the image ID and a hash of the installed package list to `$APOSTATE_WORKSPACE/build-container/current.json`.
+
+`prepare-linux-sysroot.sh` runs on the host, not in the container, because it downloads. It installs the Debian bullseye sysroot the checkout's `build/linux/sysroot_scripts/sysroots.json` pins for the target, and records a hash of the extracted tree in `$APOSTATE_WORKSPACE/sysroot-receipts/<target>.json`. A later run fails if the tree no longer matches that hash.
+
+## Sign on macOS
+
+`scripts/sign-macos.sh macos-arm64` signs `Chromium.app` with a Developer ID certificate, notarizes and staples it, and writes the result to `$APOSTATE_WORKSPACE/signed/macos-arm64/`. It leaves `out/` as built, so the hashes in `build/MANIFEST.lock` still describe what ninja produced. `package-artifact.sh` packages the signed copy when there is one.
+
+The script reads six variables:
+
+| Variable | Value |
+| --- | --- |
+| `APPLE_DEVELOPER_ID_P12_BASE64` | The Developer ID Application certificate and private key, exported as `.p12`, in base64 |
+| `APPLE_DEVELOPER_ID_P12_PASSWORD` | The export password of that `.p12` |
+| `APPLE_SIGNING_IDENTITY` | The certificate's common name, such as `Developer ID Application: Example Inc (AB12CD34EF)` |
+| `APPLE_NOTARY_KEY_P8_BASE64` | The App Store Connect API key `.p8` for `notarytool`, in base64 |
+| `APPLE_NOTARY_KEY_ID` | The key ID of that API key |
+| `APPLE_NOTARY_ISSUER_ID` | Its issuer ID |
+
+With none of them set, the script prints `sign-macos: no signing identity configured; the bundle stays unsigned` and exits 0. With only some set, it fails and names the missing ones. Signing needs Python 3.11 or later. `APOSTATE_NOTARY_TIMEOUT` sets how long it waits for Apple's notary service (default `30m`). Linux and Windows archives are not signed.
+
+## Reproducibility
+
+```bash
+scripts/verify-reproducible.sh linux-x64
+scripts/verify-reproducible.sh linux-x64 --against-manifest
+```
+
+The first form builds twice from a clean `out/<target>`, running `apply-patches.sh`, `configure.sh` and `build.sh` each time, and compares the output hashes the two builds wrote to `build/MANIFEST.lock`. `--against-manifest` builds once and compares with the hashes already in `build/MANIFEST.lock`. The script prints `reproducible: both builds produced identical outputs` or `NOT REPRODUCIBLE` with the differing lines, and exits 1 on a difference.
+
+The hashed outputs per target are listed in `scripts/build.sh`: `Chromium.app` and `chrome_crashpad_handler` on macOS, `chrome`, `chrome_crashpad_handler`, `libEGL.so` and `libGLESv2.so` on Linux, and `chrome.exe`, `chrome.dll`, `chrome_elf.dll`, `libEGL.dll` and `libGLESv2.dll` on Windows. Google API keys change the binary, so give both builds the same key variables or none.
+
+Besides the hashes, `build/MANIFEST.lock` records the Chromium commit, the depot_tools revision, the build container image, digests of `patches/series`, of the patch contents and of `args.gn`, and whether the build was fresh or incremental. On Windows it also records the Visual Studio, MSVC toolset and Windows SDK versions the build resolved. Each build appends one line to `$APOSTATE_WORKSPACE/.apostate-build-lineage.jsonl`.
+
+## CI builds
+
+| Workflow | Runs | Does |
+| --- | --- | --- |
+| `check.yml` | Pushes to `main`, pull requests, or by hand | Repository checks, no Chromium build. See [Contributing](/contributing/overview#checks-on-a-pull-request) |
+| `series-gate.yml` | Mondays, or by hand | `checkseries.sh` for `linux-x64` and `windows-x64`, then merges the two reports |
+| `build-target.yml` | Called by the two below | One target from an empty workspace: every step above, the resolver and baseline checks, signing on macOS, packaging, and upload of the archive and manifest |
+| `build-nightly.yml` | Daily at 03:17 UTC, or by hand | Every target; keeps the artifacts 14 days |
+| `release.yml` | A `v*` tag push, or by hand | Builds, checks and drafts a release. See [Releases](/contributing/releases) |
+| `probe-runners.yml` | Wednesdays, or by hand | Checks the runners' disk and Windows toolchain without building |
+
+CI builds start from an empty workspace and restore no build cache, because the checkout alone is larger than the GitHub Actions cache limit. The build workflows run on WarpBuild runners, and `scripts/resolve-build-targets.sh` maps each target to a runner label. In a fork without those runners, a build job waits in the queue until GitHub cancels it. The repository variable `APOSTATE_BUILD_TARGETS`, a comma-separated list such as `macos-arm64,linux-x64`, limits the nightly and release builds to those targets.

@@ -1,0 +1,196 @@
+---
+title: "Account profiles"
+description: "Keep one stable browser machine, with its cookies, region and proxy, for each account you operate, and check that the machine stays the same between launches."
+---
+
+You operate several accounts on the same sites, such as an agency that runs its clients' accounts with their permission or a team that shares test accounts, and each account should always sign in from the same browser. This walkthrough keeps a registry of accounts, gives each its own profile, persona, region and proxy, and checks that each account's machine stays the same from one launch to the next. Follow each site's terms for the accounts you run on it.
+
+## What Apostate changes
+
+`launch_persistent_context(DIR)` keeps an account's cookies and logins in a user data directory, the directory where Chromium keeps its storage. The first launch on a directory also stores a seed in `DIR/apostate/identity`, and every later launch presents the machine that seed selects. A site that remembers devices sees the same one at each sign-in. Each new directory draws its own seed, so two accounts do not present the same machine. [Seeds and identity](/concepts/seeds-and-identity#the-identity-file) covers the identity file.
+
+## Set up
+
+```bash
+pip install apostate
+apostate install
+apostate fonts install windows
+git clone https://github.com/heretic-tech/apostate.git
+cd apostate/examples/use-cases/account-profiles
+```
+
+`apostate fonts install windows` is for Linux and macOS hosts ([Fonts](/guides/fonts)). The folder holds [`accounts.json`](https://github.com/heretic-tech/apostate/blob/main/examples/use-cases/account-profiles/accounts.json), the registry, and [`accounts.py`](https://github.com/heretic-tech/apostate/blob/main/examples/use-cases/account-profiles/accounts.py), which lists, opens, checks and backs up the accounts in it.
+
+## The registry
+
+```json
+{
+  "client-a-shop": {
+    "user_data_dir": "profiles/client-a-shop",
+    "persona": "windows",
+    "locale": "en-US",
+    "timezone": "America/Chicago",
+    "proxy_env": "APOSTATE_PROXY_CLIENT_A"
+  },
+  "client-b-store": {
+    "user_data_dir": "profiles/client-b-store",
+    "persona": "macos",
+    "locale": "en-GB",
+    "timezone": "Europe/London",
+    "proxy_env": "APOSTATE_PROXY_CLIENT_B"
+  },
+  "qa-shared-login": {
+    "user_data_dir": "profiles/qa-shared-login",
+    "persona": "windows",
+    "locale": "de-DE",
+    "timezone": "Europe/Berlin",
+    "proxy_env": null
+  }
+}
+```
+
+- `user_data_dir` is relative to the registry file.
+- `persona` is passed as `fingerprint_platform` on every launch. The identity file does not record the persona, so the registry does.
+- `locale` and `timezone` fix the account's region, so it is the same on every launch whatever a GeoIP lookup would answer.
+- `proxy_env` names the environment variable that holds the account's proxy URL, so the credential stays out of the file. `null` launches without a proxy.
+
+## Open an account
+
+`open` launches the account's profile, reads the machine from a page, and compares it with the machine recorded at the last launch:
+
+```python
+def open_account(name, account, url):
+    directory = account["user_data_dir"]
+    variable = account["proxy_env"]
+    proxy = os.environ.get(variable) if variable else None
+    if variable and not proxy:
+        sys.exit(f"{variable} is not set. Set the proxy for {name}, or set proxy_env to null for a direct launch.")
+    # Locale and timezone come from the registry, so the account presents the same region every launch.
+    with launch_persistent_context(directory, fingerprint_platform=account["persona"],
+                                   locale=account["locale"], timezone=account["timezone"],
+                                   geoip=False, proxy=proxy) as context:
+        page = context.new_page()
+        page.goto(url)
+        machine = page.evaluate(READ)
+
+    record = directory / "machine.json"
+    print(f"{name}  seed {stored_seed(directory)[:12]}...")
+    for key, value in machine.items():
+        print(f"    {key:10} {value}")
+    if not record.exists():
+        print("    first launch: machine recorded")
+    else:
+        previous = json.loads(record.read_text())
+        changed = [key for key in machine if machine[key] != previous["machine"].get(key)]
+        if changed:
+            print(f"    changed since {previous['time']}: {', '.join(changed)}")
+        else:
+            print(f"    same machine as the launch at {previous['time']}")
+    record.write_text(json.dumps({"time": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                                  "machine": machine}, indent=2))
+```
+
+`READ` collects the User-Agent, platform, cores, memory, screen, WebGL renderer, languages and timezone.
+
+## Run it
+
+List the accounts. No profile exists yet:
+
+```bash
+python3 accounts.py list
+```
+
+```text
+client-a-shop    windows  en-US  America/Chicago  APOSTATE_PROXY_CLIENT_A (not set)  seed none yet
+client-b-store   macos    en-GB  Europe/London    APOSTATE_PROXY_CLIENT_B (not set)  seed none yet
+qa-shared-login  windows  de-DE  Europe/Berlin    direct                             seed none yet
+```
+
+Open an account twice:
+
+```bash
+python3 accounts.py open qa-shared-login
+python3 accounts.py open qa-shared-login
+```
+
+```text
+qa-shared-login  seed 947bfbe8d30a...
+    userAgent  Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36
+    platform   Win32
+    cores      12
+    memory     32
+    screen     1536x864
+    gpu        ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x000046A6) Direct3D11 vs_5_0 ps_5_0, D3D11)
+    languages  de-DE,de,en-US,en
+    timeZone   Europe/Berlin
+    first launch: machine recorded
+qa-shared-login  seed 947bfbe8d30a...
+    userAgent  Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36
+    platform   Win32
+    cores      12
+    memory     32
+    screen     1536x864
+    gpu        ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x000046A6) Direct3D11 vs_5_0 ps_5_0, D3D11)
+    languages  de-DE,de,en-US,en
+    timeZone   Europe/Berlin
+    same machine as the launch at 2026-09-27T17:39:24+00:00
+```
+
+The first launch drew seed `947bfbe8d30a...` and stored it in the profile. The second launch read it back and presented the same machine. `--url` opens a page other than the default `https://example.com`.
+
+An account with a proxy variable does not open until the variable is set:
+
+```bash
+python3 accounts.py open client-a-shop
+```
+
+```text
+APOSTATE_PROXY_CLIENT_A is not set. Set the proxy for client-a-shop, or set proxy_env to null for a direct launch.
+```
+
+```bash
+export APOSTATE_PROXY_CLIENT_A="socks5://user:pass@proxy.example:1080"
+python3 accounts.py open client-a-shop
+```
+
+## Check the registry
+
+`check` fails when two accounts share a directory or when two directories hold the same seed, which happens when one profile was copied to start another:
+
+```bash
+python3 accounts.py check
+```
+
+```text
+accounts: 3, problems: 0
+```
+
+The same command after `profiles/qa-shared-login` was copied to `profiles/client-b-store`:
+
+```text
+problem: qa-shared-login and client-b-store hold the same seed, so one profile is a copy
+accounts: 3, problems: 1
+```
+
+`open` and `backup` refuse to run while `check` reports a problem.
+
+## Back up a profile
+
+```bash
+python3 accounts.py backup qa-shared-login
+```
+
+```text
+qa-shared-login  backups/qa-shared-login-20260927T173925Z.zip  131226 bytes
+```
+
+`backup` refuses while a browser has the profile open, because Chromium is still writing to it. To restore, unzip the archive into the account's own directory. The restored profile presents the same machine, with the cookies from the time of the backup.
+
+## Rules for account profiles
+
+- **One directory per account.** Two accounts in one directory share cookies and a machine, and a site can link them. Never copy one account's directory to start another, because the copy carries the same identity file. [Choose seeds](/concepts/seeds-and-identity#choose-seeds) has the same rule for seeds.
+- **One browser per directory at a time.** A second launch on a directory that a browser has open fails with a `LaunchError` that says `Failed to create a ProcessSingleton for your profile directory`.
+- **A proxy per account.** Give each account one sticky exit in its registry region, and keep the proxy URL in the account's variable. With `locale` and `timezone` set, the package skips its GeoIP lookup, so the registry values have to match the exit. [Proxies](/guides/proxies#sticky-and-rotating-exits) covers sticky sessions.
+- **Backups hold logins.** A profile holds the account's cookies. Store backups with the same care as the account's password.
+- **Updates.** A release that changes the catalogue tables can change part of a machine. `open` compares each launch with the last one and names what changed. Pin the package version and read the [changelog](/changelog) before you upgrade. [Updates and catalogue changes](/concepts/seeds-and-identity#updates-and-catalogue-changes) covers what can move.
+- **Working in the window.** `open` runs headless. To sign in by hand, pass `headless=False` to `launch_persistent_context()` on a computer with a display.

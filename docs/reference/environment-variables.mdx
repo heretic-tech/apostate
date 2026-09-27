@@ -1,0 +1,71 @@
+---
+title: "Environment variables"
+description: "Every APOSTATE_ variable the packages, the command line and the repository scripts read, with its default and effect."
+---
+
+The Python and Node packages read the same variables in the same way, so one setting serves both. The browser itself reads none of them.
+
+## Packages and command line
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `APOSTATE_BINARY` | unset | Run this browser and skip the search and the download. The value is the executable, a macOS `.app` bundle, or the directory the release archive unpacks to. A path that holds no browser fails the launch. The `binary_path` and `executablePath` options take precedence over it. |
+| `APOSTATE_CACHE_DIR` | per-OS cache | Where the browser is installed and the Widevine CDM is kept. The `cache_dir` and `cacheDir` options and the CLI's `--cache-dir` take precedence over it. |
+| `APOSTATE_DOWNLOAD_BASE_URL` | unset | Download the release archive from this base URL instead of GitHub. The archive's file name is appended to it. The SHA-256 still comes from the manifest inside the package, or from the manifest on the GitHub release, so a mirror that serves other bytes fails verification. The manifest is never fetched from the mirror. |
+| `APOSTATE_KEEP_ARCHIVE` | unset | `1`, `true`, `yes` or `on` keeps the verified archive beside the install, for `gh attestation verify`. The CLI's `install --keep-archive` does the same. |
+
+The default cache directory is:
+
+| Host | Directory |
+| --- | --- |
+| Linux | `$XDG_CACHE_HOME/apostate`, or `~/.cache/apostate` |
+| macOS | `~/Library/Caches/apostate` |
+| Windows | `%LOCALAPPDATA%\apostate\cache` |
+
+[Installation](/installation) covers the cache layout, mirrors and verification.
+
+### Proxy
+
+| Variable | Read by | Effect |
+| --- | --- | --- |
+| `APOSTATE_PROXY` | the MCP server `apostate-mcp`, `scripts/measure-fpjs.py`, and the proxy examples in `examples/` | A proxy URL, such as `socks5://user:pass@proxy.example:1080`. The Python and Node packages do not read it. Pass `proxy` to a launch function. |
+
+[MCP server](/agents/mcp) lists the server's options. `apostate-mcp` also reads `APOSTATE_BINARY`.
+
+### Variables the packages set
+
+A launch that composes a persona sets these in the browser's environment, not in yours:
+
+| Variable | Value |
+| --- | --- |
+| `LANGUAGE` | The persona's locale tag, such as `de-DE`. |
+| `LC_ALL`, `LC_MESSAGES`, `LANG` | The same locale in POSIX form, such as `de_DE.UTF-8`. |
+| `TZ` | The launch's timezone, when it has one. |
+| `DISPLAY` | The Xvfb display the package started, on a Linux host with no display and `headless` off. |
+
+Host mode leaves your locale variables alone. The `env` option of a launch overrides any of them. [Locale and timezone](/guides/locale-and-timezone) explains why the locale variables are set.
+
+## Building
+
+The build scripts in `scripts/` read these. [Build](/contributing/build) explains the build.
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `APOSTATE_TARGET` | this host's target | The target a script builds for when it is given none: `linux-x64`, `linux-arm64`, `macos-arm64` or `windows-x64`. Read by `fetch-sources.sh`, `run-chromium-hooks.sh`, `prepare-linux-sysroot.sh`, `verify-host-tooling.sh`, `checkseries.sh`, `bootstrap.sh` and `in-linux-build-container.sh`. `configure.sh` and `build.sh` take the target as their first argument instead. |
+| `APOSTATE_WORKSPACE` | `.workspace` in the repository | Where the Chromium checkout, `depot_tools` and the build output go. |
+| `APOSTATE_JOBS` | 75% of the host's cores in `build.sh` | Parallel jobs for `build.sh` and `checkseries.sh`. |
+| `APOSTATE_FRESH_BUILD` | unset | `1` deletes `out/<target>` before `configure.sh` and `build.sh`, so the build starts from nothing. |
+| `APOSTATE_DATA_ROOT` | the repository | Where build actions read Apostate's tables from, when the workspace is outside the repository. |
+| `APOSTATE_SIGNED_ROOT` | `$APOSTATE_WORKSPACE/signed` | Where `sign-macos.sh` writes the signed macOS bundle and `package-artifact.sh` picks it up. |
+| `APOSTATE_NOTARY_TIMEOUT` | `30m` | How long `sign-macos.sh` waits for Apple's notary service. |
+| `APOSTATE_SDK_INSTALL_TIMEOUT` | `10m` | How long `provision-windows-toolchain.sh` lets the Windows SDK installer run. |
+
+The scripts set `APOSTATE_BUILD_IMAGE_ID` inside the Linux build container, and `build/linux/` sets `APOSTATE_SNAPSHOT_PROXY` and `APOSTATE_SNAPSHOT_BASE` for itself. Do not set them.
+
+### Tests and release checks
+
+| Variable | Effect |
+| --- | --- |
+| `APOSTATE_REQUIRE_NATIVE_GOLDENS` | Set, `scripts/test_profile_resolver.py` fails instead of skipping when a golden profile digest from a native build is missing. |
+| `APOSTATE_SMOKE_APPLELANGS` | `1` runs the macOS user-default locale check in `scripts/checks/release-smoke.mjs`. |
+| `APOSTATE_GEOIP_ENDPOINT` | Names an external GeoIP detector endpoint for `scripts/release-candidate-check.py`. The check still does not probe it, because the release check runs without network access. |

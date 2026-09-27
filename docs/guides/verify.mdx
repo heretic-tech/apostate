@@ -1,0 +1,220 @@
+---
+title: "Verify"
+description: "Check what a launch presents: the composed machine, a local script that reads the page, a worker and the request headers, public test pages, and FingerprintJS Pro."
+---
+
+Check a launch in this order. Each step costs more than the one before it and gets closer to what a real detector sees.
+
+## 1. Read the composed machine
+
+`--fingerprint-explain` prints the machine a launch presents and exits without opening a window. Pass the same switches the launch uses:
+
+```bash
+apostate run -- --fingerprint=42 --fingerprint-platform=windows --fingerprint-explain
+```
+
+```text
+apostate fingerprint composition
+
+  chromium            152.0.7977.83
+  profile schema      3
+  catalogue           v2 (tables e6fb49ebe4d0b28b2e0b7f3d00b086d7c86a12d54d777f31200400cfb7b87766)
+  platform persona    windows
+  host platform       linux
+  host cores          14
+  host memory         16818978816 bytes
+  host backend        swiftshader (no DRM render node on this host, not probed)
+  seed                42
+  seed source         --fingerprint (pinned by flag, identical on any machine)
+  reproduce with      --fingerprint=42
+...
+```
+
+Below the header, one row per value names the layer and the evidence it came from. Lines that start with `!` explain a row, and the `limitations` list at the end names what the launch could not apply on this host. [Quickstart](/quickstart) shows the value rows, and [Seeds and identity](/concepts/seeds-and-identity#read-the-seed-lines) explains the seed lines.
+
+The explain output comes from the composition. It does not show what a page reads, and it does not know the locale and timezone a package would look up. The next step shows both.
+
+## 2. Read what a page sees
+
+[`what_a_page_sees.py`](https://github.com/heretic-tech/apostate/blob/main/examples/python/what_a_page_sees.py) launches a persona and serves it a page from a local HTTP server. The page reads its values, starts a worker that reads them again, fetches the request headers the browser sent, and posts everything back. The script prints the result as JSON.
+
+```bash
+python3 examples/python/what_a_page_sees.py --seed 42 --platform windows \
+  --locale en-US --timezone America/New_York --headed
+```
+
+Without `--locale` and `--timezone`, the package looks them up from your IP address. `--headed` uses the package's Xvfb on a server. Output from a Debian 13 container on an arm64 host, apostate 0.4.3:
+
+```json
+{
+  "navigator": {
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
+    "platform": "Win32",
+    "cores": 12,
+    "memory": 8,
+    "languages": [
+      "en-US",
+      "en"
+    ],
+    "maxTouchPoints": 0,
+    "webdriver": false
+  },
+  "userAgentData": {
+    "architecture": "arm",
+    "bitness": "64",
+    "brands": [
+      {
+        "brand": "Chromium",
+        "version": "152"
+      },
+      {
+        "brand": "Not?A_Brand",
+        "version": "24"
+      },
+      {
+        "brand": "Google Chrome",
+        "version": "152"
+      }
+    ],
+    "fullVersionList": [
+      {
+        "brand": "Chromium",
+        "version": "152.0.7977.83"
+      },
+      {
+        "brand": "Not?A_Brand",
+        "version": "24.0.0.0"
+      },
+      {
+        "brand": "Google Chrome",
+        "version": "152.0.7977.83"
+      }
+    ],
+    "mobile": false,
+    "model": "",
+    "platform": "Windows",
+    "platformVersion": "19.0.0"
+  },
+  "intl": {
+    "locale": "en-US",
+    "timeZone": "America/New_York",
+    "date": "12/31/1969, 7:00:00 PM"
+  },
+  "screen": {
+    "size": [
+      1920,
+      1080
+    ],
+    "available": [
+      1920,
+      1032
+    ],
+    "window": [
+      1920,
+      1032
+    ],
+    "viewport": [
+      1920,
+      889
+    ],
+    "pixelRatio": 1,
+    "colorDepth": 24
+  },
+  "webgl": {
+    "vendor": "Google Inc. (Intel)",
+    "renderer": "ANGLE (Intel, Intel(R) UHD Graphics 770 (0x00004680) Direct3D11 vs_5_0 ps_5_0, D3D11)"
+  },
+  "webgpu": {
+    "vendor": "intel",
+    "architecture": "gen-12lp",
+    "device": "",
+    "description": ""
+  },
+  "fonts": {
+    "Segoe UI": true,
+    "Calibri": true,
+    "Helvetica Neue": false,
+    "Menlo": false,
+    "DejaVu Sans": false
+  },
+  "voices": {
+    "count": 22,
+    "first": [
+      "Microsoft David - English (United States)",
+      "Microsoft Mark - English (United States)",
+      "Microsoft Zira - English (United States)"
+    ]
+  },
+  "mediaDevices": [
+    "audiooutput"
+  ],
+  "audio": {
+    "sampleRate": 48000,
+    "baseLatency": 0.01
+  },
+  "worker": {
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
+    "platform": "Win32",
+    "uaPlatform": "Windows",
+    "cores": 12,
+    "memory": 8,
+    "languages": [
+      "en-US",
+      "en"
+    ],
+    "timeZone": "America/New_York",
+    "gpu": "ANGLE (Intel, Intel(R) UHD Graphics 770 (0x00004680) Direct3D11 vs_5_0 ps_5_0, D3D11)"
+  },
+  "headers": {
+    "accept-language": "en-US,en;q=0.9",
+    "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Google Chrome\";v=\"152\"",
+    "sec-ch-ua-arch": "\"arm\"",
+    "sec-ch-ua-bitness": "\"64\"",
+    "sec-ch-ua-full-version-list": "\"Chromium\";v=\"152.0.7977.83\", \"Not?A_Brand\";v=\"24.0.0.0\", \"Google Chrome\";v=\"152.0.7977.83\"",
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-model": "\"\"",
+    "sec-ch-ua-platform": "\"Windows\"",
+    "sec-ch-ua-platform-version": "\"19.0.0\"",
+    "sec-ch-ua-wow64": "?0",
+    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+  }
+}
+```
+
+What to check in the output:
+
+- **Page, worker and headers agree.** The User-Agent, platform, cores, memory, languages, timezone and WebGL renderer in `worker` match the page's. The `user-agent` and `accept-language` headers match `navigator`, and `sec-ch-ua-platform` matches `userAgentData.platform`.
+- **Locale and timezone match the exit.** Behind a proxy, `intl` and `accept-language` should belong to the proxy's location. [Locale and timezone](/guides/locale-and-timezone) covers the lookup.
+- **The persona's fonts are present.** A Windows persona reads `true` for Segoe UI and Calibri and `false` for the macOS and Linux families. `false` for Segoe UI means the Windows fonts are not installed on the host; see [Fonts](/guides/fonts).
+- **`webgpu` is not `null`.** It is `null` in headless launches on Linux and under root; see [Linux servers](/guides/linux-servers#headless-or-headed).
+- **`architecture` is the host's.** It reads `arm` here because the host is arm64, and `x86` in an amd64 container. [Hosts](/concepts/hosts#arm-hosts) explains why.
+- **`available` is smaller than `size`** for a Windows persona, by the taskbar.
+
+The script checks five font families by comparing text widths. `document.fonts.check()` returns `true` for every family name, installed or not, so it cannot tell.
+
+## 3. Open public test pages
+
+Public test pages read more values than the script, and some compare them with what real browsers report. Open them in a launch with the same persona, proxy and options you use for real work, because several of them also judge the IP address.
+
+| Page | What it shows |
+| --- | --- |
+| [BrowserLeaks](https://browserleaks.com) | One page per surface: IP address, JavaScript and navigator values, WebRTC, canvas, WebGL, fonts, Client Hints and the TLS fingerprint. |
+| [CreepJS](https://abrahamjuliot.github.io/creepjs/) | Values from the page and from workers side by side, with the ones that disagree marked as lies, and scores for how headless or stealth-patched the browser looks. |
+| [bot.sannysoft.com](https://bot.sannysoft.com) | Automation checks: `navigator.webdriver`, the `chrome` object, permissions, plugins, WebGL vendor and renderer, and older headless tests. |
+| [FingerprintJS demo](https://fingerprintjs.github.io/fingerprintjs/) | The visitor ID of the open-source FingerprintJS library and every component it hashes. |
+| [FingerprintJS Pro playground](https://demo.fingerprint.com/playground) | The commercial service's verdicts for the visit, such as bot, VPN, proxy, tampering, anti-detect browser, developer tools and virtual machine, and a suspect score. |
+| [AmIUnique](https://amiunique.org/fingerprint) | Each attribute next to how often its value occurs in the site's collection of fingerprints. |
+| [Cover Your Tracks](https://coveryourtracks.eff.org) | How identifying the fingerprint is among the site's visitors, and whether the browser blocks trackers. |
+
+[WebRTC](/guides/webrtc) covers checking for WebRTC leaks.
+
+## 4. Measure FingerprintJS Pro
+
+[`scripts/measure-fpjs.py`](https://github.com/heretic-tech/apostate/blob/main/scripts/measure-fpjs.py) launches one persona headed through a proxy, loads the FingerprintJS Pro playground and prints the exit's address, country and timezone, the suspect score and each flag behind it. It runs from a checkout of the repository and needs `curl` and a residential proxy. On a server it uses the package's Xvfb.
+
+```bash
+APOSTATE_PROXY=socks5://user:pass@proxy.example:1080 \
+  python3 scripts/measure-fpjs.py --platform windows --seed 42
+```
+
+Use a new proxy session for each run, or the service sees a returning visitor. `--platform host` measures the real machine for comparison, `--out FILE` saves the full response, and `APOSTATE_BINARY` points it at a local build. [FingerprintJS](/testing/fingerprintjs) has dated results, and [Testing](/testing/overview) describes the whole test suite.

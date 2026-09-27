@@ -1,0 +1,135 @@
+---
+title: "Price monitoring"
+description: "Read prices from public product pages on a schedule, with one persistent profile per site, a delay between page loads, robots.txt rules and a SQLite history."
+---
+
+You track prices or stock on public product pages and want to know when they change. This walkthrough reads one value from each page, stores it in SQLite and prints what changed since the last run.
+
+Check each site's terms and robots.txt before you monitor it. The script skips pages that robots.txt disallows and waits at least the file's `Crawl-delay` between page loads.
+
+## What Apostate changes
+
+Each site gets its own user data directory, where Chromium keeps cookies and storage. The first launch on a directory stores a seed in its `apostate/identity` file, and every later launch presents the same machine with the same cookies. The site sees the same Windows desktop on each run, with its consent choice and region settings kept. [Seeds and identity](/concepts/seeds-and-identity#the-identity-file) covers the identity file.
+
+## Set up
+
+```bash
+pip install apostate
+apostate install
+apostate fonts install windows
+git clone https://github.com/heretic-tech/apostate.git
+cd apostate/examples/use-cases/price-monitoring
+```
+
+`apostate fonts install windows` is for Linux and macOS hosts ([Fonts](/guides/fonts)). The folder holds two files:
+
+- [`monitor.py`](https://github.com/heretic-tech/apostate/blob/main/examples/use-cases/price-monitoring/monitor.py) reads the pages, stores each value in `prices.db` and prints the changes. It keeps one profile per site in `profiles/`.
+- [`demo_shop.py`](https://github.com/heretic-tech/apostate/blob/main/examples/use-cases/price-monitoring/demo_shop.py) is a local shop on `127.0.0.1:8765` whose prices change from one run to the next. `monitor.py` uses it when you pass no pages.
+
+## The script
+
+`watch_site()` opens one site's profile, reads its robots.txt, and loads each page with a delay in between:
+
+```python
+def watch_site(host, items, database, arguments):
+    profile = PROFILES / host
+    origin = "{0.scheme}://{0.netloc}".format(urlsplit(items[0][0]))
+    with launch_persistent_context(profile, fingerprint_platform="windows",
+                                   locale=arguments.locale, timezone=arguments.timezone, geoip=False,
+                                   proxy=os.environ.get("APOSTATE_PROXY")) as context:
+        seed = (profile / "apostate" / "identity").read_text().strip()
+        print(f"{host}  profile {profile.relative_to(HERE)}, seed {seed[:12]}...")
+        page = context.new_page()
+        rules = robots_rules(page, origin)
+        delay = max(arguments.delay, rules.crawl_delay("*") or 0)
+        for index, (url, selector) in enumerate(items):
+            if not rules.can_fetch("*", url):
+                print(f"    {'skipped   disallowed by robots.txt':36} {urlsplit(url).path}")
+                continue
+            if index:
+                time.sleep(delay + random.uniform(0, delay / 2))
+            value = read_value(page, url, selector)
+            previous = record(database, url, selector, value)
+            if previous is None:
+                status = f"new       {value}"
+            elif previous == value:
+                status = f"same      {value}"
+            else:
+                status = f"changed   {previous} -> {value}"
+            print(f"    {status:36} {urlsplit(url).path}")
+```
+
+The robots.txt file is fetched in the same profile and parsed with Python's `urllib.robotparser`:
+
+```python
+def robots_rules(page, origin):
+    """The site's robots.txt, fetched in the site's own browser profile."""
+    rules = RobotFileParser()
+    response = page.goto(f"{origin}/robots.txt")
+    rules.parse(response.text().splitlines() if response and response.ok else [])
+    return rules
+```
+
+## Run it
+
+```bash
+python3 monitor.py
+```
+
+The first run stores a value for each page:
+
+```text
+127.0.0.1  profile profiles/127.0.0.1, seed 1af995e89c31...
+    new       49.99                      /product/kettle
+    new       34.50                      /product/toaster
+    new       19.00                      /product/lamp
+    skipped   disallowed by robots.txt   /cart
+```
+
+The second run compares with the first:
+
+```text
+127.0.0.1  profile profiles/127.0.0.1, seed 1af995e89c31...
+    changed   49.99 -> 44.99             /product/kettle
+    same      34.50                      /product/toaster
+    changed   19.00 -> Sold out          /product/lamp
+    skipped   disallowed by robots.txt   /cart
+```
+
+The seed is the same on both runs because it comes from the profile's identity file. The demo shop's robots.txt disallows `/cart` and sets `Crawl-delay: 2`, so the pages load 2 to 3 seconds apart.
+
+Every value is a row in the `observations` table of `prices.db`:
+
+```bash
+sqlite3 prices.db "SELECT seen_at, value FROM observations WHERE url LIKE '%kettle' ORDER BY id"
+```
+
+```text
+2026-09-27T17:36:13+00:00|49.99
+2026-09-27T17:36:20+00:00|44.99
+```
+
+## Watch your own pages
+
+Pass each page with the CSS selector of the value to read. Repeat `--watch` for more pages:
+
+```bash
+python3 monitor.py --watch https://example.com/ h1 --watch https://example.com/ "p a" --delay 5
+```
+
+```text
+example.com  profile profiles/example.com, seed 1c6a6965b3d9...
+    new       Example Domain             /
+    new       Learn more                 /
+```
+
+Pages are grouped by host name, and each host gets its own profile. Run the script from cron or another scheduler at the interval you need.
+
+## Points for this job
+
+- **One profile per site.** A site's cookies, such as a consent choice or a selected region and currency, stay in its profile from run to run. Copy the `profiles/` directory to back it up. The copy presents the same machine.
+- **Seeds.** The identity file holds each profile's seed. To choose the seed yourself, write it to `profiles/<host>/apostate/identity` before the first launch. [Seeds and identity](/concepts/seeds-and-identity#the-identity-file) covers the file.
+- **Pacing.** `--delay` sets the seconds between page loads on one site, 30 by default, plus up to half as much again at random. A larger `Crawl-delay` in robots.txt wins. Sites are read one after another, one page at a time.
+- **Region.** Prices often depend on the visitor's country. `--locale` and `--timezone` fix the locale and timezone, and with `APOSTATE_PROXY` set, every page loads through that proxy. Use an exit in the same region on every run, and pass the locale and timezone of that region, since the script turns off the GeoIP lookup. [Proxies](/guides/proxies) covers proxy URLs.
+- **Values.** The script stores the element's text as it is. A selector that matches nothing within 10 seconds stores `(not found)`, so a page whose markup changed shows up as a change. Parse numbers yourself if you need them.
+- **Headless.** Reading pages needs no window. The default headless launch presents the persona's screen.

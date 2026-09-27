@@ -1,0 +1,73 @@
+---
+title: "Test suite"
+description: "What Apostate's test suite checks: that pages read exactly the machine the browser composed, in every context, with no automation trace, and what public detectors say."
+---
+
+The suite in [`tests/`](https://github.com/heretic-tech/apostate/tree/main/tests) checks the claims these docs make, on a real browser, and writes every result to a file. [Latest results](/testing/results) is generated from those files.
+
+It has two tiers.
+
+| Tier | Needs | Runs | Decides |
+| --- | --- | --- | --- |
+| Offline | the browser and Python | local test pages only, no third-party site | whether a change is correct |
+| Live | the internet | public detector pages, beside control browsers on the same network | how detectors react, on that network, that day |
+
+## Offline tier
+
+A local server serves a probe page. The probe reads what a page can read about the machine from six places: the window, a same-origin iframe, a cross-origin iframe, a dedicated worker, a shared worker and a service worker. It also records the HTTP headers of the page request and of a `fetch` from each context, and posts everything back to the server.
+
+The browser is launched two ways for each persona and seed:
+
+- **bare:** the binary with switches and no automation at all. The page drives itself.
+- **package:** the Python package's `launch()`, through Patchright, the way a user's script launches it.
+
+While the page runs, the test reads the profile the browser composed from a child process's command line. The checks compare that profile with what the page read.
+
+| File | Checks |
+| --- | --- |
+| [`test_automation.py`](https://github.com/heretic-tech/apostate/blob/main/tests/test_automation.py) | `navigator.webdriver` is false; no automation globals; no `Headless` in the User-Agent, brands or headers; `window.chrome`, five PDF plugins and the PDF viewer present; logging an error does not read its stack (a DevTools client with the Runtime domain on does); `Notification.permission` agrees with the Permissions API |
+| [`test_contexts.py`](https://github.com/heretic-tech/apostate/blob/main/tests/test_contexts.py) | Every iframe and worker reads the same User-Agent, platform, languages, cores, memory, timezone, Client Hints, WebGL and WebGPU values as the window; frames see the same screen; request headers match JavaScript (User-Agent, every `Sec-CH-UA` header, `Accept-Language`) |
+| [`test_profile.py`](https://github.com/heretic-tech/apostate/blob/main/tests/test_profile.py) | The page reads the composed machine: User-Agent and Client Hints, cores and memory, screen and taskbar, WebGL vendor, renderer, limits, extensions and precisions, the WebGPU adapter, fonts (none outside the persona's list), generic font families, voices, audio buffer, media devices, network, battery, theme and keyboard. The persona's GPU is one of its platform's measured families |
+| [`test_determinism.py`](https://github.com/heretic-tech/apostate/blob/main/tests/test_determinism.py) | Canvas and audio reads repeat within a session; the same seed composes the same profile and the same page values on a second launch; the package launch serves the same machine as the bare launch; two seeds give two machines; a user data directory keeps its machine over three launches and gets a new one when its identity file is deleted |
+| [`test_host_mode.py`](https://github.com/heretic-tech/apostate/blob/main/tests/test_host_mode.py) | `--fingerprint=host` composes nothing and shows the real machine |
+
+With three personas, two seeds and both launch modes, the offline tier is about 300 tests. It took 43 seconds on an Apple M4 Max.
+
+Chromium itself adds per-origin noise to `navigator.connection.downlink` and `rtt`, so those two values are checked within 10% instead of for equality. Everything else must match exactly.
+
+## Live tier
+
+Each detector page is loaded in a new tab of a browser launched through the Python package, with GeoIP on, as a user's script would. The tier runs only with `--live`.
+
+| Detector | Pass when |
+| --- | --- |
+| [bot.sannysoft.com](https://bot.sannysoft.com) | no failed row |
+| [deviceandbrowserinfo.com](https://deviceandbrowserinfo.com/are_you_a_bot) | `isBot` is false |
+| [bot-detector.rebrowser.net](https://bot-detector.rebrowser.net) | no red test |
+| [CreepJS](https://abrahamjuliot.github.io/creepjs/) | 0% headless and 0% stealth |
+| [BrowserScan bot detection](https://www.browserscan.net/bot-detection) | test result Normal |
+| [fingerprint-scan.com](https://fingerprint-scan.com) | reports a bot score; no pass or fail |
+| [iphey.com](https://iphey.com) | verdict Trustworthy |
+| [reCAPTCHA v3 demo](https://recaptcha-demo.appspot.com/recaptcha-v3-request-scores.php) | score of 0.5 or more, the threshold Google's documentation starts from |
+| Turnstile: [SeleniumBase demo](https://seleniumbase.io/apps/turnstile), [managed](https://peet.ws/turnstile-test/managed.html) and [non-interactive](https://peet.ws/turnstile-test/non-interactive.html) | a Turnstile token within 30 seconds; the test clicks the checkbox once if one appears |
+| [FingerprintJS Pro playground](https://demo.fingerprint.com/playground) | no bot, tampering, anti-detect, virtual machine, developer tools or incognito flag |
+
+`--controls playwright,chrome` loads the same pages in stock Chromium and in Google Chrome, both through plain Playwright, on the same machine and network. Controls are recorded, not judged: they show what the same network gets without Apostate.
+
+Live results depend on the network. An IP address that a detector has seen misuse lowers every browser's result, so the results file records the network, and a proxy run should use the proxy you use in production (`APOSTATE_PROXY`).
+
+## Outcomes
+
+| Outcome | Meaning |
+| --- | --- |
+| pass | the check held |
+| fail | the check did not hold, and no documented gap explains it |
+| known gap | the check failed in exactly the way a gap in [Known gaps](/known-gaps) describes. The test names the gap; any other difference still fails |
+| skipped | the check could not run on this host, or a detector page produced no result. A page that did not finish is never a pass |
+
+## What it does not test
+
+- Behaviour: mouse movement, typing rhythm, timing between actions. Sites that score behaviour see what your script does.
+- IP reputation. The live tier records the network, but it cannot tell you how a detector rates a proxy you have not run it through.
+- Rendering pixels against real hardware. Canvas and WebGL images are drawn by the host; [Known gaps](/known-gaps) covers what that means.
+- Commercial detectors behind a login. [Measure with FingerprintJS Pro](/testing/fingerprintjs) covers the one public playground in depth.

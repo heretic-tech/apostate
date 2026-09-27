@@ -1,0 +1,76 @@
+---
+title: "Examples"
+description: "Runnable Python and Node scripts from the repository's examples folder, each linked to the page that explains it."
+---
+
+The [`examples/`](https://github.com/heretic-tech/apostate/tree/main/examples) folder in the repository holds short scripts for the Python and Node packages. Each script launches a headless browser and prints its results. They were run against Apostate 0.4.3 (Chromium 152.0.7977.83) on a macOS arm64 host on 27 September 2026.
+
+## Run them
+
+Clone the repository, then install the package and run a script.
+
+<CodeGroup>
+```bash Python
+git clone https://github.com/heretic-tech/apostate.git
+cd apostate
+pip install apostate
+python3 examples/python/quickstart.py
+```
+
+```bash Node
+git clone https://github.com/heretic-tech/apostate.git
+cd apostate/examples/node
+npm install
+node quickstart.mjs
+```
+</CodeGroup>
+
+The Python scripts need Python 3.10 or later. The Node scripts need Node 22 or later, and `puppeteer.mjs` needs Node 22.12 or later, the minimum for `puppeteer-core` 25. In `examples/node`, `npm install` also installs Patchright and `puppeteer-core`.
+
+## Scripts
+
+| Python | Node | What it shows | Page |
+| --- | --- | --- | --- |
+| [`quickstart.py`](https://github.com/heretic-tech/apostate/blob/main/examples/python/quickstart.py) | [`quickstart.mjs`](https://github.com/heretic-tech/apostate/blob/main/examples/node/quickstart.mjs) | A Windows persona from seed 42: User-Agent, platform, cores, memory, screen and WebGL renderer. | [Quickstart](/quickstart) |
+| [`persistent_profile.py`](https://github.com/heretic-tech/apostate/blob/main/examples/python/persistent_profile.py) | [`persistent-profile.mjs`](https://github.com/heretic-tech/apostate/blob/main/examples/node/persistent-profile.mjs) | Two launches on `profiles/demo` beside the script, with no seed. Prints the seed stored in `profiles/demo/apostate/identity` and the same machine from both launches. | [Seeds and identity](/concepts/seeds-and-identity) |
+| [`personas.py`](https://github.com/heretic-tech/apostate/blob/main/examples/python/personas.py) | [`personas.mjs`](https://github.com/heretic-tech/apostate/blob/main/examples/node/personas.mjs) | Seed 42 as Windows, macOS and Linux: User-Agent, platform, WebGL renderer, screen and the number of font families `queryLocalFonts()` lists. | [Personas](/concepts/personas) |
+| [`persona_details.py`](https://github.com/heretic-tech/apostate/blob/main/examples/python/persona_details.py) | | One persona's WebGL vendor and renderer, WebGPU adapter, voices, fonts, media devices, keyboard layout and `AudioContext.baseLatency`. | [Personas](/concepts/personas) |
+| [`proxy.py`](https://github.com/heretic-tech/apostate/blob/main/examples/python/proxy.py) | [`proxy.mjs`](https://github.com/heretic-tech/apostate/blob/main/examples/node/proxy.mjs) | A launch through the proxy in `APOSTATE_PROXY`. Prints the exit IP a page sees and the timezone and languages taken from the exit. Exits with a message when the variable is not set. | [Proxies](/guides/proxies) |
+| [`locale_timezone.py`](https://github.com/heretic-tech/apostate/blob/main/examples/python/locale_timezone.py) | [`locale-timezone.mjs`](https://github.com/heretic-tech/apostate/blob/main/examples/node/locale-timezone.mjs) | `de-DE` and `Europe/Berlin` set explicitly with GeoIP off: `navigator.languages`, `Intl`, date and number formats, and the `Accept-Language` header. | [Locale and timezone](/guides/locale-and-timezone) |
+| [`custom_profile.py`](https://github.com/heretic-tech/apostate/blob/main/examples/python/custom_profile.py) | [`custom-profile.mjs`](https://github.com/heretic-tech/apostate/blob/main/examples/node/custom-profile.mjs) | A launch from a profile you write, with cores, memory, screen, locale and timezone. Values the profile leaves out are the host's. | [Custom profiles](/guides/custom-profiles) |
+| [`async_sessions.py`](https://github.com/heretic-tech/apostate/blob/main/examples/python/async_sessions.py) | [`many-sessions.mjs`](https://github.com/heretic-tech/apostate/blob/main/examples/node/many-sessions.mjs) | Three browsers at once with seeds 1, 2 and 3, each a different machine. | [Many sessions](/guides/many-sessions) |
+| [`screenshot_and_pdf.py`](https://github.com/heretic-tech/apostate/blob/main/examples/python/screenshot_and_pdf.py) | | Writes `out/example.png` and `out/example.pdf` for a page. `page.pdf()` works only headless. | [Python](/guides/python) |
+| [`what_a_page_sees.py`](https://github.com/heretic-tech/apostate/blob/main/examples/python/what_a_page_sees.py) | | Prints a JSON of what a page, a worker and the request headers read, from a local HTTP server. | [Check what a page sees](/guides/verify) |
+| | [`puppeteer.mjs`](https://github.com/heretic-tech/apostate/blob/main/examples/node/puppeteer.mjs) | The Node package driving `puppeteer-core` instead of Patchright. | [Node](/guides/node) |
+| [`raw_cdp.py`](https://github.com/heretic-tech/apostate/blob/main/examples/python/raw_cdp.py) | [`launch-process.mjs`](https://github.com/heretic-tech/apostate/blob/main/examples/node/launch-process.mjs) | The browser started without a driver, with `--remote-debugging-port=0` and a temporary user data directory, then a Patchright connection over CDP. `raw_cdp.py` runs the binary itself. `launch-process.mjs` uses `launchProcess()`. | [Raw binary](/guides/raw-binary) |
+
+`persistent_profile.py`, `persistent-profile.mjs` and `screenshot_and_pdf.py` write next to themselves, into `profiles/` and `out/`, which the repository ignores.
+
+## AI agents
+
+[`examples/agents/`](https://github.com/heretic-tech/apostate/tree/main/examples/agents) connects AI agents to Apostate. [AI agents](/agents/overview) explains the choices.
+
+| Path | What it holds | Page |
+| --- | --- | --- |
+| [`agents/mcp/`](https://github.com/heretic-tech/apostate/tree/main/examples/agents/mcp) | MCP configuration for Claude Code, Codex, Cursor, Gemini CLI, VS Code and OpenCode, all running `@heretic-tech/apostate-mcp`, and a Playwright MCP config file for the Apostate binary. | [MCP server](/agents/mcp) |
+| [`agents/skills/apostate/SKILL.md`](https://github.com/heretic-tech/apostate/blob/main/examples/agents/skills/apostate/SKILL.md) | A skill that shows an agent when to use the browser tools and how to write an Apostate script. | [Claude Code](/agents/claude-code#scripts-and-the-apostate-skill) |
+| [`agents/claude-api/agent.py`](https://github.com/heretic-tech/apostate/blob/main/examples/agents/claude-api/agent.py) | A browsing agent on the Claude API's tool runner with the MCP server's browser tools. | [Build an agent](/agents/claude-api) |
+| [`agents/browser-use/agent.py`](https://github.com/heretic-tech/apostate/blob/main/examples/agents/browser-use/agent.py) | browser-use connected over CDP to an Apostate browser the script starts. | [browser-use](/agents/browser-use) |
+
+## Use cases
+
+[`examples/use-cases/`](https://github.com/heretic-tech/apostate/tree/main/examples/use-cases) holds one folder per use-case walkthrough. The Python scripts run from any directory and write their output next to themselves, in folders the repository ignores. With no arguments, each one runs against a local test server, except `web-archiving` and `account-profiles`, which open `https://example.com`.
+
+| Folder | What it shows | Page |
+| --- | --- | --- |
+| [`test-your-own-defenses/`](https://github.com/heretic-tech/apostate/tree/main/examples/use-cases/test-your-own-defenses) | Submits a local signup form as four persona and seed pairs and in host mode, and prints the headers and `navigator`, `userAgentData` and WebGL values the backend recorded, with the checks each passed. `--url` opens your own page instead. | [Test your own defenses](/use-cases/test-your-own-defenses) |
+| [`localization-qa/`](https://github.com/heretic-tech/apostate/tree/main/examples/use-cases/localization-qa) | Opens a page as `en-US`, `de-DE`, `ja-JP` and `ar-EG` with a matching timezone, saves a screenshot of each, and prints `navigator.languages`, `Accept-Language`, the page's `lang` attribute and `Intl` formats. | [Localization QA](/use-cases/localization-qa) |
+| [`price-monitoring/`](https://github.com/heretic-tech/apostate/tree/main/examples/use-cases/price-monitoring) | Reads a value from product pages with one persistent profile per site, follows robots.txt, spaces page loads, stores values in SQLite and prints what changed since the last run. | [Price monitoring](/use-cases/price-monitoring) |
+| [`ad-verification/`](https://github.com/heretic-tech/apostate/tree/main/examples/use-cases/ad-verification) | Opens an ad link per region and persona, prints every main-frame response from the first redirect to the landing page, and saves a screenshot. | [Ad verification](/use-cases/ad-verification) |
+| [`account-profiles/`](https://github.com/heretic-tech/apostate/tree/main/examples/use-cases/account-profiles) | A registry of accounts, each with its own user data directory, persona, region and proxy. Lists, opens, checks and backs up profiles, and reports whether a machine changed since its last launch. | [Account profiles](/use-cases/account-profiles) |
+| [`end-to-end-tests/`](https://github.com/heretic-tech/apostate/tree/main/examples/use-cases/end-to-end-tests) | pytest fixtures that launch Apostate with a fixed seed, two tests against a local app, a GitHub Actions workflow, and the same tests in Playwright Test for Node. | [End-to-end tests](/use-cases/end-to-end-tests) |
+| [`web-archiving/`](https://github.com/heretic-tech/apostate/tree/main/examples/use-cases/web-archiving) | Captures a page with a full-page screenshot, a PDF, the HTML, a HAR file and a manifest with the SHA-256 of each file. | [Web archiving](/use-cases/web-archiving) |
+
+## Docker
+
+[`examples/docker/`](https://github.com/heretic-tech/apostate/tree/main/examples/docker) holds a Dockerfile that installs the Python package, the browser and the Windows fonts, and a script that launches a Windows persona in the container. [Docker](/guides/docker) explains how to build and run it.

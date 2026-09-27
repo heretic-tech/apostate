@@ -1,0 +1,92 @@
+---
+title: "Changelog"
+description: "What changed in each Apostate release, newest first."
+---
+
+Each release publishes browser archives for Linux x64, Linux arm64, macOS arm64 and Windows x64 on [GitHub Releases](https://github.com/heretic-tech/apostate/releases). Every release so far is built on Chromium 152.0.7977.83. The Python package (`apostate` on PyPI) and the Node package (`@heretic-tech/apostate` on npm) are released with the same version number when their code changes.
+
+## Unreleased
+
+Changes on `main` since v0.4.3.
+
+- **Python CLI.** `apostate run` forwards every argument after `run` to the browser, so `apostate run --fingerprint=42` works without a `--` separator, as it already did in the Node CLI.
+- **Fonts.** `apostate fonts install windows` also installs the Windows 11 Marlett, which the font repository it clones lacks. It reads only that file out of the `liblaf/fonts` Win11 release zip with HTTP range requests, and installs it only when its SHA-256 matches.
+- **MCP server.** A new package in `mcp/`, `@heretic-tech/apostate-mcp`, gives an AI agent an Apostate browser with Playwright MCP's tools. [MCP server](/agents/mcp) describes it.
+
+## v0.4.3
+
+Released 26 September 2026. Python and Node packages 0.4.3.
+
+- **URLs.** A Windows persona parses file paths in URLs as Windows Chrome does. `new URL("c:/foo").protocol` is `file:`, where other personas and stock Chromium on Linux and macOS give `c:`.
+- **Seeds.** A seed keeps its machine across Chrome updates and catalogue version changes. The machine is keyed on fixed version values, the ones v0.4.2 used, so a v0.4.2 seed presents the same machine in v0.4.3. An edit to a catalogue table still re-draws the choices that table decides.
+- **CPU performance.** `navigator.cpuPerformance` follows the persona's core count and ignores the host's CPU model, except for a macOS persona on a Mac.
+- **Python.** `viewport=None` means no viewport. Playwright had dropped the `None` and emulated a 1280x720 viewport.
+
+## v0.4.2
+
+Released 25 September 2026. Browser archives only. No package was released at this version.
+
+- **Fonts under a Windows persona.** Ascent, descent and line gap come from the fonts' Windows metrics as DirectWrite reads them, including the typo metrics a font asks for. Windows alias and legacy family names resolve, such as Courier, Times, Helvetica, MS Sans Serif and Franklin Gothic. Emoji and symbols fall back to Segoe UI Emoji, Segoe UI Symbol and Cambria Math.
+- **Font install.** `apostate fonts install windows` installs only the families of the Windows core font pack, lists the ones still missing, and takes `--from DIR` to install from a Windows `Fonts` folder.
+- **Locale.** `--fingerprint-locale` with one tag sets only the UI locale, and the language list is Chrome's own default for that locale. A comma list sets the list exactly. The packages pass the GeoIP locale as one tag.
+- **Voices.** A persona lists its voices on a host with no speech engine. The Windows sets include the Google network voices desktop Chrome lists, and the en-US Windows set matches two real machines' 22 voices.
+- **WebGPU.** `GPUAdapterInfo.subgroupMinSize` and `subgroupMaxSize` come from the GPU family instead of the host.
+- **Window.** A new window fills the persona's work area, and a Windows persona opens maximized. The packages' Xvfb display is 3840x2160, so any claimed screen fits.
+- **Windows machines.** Screen sizes and core counts follow a public corpus of Windows sessions. The taskbar is at the bottom, 40 pixels on Windows 10 and 48 on Windows 11. The 1920x1200 and 2048x1280 screens are gone, and the network is always `4g`. These table changes give many seeds a different machine than v0.4.0 gave them.
+- **Linux personas on ARM hosts** keep `navigator.platform` as `Linux x86_64`, as Chrome does on every Linux CPU. The ARM host shows only in the Client Hints architecture.
+
+## v0.4.0
+
+Released 23 September 2026. Python and Node packages 0.4.0.
+
+- **Normal profile.** `launch()` opens pages in a normal profile instead of an off-the-record context, on a temporary profile the driver deletes on close. `new_context()` stays off-the-record, as in Playwright. This needs Patchright 1.55 or Playwright 1.53 or later.
+- **Windows system values.** A Windows persona serves Windows system colours, Segoe UI for the CSS system fonts, Windows' `system-ui` and default fonts, no `BarcodeDetector`, a 48 kHz `AudioContext`, the claimed speakers on a host with no sound card, the claimed GPU's power-efficient codecs and the US Windows keyboard map.
+- **CPU architecture.** Windows and Linux personas claim the host's CPU architecture, `arm` on an ARM host.
+- **WebGPU.** A host with no GPU serves the claimed adapter instead of none, and every GPU model has a WebGPU adapter.
+- **Widevine.** The packages give the browser a Widevine CDM on first launch, copied from a local Google Chrome or downloaded from Google and checked by SHA-256. The Python CLI adds `apostate provision-drm`.
+- **Linux displays.** A headed launch on a Linux host with no display starts its own Xvfb, sized to the persona's screen, and stops it on close.
+- **Fonts.** Each persona shows only its platform's font families. The CLI adds `apostate fonts install windows`, `fonts install macos` and `fonts export-macos`.
+- **Removed.** The font metric and text raster emulation added in earlier releases, which measured as changing nothing detectors score.
+- **Fixes.** A Windows persona no longer crashes the browser in `enumerateDevices()` on a host with no sound card. WebGPU on a host with no GPU keeps the `float32-filterable` and `float32-blendable` features. The Python package extracts `.tar.zst` on Python before 3.14, and the Node package decompresses zstd itself on Node 22.15 and later.
+
+## v0.3.0
+
+Released 22 September 2026. Python and Node packages 0.3.0.
+
+- **Windows fonts and voices.** The Windows core font pack is the Windows 11 English set, and every persona lists its own platform's voices, spoken by a real speech provider.
+- **Refused switches.** Both packages refuse a misspelt `--fingerprint*` switch, such as `--fingeprint-platform`, and `--fingerprint-noise=false`, which turns noise on.
+- **Persistent profiles.** Both packages refuse a persistent profile on `launch()` and name `launch_persistent_context()` instead. The Node package also refuses `--user-data-dir` and `--proxy-server` in `args`, which it had dropped without a word.
+- **GeoIP through SOCKS5.** The lookup hands the endpoint's name to the proxy instead of resolving it on the host.
+- **Node package.** It downloads from its own release, and an extraction failure names the tool that is missing.
+
+## v0.2.1
+
+Released 22 September 2026. Python and Node packages 0.2.1.
+
+- **Text.** A persona derives sub-pixel text positioning by its own platform's rule, so a Linux persona on a Mac measures text advances as Linux Chrome does.
+
+## v0.2.0
+
+Released 21 September 2026. Node package 0.2.0.
+
+- **Signed macOS build.** The macOS bundle is Developer ID signed and notarized.
+- **GPUs.** A Windows persona can present many more NVIDIA and Intel models, registered on the measured GPU families by PCI device id, including the GeForce RTX 40 series.
+- **WebGL.** The GPU family's WebGL limits reach pages on every host backend, Metal included.
+- **WebRTC.** Behind a SOCKS5 proxy, WebRTC offers only the address families the proxy can relay.
+- **Readback noise.** `--fingerprint-noise`, off by default, changes canvas and WebGL readback by one step per channel, seeded by the profile.
+- **Extensions.** The profile decides whether pages see `chrome.runtime` from an installed extension.
+- **Install.** Patchright is a dependency of both packages, so one install is enough. The packages find a browser already on disk before downloading one.
+
+## v0.1.0
+
+Released 20 September 2026. Python and Node packages 0.1.0, and 0.1.1.
+
+The first public release: Chromium 152.0.7977.83 with a composer that builds a whole Windows, macOS or Linux machine from a seed, before any other browser process starts.
+
+- **Switches.** `--fingerprint`, `--fingerprint-platform`, `--fingerprint-anchor` and `--fingerprint-explain`, the per-field switches, `--fingerprint=host` and `--apostate-profile`.
+- **Persistent identity.** A launch with `--user-data-dir` stores its seed in the directory and presents the same machine on every later launch.
+- **Locale and timezone.** They come from the launch or the host, never from the seed. A composed persona ignores the shell's locale.
+- **Proxies.** `--proxy-server` accepts a credential in the URL. WebRTC relays UDP through a SOCKS5 proxy or opens no UDP socket.
+- **Packages.** The Python and Node packages download and verify the browser, look up the exit's locale and timezone, and launch it through Patchright or Playwright. The Node package also drives Puppeteer.
+
+The 0.1.1 packages install the v0.1.0 browser. They fetch the release's manifest when the package carries none, ship the GeoIP lookup inside the Python package with SOCKS5 support, map every country to a locale, and send a SOCKS proxy credential to the browser instead of the driver.

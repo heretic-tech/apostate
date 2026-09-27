@@ -1,0 +1,685 @@
+---
+title: "Profile schema"
+description: "Every section and field of an Apostate profile, the JSON document the browser presents, with its type and what it sets, and a complete example."
+---
+
+A profile is the JSON document of values the browser presents. The browser composes one from the seed and passes it to every child process. You can also write one yourself and pass it with `--apostate-profile`, or with the `profile` option of the Python and Node packages. [Custom profiles](/guides/custom-profiles) shows how.
+
+The schema is [`config/profile.schema.json`](https://github.com/heretic-tech/apostate/blob/main/config/profile.schema.json), schema version 3. These rules apply to every section:
+
+- Every section and every field is optional. An absent one leaves that value to the host.
+- No other keys are allowed at any level. The packages refuse a profile with an unknown key, and `scripts/validate-release-contract.py --kind profile` checks one from the command line.
+- A profile you write replaces composition. The seed and persona switches then have no effect.
+
+Check a profile before you launch it:
+
+<CodeGroup>
+```python Python
+import json
+from apostate import validate_profile
+
+validate_profile(json.load(open("profile.json")))
+```
+
+```javascript Node
+import { readFileSync } from "node:fs";
+import { validateProfile } from "@heretic-tech/apostate";
+
+validateProfile(JSON.parse(readFileSync("profile.json", "utf8")));
+```
+</CodeGroup>
+
+## Sections
+
+| Section | Sets |
+| --- | --- |
+| [`id`](#id-and-source_capture) | The profile's identifier. Readback noise is keyed on it. |
+| [`source_capture`](#id-and-source_capture) | Where the profile came from. Removed before the browser reads it. |
+| [`platform`](#platform) | OS name and version, CPU architecture, `navigator.platform`, Client Hints. |
+| [`browser`](#browser) | The User-Agent string. |
+| [`cpu`](#cpu-and-memory) | Logical cores. |
+| [`memory`](#cpu-and-memory) | Installed memory. |
+| [`gpu`](#gpu) | WebGL vendor and renderer strings. |
+| [`gl_limits`](#gl_limits) | WebGL numeric limits. |
+| [`gl_extensions`](#gl_extensions) | WebGL extensions. |
+| [`gl_precisions`](#gl_precisions) | Shader precision formats. |
+| [`webgpu`](#webgpu) | WebGPU adapter info, features and limits. |
+| [`screen`](#screen) | Screen size, available area, pixel ratio, colour and extra displays. |
+| [`window`](#window) | Window frame sizes. Not used. |
+| [`locale`](#locale) | Timezone, UI locale and language list. |
+| [`theme`](#theme) | Dark mode, highlight colours, CSS system fonts. |
+| [`input`](#input) | Pointer type and hover. |
+| [`audio`](#audio) | Audio output buffer size. |
+| [`media`](#media) | Cameras, microphones, speakers and power-efficient codecs. |
+| [`speech`](#speech) | Speech synthesis voices. |
+| [`keyboard`](#keyboard) | Keyboard layout map. |
+| [`fonts`](#fonts) | Font families a page can see, and generic font families. |
+| [`network`](#network) | Network Information API values and Save-Data. |
+| [`battery`](#battery) | Battery Status API values. |
+| [`extensions`](#extensions) | Whether pages see `chrome.runtime`. |
+
+## `id` and `source_capture`
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `id` | string | An identifier for the profile. A composed profile's is derived from the seed, such as `fp-1f609a08ef7734f203ced27b`. No page can read it. `--fingerprint-noise` keys its changes on it, so without an `id` noise does nothing. |
+| `source_capture` | string | A note on where the profile came from. The packages remove it before they send the profile. |
+
+## `platform`
+
+The User-Agent Client Hints and `navigator.platform` come from here.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `name` | string | Client Hints platform: `Windows`, `macOS` or `Linux`. |
+| `version` | string | Client Hints `platformVersion`, such as `19.0.0` for Windows 11 or `26.6.2` for macOS. |
+| `architecture` | string | Client Hints architecture: `x86` or `arm`. |
+| `bitness` | string | Client Hints bitness, `64`. |
+| `model` | string | Client Hints model. Empty on a desktop. |
+| `mobile` | boolean | Client Hints mobile flag. `false` on a desktop. |
+| `navigator_platform` | string | `navigator.platform`: `Win32`, `MacIntel` or `Linux x86_64`. It must agree with `name`. |
+| `wow64` | boolean | Client Hints WoW64. `true` only for a 32-bit browser on 64-bit Windows. |
+| `form_factors` | array of strings | Client Hints form factors, from `Desktop`, `Automotive`, `Mobile`, `Tablet`, `XR`, `EInk`, `Watch`. A desktop build serves only `Desktop`. |
+
+## `browser`
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `user_agent` | string | The whole User-Agent string. Its Chrome version must be the binary's, `152.0.0.0` in the reduced form. |
+| `brands` | array of `{brand, version}` | A record of the `Sec-CH-UA` brand list. The browser builds the real list and does not read this. |
+| `full_version_list` | array of `{brand, version}` | A record of `Sec-CH-UA-Full-Version-List`. Not read. |
+| `full_version` | string | A record of the full version. Not read. |
+
+## `cpu` and `memory`
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `cpu.logical_cores` | integer, at least 1 | `navigator.hardwareConcurrency`, and the size of the browser's own thread pools. A count above the host's is lowered to the host's with a warning. |
+| `memory.total_bytes` | integer, at least 1 | Installed memory in bytes. `navigator.deviceMemory` and the `Device-Memory` header round it to 2, 4, 8, 16 or 32 GiB. A value above the host's is lowered to the host's. |
+
+## `gpu`
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `unmasked_vendor` | string | `UNMASKED_VENDOR_WEBGL`, such as `Google Inc. (Intel)`. |
+| `unmasked_renderer` | string | `UNMASKED_RENDERER_WEBGL`, such as `ANGLE (Intel, Intel(R) UHD Graphics 770 (0x00004680) Direct3D11 vs_5_0 ps_5_0, D3D11)`. |
+
+[GPU models](/reference/gpu-models) lists the strings each GPU family measured. A renderer string should come with the `gl_limits`, `gl_extensions`, `gl_precisions` and `webgpu` of the same family, or a page can find the contradiction.
+
+## `gl_limits`
+
+An object of numbers keyed by the WebGL parameter name, such as `"MAX_TEXTURE_SIZE": 16384`. `getParameter()` in every WebGL context returns these values on every host. A two-value parameter is two keys: `ALIASED_LINE_WIDTH_RANGE_MIN` and `_MAX`, `ALIASED_POINT_SIZE_RANGE_MIN` and `_MAX`, `MAX_VIEWPORT_DIMS_WIDTH` and `_HEIGHT`. Values can be zero, negative or fractional, as measured. The browser's own drawing keeps the lower of these and the host's, and an operation beyond what the host's GPU can do still fails.
+
+## `gl_extensions`
+
+An array of WebGL extension names as `getSupportedExtensions()` spells them, each matching `^[A-Za-z0-9_]+$`. Extensions the host has and this list lacks are removed. An extension the host lacks is not added, except five that expose only constants: `EXT_render_snorm`, `EXT_texture_norm16`, `WEBGL_blend_func_extended`, `WEBGL_compressed_texture_pvrtc` and `WEBGL_render_shared_exponent`.
+
+## `gl_precisions`
+
+`getShaderPrecisionFormat()` results. Each key is `<SHADER>.<PRECISION>`, where the shader is `VERTEX_SHADER` or `FRAGMENT_SHADER` and the precision is `LOW_FLOAT`, `MEDIUM_FLOAT`, `HIGH_FLOAT`, `LOW_INT`, `MEDIUM_INT` or `HIGH_INT`. Each value has all three fields:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `rangeMin` | integer, 0 to 127 | log2 of the smallest representable magnitude. |
+| `rangeMax` | integer, 0 to 127 | log2 of the largest representable magnitude. |
+| `precision` | integer, 0 to 23 | Mantissa bits: 0 for integer types, 23 for 32-bit float. |
+
+## `webgpu`
+
+Without this section, WebGPU shows the host's adapter.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `features` | array of strings | Feature names as the WebGPU API spells them. Host features not in the list are removed. Features the host lacks are not added. |
+| `info.vendor` | string | `GPUAdapterInfo.vendor`, such as `intel`. |
+| `info.architecture` | string | `GPUAdapterInfo.architecture`, such as `gen-12lp`. |
+| `info.subgroup_min_size` | integer | `GPUAdapterInfo.subgroupMinSize`. A value that is not a power of two is ignored. |
+| `info.subgroup_max_size` | integer | `GPUAdapterInfo.subgroupMaxSize`. Same rule. |
+| `limits` | object of integers | Limits keyed as the API spells them, such as `maxBindGroups`. A page sees the lower of this and the host's. |
+
+## `screen`
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `width`, `height` | integer | `screen.width` and `screen.height`, in CSS pixels. |
+| `avail_width`, `avail_height` | integer | `screen.availWidth` and `screen.availHeight`: the screen minus the taskbar, dock or menu bar. |
+| `avail_left`, `avail_top` | integer | `screen.availLeft` and `screen.availTop`, such as the macOS menu bar height. |
+| `avail_inset_left`, `avail_inset_top`, `avail_inset_right`, `avail_inset_bottom` | integer, 0 to 100000 | The taskbar or menu bar size on each edge. The composer works out the four `avail_` values from these and removes them. In a profile you write they do nothing, so set the `avail_` values instead. |
+| `device_pixel_ratio` | number | The display's scale factor, such as `2` for a Retina display. `window.devicePixelRatio` is this times the page zoom. |
+| `color_depth` | `24` or `30` | `screen.colorDepth` and `screen.pixelDepth`. |
+| `color_gamut` | `srgb`, `p3` or `rec2020` | The `color-gamut` media feature. |
+| `hdr` | boolean | The `dynamic-range` media feature. `true` with `srgb` is served as `p3`. |
+| `is_extended` | boolean | `screen.isExtended`: whether the machine has more than one display. |
+| `displays` | array of 1 to 16 objects | The displays of a multi-monitor machine, with exactly one `is_primary`. Each has `left`, `top`, `width`, `height`, `avail_width`, `avail_height`, `device_pixel_ratio`, `color_depth`, `is_primary`, `is_internal` and `label`, and optionally `avail_left` and `avail_top`. |
+
+## `window`
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `outer_inner_delta_width` | integer, 0 to 1000 | `outerWidth - innerWidth` of the claimed browser window. Accepted and not used. A page sees the real window frame. |
+| `outer_inner_delta_height` | integer, 0 to 1000 | `outerHeight - innerHeight`. Accepted and not used. |
+
+## `locale`
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `timezone` | string | An IANA timezone name, such as `America/New_York`. |
+| `application` | string | The UI locale as one tag, such as `de-DE`. `Intl` and date and number formats follow it. Without `accept_languages`, the language list is Chrome's default for this locale. |
+| `accept_languages` | string | The language list, comma-separated, such as `de-DE,de`. `navigator.languages` and `Accept-Language` carry it. Without `application`, its first tag is the UI locale. |
+
+`--fingerprint-locale` with one tag writes `application`, and with a comma list writes `accept_languages`. Without either field, the UI locale is `en-US`.
+
+## `theme`
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `prefers_dark` | boolean | `prefers-color-scheme` and about thirty CSS system colours. |
+| `highlight_argb` | integer | The text selection colour as `0xAARRGGBB`, including alpha. |
+| `highlight_text_argb` | integer | The selected text colour, as `0xAARRGGBB`. |
+| `system_fonts` | object | What the CSS system font keywords resolve to. Keys are `caption`, `icon`, `menu`, `message-box`, `small-caption` and `status-bar`. Each value is `{"family": "Segoe UI", "size_px": 12}`, with `size_px` above 0 and at most 200. |
+
+## `input`
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `pointer_type` | `fine`, `coarse` or `none` | The `pointer` media feature. A desktop is `fine`. |
+| `hover` | boolean | The `hover` media feature. A desktop is `true`. |
+
+## `audio`
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `hardware_buffer_frames` | integer, 128 to 8192 | The audio output buffer size, which sets `AudioContext.baseLatency`. Windows reports 480, Apple hardware 256. |
+
+## `media`
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `hw_decode_codecs` | array of `h264`, `vp8`, `vp9`, `hevc`, `av1` | Codecs the claimed GPU decodes in hardware. `MediaCapabilities.decodingInfo()` reports these as `powerEfficient`. It does not change which codecs play. |
+| `audioinput_count` | integer, 0 to 16 | Microphones `enumerateDevices()` lists. The host's devices stay, and the list is topped up to this count. |
+| `videoinput_count` | integer, 0 to 16 | Cameras, the same way. |
+| `audiooutput_count` | integer, 0 to 16 | Speakers, the same way. Sound sent to a claimed speaker goes to a silent output. |
+| `devices` | array of up to 48 objects | The devices `enumerateDevices()` lists, each `{"kind": "audiooutput", "label": "Speakers (Realtek(R) Audio)", "group": "realtek-onboard"}`. `kind` is `audioinput`, `audiooutput` or `videoinput`. Entries with the same `group` are one physical device and share a `groupId`. A page reads the labels only after a permission is granted. |
+
+## `speech`
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `voices` | array of objects | The voices `speechSynthesis.getVoices()` lists, in order. Each has `name` and `lang`, and optionally `default` and `local_service`. An empty array lists no voices. Without the field, the host's voices are listed. |
+
+## `keyboard`
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `layout_map` | object of strings | What `navigator.keyboard.getLayoutMap()` returns, keyed by key code, such as `"KeyQ": "q"`. It replaces the host's map. Without it, a profile that claims a platform returns that platform's US layout. |
+
+## `fonts`
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `enumeration_allowlist` | array of up to 4096 strings | The font families a page can see. Host families not in the list are hidden. A family in the list that the host lacks stays missing. |
+| `generic_family_map` | object | The fonts the CSS generic families resolve to. Keys are `serif`, `sans-serif`, `monospace`, `cursive`, `fantasy` and `math`. |
+
+[Font lists](/reference/font-lists) has each persona's families, and [Fonts](/guides/fonts) explains how to install them.
+
+## `network`
+
+What `navigator.connection` reports, and the `Save-Data` header and the matching Client Hints.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `effective_type` | `slow-2g`, `2g`, `3g` or `4g` | `navigator.connection.effectiveType`. A desktop is `4g`. |
+| `http_rtt_ms` | integer, 0 to 3000 | The round-trip estimate before Chromium rounds it. `navigator.connection.rtt` is this rounded to 50 ms per origin. |
+| `downlink_mbps` | number, 0 to 10 | The throughput estimate before Chromium rounds it, for `navigator.connection.downlink`. |
+| `save_data` | boolean | `navigator.connection.saveData`, the `Save-Data` header and `prefers-reduced-data`. Desktop Chrome has no setting for it, so leave it `false`. |
+
+## `battery`
+
+What `navigator.getBattery()` reports. Without this section, the host's battery shows.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `present` | boolean | Whether the machine has a battery. `false` reports what a desktop reports: charging, level 1, `chargingTime` 0 and `dischargingTime` `Infinity`. |
+| `charging` | boolean | Whether it is charging. |
+| `level` | number, 0 to 1, in steps of 0.01 | The charge. |
+| `charging_time_seconds` | integer, 0 to 604800, whole minutes | Seconds until full. Omit it for `Infinity`. |
+| `discharging_time_seconds` | integer, 0 to 604800, whole minutes | Seconds until empty. Omit it for `Infinity`. |
+
+## `extensions`
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `externally_connectable` | boolean | Whether an installed extension exposes `chrome.runtime` to ordinary web pages. `false` is a Chrome without such an extension. `true` puts `chrome.runtime` on every `http` and `https` page, as some wallet extensions do. |
+
+## Complete example
+
+This is the profile seed 42 composes for a Windows persona with `--fingerprint-locale=en-US` and `--fingerprint-timezone=America/New_York`, taken from the command line of the browser's child processes. It was composed by 0.4.3 on an Apple silicon host, which is why `platform.architecture` is `arm`. On an x64 host it is `x86`. It validates against the schema, and `launch(profile="profile.json")` presents it.
+
+<Accordion title="profile.json">
+```json
+{
+  "audio": {
+    "hardware_buffer_frames": 480
+  },
+  "battery": {
+    "present": false
+  },
+  "browser": {
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+  },
+  "cpu": {
+    "logical_cores": 12
+  },
+  "extensions": {
+    "externally_connectable": false
+  },
+  "fonts": {
+    "enumeration_allowlist": [
+      "Arial", "Arial Black", "Bahnschrift", "Calibri", "Calibri Light", "Cambria",
+      "Cambria Math", "Candara", "Comic Sans MS", "Consolas", "Constantia", "Corbel",
+      "Corbel Light", "Courier New", "Ebrima", "Franklin Gothic Medium", "Gabriola", "Gadugi",
+      "Georgia", "Impact", "Ink Free", "Javanese Text", "Leelawadee UI",
+      "Leelawadee UI Semilight", "Lucida Console", "Lucida Sans Unicode", "MS Gothic",
+      "MS PGothic", "MS UI Gothic", "MV Boli", "Malgun Gothic", "Malgun Gothic Semilight",
+      "Marlett", "Microsoft Himalaya", "Microsoft JhengHei", "Microsoft JhengHei Light",
+      "Microsoft JhengHei UI", "Microsoft JhengHei UI Light", "Microsoft New Tai Lue",
+      "Microsoft PhagsPa", "Microsoft Sans Serif", "Microsoft Tai Le", "Microsoft YaHei",
+      "Microsoft YaHei Light", "Microsoft YaHei UI", "Microsoft YaHei UI Light",
+      "Microsoft Yi Baiti", "MingLiU-ExtB", "MingLiU_HKSCS-ExtB", "Mongolian Baiti",
+      "Myanmar Text", "NSimSun", "Nirmala UI", "Nirmala UI Semilight", "PMingLiU-ExtB",
+      "Palatino Linotype", "Sans Serif Collection", "Segoe Fluent Icons", "Segoe MDL2 Assets",
+      "Segoe Print", "Segoe Script", "Segoe UI", "Segoe UI Black", "Segoe UI Emoji",
+      "Segoe UI Historic", "Segoe UI Light", "Segoe UI Semibold", "Segoe UI Semilight",
+      "Segoe UI Symbol", "Segoe UI Variable", "SimSun", "SimSun-ExtB", "SimSun-ExtG", "Sitka",
+      "Sitka Text", "Sylfaen", "Symbol", "Tahoma", "Times New Roman", "Trebuchet MS", "Verdana",
+      "Webdings", "Wingdings", "Yu Gothic", "Yu Gothic Light", "Yu Gothic Medium",
+      "Yu Gothic UI", "Yu Gothic UI Light", "Yu Gothic UI Semibold", "Yu Gothic UI Semilight"
+    ],
+    "generic_family_map": {
+      "cursive": "Comic Sans MS",
+      "fantasy": "Impact",
+      "monospace": "Consolas",
+      "sans-serif": "Arial",
+      "serif": "Times New Roman"
+    }
+  },
+  "gl_extensions": [
+    "ANGLE_instanced_arrays", "EXT_blend_minmax", "EXT_clip_control", "EXT_color_buffer_float",
+    "EXT_color_buffer_half_float", "EXT_conservative_depth", "EXT_depth_clamp",
+    "EXT_disjoint_timer_query", "EXT_disjoint_timer_query_webgl2", "EXT_float_blend",
+    "EXT_frag_depth", "EXT_polygon_offset_clamp", "EXT_render_snorm", "EXT_sRGB",
+    "EXT_shader_texture_lod", "EXT_texture_compression_bptc", "EXT_texture_compression_rgtc",
+    "EXT_texture_filter_anisotropic", "EXT_texture_mirror_clamp_to_edge", "EXT_texture_norm16",
+    "KHR_parallel_shader_compile", "NV_shader_noperspective_interpolation",
+    "OES_draw_buffers_indexed", "OES_element_index_uint", "OES_fbo_render_mipmap",
+    "OES_sample_variables", "OES_shader_multisample_interpolation", "OES_standard_derivatives",
+    "OES_texture_float", "OES_texture_float_linear", "OES_texture_half_float",
+    "OES_texture_half_float_linear", "OES_vertex_array_object", "OVR_multiview2",
+    "WEBGL_blend_func_extended", "WEBGL_clip_cull_distance", "WEBGL_color_buffer_float",
+    "WEBGL_compressed_texture_s3tc", "WEBGL_compressed_texture_s3tc_srgb",
+    "WEBGL_debug_renderer_info", "WEBGL_debug_shaders", "WEBGL_depth_texture",
+    "WEBGL_draw_buffers", "WEBGL_lose_context", "WEBGL_multi_draw", "WEBGL_polygon_mode",
+    "WEBGL_provoking_vertex", "WEBGL_stencil_texturing"
+  ],
+  "gl_limits": {
+    "ALIASED_LINE_WIDTH_RANGE_MAX": 1,
+    "ALIASED_LINE_WIDTH_RANGE_MIN": 1,
+    "ALIASED_POINT_SIZE_RANGE_MAX": 1024,
+    "ALIASED_POINT_SIZE_RANGE_MIN": 1,
+    "MAX_3D_TEXTURE_SIZE": 2048,
+    "MAX_ARRAY_TEXTURE_LAYERS": 2048,
+    "MAX_COLOR_ATTACHMENTS": 8,
+    "MAX_COMBINED_FRAGMENT_UNIFORM_COMPONENTS": 200704,
+    "MAX_COMBINED_TEXTURE_IMAGE_UNITS": 32,
+    "MAX_COMBINED_UNIFORM_BLOCKS": 24,
+    "MAX_COMBINED_VERTEX_UNIFORM_COMPONENTS": 212992,
+    "MAX_CUBE_MAP_TEXTURE_SIZE": 16384,
+    "MAX_DRAW_BUFFERS": 8,
+    "MAX_ELEMENTS_INDICES": 2147483647,
+    "MAX_ELEMENTS_VERTICES": 2147483647,
+    "MAX_ELEMENT_INDEX": 4294967294,
+    "MAX_FRAGMENT_INPUT_COMPONENTS": 120,
+    "MAX_FRAGMENT_UNIFORM_BLOCKS": 12,
+    "MAX_FRAGMENT_UNIFORM_COMPONENTS": 4096,
+    "MAX_FRAGMENT_UNIFORM_VECTORS": 1024,
+    "MAX_PROGRAM_TEXEL_OFFSET": 7,
+    "MAX_RENDERBUFFER_SIZE": 16384,
+    "MAX_SAMPLES": 16,
+    "MAX_SERVER_WAIT_TIMEOUT": 0,
+    "MAX_TEXTURE_IMAGE_UNITS": 16,
+    "MAX_TEXTURE_LOD_BIAS": 2,
+    "MAX_TEXTURE_SIZE": 16384,
+    "MAX_TRANSFORM_FEEDBACK_INTERLEAVED_COMPONENTS": 120,
+    "MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS": 4,
+    "MAX_TRANSFORM_FEEDBACK_SEPARATE_COMPONENTS": 4,
+    "MAX_UNIFORM_BLOCK_SIZE": 65536,
+    "MAX_UNIFORM_BUFFER_BINDINGS": 24,
+    "MAX_VARYING_COMPONENTS": 120,
+    "MAX_VARYING_VECTORS": 30,
+    "MAX_VERTEX_ATTRIBS": 16,
+    "MAX_VERTEX_OUTPUT_COMPONENTS": 120,
+    "MAX_VERTEX_TEXTURE_IMAGE_UNITS": 16,
+    "MAX_VERTEX_UNIFORM_BLOCKS": 12,
+    "MAX_VERTEX_UNIFORM_COMPONENTS": 16384,
+    "MAX_VERTEX_UNIFORM_VECTORS": 4096,
+    "MAX_VIEWPORT_DIMS_HEIGHT": 32767,
+    "MAX_VIEWPORT_DIMS_WIDTH": 32767,
+    "MIN_PROGRAM_TEXEL_OFFSET": -8,
+    "UNIFORM_BUFFER_OFFSET_ALIGNMENT": 256
+  },
+  "gl_precisions": {
+    "FRAGMENT_SHADER.HIGH_FLOAT": {
+      "precision": 23,
+      "rangeMax": 127,
+      "rangeMin": 127
+    },
+    "FRAGMENT_SHADER.HIGH_INT": {
+      "precision": 0,
+      "rangeMax": 30,
+      "rangeMin": 31
+    },
+    "FRAGMENT_SHADER.LOW_FLOAT": {
+      "precision": 23,
+      "rangeMax": 127,
+      "rangeMin": 127
+    },
+    "FRAGMENT_SHADER.LOW_INT": {
+      "precision": 0,
+      "rangeMax": 30,
+      "rangeMin": 31
+    },
+    "FRAGMENT_SHADER.MEDIUM_FLOAT": {
+      "precision": 23,
+      "rangeMax": 127,
+      "rangeMin": 127
+    },
+    "FRAGMENT_SHADER.MEDIUM_INT": {
+      "precision": 0,
+      "rangeMax": 30,
+      "rangeMin": 31
+    },
+    "VERTEX_SHADER.HIGH_FLOAT": {
+      "precision": 23,
+      "rangeMax": 127,
+      "rangeMin": 127
+    },
+    "VERTEX_SHADER.HIGH_INT": {
+      "precision": 0,
+      "rangeMax": 30,
+      "rangeMin": 31
+    },
+    "VERTEX_SHADER.LOW_FLOAT": {
+      "precision": 23,
+      "rangeMax": 127,
+      "rangeMin": 127
+    },
+    "VERTEX_SHADER.LOW_INT": {
+      "precision": 0,
+      "rangeMax": 30,
+      "rangeMin": 31
+    },
+    "VERTEX_SHADER.MEDIUM_FLOAT": {
+      "precision": 23,
+      "rangeMax": 127,
+      "rangeMin": 127
+    },
+    "VERTEX_SHADER.MEDIUM_INT": {
+      "precision": 0,
+      "rangeMax": 30,
+      "rangeMin": 31
+    }
+  },
+  "gpu": {
+    "unmasked_renderer": "ANGLE (Intel, Intel(R) UHD Graphics 770 (0x00004680) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+    "unmasked_vendor": "Google Inc. (Intel)"
+  },
+  "id": "fp-1f609a08ef7734f203ced27b",
+  "locale": {
+    "application": "en-US",
+    "timezone": "America/New_York"
+  },
+  "media": {
+    "audioinput_count": 0,
+    "audiooutput_count": 1,
+    "devices": [
+      {
+        "group": "realtek-onboard",
+        "kind": "audiooutput",
+        "label": "Speakers (Realtek(R) Audio)"
+      }
+    ],
+    "videoinput_count": 0
+  },
+  "memory": {
+    "total_bytes": 8589934592
+  },
+  "network": {
+    "downlink_mbps": 4.15,
+    "effective_type": "4g",
+    "http_rtt_ms": 100,
+    "save_data": false
+  },
+  "platform": {
+    "architecture": "arm",
+    "bitness": "64",
+    "form_factors": ["Desktop"],
+    "mobile": false,
+    "model": "",
+    "name": "Windows",
+    "navigator_platform": "Win32",
+    "version": "19.0.0",
+    "wow64": false
+  },
+  "screen": {
+    "avail_height": 1032,
+    "avail_left": 0,
+    "avail_top": 0,
+    "avail_width": 1920,
+    "color_depth": 24,
+    "color_gamut": "srgb",
+    "device_pixel_ratio": 1,
+    "hdr": false,
+    "height": 1080,
+    "width": 1920
+  },
+  "speech": {
+    "voices": [
+      {
+        "default": true,
+        "lang": "en-US",
+        "local_service": true,
+        "name": "Microsoft David - English (United States)"
+      },
+      {
+        "default": false,
+        "lang": "en-US",
+        "local_service": true,
+        "name": "Microsoft Mark - English (United States)"
+      },
+      {
+        "default": false,
+        "lang": "en-US",
+        "local_service": true,
+        "name": "Microsoft Zira - English (United States)"
+      },
+      {
+        "default": false,
+        "lang": "de-DE",
+        "local_service": false,
+        "name": "Google Deutsch"
+      },
+      {
+        "default": false,
+        "lang": "en-US",
+        "local_service": false,
+        "name": "Google US English"
+      },
+      {
+        "default": false,
+        "lang": "en-GB",
+        "local_service": false,
+        "name": "Google UK English Female"
+      },
+      {
+        "default": false,
+        "lang": "en-GB",
+        "local_service": false,
+        "name": "Google UK English Male"
+      },
+      {
+        "default": false,
+        "lang": "es-ES",
+        "local_service": false,
+        "name": "Google español"
+      },
+      {
+        "default": false,
+        "lang": "es-US",
+        "local_service": false,
+        "name": "Google español de Estados Unidos"
+      },
+      {
+        "default": false,
+        "lang": "fr-FR",
+        "local_service": false,
+        "name": "Google français"
+      },
+      {
+        "default": false,
+        "lang": "hi-IN",
+        "local_service": false,
+        "name": "Google हिन्दी"
+      },
+      {
+        "default": false,
+        "lang": "id-ID",
+        "local_service": false,
+        "name": "Google Bahasa Indonesia"
+      },
+      {
+        "default": false,
+        "lang": "it-IT",
+        "local_service": false,
+        "name": "Google italiano"
+      },
+      {
+        "default": false,
+        "lang": "ja-JP",
+        "local_service": false,
+        "name": "Google 日本語"
+      },
+      {
+        "default": false,
+        "lang": "ko-KR",
+        "local_service": false,
+        "name": "Google 한국의"
+      },
+      {
+        "default": false,
+        "lang": "nl-NL",
+        "local_service": false,
+        "name": "Google Nederlands"
+      },
+      {
+        "default": false,
+        "lang": "pl-PL",
+        "local_service": false,
+        "name": "Google polski"
+      },
+      {
+        "default": false,
+        "lang": "pt-BR",
+        "local_service": false,
+        "name": "Google português do Brasil"
+      },
+      {
+        "default": false,
+        "lang": "ru-RU",
+        "local_service": false,
+        "name": "Google русский"
+      },
+      {
+        "default": false,
+        "lang": "zh-CN",
+        "local_service": false,
+        "name": "Google 普通话（中国大陆）"
+      },
+      {
+        "default": false,
+        "lang": "zh-HK",
+        "local_service": false,
+        "name": "Google 粤語（香港）"
+      },
+      {
+        "default": false,
+        "lang": "zh-TW",
+        "local_service": false,
+        "name": "Google 國語（臺灣）"
+      }
+    ]
+  },
+  "theme": {
+    "highlight_argb": 3434338303,
+    "highlight_text_argb": 4278190080,
+    "prefers_dark": true
+  },
+  "webgpu": {
+    "features": [
+      "bgra8unorm-storage", "clip-distances", "core-features-and-limits", "depth-clip-control",
+      "depth32float-stencil8", "dual-source-blending", "float32-blendable", "float32-filterable",
+      "indirect-first-instance", "primitive-index", "rg11b10ufloat-renderable", "shader-f16",
+      "texture-component-swizzle", "texture-compression-bc", "texture-compression-bc-sliced-3d",
+      "texture-formats-tier1", "texture-formats-tier2", "timestamp-query"
+    ],
+    "info": {
+      "architecture": "gen-12lp",
+      "subgroup_max_size": 16,
+      "subgroup_min_size": 8,
+      "vendor": "intel"
+    },
+    "limits": {
+      "maxBindGroups": 4,
+      "maxBindGroupsPlusVertexBuffers": 24,
+      "maxBindingsPerBindGroup": 1000,
+      "maxBufferSize": 2147483648,
+      "maxColorAttachmentBytesPerSample": 128,
+      "maxColorAttachments": 8,
+      "maxComputeInvocationsPerWorkgroup": 1024,
+      "maxComputeWorkgroupSizeX": 1024,
+      "maxComputeWorkgroupSizeY": 1024,
+      "maxComputeWorkgroupSizeZ": 64,
+      "maxComputeWorkgroupStorageSize": 32768,
+      "maxComputeWorkgroupsPerDimension": 65535,
+      "maxDynamicStorageBuffersPerPipelineLayout": 8,
+      "maxDynamicUniformBuffersPerPipelineLayout": 10,
+      "maxImmediateSize": 64,
+      "maxInterStageShaderVariables": 28,
+      "maxSampledTexturesPerShaderStage": 48,
+      "maxSamplersPerShaderStage": 16,
+      "maxStorageBufferBindingSize": 2147483644,
+      "maxStorageBuffersInFragmentStage": 16,
+      "maxStorageBuffersInVertexStage": 16,
+      "maxStorageBuffersPerShaderStage": 16,
+      "maxStorageTexturesInFragmentStage": 8,
+      "maxStorageTexturesInVertexStage": 8,
+      "maxStorageTexturesPerShaderStage": 8,
+      "maxTextureArrayLayers": 2048,
+      "maxTextureDimension1D": 16384,
+      "maxTextureDimension2D": 16384,
+      "maxTextureDimension3D": 2048,
+      "maxUniformBufferBindingSize": 65536,
+      "maxUniformBuffersPerShaderStage": 12,
+      "maxVertexAttributes": 30,
+      "maxVertexBufferArrayStride": 2048,
+      "maxVertexBuffers": 8,
+      "minStorageBufferOffsetAlignment": 256,
+      "minUniformBufferOffsetAlignment": 256
+    }
+  },
+  "window": {
+    "outer_inner_delta_height": 121,
+    "outer_inner_delta_width": 0
+  }
+}
+```
+</Accordion>

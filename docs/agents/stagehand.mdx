@@ -1,0 +1,27 @@
+---
+title: "Stagehand"
+description: "Stagehand 4 does not start on Apostate 0.4.3. Use the MCP server or browser-use until it does."
+---
+
+Stagehand 4.1 does not work with Apostate 0.4.3. `Stagehand.create()` stops with `Stagehand initialization timed out after 60000ms`, whether it launches Apostate (`localBrowser.launch` with `executablePath`) or connects to it over CDP (`localBrowser.connect` with `--remote-allow-origins=*` on the browser). The same scripts start on Chrome for Testing. Measured on 2026-09-28 on macOS arm64.
+
+Stagehand 4 drives the browser from its own browser extension, which it loads over CDP and which opens a second DevTools connection from inside the browser. That path does not complete under Apostate. It is tracked as a known issue.
+
+Until it is fixed, use one of these for model-driven browsing:
+
+<Columns cols={2}>
+  <Card title="MCP server" icon="plug" href="/agents/mcp">
+    Browser tools for any MCP client, on an Apostate browser launched by the Node package.
+  </Card>
+  <Card title="browser-use" icon="bot" href="/agents/browser-use">
+    A Python agent framework, connected to Apostate over CDP.
+  </Card>
+</Columns>
+
+## What a page sees under Stagehand 4
+
+Measured on Chrome for Testing, where Stagehand 4 does start:
+
+- `window.ModelContext` exists and `navigator.modelContext` is an object. Stagehand enables Chromium's WebMCP feature for its own use, and pages can read it. Desktop Chrome does not expose it.
+- Stagehand's default trace endpoint is `https://example.com/v1/traces`, and the extension exports traces from inside the browser. Set `telemetry: { traces: { endpoint: ... } }` to your own collector.
+- The model API key is handed to the extension, and model calls go out through the browser's network stack and proxy.

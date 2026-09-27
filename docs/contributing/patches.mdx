@@ -1,0 +1,188 @@
+---
+title: "Patches"
+description: "Write a Chromium patch, place it in the series, and compile it before a full build."
+---
+
+Every change to the browser is a patch file in `patches/`, a diff against the pinned Chromium tag 152.0.7977.83. `patches/series` lists the patches in the order they apply, and `scripts/apply-patches.sh` applies them with `git apply`, which allows no fuzz. The series has 134 patches. The checkout and build setup are on [Build from source](/contributing/build).
+
+## The patch format
+
+A patch file is a subject line, a description, and the diff:
+
+```text
+Subject: [PATCH] display: screen geometry from the profile
+
+Screen size, available area, color depth, device pixel ratio and
+isExtended come from the profile. They are set on the ScreenInfo the
+browser process sends to renderers, so screen.*, the CSS display media
+features and the DPR client hint all agree, in top frames and
+out-of-process iframes alike. Color depth accepts only 24 or 30, the two
+values Chromium uses.
+
+diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
+...
+```
+
+- **File name.** `NNNN-area-what-it-does.patch`. Number a new patch one above the highest number in `patches/`. Numbers of removed patches are not reused.
+- **Subject.** The first line is `Subject: [PATCH] area: what it does`. The area is the Chromium component or topic the patch changes, such as `net`, `display`, `speech` or `compose`.
+- **Description.** After a blank line, say what the patch changes in the terms a page sees, and what stays as in stock Chromium. Write plain sentences and wrap them at about 72 columns.
+- **Diff.** After another blank line comes the diff, with `a/` and `b/` paths relative to Chromium's `src` directory. `git diff` output and plain `diff -u` output both work, and both are in the series.
+
+## Write a patch
+
+<Steps>
+  <Step title="Apply the series">
+    Start from a checkout with the whole series applied:
+
+    ```bash
+    scripts/apply-patches.sh
+    ```
+
+    An earlier patch may already change the file you are about to edit. To see which patches touch a file, search for its path:
+
+    ```bash
+    grep -l 'b/third_party/blink/renderer/core/frame/navigator.cc' patches/*.patch
+    ```
+
+    No output means no patch touches the file.
+  </Step>
+
+  <Step title="Copy the files you will edit">
+    Your patch must hold only your change, on top of the series. From the repository root, keep a copy of each file before you edit it:
+
+    ```bash
+    f=third_party/blink/renderer/core/frame/navigator.cc
+    cp ".workspace/src/$f" ".workspace/src/$f.orig"
+    ```
+  </Step>
+
+  <Step title="Edit and compile">
+    Edit the file, then compile it with `scripts/checkfile.sh` ([below](#check-a-patch-before-a-full-build)) until it builds.
+  </Step>
+
+  <Step title="Write the patch file">
+    Write the subject, the description and the diff into a new file in `patches/`, then remove the copy:
+
+    ```bash
+    {
+      printf 'Subject: [PATCH] blink: what the patch does\n\nWhat changes, in the terms a page sees.\n\n'
+      diff -u --label "a/$f" --label "b/$f" ".workspace/src/$f.orig" ".workspace/src/$f"
+    } > patches/0154-blink-what-the-patch-does.patch
+    rm ".workspace/src/$f.orig"
+    ```
+
+    For a new file, `git -C .workspace/src diff --no-index -- /dev/null path/to/new_file.cc` writes the diff that creates it. For a file no earlier patch touches, `git -C .workspace/src diff -- <path>` gives the same diff as the copy. The series also edits `v8`, `third_party/angle`, `third_party/dawn`, `third_party/ffmpeg`, `third_party/swiftshader` and `third_party/webrtc`, which are Git repositories of their own, and `git -C .workspace/src diff` does not show changes in them. The copy method works for them, with the path still relative to `src`.
+  </Step>
+
+  <Step title="Add it to the series">
+    Add the file name to `patches/series` after every patch it depends on. [Order in the series](#order-in-the-series) has the rules.
+  </Step>
+
+  <Step title="Apply the series again">
+    ```bash
+    scripts/apply-patches.sh
+    ```
+
+    The series changed, so the script resets every file the series touches, removes the files it creates, and applies all patches in order. It stops at the first patch that does not apply and names it. Any edit in the checkout that no patch records is lost at this step. `scripts/build.sh` never applies patches, so run this after every change to a patch file, and check that the checkout has your change before you build.
+  </Step>
+
+  <Step title="Validate">
+    ```bash
+    python3 scripts/validate-patch-headers.py
+    python3 scripts/validate-release-baseline.py --series-only
+    ```
+
+    Both run in CI on every pull request. Then compile the series for your target, build, and [measure](/contributing/overview#rules-for-a-change).
+  </Step>
+</Steps>
+
+## Order in the series
+
+`scripts/apply-patches.sh` applies the entries of `patches/series` from top to bottom. Blank lines and lines starting with `#` are ignored. The order follows dependencies, not numbers, and `scripts/validate-release-baseline.py --series-only` checks these rules:
+
+- Every `patches/*.patch` file is listed exactly once, and every listed file exists.
+- Every entry is named `NNNN-description.patch`, and no number is used twice.
+- A patch that edits or deletes a file comes after the patch that creates it.
+- No two patches create the same file.
+- Entries are in ascending numeric order. When a dependency moves a patch out of numeric order, put a `#` comment directly above the moved entries, with no blank line between, that names the dependency.
+
+## Hunk headers
+
+A hunk header states how many lines its body covers, and `git apply` trusts that count. When the header says fewer lines than the body has, it drops the extra lines and still reports that the patch applied. A hand edit that adds or removes lines in a patch body leaves the header wrong. `scripts/validate-patch-headers.py` recounts every hunk of every listed patch and reports each header that disagrees with its body. `--fix` rewrites those headers, including the new-side start lines of the hunks that follow in the same file.
+
+```bash
+python3 scripts/validate-patch-headers.py
+```
+
+```text
+134 patches: every hunk header matches its body
+```
+
+## Line endings
+
+Patch files are byte-exact. `.gitattributes` marks `*.patch` and `patches/series` as `-text`, so Git never converts their line endings on any platform.
+
+A patch that edits a Chromium file with CRLF line endings carries CRLF on those lines. `0042-audio-portable-neon-profile.patch` does, because the vendored `rustfft` sources under `third_party/rust/chromium_crates_io/vendor/rustfft-v6/` use CRLF. Edit such a patch with a tool that keeps the bytes, or regenerate its diff. An editor that normalizes line endings breaks the patch.
+
+`scripts/test_patch_line_endings.py` checks that `git apply --check --whitespace=error`, with `core.whitespace` set to `blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol`, accepts a CRLF line and still rejects trailing spaces and tabs. Use that `core.whitespace` value when you check a CRLF patch for whitespace errors.
+
+## Check a patch before a full build
+
+A full build takes hours. Compiling the files a patch touches takes minutes. Both scripts below need a configured output directory, so run `scripts/configure.sh <target>` once first. On Linux they run in the build container.
+
+### One file
+
+```bash
+scripts/checkfile.sh third_party/blink/renderer/core/frame/navigator.cc
+scripts/checkfile.sh base/apostate/compose.cc macos-arm64
+```
+
+`checkfile.sh` takes a path inside the Chromium checkout and an optional target, defaulting to the host's. It looks up the objects that file compiles into in `compile_commands.json` and asks ninja to build only those, with any generated headers they need. It prints `OK  <path> compiles` on success.
+
+### The whole series
+
+```bash
+scripts/checkseries.sh linux-x64
+```
+
+`checkseries.sh` compiles every translation unit the series touches on one target and classifies each one:
+
+| Outcome | Meaning |
+| --- | --- |
+| compiles | ninja produced every object the build graph derives from the file |
+| fails | An object was not produced. The error is printed and the run fails |
+| include-only | The file is not compiled on its own, and an object this run compiled read it |
+| absent-platform | Declared in `scripts/series-absences.tsv` as excluded from this target by a GN condition |
+| absent-config | Declared there as excluded by this build's configuration |
+| unexplained | None of the above. The run fails |
+
+A file that a target builds no object from must be declared in `scripts/series-absences.tsv`, one line per file: the path, the targets as comma-separated globs such as `windows-*`, the category `platform` or `config`, and the evidence, such as the `BUILD.gn` line that scopes the file. A declaration that the run disproves fails the run as stale.
+
+When a patch adds source files to a GN list, `checkseries.sh` also builds the archive of each library the files join and runs `scripts/series-symbol-closure.py`. It fails when an added object references a symbol that no member of its library defines. Without this check, a missing source file shows up only when the browser links.
+
+| Option | Effect |
+| --- | --- |
+| `--list` | Classify only. Nothing is compiled |
+| `--fast` | Skip the `ninja -t query` confirmation of each absent file |
+| `--report PATH` | Where to write the JSON report. The default is `out/<target>/apostate-v1-<target>.json` |
+| `-j N` | ninja's job count. The default is `APOSTATE_JOBS`, or 75% of the CPUs |
+| `--merge A.json B.json ...` | Merge reports from several targets and fail on a file that no platform compiles |
+
+`--list` reads the whole build graph. On macOS it classified 159 translation units, 21 of them absent on that platform, in about nine minutes on an Apple M4 Max. CI runs `checkseries.sh` for `linux-x64` and `windows-x64` every Monday in `series-gate.yml` and merges the two reports.
+
+## Check a macOS build has your change
+
+On macOS, ninja can leave an older framework inside `Chromium.app` after a rebuild. Before you measure a change, check that the binary contains a string only your patch adds:
+
+```bash
+cd .workspace/src/out/macos-arm64
+strings -a "Chromium.app/Contents/Frameworks/Chromium Framework.framework/Versions/152.0.7977.83/Chromium Framework" \
+  | grep -c 'a string only your patch adds'
+```
+
+`0` means the bundle holds an old build. Delete the bundle and build `chrome` again in the same directory, which takes seconds:
+
+```bash
+rm -rf Chromium.app
+../../third_party/ninja/ninja chrome
+```

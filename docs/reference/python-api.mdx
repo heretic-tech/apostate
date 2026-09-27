@@ -1,0 +1,537 @@
+---
+title: "Python API"
+description: "Every public name in the apostate Python package: launch functions and their options, binary management, profiles and the resolver, GeoIP, Widevine, constants and exceptions."
+---
+
+This page lists every name in `apostate.__all__` for the Python package 0.4.3. [Python](/guides/python) shows how to use them together.
+
+```bash
+pip install apostate
+```
+
+The package needs Python 3.10 or later and installs Patchright, the driver it launches the browser with. `pip install "apostate[playwright]"` also installs Playwright, the alternative driver.
+
+## Launching
+
+Every launch function resolves the options, looks up the locale and timezone of the connection's exit, finds or downloads the browser, and starts it through the driver. They share [the launch options](#launch-options).
+
+### `launch`
+
+```python
+def launch(*, fingerprint: int | str | None = None, fingerprint_platform: str | None = None,
+           profile: Any = None, locale: str | None = None, timezone: str | None = None,
+           geoip: bool = True, proxy: str | Mapping[str, Any] | None = None,
+           headless: bool = True, user_data_dir: str | Path | None = None,
+           args: list[str] | tuple[str, ...] | None = None,
+           binary_path: str | Path | None = None, cache_dir: str | Path | None = None,
+           manifest: Mapping[str, Any] | str | Path | None = None,
+           downloader: Callable[[str], Any] | None = None, resolver: Any = None,
+           catalogue: Any = None, geoip_provider: Any = None, geoip_timeout: float = GEOIP_BUDGET_SECONDS,
+           driver: str | None = None,
+           **playwright_options: Any) -> Browser
+```
+
+Returns a `Browser`: Playwright's `Browser`, with pages in a normal profile. The browser runs on a temporary profile that the driver deletes when the browser closes or the program exits.
+
+| Member | What it does |
+| --- | --- |
+| `new_page()` | Opens a page in the launch's profile. The first call returns the blank page the browser opened with. Passing options raises `ConfigurationError`. Pass them to `launch()` instead. |
+| `new_context(**options)` | Opens an off-the-record context, as Playwright's `Browser.new_context()` does. Sites can tell it from a normal profile. |
+| `contexts` | The launch's profile first, then each context from `new_context()`. |
+| `pages` | The pages open in the launch's profile. |
+| `close(**options)` | Closes the browser, which deletes its profile, and stops the driver and the virtual display. A second call does nothing. |
+| `apostate_driver` | The started driver object, from `sync_playwright().start()`. |
+| `apostate_driver_name` | `"patchright"` or `"playwright"`. |
+
+Every other attribute is Playwright's `Browser`: `version`, `is_connected()`, `browser_type` and the rest. `Browser` is a context manager, so `with launch() as browser:` closes it.
+
+`launch()` refuses `user_data_dir` and `--user-data-dir` in `args` with `ConfigurationError`. Use `launch_persistent_context()` to keep a profile.
+
+### `launch_persistent_context`
+
+```python
+def launch_persistent_context(user_data_dir: str | Path, *, context_options: Mapping[str, Any] | None = None,
+                              **options: Any) -> Any
+```
+
+Creates `user_data_dir` if it does not exist and returns Playwright's `BrowserContext` bound to it. The first launch stores a seed in `user_data_dir/apostate/identity`, and every later launch without `fingerprint` presents the same machine. [Seeds and identity](/concepts/seeds-and-identity) has the details.
+
+- `options` are [the launch options](#launch-options).
+- `context_options` are Playwright context options, such as `viewport` or `permissions`. They are merged with `options`.
+- The context has `apostate_driver` and `apostate_driver_name`, as `Browser` does. `close()` also stops the driver and the virtual display.
+
+### `launch_context`
+
+```python
+def launch_context(*, context_options: Mapping[str, Any] | None = None, **options: Any) -> Any
+```
+
+Launches the browser and returns the `BrowserContext` of its temporary profile. It is a normal profile, not off-the-record. `context_options` apply to it at launch. Closing it closes the browser, which deletes the profile.
+
+The context has one extra attribute, `apostate_browser`, which is the `Browser` it came from.
+
+### Async versions
+
+```python
+async def launch_async(**options: Any) -> AsyncBrowser
+async def launch_context_async(*, context_options: Mapping[str, Any] | None = None, **options: Any) -> Any
+async def launch_persistent_context_async(user_data_dir: str | Path, *, context_options: Mapping[str, Any] | None = None,
+                                          **options: Any) -> Any
+```
+
+The same functions for Playwright's async API. `AsyncBrowser` has the members of `Browser`, with `new_page()`, `new_context()` and `close()` as coroutines, and works with `async with`.
+
+### Launch options
+
+Every launch function takes these as keywords.
+
+| Option | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `fingerprint` | `int`, `str` or `None` | `None` | The seed, sent as `--fingerprint`. A non-negative integer, or a string matching `[A-Za-z0-9][A-Za-z0-9._:-]*` of at most 512 bytes. `"host"`, `"off"`, `"false"`, `"0"`, `"disable"` and `"disabled"` select host mode. `None` lets the browser use the identity file or a fresh seed. |
+| `fingerprint_platform` | `str` or `None` | `None` | The persona, sent as `--fingerprint-platform`: `windows`, `macos` or `linux`, or the aliases `win`, `win32`, `darwin`, `mac`, `osx`, `linux2`. `None` sends nothing, and the browser picks `macos` on a Mac and `windows` elsewhere. |
+| `profile` | `dict`, path or `None` | `None` | A profile you wrote, as a mapping or the path of a JSON file. It is validated against the [profile schema](/reference/profile-schema) and sent as `--apostate-profile`. The seed and persona are then ignored. |
+| `locale` | `str` or `None` | from GeoIP | Sent as `--fingerprint-locale`. One tag, such as `de-DE`, or a comma list, such as `de-DE,de`. |
+| `timezone` | `str` or `None` | from GeoIP | An IANA name, sent as `--fingerprint-timezone` and set as `TZ` in the browser's environment. |
+| `geoip` | `bool` | `True` | Look up the locale and timezone of the connection's exit before launch, through the proxy when there is one. It runs only when `locale` or `timezone` is `None`. |
+| `geoip_timeout` | `float` | `20.0` | Seconds the whole lookup may take. |
+| `geoip_provider` | callable, object or `None` | `None` | Your own lookup. See [`resolve_geoip`](#resolve_geoip). `None` uses the built-in lookup, which asks `ip-api.com`, `ipinfo.io`, `ipwho.is` and `ifconfig.co` over HTTP. |
+| `proxy` | `str`, mapping or `None` | `None` | A proxy URL, such as `socks5://user:pass@proxy.example:1080`, or a mapping with `server` (or `url`), `username` and `password`. The endpoint goes to `--proxy-server` and the credential into `--apostate-profile`. [Proxies](/guides/proxies) has the details. |
+| `headless` | `bool` | `True` | Sends `--headless=new`. With `False` on a Linux host with no display, the package starts Xvfb for the browser. |
+| `args` | `list[str]` or `None` | `None` | Extra browser switches. An unknown or misspelt `--fingerprint*` switch, and `--fingerprint-noise` with an off value, raise `ConfigurationError`. |
+| `binary_path` | path or `None` | `None` | The browser to run: the executable, a macOS `.app` bundle, or the directory the release archive unpacks to. `None` searches, then downloads. See [`ensure_binary`](#ensure_binary). |
+| `cache_dir` | path or `None` | per-OS cache | Where the browser is installed. `APOSTATE_CACHE_DIR` sets the default. |
+| `manifest` | mapping, path or `None` | the package's own | The release manifest that holds the archive's SHA-256. |
+| `downloader` | callable or `None` | `None` | Called with the archive URL instead of the built-in download. It returns `bytes`, `bytearray`, a file-like object, or a path to the downloaded file. |
+| `resolver` | callable, `DeterministicResolver` or `None` | `None` | Decides the profile. A callable takes the `LaunchConfig` and returns a profile mapping, which is sent as `--apostate-profile`. |
+| `catalogue` | mapping, path or `None` | the package's own | The catalogue the default resolver checks. |
+| `driver` | `str` or `None` | `None` | `"patchright"` or `"playwright"`. `None` takes the first one installed, in that order. |
+
+Any other keyword goes to Playwright's `launch_persistent_context`, so its launch options (`slow_mo`, `env`, `ignore_default_args`, `downloads_path` and the rest) and its context options (`viewport`, `permissions`, `accept_downloads` and the rest) both work. The package's own options, such as `locale` and `proxy`, are not passed on. Three details:
+
+- The window sets the viewport. Pass `viewport` to fix one. `viewport=None` means no viewport.
+- `env` is merged over the environment the package builds. That environment has `LANGUAGE`, `LC_ALL`, `LC_MESSAGES` and `LANG` set to the persona's locale, and `TZ` set to the timezone. Host mode keeps yours.
+- The package removes `--disable-component-update` from Playwright's default switches, so the Widevine CDM registers. Pass it in `args` to keep it.
+
+A failed GeoIP lookup does not raise. It prints `apostate: ...` on stderr, sends no switch for the field it could not fill, and the persona uses `en-US` and the host's timezone there.
+
+### `driver_info`
+
+```python
+def driver_info() -> dict[str, Any]
+```
+
+Reports which driver a launch would use, without starting a browser.
+
+```python
+>>> apostate.driver_info()
+{'preference_order': ['patchright', 'playwright'], 'installed': ['patchright', 'playwright'], 'selected': 'patchright', 'recommended': 'patchright'}
+```
+
+### `DRIVERS`
+
+`("patchright", "playwright")`: the drivers the package can launch with, in preference order.
+
+### `DriverSelection`
+
+A named tuple, `DriverSelection(name, factory)`: the chosen driver's name and its `sync_playwright` or `async_playwright` entry point.
+
+### `LaunchPlan`
+
+A frozen dataclass that holds a resolved launch: `config` (`LaunchConfig`), `profile` (`dict`), `resolution` (`ProfileResolution` or `None`), `geoip` (`GeoIPResult` or `None`) and `diagnostics` (`dict`, including `warnings`).
+
+## Binary management
+
+The launch functions call these for you. Call them to install ahead of time or to find out which browser a launch would use. [Installation](/installation) explains the cache, discovery and verification.
+
+### `ensure_binary`
+
+```python
+def ensure_binary(*, target: str | None = None, cache_dir: str | Path | None = None,
+                  manifest: Mapping[str, Any] | str | Path | None = None,
+                  downloader: Callable[[str], Any] | None = None,
+                  artifact: Mapping[str, Any] | str | Path | None = None,
+                  keep_archive: bool | None = None, force: bool = False) -> Path
+```
+
+Returns the path of a runnable browser executable. It looks in this order, and downloads only when nothing answers:
+
+1. `APOSTATE_BINARY`, taken as given.
+2. This package's own install in the cache, when its record still matches the executable's SHA-256.
+3. The well-known locations: `/Applications` and `~/Applications` on macOS, `~/.cache/apostate` and `/opt/apostate` on Linux, `%LOCALAPPDATA%\apostate` on Windows. A browser found there is used only when an Apostate build record or catalogue sits beside it and it reports Chromium 152.0.7977.83.
+4. The release archive, downloaded, checked against the manifest's SHA-256 before it is opened, and extracted into the cache.
+
+| Argument | Effect |
+| --- | --- |
+| `target` | `linux-x64`, `linux-arm64`, `macos-arm64` or `windows-x64`. Defaults to this host. |
+| `artifact` | A local archive path, or a manifest record, to install instead of downloading. |
+| `keep_archive` | Keep the verified archive beside the install. `None` reads `APOSTATE_KEEP_ARCHIVE`. |
+| `force` | Reinstall even when the cache or a well-known location has a browser. |
+
+### `binary_info`
+
+```python
+def binary_info(*, target: str | None = None, cache_dir: str | Path | None = None,
+                manifest: Mapping[str, Any] | str | Path | None = None) -> dict[str, Any]
+```
+
+Returns what `apostate info` prints. It never raises for a missing release.
+
+| Key | Value |
+| --- | --- |
+| `available` | Whether a release archive for the target can be had. |
+| `platform` | The target. |
+| `chromium_version`, `package_version`, `catalogue_version` | From the manifest. |
+| `artifact`, `artifact_url`, `sha256` | The archive, where it downloads from, and its digest. |
+| `cache_dir`, `install_dir` | Where the browser is installed. |
+| `cached` | Whether this package's own install is valid. |
+| `archive_retained` | Whether the verified archive was kept. |
+| `executable`, `executable_source` | The browser a launch would run now, and which of `argument`, `environment`, `cache` or `well-known` found it. |
+| `discovery` | The [`discovery_report`](#discovery_report). |
+| `manifest_source` | `baked`, `configured`, `release-tag` or `release-latest`. |
+| `manifest_url`, `manifest_urls_tried` | Where a fetched manifest came from. |
+| `manifest_trust`, `manifest_note` | `pinned` for a manifest inside the package, `transport-integrity` for one fetched from the release, and what that means. |
+| `provenance` | The `gh attestation verify` command for the archive. |
+| `reason` | Why no archive is available, only when `available` is `False`. |
+
+### `discover_binary`
+
+```python
+def discover_binary(*, target: str | None = None, cache_dir: str | Path | None = None,
+                    manifest: Mapping[str, Any] | str | Path | None = None,
+                    binary_path: str | Path | None = None,
+                    search_roots: Iterable[str | Path] | None = None) -> Path | None
+```
+
+The browser a launch would use without downloading, or `None`. `search_roots` replaces the well-known locations, and an empty list searches none.
+
+### `discovery_report`
+
+```python
+def discovery_report(*, target: str | None = None, cache_dir: str | Path | None = None,
+                     manifest: Mapping[str, Any] | str | Path | None = None,
+                     binary_path: str | Path | None = None,
+                     search_roots: Iterable[str | Path] | None = None) -> dict[str, Any]
+```
+
+The same search, with what was searched and why each candidate was refused.
+
+| Key | Value |
+| --- | --- |
+| `order` | `['argument', 'environment', 'cache', 'well-known']`, the order of the search. |
+| `searched` | The well-known directories that exist and were searched. |
+| `found` | `None`, or a dict with `executable`, `source`, `chromium_version` and `payload_root`. |
+| `rejected` | A list of `{'path': ..., 'reason': ...}` for each candidate passed over. |
+
+A `reason` is one of these:
+
+- `no Apostate payload beside it (build/MANIFEST.lock or resources/profiles/catalogue.json)`: a browser with no Apostate build record or catalogue beside it, such as stock Chromium.
+- `reports Chromium <version>, not 152.0.7977.83`: an Apostate build of another version.
+- `version could not be established`, or `not executable`.
+- `the configured path does not name a file`, `APOSTATE_BINARY does not name a file`, or `... names a directory with no browser inside it (expected Chromium.app, chrome or chrome.exe)`: a path you named that holds no browser.
+
+### `clear_cache`
+
+```python
+def clear_cache(*, cache_dir: str | Path | None = None) -> None
+```
+
+Deletes the whole cache directory, with every version and target in it and the stored Widevine CDM. It refuses a cache directory that is a symlink with `BinaryError`.
+
+### `target_platform`
+
+```python
+def target_platform(value: str | None = None) -> str
+```
+
+Returns `linux-x64`, `linux-arm64`, `macos-arm64` or `windows-x64`. With no value it names this host, and raises `BinaryError` on a host with no build, such as an Intel Mac. It also takes `darwin-arm64`, `mac-arm64`, `osx-arm64`, `win-x64`, `linux-aarch64` and `linux-amd64`.
+
+### `BinaryManager`
+
+```python
+class BinaryManager:
+    def __init__(self, *, cache_dir: str | Path | None = None,
+                 manifest: Mapping[str, Any] | str | Path | None = None,
+                 downloader: Callable[[str], Any] | None = None,
+                 search_roots: Iterable[str | Path] | None = None) -> None
+```
+
+The class behind the functions above. `ensure(*, target=None, artifact=None, keep_archive=None, force=False)`, `info(*, target=None)`, `discover(*, target=None, binary_path=None)`, `discovery(*, target=None, binary_path=None)` and `clear()` match `ensure_binary`, `binary_info`, `discover_binary`, `discovery_report` and `clear_cache`. `assert_published(*, target=None)` raises `UnpublishedArtifactError` when no browser for the target is on disk or published. `cache_dir` holds the resolved cache path.
+
+### `DiscoveredBinary`
+
+A named tuple, `DiscoveredBinary(executable, source, chromium_version, payload_root)`. `executable` and `payload_root` are `Path` objects. `source` is `argument`, `environment`, `cache` or `well-known`.
+
+## Profiles and resolver
+
+The browser composes the machine from the seed. The resolver only decides which path a launch takes: a seed and persona sent as switches, host mode, or a profile you wrote sent as `--apostate-profile`. [How it works](/concepts/how-it-works) explains composition.
+
+### `resolve_profile`
+
+```python
+def resolve_profile(*, fingerprint: int | str | None = None, fingerprint_platform: str | None = None,
+                    profile: Any = None, locale: str | None = None, timezone: str | None = None,
+                    catalogue: Mapping[str, Any] | str | Path | None = None,
+                    browser_version: str = CHROMIUM_VERSION,
+                    geoip: Mapping[str, Any] | None = None) -> ProfileResolution
+```
+
+Resolves the launch selectors without starting anything. `geoip` is a lookup result as a mapping, used for the locale and timezone that were not passed.
+
+```python
+>>> apostate.resolve_profile(fingerprint=42, fingerprint_platform="windows",
+...                          locale="de-DE", timezone="Europe/Berlin").to_dict()
+{'profile': {}, 'profile_id': 'native-composed', 'catalogue_version': 2,
+ 'profile_schema_version': 3, 'browser_build': '152.0.7977.83', 'platform': 'windows',
+ 'locale_source': 'explicit', 'timezone_source': 'explicit', 'locale': 'de-DE',
+ 'timezone': 'Europe/Berlin', 'identity': '098c02ee95819f13e04326c5b636fc82957743fc70a314ab0fbf90e17afa11de',
+ 'warnings': []}
+```
+
+### `ProfileResolution`
+
+A frozen dataclass. `to_dict()` returns the fields below, with `browser_version` under the key `browser_build`.
+
+| Field | Value |
+| --- | --- |
+| `profile` | The profile sent as `--apostate-profile`. Empty when the browser composes. |
+| `profile_id` | `native-composed` for a seed or persona, `host-inherited` for host mode, or the id of a profile you wrote (`explicit` when it has none). |
+| `platform` | The persona the launch presents. |
+| `locale`, `timezone` | The values the launch sends. |
+| `locale_source`, `timezone_source` | `explicit`, `geoip-derived`, `profile-selected` or `host`. |
+| `identity` | A SHA-256 over the profile id, seed, persona, catalogue version and browser build. |
+| `catalogue_version`, `browser_version`, `profile_schema_version` | The versions resolved against. |
+| `warnings` | Notes such as "no fingerprint seed given". |
+
+### `resolve`
+
+```python
+def resolve(config: LaunchConfig, *, catalogue: Mapping[str, Any] | str | Path | None = None,
+            browser_version: str = CHROMIUM_VERSION,
+            geoip: Mapping[str, Any] | None = None) -> ProfileResolution
+```
+
+`resolve_profile` for a `LaunchConfig` you already have.
+
+### `DeterministicResolver`
+
+```python
+class DeterministicResolver:
+    def __init__(self, catalogue: Mapping[str, Any] | str | Path | None = None,
+                 *, browser_version: str = CHROMIUM_VERSION,
+                 catalogue_version: int = CATALOGUE_VERSION) -> None
+```
+
+Loads and checks the catalogue, and raises `ProfileError` when it does not match this package. `resolve(config, *, geoip=None)` returns a `ProfileResolution`. `catalogue_summary()` returns what `load_catalogue()` returns. Calling the resolver with a `LaunchConfig` returns the resolved profile, so an instance can be passed as `resolver=`.
+
+### `load_catalogue`
+
+```python
+def load_catalogue(catalogue: Mapping[str, Any] | str | Path | None = None,
+                   *, browser_version: str = CHROMIUM_VERSION) -> dict[str, Any]
+```
+
+Returns the catalogue's shape: `catalogue_version`, `profile_schema_version`, `browser_build`, `model`, `anchors` (the GPU families, each with `id`, `platform`, `backend`, `members` and `rotation_status`), `axes` and `policies`.
+
+### `validate_profile`
+
+```python
+def validate_profile(profile: Mapping[str, Any]) -> dict[str, Any]
+```
+
+Checks a profile against `config/profile.schema.json` and returns a copy. Raises `ProfileError` naming up to four problems:
+
+```python
+apostate.validate_profile({"cpu": {"cores": 4}})
+# ProfileError: profile does not match config/profile.schema.json: $.cpu.cores: additional property is not allowed
+```
+
+### `load_schema`
+
+```python
+def load_schema() -> Mapping[str, Any]
+```
+
+The profile schema as a mapping.
+
+### `LaunchConfig`
+
+```python
+@dataclass(frozen=True)
+class LaunchConfig:
+    fingerprint: int | str | None = None
+    fingerprint_platform: str | None = None
+    profile: Any = None
+    locale: str | None = None
+    timezone: str | None = None
+    geoip: bool = True
+    proxy: str | Mapping[str, Any] | None = None
+    headless: bool = True
+    user_data_dir: str | None = None
+    args: tuple[str, ...] = field(default_factory=tuple)
+```
+
+The checked form of the launch options. Creating one validates and normalizes every field and raises `ConfigurationError` on a bad one. `to_dict()` and `canonical_json()` serialize it.
+
+### `translate_options`
+
+```python
+def translate_options(*, fingerprint: int | str | None = None, fingerprint_platform: str | None = None,
+                      profile: Any = None, locale: str | None = None, timezone: str | None = None,
+                      geoip: bool = True, proxy: str | Mapping[str, Any] | None = None,
+                      headless: bool = True, user_data_dir: str | Path | None = None,
+                      args: list[str] | tuple[str, ...] | None = None,
+                      **unknown: Any) -> LaunchConfig
+```
+
+Builds a `LaunchConfig` from launch options. Any other keyword raises `ConfigurationError: unsupported launch option(s): ...`.
+
+```python
+>>> apostate.translate_options(fingerprint=42, fingerprint_platform="win", args=["--fingerprint-noise"])
+LaunchConfig(fingerprint=42, fingerprint_platform='windows', profile=None, locale=None, timezone=None, geoip=True, proxy=None, headless=True, user_data_dir=None, args=('--fingerprint-noise',))
+```
+
+### `normalize_platform`
+
+```python
+def normalize_platform(value: str | None) -> str | None
+```
+
+Returns `windows`, `macos`, `linux` or `None`, and maps the aliases. Raises `ConfigurationError` for anything else.
+
+### `host_persona`
+
+```python
+def host_persona() -> str
+```
+
+The host's own platform: `windows`, `macos` or `linux`. This is not the persona a default launch presents on Linux. Pass it to `default_persona_for_host()` for that.
+
+### `default_persona_for_host`
+
+```python
+def default_persona_for_host(host_token: str) -> str
+```
+
+The persona a launch with no `fingerprint_platform` presents on a host: `macos` for `macos`, `windows` for `windows` and for `linux`. An unknown token is returned unchanged.
+
+### `DEFAULT_PERSONA_BY_HOST`
+
+The read-only mapping `default_persona_for_host()` uses: `{'macos': 'macos', 'windows': 'windows', 'linux': 'windows'}`.
+
+## GeoIP
+
+### `resolve_geoip`
+
+```python
+def resolve_geoip(provider: Any = None, *, proxy: str | None = None,
+                  timeout: float = GEOIP_BUDGET_SECONDS, require_locale: bool = True,
+                  require_timezone: bool = True) -> GeoIPResult
+```
+
+Looks up the exit, through `proxy` when given, and returns the result. Unlike a launch, it raises `GeoIPError` when the lookup fails, and when `require_locale` or `require_timezone` is set and the answer lacks that field.
+
+`provider` is `None` for the built-in lookup, a callable, or an object with a `lookup`, `resolve_prelaunch_geoip`, `lookup_exit_ip`, `resolve_geoip` or `resolve` method. It is called with the keywords `proxy`, `timeout` and `geoip` that its signature names, or else with `(proxy, timeout)`. It returns a mapping or a `GeoIPResult`.
+
+```python
+>>> apostate.resolve_geoip(lambda proxy, timeout: {"countryCode": "FR", "timezone": "Europe/Paris"})
+GeoIPResult(country_code='FR', region=None, timezone='Europe/Paris', locale='fr-FR', languages=(), ip=None, provider=None, provider_version=None)
+```
+
+### `GeoIPResult`
+
+```python
+@dataclass(frozen=True)
+class GeoIPResult:
+    country_code: str | None = None
+    region: str | None = None
+    timezone: str | None = None
+    locale: str | None = None
+    languages: tuple[str, ...] = ()
+    ip: str | None = None
+    provider: str | None = None
+    provider_version: str | None = None
+```
+
+`to_dict()` returns the same fields, with `languages` as a list.
+
+### `GeoIPProvider`
+
+A `typing.Protocol` for a provider object: `lookup(self, proxy: str | None = None, *, timeout: float = 20.0) -> Mapping[str, Any]`.
+
+### `normalize_result`
+
+```python
+def normalize_result(value: Any) -> GeoIPResult
+```
+
+Turns a provider's mapping into a `GeoIPResult`. It reads `timezone`, `time_zone` or `tz`; `locale`, `language` or `default_locale`; `languages` or `accept_languages`; `country_code`, `countryCode`, `country_iso` or `country`; `region`, `region_code` or `regionCode`; and `ip`, `address` or `exit_ip`. Only an IANA name, `UTC` or `GMT` counts as a timezone, and only a two-letter code as a country. With no locale, the country's locale comes from `config/country-locales.json`, so `DE` gives `de-DE`.
+
+### `redact_proxy`
+
+```python
+def redact_proxy(proxy: str | None) -> str | None
+```
+
+Removes the credential from a proxy URL: `socks5://user:pass@proxy.example:1080` gives `socks5://proxy.example:1080`. An unparseable value gives `<proxy>`.
+
+## Widevine
+
+The browser ships without the Widevine CDM. A launch copies one from a local Google Chrome, or downloads it from Google's component update service and checks its SHA-256, then keeps it in the cache directory. [Widevine](/guides/widevine) explains when you need this.
+
+### `ensure_widevine`
+
+```python
+def ensure(executable: str | Path, *, target: str | None = None,
+           cache_dir: str | Path | None = None,
+           user_data_dir: str | Path | None = None) -> Path | None
+```
+
+Exported as `ensure_widevine`. Gives the browser at `executable` a CDM if it has none, and returns the browser's CDM directory. On Linux it also writes the CDM's location into `user_data_dir`. It returns `None` when `executable` is not inside an Apostate install or no CDM could be had, and never raises.
+
+### `provision_widevine`
+
+```python
+def provision(*, target: str | None = None, source: str | Path | None = None,
+              cache_dir: str | Path | None = None) -> dict[str, Any]
+```
+
+Exported as `provision_widevine`. Installs a CDM into this package's browser now, replacing any it has, and raises `WidevineError` when none can be had. `source` is a `WidevineCdm` directory, with or without a version directory inside. It returns `platform`, `platform_verified` (`False` for `windows-x64`, where Widevine has not been tried), `source`, `version`, `store` and `installed`.
+
+### `discover_widevine`
+
+```python
+def discover(target: str) -> list[dict[str, Any]]
+```
+
+Exported as `discover_widevine`. Every CDM on this machine for `target`, newest first, each with `path`, `version` and `bytes`. It downloads nothing.
+
+## Constants
+
+| Name | Value in 0.4.3 | Meaning |
+| --- | --- | --- |
+| `PACKAGE_VERSION` | `"0.4.3"` | This package's version. |
+| `CHROMIUM_VERSION` | `"152.0.7977.83"` | The browser build this package installs and speaks to. |
+| `CATALOGUE_VERSION` | `2` | The catalogue version the browser composes from. |
+| `PROFILE_SCHEMA_VERSION` | `3` | The version of `config/profile.schema.json`. |
+| `DEFAULT_PERSONA_BY_HOST` | see [above](#default_persona_by_host) | The default persona per host. |
+| `DRIVERS` | `("patchright", "playwright")` | Supported drivers in preference order. |
+
+## Exceptions
+
+Every exception the package raises is an `ApostateError`. Messages never contain a proxy credential. [Errors](/reference/errors) lists the common messages and their fixes.
+
+| Class | Parent | Raised when |
+| --- | --- | --- |
+| `ApostateError` | `Exception` | Base class. |
+| `ConfigurationError` | `ApostateError`, `ValueError` | A launch option is invalid. |
+| `ProfileError` | `ApostateError`, `ValueError` | A profile is missing, malformed or conflicts with another option. |
+| `GeoIPError` | `ApostateError` | `resolve_geoip()` could not answer. |
+| `GeoIPUnavailableError` | `GeoIPError` | A provider object has no lookup method. |
+| `BinaryError` | `ApostateError` | Base class for install and download errors. |
+| `BinaryNotFoundError` | `BinaryError`, `FileNotFoundError` | A named browser or archive does not exist. |
+| `ManifestError` | `BinaryError` | The release manifest is missing or invalid. |
+| `UnpublishedArtifactError` | `ManifestError` | No release archive is published for the target. |
+| `IntegrityError` | `BinaryError` | A download does not match its SHA-256. |
+| `UnsupportedArchiveError` | `BinaryError` | The archive cannot be extracted safely, or this system cannot read `.tar.zst`. |
+| `LaunchError` | `ApostateError` | The driver or the browser could not start. |
+| `WidevineError` | `ApostateError` | `provision_widevine()` could not install a CDM. |

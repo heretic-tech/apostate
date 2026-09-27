@@ -1,0 +1,60 @@
+---
+title: "Measure with FingerprintJS Pro"
+description: "Read FingerprintJS Pro's suspect score and flags for a persona, from the live tier or from scripts/measure-fpjs.py behind a proxy."
+---
+
+FingerprintJS Pro is the detector Apostate is measured against first. Its public [playground](https://demo.fingerprint.com/playground) shows the verdict for the browser that opens it: a suspect score, and the flags that add to it.
+
+## What the playground reports
+
+| Field | Meaning | Depends on |
+| --- | --- | --- |
+| `suspect_score` | Sum of the weights of every flag that fired | everything below |
+| `bot` | `not_detected`, `good` or `bad` | the browser and its driver |
+| `tampering`, `tampering_ml_score` | Values that look altered; the model score runs from 0 to 1 and flags above 0.8 | the browser |
+| `anti_detect_browser` | Traits of anti-detect browsers | the browser |
+| `anomaly_score` | Values no real browser produces | the browser |
+| `virtual_machine` | Signs of a virtual machine | the browser and the host |
+| `developer_tools` | DevTools open, or a DevTools client attached | the driver |
+| `incognito` | Off-the-record context | how the page was opened |
+| `rare_device` | A combination of values few visitors have | the persona |
+| `vpn`, `proxy`, `timezone_mismatch` | The IP address and its location against the browser's timezone | the network |
+
+A clean browser on a flagged IP address still scores above zero. Read the flags, not only the score.
+
+## From the live tier
+
+The live tier loads the playground in every browser it tests and records these fields:
+
+```bash
+cd tests
+python3 -m pytest live --live -k fingerprintjs --personas=windows,macos --controls=chrome
+```
+
+It passes when none of `bot`, `tampering`, `anti_detect_browser`, `virtual_machine`, `developer_tools` and `incognito` is set. Network flags are recorded and do not fail the test. [Latest results](/testing/results) shows the newest run.
+
+## Behind a proxy with measure-fpjs.py
+
+[`scripts/measure-fpjs.py`](https://github.com/heretic-tech/apostate/blob/main/scripts/measure-fpjs.py) measures one headed launch through a proxy. It looks up the exit's country and timezone through the proxy with `curl`, gives the persona that locale and timezone, loads the playground, and prints every flag.
+
+```bash
+APOSTATE_PROXY=socks5://user:pass@proxy.example:1080 \
+  python3 scripts/measure-fpjs.py --platform windows --seed 42
+```
+
+| Option | Default | Effect |
+| --- | --- | --- |
+| `--platform` | `windows` | Persona, or `host` for the real machine |
+| `--seed` | `42` | Seed |
+| `--profile FILE` | none | Launch a profile you wrote instead of a seed |
+| `--window W,H` | `1536,864` | Window size |
+| `--out FILE` | none | Save the playground's full text |
+| after `--` | none | Extra browser switches |
+
+It runs headed, so a Linux server needs Xvfb. Use a fresh proxy session for each run: FingerprintJS remembers a visitor, and a returning visitor with a new machine scores differently from a new one. `APOSTATE_BINARY` points it at a local build.
+
+## Compare fairly
+
+- Measure a control on the same exit: `--platform host` for the real machine, or Google Chrome. Their difference from the persona is what Apostate changes; what they share is the network and the host.
+- Use the driver your users use. Under plain Playwright, FingerprintJS reports `developer_tools` on every run; under Patchright, which the packages use, it does not.
+- Several runs, several seeds. One run is one sample.

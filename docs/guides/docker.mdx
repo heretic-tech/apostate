@@ -1,0 +1,161 @@
+---
+title: "Docker"
+description: "Build an image with the Python package, the browser and the Windows fonts, run it headless or headed, and keep profiles on a volume."
+---
+
+[`examples/docker/`](https://github.com/heretic-tech/apostate/tree/main/examples/docker) has a Dockerfile and a script, `check.py`, that launches a Windows persona and prints what a page reads. The commands and output on this page were run on 2026-09-27 with apostate 0.4.3 and Docker 29.4 (OrbStack) on an Apple M4 Max, for `linux/arm64` and for `linux/amd64` under emulation.
+
+## The Dockerfile
+
+```dockerfile
+FROM python:3.14-slim-trixie
+
+# The libraries the browser links against, fontconfig and git for
+# `apostate fonts install windows`, and Xvfb for headed launches.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 libatspi2.0-0t64 \
+      libcairo2 libcups2t64 libdbus-1-3 libexpat1 libgbm1 libglib2.0-0t64 \
+      libnspr4 libnss3 libpango-1.0-0 libx11-6 libxcb1 libxcomposite1 \
+      libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 \
+      fontconfig git xvfb \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir apostate
+
+RUN useradd --create-home apostate
+USER apostate
+WORKDIR /home/apostate
+
+# The browser goes to ~/.cache/apostate and the fonts to ~/.local/share/fonts.
+RUN apostate install && apostate fonts install windows
+
+# A volume mounted here keeps user data directories between containers.
+RUN mkdir profiles
+
+COPY check.py .
+CMD ["python", "check.py"]
+```
+
+- **Base image.** Python 3.14 unpacks the browser's `.tar.zst` archive itself. On an older Python, add `zstd` to the packages.
+- **Packages.** The libraries are the ones `ldd` reports missing for the browser on this base. [Linux servers](/guides/linux-servers#set-up-the-server) has the same list for Debian 12 and Ubuntu 22.04. `xvfb` adds 10 MB; leave it out if you only run headless.
+- **User.** The image runs as `apostate` (UID 1000). The driver the package uses passes `--no-sandbox`, so the container needs no extra capability. Under root, WebGPU returns no adapter; see [Run as a regular user](/guides/linux-servers#run-as-a-regular-user).
+- **Browser and fonts.** `apostate install` puts the browser and the Widevine module in the image (685 MiB). `apostate fonts install windows` installs 142 font files (341 MiB). Containers start without downloading anything. The image is 663 MB compressed.
+- **`profiles`.** A named volume mounted on this directory takes its owner, so the `apostate` user can write to it.
+
+## Build and run
+
+```bash
+cd examples/docker
+docker build -t apostate-example .
+docker run --rm apostate-example
+```
+
+```text
+userAgent  Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36
+platform   Win32
+cores      12
+memory     8
+languages  ['en-US', 'en']
+timeZone   America/New_York
+screen     [1920, 1080, 1920, 1032]
+gpu        ANGLE (Intel, Intel(R) UHD Graphics 770 (0x00004680) Direct3D11 vs_5_0 ps_5_0, D3D11)
+segoeUI    True
+```
+
+`segoeUI` is `True` when text set in Segoe UI measures differently from the fallback font, so the fonts in the image reach the page. `check.py` passes `locale` and `timezone`, so no GeoIP lookup runs.
+
+For an x86 server, build for `linux/amd64`:
+
+```bash
+docker build --platform linux/amd64 -t apostate-example:amd64 .
+```
+
+An amd64 image on an Apple silicon Mac runs under emulation. Use that only to check the build; [Hosts](/concepts/hosts#pick-a-host-for-a-persona) has what emulation shows to a detector.
+
+## Headed
+
+```bash
+docker run --rm apostate-example python check.py --headed
+```
+
+The package starts Xvfb inside the container and stops it when the browser closes. The output is the same as above. The WebGPU adapter and `outerHeight - innerHeight` differ from a headless launch; [Linux servers](/guides/linux-servers#headless-or-headed) has the measurements.
+
+## Keep profiles on a volume
+
+```bash
+docker run --rm -v apostate-profiles:/home/apostate/profiles apostate-example \
+  python check.py --profile profiles/shop
+```
+
+```text
+userAgent  Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36
+platform   Win32
+cores      8
+memory     16
+languages  ['en-US', 'en']
+timeZone   America/New_York
+screen     [1920, 1080, 1920, 1032]
+gpu        ANGLE (NVIDIA, NVIDIA GeForce RTX 2080 SUPER (0x00001E81) Direct3D11 vs_5_0 ps_5_0, D3D11)
+segoeUI    True
+```
+
+`--profile` calls `launch_persistent_context("profiles/shop", ...)` with no seed. The first run draws a machine and stores its seed in `profiles/shop/apostate/identity` on the volume. The second run printed the same machine. To bind-mount a host directory instead, make it writable by UID 1000.
+
+## Shared memory
+
+Chromium keeps shared memory in `/dev/shm`. Docker Engine gives a container 64 MB there unless you pass `--shm-size`. The results below were measured with `--shm-size=64m`.
+
+- **Through the package.** Its driver passes `--disable-dev-shm-usage`, so Chromium uses `/tmp` and 64 MB is enough. A page drawing 40 canvases of 3840x2160 finished with `--shm-size=64m`.
+- **The browser binary on its own.** With 64 MB, the same page crashed the browser once and hung it twice. Start the container with `--shm-size=1g` or `--ipc=host`, or pass `--disable-dev-shm-usage`.
+
+```bash
+docker run --rm --shm-size=1g apostate-example \
+  bash -c '"$(apostate path)" --headless --no-sandbox --fingerprint=42 --fingerprint-platform=windows --dump-dom "data:text/html,<script>document.write(navigator.platform)</script>" 2>/dev/null'
+```
+
+```text
+<html><head><script>document.write(navigator.platform)</script></head><body>Win32</body></html>
+```
+
+The binary needs `--no-sandbox` in a container even as a regular user. Without it, it exits with `No usable sandbox!`, because Docker's default seccomp profile blocks the user namespaces Chromium's sandbox uses. With `--security-opt seccomp=unconfined`, it started with the sandbox on. [Raw binary](/guides/raw-binary) covers the other switches the packages add.
+
+## CPU and memory limits
+
+A persona never claims more cores or memory than the container can see.
+
+| `docker run` option | `cores` | `memory` |
+| --- | --- | --- |
+| none (14-CPU, 16 GiB VM) | 12 | 8 |
+| `--cpuset-cpus=0,1` | 2 | 8 |
+| `--cpus=2` | 12 | 8 |
+| `--memory=2g` | 12 | 8 |
+
+The core count follows the CPUs the container may run on, not a CPU quota. Memory follows the host's physical memory, not the container's limit. [Hosts](/concepts/hosts#cores-and-memory) explains the cap.
+
+## Node
+
+The same packages on `node:22-trixie-slim`, which also needs `ca-certificates` for `git`:
+
+```dockerfile
+FROM node:22-trixie-slim
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 libatspi2.0-0t64 \
+      libcairo2 libcups2t64 libdbus-1-3 libexpat1 libgbm1 libglib2.0-0t64 \
+      libnspr4 libnss3 libpango-1.0-0 libx11-6 libxcb1 libxcomposite1 \
+      libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 \
+      ca-certificates fontconfig git xvfb \
+ && rm -rf /var/lib/apt/lists/*
+
+USER node
+WORKDIR /home/node/app
+RUN npm init -y && npm pkg set type=module && npm install @heretic-tech/apostate
+RUN npx apostate install && npx apostate fonts install windows
+
+COPY check.mjs .
+CMD ["node", "check.mjs"]
+```
+
+The `node` user of the base image runs the browser. The Node code from [Headed launches](/guides/linux-servers#headed-launches), saved as `check.mjs`, printed `[ 'Win32', 1920, 1080, 143 ]` in this image.

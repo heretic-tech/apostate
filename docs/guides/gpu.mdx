@@ -1,0 +1,241 @@
+---
+title: "GPU"
+description: "The measured GPU families, how a persona picks one, naming a model, what WebGL and WebGPU report, host rendering, and readback noise."
+---
+
+A persona presents a GPU from a GPU family. A GPU family is a set of WebGL and WebGPU values measured on real hardware. The family gives the WebGL limits, extensions and shader precision and the WebGPU adapter. The model within the family gives the renderer string. [How it works](/concepts/how-it-works) explains how the families were measured.
+
+## The families
+
+| Id | Family | Measured on | Models |
+| --- | --- | --- | --- |
+| `windows-d3d11-nvidia-0947761dfbe9` | Windows, NVIDIA, Direct3D 11 | RTX 3070 Ti, RTX A4500 | 45: GeForce GTX 10 series to RTX 50 series, RTX A2000 to A4500 |
+| `windows-d3d11-intel-79dfeb5b4f99` | Windows, Intel, Direct3D 11 | UHD Graphics 630 | 12: UHD Graphics 620, 630, 730, 770 and Iris Xe |
+| `macos-metal-apple-850a91233555` | macOS, Apple silicon, Metal | M4 Max | 12: M1 to M4, each base, Pro and Max |
+| `linux-vulkan-nvidia-adf287b8f0ee` | Linux, NVIDIA, Vulkan | RTX 4070 Ti SUPER, RTX 4080 SUPER, RTX 3090, RTX PRO 4000 | 11: RTX 3090, RTX 40 series, RTX PRO 4000 |
+| `linux-swiftshader-google-6922d61bab83` | SwiftShader software renderer | A host with no GPU | 1 |
+
+[GPU models](/reference/gpu-models) lists every model with its renderer string.
+
+## How a persona picks one
+
+The seed picks a family of the persona's platform, whatever GPU the host has:
+
+- A Windows persona picks the NVIDIA or the Intel Direct3D 11 family, with equal odds.
+- A macOS persona gets the Metal family.
+- A Linux persona gets the Vulkan family.
+
+The seed then picks a model from the family, with the weights in the catalogue. The model decides the machine class, core count and memory, and the machine class decides the screen. A persona never picks SwiftShader. Only `--fingerprint-anchor` selects it.
+
+`--fingerprint-explain` shows the family and model a launch picked:
+
+```bash
+apostate run -- --fingerprint=42 --fingerprint-platform=windows --fingerprint-explain
+```
+
+```text
+surface                   layer             evidence               value
+anchor                    anchor            physical-ground-truth  windows-d3d11-intel-79dfeb5b4f99
+os_release                dispersion        physical-ground-truth  windows-11
+gpu_identity              dispersion        catalogue-value        d3d11-intel-uhd-graphics-770-4680
+webgpu                    anchor            physical-ground-truth  Intel(R) UHD Graphics 770
+...
+```
+
+## What WebGL and WebGPU report
+
+<CodeGroup>
+```python Python
+from apostate import launch
+
+READ_GPU = """async () => {
+    const gl = document.createElement("canvas").getContext("webgl");
+    const debug = gl.getExtension("WEBGL_debug_renderer_info");
+    const adapter = await navigator.gpu.requestAdapter();
+    return {
+        vendor: gl.getParameter(debug.UNMASKED_VENDOR_WEBGL),
+        renderer: gl.getParameter(debug.UNMASKED_RENDERER_WEBGL),
+        webgpuVendor: adapter.info.vendor,
+        webgpuArchitecture: adapter.info.architecture,
+    };
+}"""
+
+with launch(fingerprint=42, fingerprint_platform="windows") as browser:
+    page = browser.new_page()
+    page.goto("https://example.com")
+    for name, value in page.evaluate(READ_GPU).items():
+        print(f"{name:19} {value}")
+```
+
+```javascript Node
+import { launch } from "@heretic-tech/apostate";
+
+const browser = await launch({ fingerprint: 42, fingerprintPlatform: "windows" });
+const page = await browser.newPage();
+await page.goto("https://example.com");
+const values = await page.evaluate(async () => {
+  const gl = document.createElement("canvas").getContext("webgl");
+  const debug = gl.getExtension("WEBGL_debug_renderer_info");
+  const adapter = await navigator.gpu.requestAdapter();
+  return {
+    vendor: gl.getParameter(debug.UNMASKED_VENDOR_WEBGL),
+    renderer: gl.getParameter(debug.UNMASKED_RENDERER_WEBGL),
+    webgpuVendor: adapter.info.vendor,
+    webgpuArchitecture: adapter.info.architecture,
+  };
+});
+for (const [name, value] of Object.entries(values)) console.log(name.padEnd(19), value);
+await browser.close();
+```
+</CodeGroup>
+
+```text
+vendor              Google Inc. (Intel)
+renderer            ANGLE (Intel, Intel(R) UHD Graphics 770 (0x00004680) Direct3D11 vs_5_0 ps_5_0, D3D11)
+webgpuVendor        intel
+webgpuArchitecture  gen-12lp
+```
+
+That output is from a Mac. A page reads the same values on any host. Within a family, every model has the same WebGL limits, extensions and shader precision and the same WebGPU features and limits. The WebGPU architecture follows the model's chip generation, and so does the smallest subgroup size on Intel's 12th-generation models.
+
+`navigator.gpu` exists only on secure pages, such as `https://` and `http://localhost`.
+
+## Name a model
+
+`--fingerprint-gpu-renderer` sets the model. The value is the whole WebGL renderer string, exactly as [GPU models](/reference/gpu-models) lists it, and it must be a model of the family the launch uses. Seed 42 as a Windows persona uses the Intel family, so an NVIDIA string is refused:
+
+```bash
+apostate run -- --fingerprint=42 --fingerprint-platform=windows \
+  "--fingerprint-gpu-renderer=ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 (0x00002786) Direct3D11 vs_5_0 ps_5_0, D3D11)" \
+  --fingerprint-explain
+```
+
+```text
+apostate: --fingerprint-gpu-renderer='ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 (0x00002786) Direct3D11 vs_5_0 ps_5_0, D3D11)' names a GPU identity that was not measured on the capability cluster this host can serve. The GL limits, extensions, shader precisions and WebGPU adapter all come from anchor 'windows-d3d11-intel-79dfeb5b4f99', so a renderer from outside it would be contradicted by its own capability table. Servable on this host:
+  Google Inc. (Intel) / ANGLE (Intel, Intel(R) UHD Graphics 630 (0x00009BC8) Direct3D11 vs_5_0 ps_5_0, D3D11)
+  Google Inc. (Intel) / ANGLE (Intel, Intel(R) UHD Graphics 630 (0x00009BC5) Direct3D11 vs_5_0 ps_5_0, D3D11)
+  Google Inc. (Intel) / ANGLE (Intel, Intel(R) UHD Graphics 630 (0x00003E98) Direct3D11 vs_5_0 ps_5_0, D3D11)
+  Google Inc. (Intel) / ANGLE (Intel, Intel(R) UHD Graphics 630 (0x00003E92) Direct3D11 vs_5_0 ps_5_0, D3D11)
+  Google Inc. (Intel) / ANGLE (Intel, Intel(R) UHD Graphics 630 (0x00003E91) Direct3D11 vs_5_0 ps_5_0, D3D11)
+  Google Inc. (Intel) / ANGLE (Intel, Intel(R) UHD Graphics 630 (0x00003E9B) Direct3D11 vs_5_0 ps_5_0, D3D11)
+  Google Inc. (Intel) / ANGLE (Intel, Intel(R) UHD Graphics 770 (0x00004680) Direct3D11 vs_5_0 ps_5_0, D3D11)
+  Google Inc. (Intel) / ANGLE (Intel, Intel(R) UHD Graphics 730 (0x00004682) Direct3D11 vs_5_0 ps_5_0, D3D11)
+  Google Inc. (Intel) / ANGLE (Intel, Intel(R) UHD Graphics 620 (0x00005917) Direct3D11 vs_5_0 ps_5_0, D3D11)
+  Google Inc. (Intel) / ANGLE (Intel, Intel(R) UHD Graphics 620 (0x00003EA0) Direct3D11 vs_5_0 ps_5_0, D3D11)
+  Google Inc. (Intel) / ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x00009A49) Direct3D11 vs_5_0 ps_5_0, D3D11)
+  Google Inc. (Intel) / ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x000046A6) Direct3D11 vs_5_0 ps_5_0, D3D11)
+Pass --fingerprint-anchor to choose a different cluster, or --fingerprint-explain to see what this host can serve.
+```
+
+The browser exits with status 1. Through the packages, the same refusal raises `LaunchError` in Python and `BrowserLaunchError` in Node, with this text in the message.
+
+`--fingerprint-anchor` selects the family. With the NVIDIA family, the same renderer is accepted:
+
+<CodeGroup>
+```python Python
+from apostate import launch
+
+RTX_4070 = "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 (0x00002786) Direct3D11 vs_5_0 ps_5_0, D3D11)"
+with launch(
+    fingerprint=42,
+    fingerprint_platform="windows",
+    args=[
+        "--fingerprint-anchor=windows-d3d11-nvidia-0947761dfbe9",
+        f"--fingerprint-gpu-renderer={RTX_4070}",
+    ],
+) as browser:
+    page = browser.new_page()
+    page.goto("https://example.com")
+    print(page.evaluate("""() => {
+        const gl = document.createElement("canvas").getContext("webgl");
+        return gl.getParameter(gl.getExtension("WEBGL_debug_renderer_info").UNMASKED_RENDERER_WEBGL);
+    }"""))
+```
+
+```javascript Node
+import { launch } from "@heretic-tech/apostate";
+
+const RTX_4070 = "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 (0x00002786) Direct3D11 vs_5_0 ps_5_0, D3D11)";
+const browser = await launch({
+  fingerprint: 42,
+  fingerprintPlatform: "windows",
+  args: [
+    "--fingerprint-anchor=windows-d3d11-nvidia-0947761dfbe9",
+    `--fingerprint-gpu-renderer=${RTX_4070}`,
+  ],
+});
+const page = await browser.newPage();
+await page.goto("https://example.com");
+console.log(await page.evaluate(() => {
+  const gl = document.createElement("canvas").getContext("webgl");
+  return gl.getParameter(gl.getExtension("WEBGL_debug_renderer_info").UNMASKED_RENDERER_WEBGL);
+}));
+await browser.close();
+```
+</CodeGroup>
+
+```text
+ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 (0x00002786) Direct3D11 vs_5_0 ps_5_0, D3D11)
+```
+
+Naming a model can change more than the renderer, because the machine class, core count and memory follow the model. For seed 42, the RTX 4070 turns a small-form-factor desktop with 8 GiB into a tower with 16 GiB:
+
+```text
+...
+gpu_identity              dispersion        catalogue-value        d3d11-nvidia-geforce-rtx-4070
+webgpu                    anchor            physical-ground-truth  NVIDIA GeForce RTX 4070
+machine_class             dispersion        catalogue-value        win-desktop-tower
+cpu                       dispersion        public-corpus          cores-12
+memory                    dispersion        catalogue-value        gib-16
+...
+```
+
+`--fingerprint-gpu-vendor` sets the WebGL unmasked vendor string, such as `Google Inc. (NVIDIA)`, and the seed picks a model with that vendor from the family. A vendor the family does not have is refused the same way.
+
+### Choosing a family
+
+Use `--fingerprint-anchor` with a family of the persona's own platform. The browser accepts a family of another platform, such as a Direct3D 11 family under a Linux persona, and such a machine does not exist.
+
+<Warning>
+An id that is not in the table above is not refused. The browser logs `--fingerprint-anchor named '...', which is not in the compiled catalogue` to stderr and presents the host's own values for every surface. Copy the id exactly.
+</Warning>
+
+## Rendering stays on the host
+
+The browser reports the persona's GPU, but the host draws. Canvas, WebGL and WebGPU pixels, and the time they take, come from the host's GPU, or from SwiftShader when the host has none. On a host without a GPU, the claimed WebGPU adapter runs on SwiftShader, and features the software device cannot back fail when a page calls `requestDevice()`. [Known gaps](/known-gaps) lists what a page can measure, and [Hosts](/concepts/hosts) which hosts suit which persona.
+
+Personas of one platform on one host draw the same canvas image unless their fonts differ.
+
+## Readback noise
+
+`--fingerprint-noise` changes canvas and WebGL pixel readback by at most one step per colour channel, on pixels at colour edges. Solid areas and alpha stay as rendered. The change depends only on the seed and the pixels, so the same seed reads back the same bytes every time, and `getImageData()`, `toDataURL()`, `toBlob()` and WebGL `readPixels()` agree with each other.
+
+The first 8 bytes of the SHA-256 of one canvas's `toDataURL()`, for seeds 1 and 2 as Windows personas on one host:
+
+| Noise | Seed 1 | Seed 2 | Seed 1 again |
+| --- | --- | --- | --- |
+| Off | `2e078ffb1abc278d` | `2e078ffb1abc278d` | `2e078ffb1abc278d` |
+| On | `4bedb56c07f8acb6` | `fd789c87ad3277d1` | `4bedb56c07f8acb6` |
+
+Noise is off by default and does nothing in host mode. A page can detect it, for example by drawing one image at two scales and comparing them. Turn it on only when canvas hashes must differ between personas on one host.
+
+The switch takes no value. `--fingerprint-noise=false` turns noise on, so the packages refuse it and any other value that reads as off.
+
+<CodeGroup>
+```python Python
+from apostate import launch
+
+with launch(fingerprint=42, fingerprint_platform="windows", args=["--fingerprint-noise"]) as browser:
+    page = browser.new_page()
+    page.goto("https://example.com")
+```
+
+```javascript Node
+import { launch } from "@heretic-tech/apostate";
+
+const browser = await launch({ fingerprint: 42, fingerprintPlatform: "windows", args: ["--fingerprint-noise"] });
+const page = await browser.newPage();
+await page.goto("https://example.com");
+await browser.close();
+```
+</CodeGroup>

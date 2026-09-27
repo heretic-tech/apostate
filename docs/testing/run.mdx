@@ -1,0 +1,91 @@
+---
+title: "Run the tests"
+description: "Run Apostate's test suite on your own host, add the live tier and control browsers, and publish a results file."
+---
+
+The suite runs from a checkout of the repository against any Apostate browser: the installed release, or a build of your own.
+
+## Set up
+
+<Steps>
+  <Step title="Clone and install">
+    ```bash
+    git clone https://github.com/heretic-tech/apostate
+    cd apostate
+    pip install ./python pytest
+    apostate install
+    ```
+
+    `pip install ./python` installs the package from the checkout, which the suite imports.
+  </Step>
+  <Step title="Fonts">
+    On a Linux or macOS host, install the Windows fonts, or the font checks for the Windows persona have nothing to measure:
+
+    ```bash
+    apostate fonts install windows
+    ```
+  </Step>
+</Steps>
+
+## Offline tier
+
+```bash
+cd tests
+python3 -m pytest
+```
+
+That runs every persona with seeds 42 and 1337, in both launch modes, headless. The options narrow or widen it:
+
+| Option | Default | Effect |
+| --- | --- | --- |
+| `--personas=LIST` | `windows,macos,linux` | Personas to test |
+| `--seeds=LIST` | `42,1337` | Seeds to test. Two or more are needed for the different-seeds check |
+| `--modes=LIST` | `bare,package` | `bare` (no automation) and `package` (the Python package's `launch()`) |
+| `--headed` | off | Open windows. On Linux with no display, the suite starts Xvfb |
+| `--binary=PATH` | `APOSTATE_BINARY`, else the installed browser | The browser to test, such as a local build |
+| `--results=FILE` | none | Write every result, with host facts and measured values, to a JSON file |
+| `--network=TEXT` | `direct, no proxy` or the proxy | Describe the network in the results file |
+
+Use the `=` form for the options. pytest reads a bare path after an option as a test path.
+
+A quick check of one persona:
+
+```bash
+python3 -m pytest --personas=windows --seeds=42 --modes=bare -q
+```
+
+## Live tier
+
+```bash
+python3 -m pytest live --live --personas=windows,macos --seeds=42
+```
+
+Behind a proxy, set `APOSTATE_PROXY`. The Apostate browsers and the control browsers all use it.
+
+```bash
+APOSTATE_PROXY=socks5://user:pass@proxy.example:1080 python3 -m pytest live --live --network="residential proxy, US exit"
+```
+
+### Control browsers
+
+`--controls=playwright,chrome` loads the same pages in two browsers without Apostate:
+
+| Control | Needs |
+| --- | --- |
+| `playwright` | `pip install playwright` and `playwright install chromium`. If the build Playwright expects is missing, the suite uses the newest Chromium in Playwright's cache |
+| `chrome` | Google Chrome installed on the host |
+
+## Publish a results file
+
+```bash
+python3 -m pytest --live --controls=playwright,chrome \
+  --network="home broadband, no proxy" \
+  --results=results/2026-09-27-macos-arm64.json
+cd .. && python3 tests/report.py
+```
+
+`tests/report.py` rewrites [Latest results](/testing/results) from every file in `tests/results/`, keeping the newest run per host. `python3 tests/report.py --check` exits 1 when the page is out of date. Name result files by the run's UTC date and the host.
+
+## In CI
+
+The offline tier runs on GitHub Actions for every push and pull request, on Linux x64 with the released browser: [`.github/workflows/test-suite.yml`](https://github.com/heretic-tech/apostate/blob/main/.github/workflows/test-suite.yml). The live tier does not run in CI, because hosted runners exit from datacenter addresses that detectors rate differently from a residential connection.

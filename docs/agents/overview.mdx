@@ -1,0 +1,61 @@
+---
+title: "AI agents"
+description: "Give Claude Code, Codex or your own agent a browser that runs headless and reads as a normal desktop machine."
+---
+
+An agent that browses needs a browser the web treats as an ordinary visitor. Headless Chrome and stock Playwright announce themselves in dozens of small ways, and sites answer with challenges, empty pages or blocks. Apostate runs headless and presents a whole machine: a Windows, macOS or Linux persona whose GPU, screen, fonts, voices, locale and timezone agree with each other.
+
+For an agent that means:
+
+- **No window.** The browser runs headless on a server or on your laptop, so an agent can browse while you work, and nothing pops up.
+- **Checks a person passes.** When a site shows a Cloudflare Turnstile checkbox, the agent clicks it once, as a person would. On public Turnstile demo pages, headless Apostate received a token where headless stock Chromium did not. [Test results](/testing/results) has the dated measurements.
+- **Sessions that last.** A persistent profile keeps cookies, logins and the same machine between sessions, so a site sees a returning visitor instead of a new device every run.
+
+## Two ways to connect
+
+| | MCP server | Scripts |
+| --- | --- | --- |
+| What the agent does | Calls browser tools one step at a time: navigate, snapshot, click, type | Writes a Python or Node script with the Apostate package and runs it |
+| Good for | Interactive tasks, exploring a site, filling a form once | Repeatable jobs, many pages, anything you want to keep as code |
+| Setup | One line in the agent's MCP config | `pip install apostate` and a skill that shows the agent how |
+| Pages | [MCP server](/agents/mcp) | [Claude Code](/agents/claude-code#scripts-and-the-apostate-skill), [Codex](/agents/codex#scripts-and-skills) |
+
+Most agents benefit from both: the MCP server for the step-by-step work, and the skill so the agent can write a script when a task repeats.
+
+## Pick your agent
+
+<Columns cols={2}>
+  <Card title="Claude Code" icon="terminal" href="/agents/claude-code">
+    `claude mcp add`, permissions, the Apostate skill, and headless runs with `claude -p`.
+  </Card>
+  <Card title="Codex" icon="terminal" href="/agents/codex">
+    `config.toml`, tool approval for `codex exec`, environment variables and skills.
+  </Card>
+  <Card title="Cursor, Gemini CLI and others" icon="plug" href="/agents/other-clients">
+    MCP configuration for Cursor, Gemini CLI, VS Code, OpenCode and Windsurf.
+  </Card>
+  <Card title="Your own agent" icon="code" href="/agents/claude-api">
+    A browsing agent on the Claude API with Apostate's browser tools.
+  </Card>
+  <Card title="browser-use" icon="bot" href="/agents/browser-use">
+    browser-use connected to Apostate over CDP.
+  </Card>
+  <Card title="Servers and CI" icon="server" href="/agents/servers">
+    Agents on a Linux server or in a container, with no display.
+  </Card>
+</Columns>
+
+## Sandboxes
+
+Claude Code and Codex can run shell commands in a sandbox. Chromium does not start inside either one: on macOS it fails with `bootstrap_check_in ... MachPortRendezvousServer ... Permission denied`, and under Codex on Linux it stops with `SIGTRAP`.
+
+MCP servers are started by the agent itself, outside its sandbox, so a browser launched by the Apostate MCP server works whatever the sandbox setting. For scripts, allow the command to run outside the sandbox, or turn the sandbox off for that project.
+
+## Safety
+
+An agent that reads web pages reads text written by strangers, and some of it is written to steer agents.
+
+- Give the agent its own profile. Do not point it at a profile that holds your personal logins unless the task needs them.
+- Keep tool approval on for actions that spend money, post, send or delete.
+- Tell the agent that page content is data, not instructions. The [Apostate skill](/agents/claude-code#scripts-and-the-apostate-skill) and the [Claude API example](/agents/claude-api) do.
+- Follow each site's terms. Apostate changes what a site can tell about the machine; it does not change what you are allowed to do there.

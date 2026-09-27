@@ -1,0 +1,95 @@
+---
+title: "Agents on servers and in CI"
+description: "Set up a Linux server or container so Claude Code, Codex or your own agent can browse with Apostate, with no display and no GPU."
+---
+
+An agent on a server needs the same three things as one on a laptop: the browser, the fonts its persona lists, and an MCP server or package to drive it. A GPU and a display are optional.
+
+## Set up the host
+
+<Steps>
+  <Step title="Runtime">
+    Node 22 or later for the MCP server, Python 3.10 or later for scripts, and `git` and `fontconfig` for the font installer. On Debian or Ubuntu:
+
+    ```bash
+    sudo apt install -y git fontconfig python3-pip
+    ```
+
+    Install Node 22 from your distribution or from nodejs.org. Chromium's own libraries are listed in [Linux servers](/guides/linux-servers), and [Docker](/guides/docker) has a tested image.
+  </Step>
+  <Step title="Browser and fonts">
+    ```bash
+    npx -y @heretic-tech/apostate install
+    npx -y @heretic-tech/apostate fonts install windows
+    ```
+
+    The default persona on Linux is Windows. Without the Windows fonts it shows almost none, which no Windows machine does. [Fonts](/guides/fonts) has the details.
+  </Step>
+  <Step title="Agent">
+    Add the [MCP server](/agents/mcp) to your agent as on any other machine. Pre-downloading the browser in the previous step keeps the first tool call inside the client's timeout.
+  </Step>
+</Steps>
+
+## Headless or headed
+
+The MCP server and the packages run headless by default, and a GPU-less server needs nothing else for that. For `--headed` (a real window on a virtual display), install Xvfb and the package starts a display sized to the persona's screen and stops it afterwards:
+
+```bash
+sudo apt install -y xvfb
+```
+
+## Non-interactive runs
+
+Both agent CLIs run one task and exit, which suits cron jobs and CI.
+
+<Tabs>
+  <Tab title="Claude Code">
+    Put the server in the project's `.mcp.json` ([Claude Code](/agents/claude-code#add-the-mcp-server)), then:
+
+    ```bash
+    claude -p "Open https://example.com with the apostate tools and report the page title." \
+      --allowedTools "mcp__apostate__browser_navigate,mcp__apostate__browser_snapshot"
+    ```
+
+    `claude -p` needs `ANTHROPIC_API_KEY` in the environment or a logged-in Claude Code.
+  </Tab>
+  <Tab title="Codex">
+    With the server in `~/.codex/config.toml` and `default_tools_approval_mode = "approve"` ([Codex](/agents/codex#add-the-server)):
+
+    ```bash
+    codex exec "Open https://example.com with the apostate tools and report the page title."
+    ```
+  </Tab>
+  <Tab title="Your own agent">
+    [`examples/agents/claude-api/agent.py`](/agents/claude-api) runs as a plain Python script with `ANTHROPIC_API_KEY` set.
+  </Tab>
+</Tabs>
+
+## In GitHub Actions
+
+These are the steps for an `ubuntu-24.04` job. The agent's own steps and secrets are yours.
+
+```yaml .github/workflows/browse.yml
+jobs:
+  browse:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: npx -y @heretic-tech/apostate install
+      - run: npx -y @heretic-tech/apostate fonts install windows
+      - run: npm install -g @anthropic-ai/claude-code
+      - run: |
+          claude -p "Open https://example.com with the apostate tools and report the page title." \
+            --allowedTools "mcp__apostate__browser_navigate,mcp__apostate__browser_snapshot"
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+
+The job's `.mcp.json` names the server. Hosted Linux runners for public repositories have 4 cores and 16 GB, and a persona never claims more cores or memory than the host has, so every persona on them reports 4 cores. [Choosing a host](/concepts/hosts) explains what that means for the machines a site sees.
+
+## Several agents at once
+
+Each browser locks its profile, so give every agent that runs at the same time its own profile: `--profile agent-1`, `--profile agent-2`, and so on, or `--isolated` for throwaway sessions. [Many sessions at once](/guides/many-sessions) has memory figures per browser.

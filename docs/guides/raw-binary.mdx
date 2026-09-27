@@ -1,0 +1,127 @@
+---
+title: "Raw binary"
+description: "Run the browser without the Python or Node package: find it, pass the switches the packages would pass, connect over CDP, and drive it from other languages."
+---
+
+The browser runs on its own. Every persona setting is a command-line switch, so any tool that can start Chromium can start Apostate. This page lists what the packages do that you then do yourself.
+
+## Find the binary
+
+```bash
+apostate path
+```
+
+```text
+/home/apostate/.cache/apostate/152.0.7977.83/linux-arm64/install/chrome
+```
+
+`apostate path` prints the executable and downloads the browser first if it is missing. On macOS the executable is `Chromium.app/Contents/MacOS/Chromium` inside the install directory. [Installation](/installation#the-cache) lists the cache paths and how to use a browser you installed yourself.
+
+The archives hold the browser, its crash handler, the SwiftShader and ANGLE libraries, and the locale and resource files. None of the four archives has a `chromedriver`.
+
+## Run it
+
+`apostate run` downloads the browser if it is missing and provisions the Widevine module, then starts the browser with the switches you give it:
+
+```bash
+apostate run -- --fingerprint=42 --fingerprint-platform=windows \
+  --fingerprint-locale=en-US --fingerprint-timezone=America/New_York \
+  --no-first-run --user-data-dir=./profiles/raw
+```
+
+Running the path from `apostate path` directly does the same without those two steps. Add `--fingerprint-explain` to print the machine and exit instead. [Switches](/reference/switches) lists every switch.
+
+## What the packages add
+
+A launch through the Python or Node package passes more than the persona switches. Without the package, add what you need:
+
+| The packages | On your own |
+| --- | --- |
+| Look up the proxy exit's location and pass `--fingerprint-locale` and `--fingerprint-timezone`. | Pass both switches. Without them the persona presents `en-US` and the host's timezone. |
+| Set `LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG` and `TZ` in the browser's environment. | Nothing. With `LANG=fr_FR.UTF-8` and `TZ=Europe/Paris` in the environment and `--fingerprint-locale=de-DE --fingerprint-timezone=Europe/Berlin` passed, a page read German languages and formatting and `Europe/Berlin`, on macOS and on Linux. |
+| Pass `--headless=new` when headless. | Pass `--headless=new` or `--headless`. |
+| Pass `--no-first-run` and `--no-default-browser-check`. | Pass both. Without `--no-first-run`, a headed launch on a new user data directory on Linux opens a terms-of-service dialog and waits, and the DevTools port does not open. |
+| Put the proxy endpoint in `--proxy-server` and the credential in `--apostate-profile`. | Pass `--proxy-server=socks5://user:pass@proxy.example:1080`. The browser takes the credential off the switch. [Proxies](/guides/proxies) has the details. |
+| Node, behind a proxy: pass `--fingerprint-webrtc-ip` with the exit's address and `--force-webrtc-ip-handling-policy=disable_non_proxied_udp`. | See [WebRTC](/guides/webrtc). |
+| Provision the Widevine module on the first launch. | `apostate install` and `apostate run` do it. [Widevine](/guides/widevine) has the details. |
+| Start Xvfb for a headed launch on a Linux host with no display. | Use `xvfb-run`, [below](#headed-without-a-display). |
+| Through the driver, Patchright or Playwright: `--no-sandbox`, `--disable-dev-shm-usage`, `--remote-debugging-pipe` and more. | As root or in a container, pass `--no-sandbox`. In a container, see [Shared memory](/guides/docker#shared-memory). |
+
+The Node package's `launchProcess()` does the package's part, GeoIP, environment and Xvfb included, and starts the binary with no driver attached. It does not pass `--no-first-run`, so add it to `args` for a headed launch. [Node](/guides/node#launchprocess) covers it.
+
+### Headed without a display
+
+On a Linux host with no display, run the browser under `xvfb-run`. It needs the `xauth` package as well as `xvfb`.
+
+```bash
+sudo apt install xvfb xauth
+xvfb-run -a -s "-screen 0 3840x2160x24" "$(apostate path)" \
+  --fingerprint=42 --no-first-run --user-data-dir=./profiles/raw
+```
+
+3840x2160 fits any screen a seed picks. Without `xauth`, `xvfb-run` stops with `xvfb-run: error: xauth command not found`.
+
+## Connect over CDP
+
+A client such as Playwright or Puppeteer drives the browser over the Chrome DevTools Protocol, through a pipe or a port.
+
+- `--remote-debugging-pipe` passes the protocol over file descriptors 3 and 4 and opens no port. The packages' drivers use it, and only the process that started the browser can use it.
+- `--remote-debugging-port=9222` opens the protocol on `127.0.0.1:9222`. Any process on the host can connect to it and control the browser, with no password. The endpoint refuses requests that web pages send. In a test with 0.4.3 on macOS, a `fetch` from a page on `127.0.0.1` failed with the same `TypeError` for the open port as for a closed one. `--remote-debugging-port=0` picks a free port and writes it to `DevToolsActivePort` in the user data directory.
+
+Start the browser with a port:
+
+```bash
+apostate run -- --fingerprint=42 --fingerprint-platform=windows \
+  --fingerprint-locale=en-US --fingerprint-timezone=America/New_York \
+  --headless --no-first-run \
+  --remote-debugging-port=9222 --user-data-dir=./profiles/cdp
+```
+
+```text
+DevTools listening on ws://127.0.0.1:9222/devtools/browser/756eda21-0a40-4139-a982-4df12350bcb6
+```
+
+Then connect from another process:
+
+<CodeGroup>
+```python Python
+from patchright.sync_api import sync_playwright
+
+with sync_playwright() as p:
+    browser = p.chromium.connect_over_cdp("http://127.0.0.1:9222")
+    context = browser.contexts[0]
+    page = context.new_page()
+    page.goto("https://example.com")
+    print(page.evaluate("[navigator.platform, navigator.hardwareConcurrency, Intl.DateTimeFormat().resolvedOptions().timeZone]"))
+    page.close()
+```
+
+```javascript Node
+import puppeteer from "puppeteer-core";
+
+const browser = await puppeteer.connect({ browserURL: "http://127.0.0.1:9222", defaultViewport: null });
+const page = await browser.newPage();
+await page.goto("https://example.com");
+console.log(await page.evaluate(() => [navigator.platform, navigator.hardwareConcurrency, Intl.DateTimeFormat().resolvedOptions().timeZone]));
+await page.close();
+await browser.disconnect();
+```
+</CodeGroup>
+
+```text
+['Win32', 12, 'America/New_York']
+```
+
+Patchright comes with the Python package. `browser.contexts[0]` is the profile's own context; a context from `browser.new_context()` would be off-the-record. `defaultViewport: null` keeps Puppeteer from resizing the page to 800x600.
+
+[`raw_cdp.py`](https://github.com/heretic-tech/apostate/blob/main/examples/python/raw_cdp.py) starts the binary with `--remote-debugging-port=0`, reads the port from `DevToolsActivePort` and connects. [`launch-process.mjs`](https://github.com/heretic-tech/apostate/blob/main/examples/node/launch-process.mjs) does the same through `launchProcess()`.
+
+### Keep the machine
+
+With `--user-data-dir` and no `--fingerprint`, the first launch draws a machine and stores its seed in `DIR/apostate/identity`, and later launches with that directory present it again. With neither switch, every launch draws a new machine while Chromium's default directory keeps the cookies. [Seeds and identity](/concepts/seeds-and-identity) covers both.
+
+## Other languages
+
+Any Chromium client can start Apostate. Set its executable path to the output of `apostate path` and add the switches, or start the browser with `--remote-debugging-port` and connect to it. This applies to chromedp in Go, chromiumoxide in Rust and CDP clients in other languages.
+
+Selenium drives Chrome through `chromedriver`, which no Apostate archive includes. ChromeDriver supports the Chrome major version it was built for, so it has to be version 152.

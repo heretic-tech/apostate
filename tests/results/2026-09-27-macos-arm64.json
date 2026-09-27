@@ -16,7 +16,7 @@
     "os_version": "macOS 26.6.2",
     "cpu": "Apple M4 Max"
   },
-  "network": "home broadband in Thailand (residential ISP), no proxy",
+  "network": "residential broadband, no proxy",
   "options": {
     "personas": [
       "windows",

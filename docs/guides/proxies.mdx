@@ -1,0 +1,177 @@
+---
+title: "Proxies"
+description: "Route Apostate through an HTTP, HTTPS or SOCKS5 proxy with a credential, match the locale and timezone to the exit, and choose sticky or rotating exits."
+---
+
+Pass the proxy to the package with the `proxy` option. The package sends the endpoint to the browser's `--proxy-server` switch and the credential inside `--apostate-profile`, and it looks up the exit's country and timezone through the proxy before the browser starts.
+
+<CodeGroup>
+```python Python
+from apostate import launch
+
+with launch(fingerprint=42, fingerprint_platform="windows",
+            proxy="socks5://user:pass@proxy.example:1080") as browser:
+    page = browser.new_page()
+    page.goto("https://example.com")
+    print(page.title())
+```
+
+```javascript Node
+import { launch } from "@heretic-tech/apostate";
+
+const browser = await launch({
+  fingerprint: 42,
+  fingerprintPlatform: "windows",
+  proxy: "socks5://user:pass@proxy.example:1080",
+});
+const page = await browser.newPage();
+await page.goto("https://example.com");
+console.log(await page.title());
+await browser.close();
+```
+</CodeGroup>
+
+## Proxy URLs
+
+| Scheme | Proxy | Credential |
+| --- | --- | --- |
+| `http://` | HTTP proxy | Answered on the proxy's `407` challenge |
+| `https://` | HTTP proxy reached over TLS | Answered on the proxy's `407` challenge |
+| `socks5://` | SOCKS5 proxy | SOCKS5 username and password |
+| `socks4://` | SOCKS4 proxy | None |
+
+The Python package's GeoIP lookup cannot go through a SOCKS4 proxy, so with the Python package pass `locale` and `timezone` yourself. Write the scheme every time. `socks5h://` does not work. The Node package refuses it, and with the Python package every request fails with `net::ERR_NO_SUPPORTED_PROXIES`. Use `socks5://`, which already sends hostnames to the proxy to resolve.
+
+Both packages also take the parts separately, with the raw username and password. The package encodes them.
+
+<CodeGroup>
+```python Python
+from apostate import launch
+
+proxy = {
+    "server": "socks5://proxy.example:1080",
+    "username": "user",
+    "password": "pa/ss@:x",  # raw value, the package encodes it
+}
+with launch(fingerprint=42, fingerprint_platform="windows", proxy=proxy) as browser:
+    page = browser.new_page()
+    page.goto("https://example.com")
+    print(page.title())
+```
+
+```javascript Node
+import { launch } from "@heretic-tech/apostate";
+
+const browser = await launch({
+  fingerprint: 42,
+  fingerprintPlatform: "windows",
+  proxy: { server: "socks5://proxy.example:1080", username: "user", password: "pa/ss@:x" },
+});
+const page = await browser.newPage();
+await page.goto("https://example.com");
+console.log(await page.title());
+await browser.close();
+```
+</CodeGroup>
+
+## Credentials in a URL
+
+In a URL, write a `/` in the username or password as `%2F`, a `%` as `%25` and a space as `%20`. An `@` or `:` in the password needs no escape, and an escaped one works too. To encode a password in code:
+
+<CodeGroup>
+```python Python
+from urllib.parse import quote
+
+password = "pa/ss@:x"
+print(f"socks5://user:{quote(password, safe='')}@proxy.example:1080")
+```
+
+```javascript Node
+const password = "pa/ss@:x";
+console.log(`socks5://user:${encodeURIComponent(password)}@proxy.example:1080`);
+```
+</CodeGroup>
+
+```text
+socks5://user:pa%2Fss%40%3Ax@proxy.example:1080
+```
+
+A username or password longer than 4096 bytes, a malformed escape and invalid UTF-8 are refused.
+
+## SOCKS5 with a credential
+
+Stock Chromium cannot log in to a SOCKS5 proxy, and Playwright refuses to start with a SOCKS5 credential in its own `proxy` option (`Browser does not support socks5 proxy authentication`). Apostate's browser does the SOCKS5 username and password exchange itself. So the packages put the credential in the `--apostate-profile` value, where the browser reads it, and give the driver only the endpoint. An HTTP proxy's credential goes to the driver as well.
+
+A wrong SOCKS5 credential fails every request with `net::ERR_SOCKS_CONNECTION_FAILED`. A proxy that does not answer fails it with `net::ERR_PROXY_CONNECTION_FAILED`.
+
+Pass the proxy with the `proxy` option, not as `--proxy-server` in `args`. The Node package refuses `--proxy-server` in `args`, and the GeoIP lookup uses only the `proxy` option.
+
+## What stays out of logs
+
+The browser takes the credential off `--proxy-server` before Chromium parses it and keeps it in memory for the launch. It does not appear in NetLog, in Chromium's error messages, in `chrome://version` or in `--fingerprint-explain` output.
+
+The browser's own command line and those of its child processes carry the `--apostate-profile` value, base64-encoded. Anything that prints the browser's command line shows the credential in that form: `ps` on the host, and a driver's launch log in an error message. Treat logs that contain launch errors as secret.
+
+## GeoIP through the proxy
+
+Before the browser starts, the package asks four GeoIP services where the exit is: `ip-api.com`, `ipinfo.io`, `ipwho.is` and `ifconfig.co`, in that order, over plain HTTP. The requests go through the proxy, and the proxy resolves the service names, so no lookup request or DNS query leaves the host except to the proxy. The first answer with a country and a timezone sets the persona's locale and timezone. [Locale and timezone](/guides/locale-and-timezone) covers the lookup, its timeout and what happens when it fails.
+
+The lookup runs once, before launch. The browser keeps that locale and timezone until it closes.
+
+## One proxy per launch
+
+`--proxy-server` is a browser switch, so every page of one launch goes through the same proxy. For a second exit, launch a second browser. [Many sessions](/guides/many-sessions) runs several at once.
+
+## Sticky and rotating exits
+
+A rotating proxy gives each connection, or each few minutes, a new exit IP. Inside one browser session that means:
+
+- A site sees one session come from several IPs.
+- The timezone and locale were set from the exit at launch, so after a rotation they can stop matching the IP.
+
+Use a sticky session for the length of one browser launch, and a new exit for each new launch. Most providers select a sticky session through the username, for example by adding a session id to it. Check your provider's username syntax, then pass one sticky username per launch:
+
+```python
+session = "shop-account-7"
+proxy = f"socks5://user-session-{session}:pass@proxy.example:1080"
+```
+
+With a persistent profile, use an exit in the same region for every launch, so the profile's timezone and locale stay the same from one visit to the next.
+
+## Check the exit from a page
+
+<CodeGroup>
+```python Python
+from apostate import launch
+
+with launch(fingerprint=42, fingerprint_platform="windows",
+            proxy="socks5://user:pass@proxy.example:1080") as browser:
+    page = browser.new_page()
+    page.goto("https://api.ipify.org/?format=json")
+    print("exit IP  ", page.evaluate("JSON.parse(document.body.innerText).ip"))
+    print("timezone ", page.evaluate("Intl.DateTimeFormat().resolvedOptions().timeZone"))
+    print("languages", page.evaluate("navigator.languages"))
+```
+
+```javascript Node
+import { launch } from "@heretic-tech/apostate";
+
+const browser = await launch({
+  fingerprint: 42,
+  fingerprintPlatform: "windows",
+  proxy: "socks5://user:pass@proxy.example:1080",
+});
+const page = await browser.newPage();
+await page.goto("https://api.ipify.org/?format=json");
+console.log("exit IP  ", await page.evaluate(() => JSON.parse(document.body.innerText).ip));
+console.log("timezone ", await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone));
+console.log("languages", await page.evaluate(() => navigator.languages));
+await browser.close();
+```
+</CodeGroup>
+
+The script prints the exit's IP address and the timezone and languages the package took from it. Run it at the start and the end of a long session to see whether the exit rotated. [`examples/python/proxy.py`](https://github.com/heretic-tech/apostate/blob/main/examples/python/proxy.py) reads the proxy from `APOSTATE_PROXY`.
+
+## WebRTC behind a proxy
+
+Behind one SOCKS5 proxy that relays UDP, the browser sends WebRTC's UDP through the proxy. Behind an HTTP, HTTPS or SOCKS4 proxy, WebRTC gets no UDP at all. The two packages differ here. Behind a proxy, the Node package also passes the exit IP from GeoIP as `--fingerprint-webrtc-ip` and adds Chromium's `--force-webrtc-ip-handling-policy=disable_non_proxied_udp`, and the Python package passes neither. [WebRTC](/guides/webrtc) has the details and a leak check.
