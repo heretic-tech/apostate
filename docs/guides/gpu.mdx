@@ -11,6 +11,7 @@ A persona presents a GPU from a GPU family. A GPU family is a set of WebGL and W
 | --- | --- | --- | --- |
 | `windows-d3d11-nvidia-0947761dfbe9` | Windows, NVIDIA, Direct3D 11 | RTX 3070 Ti, RTX A4500 | 45: GeForce GTX 10 series to RTX 50 series, RTX A2000 to A4500 |
 | `windows-d3d11-intel-79dfeb5b4f99` | Windows, Intel, Direct3D 11 | UHD Graphics 630 | 12: UHD Graphics 620, 630, 730, 770 and Iris Xe |
+| `windows-d3d11-qualcomm-6388f9914f3f` | Windows, Qualcomm, Direct3D 11 | Adreno X2-90 | 1: Adreno X2-90 |
 | `macos-metal-apple-850a91233555` | macOS, Apple silicon, Metal | M4 Max | 12: M1 to M4, each base, Pro and Max |
 | `linux-vulkan-nvidia-adf287b8f0ee` | Linux, NVIDIA, Vulkan | RTX 4070 Ti SUPER, RTX 4080 SUPER, RTX 3090, RTX PRO 4000 | 11: RTX 3090, RTX 40 series, RTX PRO 4000 |
 | `linux-swiftshader-google-6922d61bab83` | SwiftShader software renderer | A host with no GPU | 1 |
@@ -21,7 +22,8 @@ A persona presents a GPU from a GPU family. A GPU family is a set of WebGL and W
 
 The seed picks a family of the persona's platform, whatever GPU the host has:
 
-- A Windows persona picks the NVIDIA or the Intel Direct3D 11 family, with equal odds.
+- A Windows persona on an x86 host picks the NVIDIA or the Intel Direct3D 11 family, with equal odds.
+- A Windows persona on an ARM host gets the Qualcomm family. The persona reports the host's CPU family, and a Windows machine with an ARM CPU has a Qualcomm GPU.
 - A macOS persona gets the Metal family.
 - A Linux persona gets the Vulkan family.
 

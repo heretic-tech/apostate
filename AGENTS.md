@@ -53,9 +53,14 @@ It is free and open source. Its job is to pass the detectors real operators meet
   which that repository lacks, from the `liblaf/fonts` Win11 release zip,
   range-reading only that file and checking its sha256). Missing fonts are the
   user's problem; we do not fake them.
-- GPU: four GPU families were captured on real hardware. Within a family, the
+- GPU: five GPU families were captured on real hardware: Apple (macOS), Intel,
+  NVIDIA and Qualcomm Adreno (Windows), NVIDIA (Linux). Within a family, the
   renderer string can be swapped for any model of that family with no other
-  change. WebGL and WebGPU values come from the family.
+  change. WebGL and WebGPU values come from the family. A persona claims the
+  host's CPU family, so each anchor names the CPU family it was measured on
+  (`host_architecture`) and the draw skips the other family's: Windows on an
+  ARM host is Adreno, on x86 Intel or NVIDIA (patch 0154).
+  `scripts/build-anchor.py` builds an anchor from admitted captures.
 - Screen: a few real resolutions per platform. Windows always has a taskbar gap
   (`availHeight < height`).
 - Voices: from our real captures. If per-profile variation gets complicated, all

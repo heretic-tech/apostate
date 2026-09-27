@@ -68,11 +68,13 @@ Pins the GPU family instead of letting the seed draw one. The value is a family 
 | --- | --- |
 | `windows-d3d11-intel-79dfeb5b4f99` | Windows, Intel, Direct3D 11 |
 | `windows-d3d11-nvidia-0947761dfbe9` | Windows, NVIDIA, Direct3D 11 |
+| `windows-d3d11-qualcomm-6388f9914f3f` | Windows, Qualcomm, Direct3D 11 |
 | `macos-metal-apple-850a91233555` | macOS, Apple, Metal |
 | `linux-vulkan-nvidia-adf287b8f0ee` | Linux, NVIDIA, Vulkan |
 | `linux-swiftshader-google-6922d61bab83` | Linux, SwiftShader software renderer |
 
 - A persona draws only from the families of its own platform, and never draws SwiftShader. Only this switch selects SwiftShader.
+- A Windows persona draws the Qualcomm family only on an ARM host, and the Intel and NVIDIA families only on an x86 host. This switch selects any of the three on either host.
 - A family from another platform is accepted. `--fingerprint-explain` lists the mismatch under `limitations`.
 - An id that is not in the table is logged, and the launch presents the host's values on every surface:
 

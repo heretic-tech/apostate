@@ -266,3 +266,18 @@ def test_desktop_pointer_and_hover(case, record):
     pairs = {"(pointer: fine)": (media["pointerFine"], True), "(hover: hover)": (media["hover"], True)}
     gap = "host-pointer" if case.launch.mode == "bare" else None
     compare(record, pairs, gap, allowed=set(pairs))
+
+
+def test_the_gpu_matches_the_cpu_family(case, record):
+    """A Windows machine with an ARM CPU has a Qualcomm Adreno GPU, and one with an x86 CPU never does."""
+    profile_of(case)
+    if case.launch.persona != "windows":
+        pytest.skip("the pairing is checked for the Windows persona")
+    architecture = case.values["window"]["uaHigh"]["architecture"]
+    renderer = case.values["window"]["webgl"]["renderer"] or ""
+    adreno = "Adreno" in renderer
+    pairs = {f"Adreno GPU with {architecture}": (adreno, architecture == "arm")}
+    record.update(architecture=architecture, renderer=renderer)
+    gap = "arm-windows-gpu" if architecture == "arm" and not adreno else None
+    compare(record, pairs, gap, allowed=set(pairs))
+

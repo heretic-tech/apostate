@@ -207,16 +207,44 @@ The options a seed draws from are in `resources/profiles/dispersion/*.json`, one
 
 ### GPU families
 
-A GPU family is a file in `corpus/anchors/` with the schema `apostate/corpus/anchor/1`. It lists its member captures by path and SHA-256, the WebGL1, WebGL2 and WebGPU capabilities they share, their render digests and their evidence class. The five families are:
+A GPU family is a file in `corpus/anchors/` with the schema `apostate/corpus/anchor/1`. It lists its member captures by path and SHA-256, the WebGL1, WebGL2 and WebGPU capabilities they share, their render digests and their evidence class. The six families are:
 
 | File | Measured on |
 | --- | --- |
 | `windows-d3d11-nvidia-0947761dfbe9.json` | NVIDIA GeForce RTX 3070 Ti, NVIDIA RTX A4500 |
 | `windows-d3d11-intel-79dfeb5b4f99.json` | Intel UHD Graphics 630 |
+| `windows-d3d11-qualcomm-6388f9914f3f.json` | Qualcomm Adreno X2-90, in a Snapdragon X2 Elite laptop on Windows 11 ARM64 |
 | `macos-metal-apple-850a91233555.json` | Apple M4 Max |
 | `linux-vulkan-nvidia-adf287b8f0ee.json` | NVIDIA GeForce RTX 4070 Ti SUPER, RTX 4080 SUPER, RTX 3090, RTX PRO 4000 Blackwell |
 | `linux-swiftshader-google-6922d61bab83.json` | SwiftShader, as a `compatibility-capture` |
 
+The Windows families carry `host_architecture`, the CPU family of the machines they were measured on. Intel and NVIDIA carry `x86`, and Qualcomm carries `arm`. A Windows persona reports the host's CPU family, so the browser draws a Windows family only on a host of that CPU family. A family without `host_architecture` is drawn on both.
+
 The GPU models a persona can name are the options in `resources/profiles/dispersion/gpu_identity.json`, grouped by family ([GPU models](/reference/gpu-models)). A model measured in a family carries that family's evidence class. A model that was not measured has the evidence class `catalogue-value` and a `member` block. The block holds the `label` the browser reports, and can name `webgpu_measured_on`, the measured model whose WebGPU adapter it presents, and the `webgpu_architecture` and `webgpu_subgroup_min_size` that follow the model's chip generation. `generate-dispersion-tables.py` refuses a model that is neither measured nor registered this way, and refuses an unmeasured model that claims `physical-ground-truth`.
 
-No script in the repository builds a new GPU family from captures yet. The five families are committed data.
+### Build a GPU family
+
+`scripts/build-anchor.py` builds a family from one or more admitted captures of the same GPU. A capture is admitted when its record in `admissions/` says `accepted`, or when it passes the receiver's checks. The script refuses captures that differ in vendor, graphics backend, WebGL1 or WebGL2 capabilities, or render digest. It derives every field from the captures, `build/CHROMIUM_VERSION` and the other families, and names the file after the family id:
+
+```bash
+python3 scripts/build-anchor.py resources/fingerprints/raw/windows-qualcomm-adreno-x2-90-20260927T185251Z.json --host-architecture arm --write --relink
+```
+
+| Option | Effect |
+| --- | --- |
+| `--write` | Writes the family to `<anchors-dir>/<family id>.json`. Without `--write` or `--out`, the script prints it |
+| `--out` | Writes the family to the path given |
+| `--host-architecture` | Sets `host_architecture` to `arm` or `x86`. `auto` reads it from the captures' `navigator.userAgentData`. The script refuses a value the captures contradict |
+| `--relink` | Rewrites the cross-backend and render-digest comparisons in every other family in `--anchors-dir`, so they name the new one |
+| `--anchors-dir` | The families the new one is compared with. Default `corpus/anchors` |
+| `--evidence-class` | Default `compatibility-capture` for a software renderer and `physical-ground-truth` otherwise |
+| `--extra` | A JSON file of fields no capture holds, such as the SwiftShader family's `software_anchor_policy` |
+| `--allow-unadmitted` | Accepts a capture that has no accepted record and fails the checks. The SwiftShader family's capture needs it |
+
+`scripts/test_build_anchor.py` rebuilds every committed family from its captures and compares the bytes.
+
+A new family also needs these changes:
+
+1. An option set keyed on the family id in `gpu_identity.json`. For each new model, an option set in `machine_class.json`, `cpu.json` and `memory.json`, the tables conditioned on `gpu_identity`.
+2. An entry in `anchors` in `resources/profiles/catalogue.json`, with `host_requirements.architecture` equal to the family's `host_architecture`, and the new `option_sets` and `options` counts in `axes`. `python3 scripts/profile_resolver.py --catalogue` checks both.
+3. `python3 scripts/sync-packages.py` copies the catalogue into the Python and Node packages, and `python3 scripts/generate-docs-reference.py` rewrites [GPU models](/reference/gpu-models).
