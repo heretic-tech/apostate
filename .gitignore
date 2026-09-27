@@ -32,6 +32,8 @@ venv/
 /python/*.egg-info/
 /npm/dist/
 /npm/node_modules/
+/mcp/node_modules/
+.playwright-mcp/
 
 # Scratch planning notes written during a session, not repository content.
 /local/
