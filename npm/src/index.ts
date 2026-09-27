@@ -1060,6 +1060,14 @@ export function toCanonicalLaunchConfig(options = {}) {
   const timezone = options.timezone ?? options.fingerprintTimezone ?? options.fingerprint_timezone ?? null;
   if (locale !== null && typeof locale !== "string") throw new TypeError("locale must be a string.");
   if (timezone !== null && typeof timezone !== "string") throw new TypeError("timezone must be a string.");
+  if (timezone !== null) {
+    // An unknown zone written into TZ leaves a page's Intl timeZone undefined.
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone: timezone });
+    } catch {
+      throw new RangeError(`timezone ${JSON.stringify(timezone)} is not an IANA zone name, such as Europe/Berlin.`);
+    }
+  }
   const proxy = normalizeProxy(options.proxy);
   // Store the canonical token, not the raw option. Python's normalize_platform
   // has always done this; keeping the raw string here meant an alias such as

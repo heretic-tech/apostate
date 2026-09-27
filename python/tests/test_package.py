@@ -2207,3 +2207,13 @@ class LaunchErrorRedactionTests(unittest.TestCase):
         self.assertNotIn(envelope, str(error))
         self.assertNotIn("s3cret-pw", str(error))
         self.assertIn("--apostate-profile=<redacted>", str(error))
+
+
+class TimezoneOptionTests(unittest.TestCase):
+    def test_an_unknown_zone_is_refused(self) -> None:
+        with self.assertRaises(config_module.ConfigurationError):
+            config_module.LaunchConfig(timezone="Mars/Olympus")
+
+    def test_known_zones_pass(self) -> None:
+        for name in ("Europe/Berlin", "America/New_York", "UTC"):
+            self.assertEqual(config_module.LaunchConfig(timezone=name).timezone, name)

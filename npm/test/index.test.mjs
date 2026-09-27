@@ -2060,3 +2060,8 @@ test("a launch error does not carry the profile envelope or the proxy password",
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("an unknown timezone is refused before launch", async () => {
+  await assert.rejects(resolveLaunchConfig({ timezone: "Mars/Olympus", geoip: false }), RangeError);
+  assert.equal((await resolveLaunchConfig({ timezone: "Europe/Berlin", geoip: false })).timezone, "Europe/Berlin");
+});

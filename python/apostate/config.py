@@ -340,6 +340,24 @@ def _path_value(value: str | Path | None, name: str) -> str | None:
     raise ConfigurationError(f"{name} must be a path-like string or None")
 
 
+def _check_timezone(name: str | None) -> None:
+    """Refuse a zone the host's tz database does not know.
+
+    The packages write the zone into TZ, and an unknown one leaves a page's
+    Intl timeZone undefined. A host with no tz database cannot check, so the
+    name goes through and the browser decides.
+    """
+    if name is None:
+        return
+    try:
+        import zoneinfo
+        known = zoneinfo.available_timezones()
+    except Exception:  # noqa: BLE001 - no tz database is not the caller's error
+        return
+    if known and name not in known and name != "UTC":
+        raise ConfigurationError(f"timezone {name!r} is not an IANA zone name, such as Europe/Berlin")
+
+
 @dataclass(frozen=True)
 class LaunchConfig:
     """Immutable canonical launch configuration."""
@@ -360,6 +378,7 @@ class LaunchConfig:
         object.__setattr__(self, "fingerprint_platform", normalize_platform(self.fingerprint_platform))
         object.__setattr__(self, "locale", _string_or_none("locale", self.locale))
         object.__setattr__(self, "timezone", _string_or_none("timezone", self.timezone))
+        _check_timezone(self.timezone)
         if not isinstance(self.geoip, bool):
             raise ConfigurationError("geoip must be a boolean")
         if not isinstance(self.headless, bool):
