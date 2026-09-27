@@ -26,13 +26,15 @@ GAPS = {
     ),
     "font-filter-iphey": (
         "iphey.com flags every composed persona, the macOS persona on a Mac included, as "
-        "'inconsistent browser fingerprint (roadmap)'. The trigger is the font filter: the same "
-        "profile without its fonts section passes.",
+        "'inconsistent browser fingerprint (roadmap)', and the Windows persona also as "
+        "'(butterfly)'. Both come from the font filter: the same profile without its fonts "
+        "section passes, whatever architecture and GPU it claims.",
         f"{DOCS}#iphey-and-the-font-filter",
     ),
     "arm-windows-gpu": (
-        "On an ARM host a Windows persona reports the arm architecture next to a desktop Intel or "
-        "NVIDIA GPU, a pair no real Windows machine has. iphey.com flags it as '(butterfly)'.",
+        "Up to 0.4.3, a Windows persona on an ARM host reports the arm architecture next to a "
+        "desktop Intel or NVIDIA GPU, a pair no real Windows machine has. Real Windows on ARM "
+        "has a Qualcomm Adreno GPU.",
         f"{DOCS}#arm-hosts",
     ),
     "linux-headless-webgpu": (

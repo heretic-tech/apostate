@@ -28,7 +28,7 @@ There is no build for Intel Macs or 32-bit Windows. Do not run the Linux x64 bui
 
 A page can tell the CPU family from arithmetic, such as the sign bit of a computed NaN, and from Web Audio output, which the host CPU renders. When a Windows persona on an Apple silicon Mac claimed an x86 CPU, FingerprintJS Pro flagged the session as `virtual_machine`, which reads as x86 Windows emulated on ARM. Claiming `arm` cleared the flag (measured 2026-09-23 on an Apple silicon Mac, development build before Apostate 0.4.0, Windows persona).
 
-Windows and Linux personas therefore report the host's CPU architecture in `Sec-CH-UA-Arch` and `navigator.userAgentData`. On an ARM host they report `arm`. The release has no Windows-on-ARM GPU family, so the GPU next to that `arm` is always a desktop Intel or NVIDIA part. A real Windows-on-ARM laptop pairs `arm` with a Qualcomm Adreno GPU, and an Adreno family is planned. iphey.com flags that pair as "inconsistent browser fingerprint (butterfly)". macOS personas always report `arm`, which matches an ARM host and not an x86 one.
+Windows and Linux personas therefore report the host's CPU architecture in `Sec-CH-UA-Arch` and `navigator.userAgentData`. On an ARM host they report `arm`. The release has no Windows-on-ARM GPU family, so the GPU next to that `arm` is always a desktop Intel or NVIDIA part. A real Windows-on-ARM laptop pairs `arm` with a Qualcomm Adreno GPU, and an Adreno family is planned. macOS personas always report `arm`, which matches an ARM host and not an x86 one.
 
 For Windows and Linux personas, use an x86 Linux server or a Windows machine. For a macOS persona, use a Mac. [Known gaps](/known-gaps#arm-hosts) has the measurements.
 

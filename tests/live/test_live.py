@@ -124,9 +124,10 @@ def test_detector(live_case, live_browsers, record, pytestconfig):
         return
     if not result["passed"] and detector.name == "iphey":
         signals = " ".join(result.get("signals", []))
-        known = {"(roadmap)": "font-filter-iphey", "(butterfly)": "arm-windows-gpu"}
-        found = [gap for marker, gap in known.items() if marker in signals]
+        # Both signals come from the font filter (measured 2026-09-28: the same
+        # profile without its fonts section passes on arm and on x86).
+        known = ("(roadmap)", "(butterfly)")
         rest = [line for line in result.get("signals", []) if not any(marker in line for marker in known)]
-        if found and not rest:
-            gaps.expect(record, found[0] if len(found) == 1 else "font-filter-iphey")
+        if any(marker in signals for marker in known) and not rest:
+            gaps.expect(record, "font-filter-iphey")
     assert result["passed"], f"{detector.name}: {detector.what} failed: {result}"
