@@ -67,6 +67,22 @@ printf 'host tooling for %s (%s %s)\n' "$target" "$(uname -s)" "$(uname -m)"
 need python3 scripts/build.sh
 need git scripts/fetch-sources.sh
 
+# The bash on PATH is the one every `#!/usr/bin/env bash` script here runs
+# under. scripts/checkfile.sh and scripts/verify-release-inputs.sh use mapfile
+# and declare -A, which Bash 3.2 -- macOS's /bin/bash -- does not have.
+if path_bash="$(command -v bash)" &&
+   path_bash_version="$("$path_bash" -c 'printf "%s %s" "${BASH_VERSINFO[0]}" "$BASH_VERSION"' 2>/dev/null)"; then
+  if [ "${path_bash_version%% *}" -ge 4 ] 2>/dev/null; then
+    note "bash ${path_bash_version#* } at $path_bash"
+  else
+    note "bash at $path_bash is ${path_bash_version#* }; the build runs, but scripts/checkfile.sh and scripts/verify-release-inputs.sh need Bash 4 or later
+      install: a newer bash, first on PATH (on macOS, Homebrew's bash: brew install bash)
+      needed by: mapfile and declare -A in those scripts"
+  fi
+else
+  fail "no runnable bash on PATH; every script here starts with #!/usr/bin/env bash"
+fi
+
 case "$target" in
   windows-*)
     # windows-x64 packages a .zip through 7z; the others write .tar.zst.

@@ -17,6 +17,17 @@
 #               accepts whatever the manifests carry, which is what makes a
 #               nightly's artifacts checkable; a release always passes the
 #               tagged revision.
+
+# mapfile and declare -A below need Bash 4; macOS's /bin/bash is 3.2, which
+# also cannot parse the heredoc inside $(...) further down. Bash parses one
+# top-level command at a time, so this runs before it reaches either.
+# ${BASH_VERSINFO:-0} is element 0, and reads as 0 under a shell that is not bash.
+if [ "${BASH_VERSINFO:-0}" -lt 4 ]; then
+  echo "scripts/verify-release-inputs.sh needs Bash 4 or later, and this is ${BASH_VERSION:-not bash};" \
+    "on macOS run it with Homebrew's bash (brew install bash)" >&2
+  exit 1
+fi
+
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 shopt -s nullglob

@@ -12,6 +12,16 @@
 # command fails on the first one that has not been produced yet — reporting a
 # missing module map instead of the thing you changed. Asking ninja for the
 # object builds whatever that file needs and nothing else.
+
+# mapfile below needs Bash 4. Under macOS's /bin/bash 3.2 it is missing, the
+# object list comes back empty, and the script blamed compile_commands.json.
+# ${BASH_VERSINFO:-0} is element 0, and reads as 0 under a shell that is not bash.
+if [ "${BASH_VERSINFO:-0}" -lt 4 ]; then
+  echo "scripts/checkfile.sh needs Bash 4 or later, and this is ${BASH_VERSION:-not bash};" \
+    "on macOS run it with Homebrew's bash (brew install bash)" >&2
+  exit 1
+fi
+
 source "$(dirname "$0")/lib.sh"
 
 if [ "$(uname -s)" = Linux ] && [ -z "${APOSTATE_BUILD_IMAGE_ID:-}" ]; then
