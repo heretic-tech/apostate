@@ -103,7 +103,7 @@ Chrome on Windows turns `c:\foo` and `\\server\share` into `file:` URLs, and a p
 
 ### Browser chrome height
 
-The height of the tab strip and toolbar, `outerHeight - innerHeight`, comes from the host's browser layout. Without the bar described [below](#the-first-tab-of-a-bare-launch), a Windows persona reads 87 at 100% scaling, headless and headed, on Mac and Linux hosts. One real Windows 11 machine running Chrome 154, not exactly maximized, read 133 at 100% and 149 at 200% (2026-09-26). The value of a maximized real window at each scaling has not been measured yet.
+The height of the tab strip and toolbar, `outerHeight - innerHeight`, comes from the host's browser layout. Without the bar described [below](#the-first-tab-of-a-bare-launch), a Windows persona reads 87 at 100% scaling, headless and headed, on Mac and Linux hosts. Real Windows machines read more: a maximized Windows 11 machine with an RTX 3070 Ti read 143 at 100% (Chrome 153, captured 2026-09-14), and another machine running Chrome 154, not exactly maximized, read 133 at 100% and 149 at 200% (2026-09-26). Whether the 143 includes a bar of that machine's own, such as the default-browser prompt, was not recorded.
 
 **What to do.** Not fixed. Seeds whose `panel` row in `--fingerprint-explain` ends in `-125` or `-150` claim scaling; choose another seed where this matters.
 
