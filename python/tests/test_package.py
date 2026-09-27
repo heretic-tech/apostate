@@ -2217,3 +2217,39 @@ class TimezoneOptionTests(unittest.TestCase):
     def test_known_zones_pass(self) -> None:
         for name in ("Europe/Berlin", "America/New_York", "UTC"):
             self.assertEqual(config_module.LaunchConfig(timezone=name).timezone, name)
+
+
+class SharedDriverTests(unittest.TestCase):
+    """Playwright's sync API runs one driver per thread, so launches share it."""
+
+    def test_two_launches_share_one_driver_and_the_last_close_stops_it(self) -> None:
+        launch_module = importlib.import_module("apostate.launch")
+        starts = []
+
+        class Driver:
+            stopped = 0
+
+            def __init__(self) -> None:
+                self.chromium = _FakeSyncChromium() if "_FakeSyncChromium" in globals() else None
+
+            def stop(self) -> None:
+                Driver.stopped += 1
+
+        class Factory:
+            def start(self) -> Driver:
+                driver = Driver()
+                starts.append(driver)
+                return driver
+
+        factory = lambda: Factory()  # noqa: E731
+        selection = launch_module.DriverSelection("patchright", factory)
+        first = launch_module._lease_driver(selection)
+        second = launch_module._lease_driver(selection)
+        self.assertEqual(len(starts), 1)
+        first.stop()
+        first.stop()
+        self.assertEqual(Driver.stopped, 0)
+        second.stop()
+        self.assertEqual(Driver.stopped, 1)
+        launch_module._lease_driver(selection).stop()
+        self.assertEqual(len(starts), 2)

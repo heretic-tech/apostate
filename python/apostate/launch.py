@@ -10,6 +10,7 @@ import json
 import os
 import re
 import sys
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, NamedTuple
@@ -899,11 +900,56 @@ async def _own_driver_async(target: Any, driver: Any, name: str = "", display: A
     return target
 
 
+_threads = threading.local()
+
+
+class _DriverLease:
+    """One browser's share of the sync driver its thread runs.
+
+    Playwright's sync API allows one running driver per thread: a second
+    ``sync_playwright().start()`` fails with "Sync API inside the asyncio
+    loop". Browsers launched in one thread therefore share a driver, and
+    ``stop()`` stops it only when the last browser using it lets go.
+    """
+
+    def __init__(self, key: Any, playwright: Any) -> None:
+        self._key = key
+        self._playwright = playwright
+        self._stopped = False
+
+    def __getattr__(self, attribute: str) -> Any:
+        return getattr(self._playwright, attribute)
+
+    def stop(self) -> None:
+        if self._stopped:
+            return
+        self._stopped = True
+        leases = _threads.__dict__.get("drivers", {})
+        entry = leases.get(self._key)
+        if entry is None or entry[0] is not self._playwright:
+            self._playwright.stop()
+            return
+        entry[1] -= 1
+        if entry[1] == 0:
+            del leases[self._key]
+            self._playwright.stop()
+
+
+def _lease_driver(selection: DriverSelection) -> _DriverLease:
+    leases = _threads.__dict__.setdefault("drivers", {})
+    key = (selection.name, selection.factory)
+    entry = leases.get(key)
+    if entry is None:
+        entry = leases[key] = [selection.factory().start(), 0]
+    entry[1] += 1
+    return _DriverLease(key, entry[0])
+
+
 def _start_persistent(selection: DriverSelection, launch_options: dict[str, Any],
                       display: Any) -> tuple[Any, Any]:
-    """Start the driver and open a persistent context; stop both on failure."""
+    """Lease the thread's driver and open a persistent context; release both on failure."""
     try:
-        playwright = selection.factory().start()
+        playwright = _lease_driver(selection)
     except BaseException:
         if display is not None:
             display.stop()
