@@ -988,7 +988,9 @@ function launchProxyCredentials(proxy) {
 }
 
 function sanitizeErrorMessage(message, proxy) {
-  let text = String(message);
+  // A driver's launch log echoes the command line, and the profile envelope
+  // carries the proxy credential base64-encoded.
+  let text = String(message).replace(/--apostate-profile=\S+/g, "--apostate-profile=<redacted>");
   if (proxy) {
     text = text.split(proxy).join(redactProxy(proxy));
     try {

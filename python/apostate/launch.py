@@ -8,6 +8,7 @@ import copy
 import importlib
 import json
 import os
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -608,7 +609,9 @@ def driver_info() -> dict[str, Any]:
 def _backend_error(exc: Exception) -> LaunchError:
     text = str(exc)
     # Playwright errors can echo the complete command line. Never expose a
-    # credential-bearing proxy URL in a package exception.
+    # credential-bearing proxy URL in a package exception, nor the profile
+    # envelope, which carries the proxy credential base64-encoded.
+    text = re.sub(r"--apostate-profile=\S+", "--apostate-profile=<redacted>", text)
     for token in ("http://", "https://", "socks5://", "socks5h://"):
         if token in text:
             text = text.split(token, 1)[0].rstrip() + " [proxy details redacted]"

@@ -2193,3 +2193,17 @@ class RunCommandTests(unittest.TestCase):
     def test_other_commands_are_untouched(self) -> None:
         self.assertEqual(cli_module._split_run(["fonts", "install", "windows"]),
                          (["fonts", "install", "windows"], None))
+
+
+class LaunchErrorRedactionTests(unittest.TestCase):
+    def test_the_profile_envelope_and_the_proxy_url_are_redacted(self) -> None:
+        # Drivers echo the command line when a launch fails; the envelope
+        # carries the proxy credential base64-encoded.
+        launch_module = importlib.import_module("apostate.launch")
+        envelope = base64.b64encode(b'{"proxy_credentials":{"password":"s3cret-pw"}}').decode()
+        error = launch_module._backend_error(Exception(
+            f"Browser closed. /opt/chrome --headless=new --apostate-profile={envelope} "
+            "--proxy-server=socks5://ada:s3cret-pw@proxy.example:1080"))
+        self.assertNotIn(envelope, str(error))
+        self.assertNotIn("s3cret-pw", str(error))
+        self.assertIn("--apostate-profile=<redacted>", str(error))

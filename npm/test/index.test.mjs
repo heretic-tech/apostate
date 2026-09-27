@@ -23,6 +23,7 @@ import {
   ensureWidevine,
   extractionFailureMessage,
   expectedArtifactName,
+  BrowserLaunchError,
   launch,
   launchProcess,
   launchContext,
@@ -2024,5 +2025,38 @@ test("a server that ignores the byte range is not read", async () => {
   } finally {
     await server.close();
     await rm(directory, { recursive: true, force: true });
+  }
+});
+test("a launch error does not carry the profile envelope or the proxy password", async () => {
+  // Drivers echo the command line when a launch fails, and the envelope
+  // carries the proxy credential base64-encoded.
+  const root = await mkdtemp(join(tmpdir(), "apostate-node-redaction-"));
+  try {
+    const executable = join(root, "browser");
+    await writeFile(executable, "#!/bin/sh\nexit 0\n");
+    await chmod(executable, 0o755);
+    const module = {
+      chromium: {
+        async launch() {
+          throw new Error("launch() opens off-the-record pages");
+        },
+        async launchPersistentContext(_userDataDir, options) {
+          throw new Error(`Browser closed.\n<launching> ${options.executablePath} ${options.args.join(" ")}`);
+        },
+      },
+    };
+    await assert.rejects(
+      launch({ executablePath: executable, geoip: false, fingerprint: 42, proxy: "socks5://ada:s3cret-pw@proxy.example:1080", _driverModule: module }),
+      (error) => {
+        assert.ok(error instanceof BrowserLaunchError);
+        assert.doesNotMatch(error.message, /s3cret-pw/);
+        assert.match(error.message, /--apostate-profile=<redacted>/);
+        const envelope = error.message.match(/--apostate-profile=(\S+)/)[1];
+        assert.equal(envelope, "<redacted>");
+        return true;
+      },
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });
