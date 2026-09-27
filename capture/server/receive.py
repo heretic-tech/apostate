@@ -28,7 +28,7 @@ import threading
 COLLECTOR_DIR = pathlib.Path(__file__).resolve().parent.parent / "collector"
 MAX_BODY = 64 * 1024 * 1024  # captures carry raw PNG and audio payloads
 EXPECTED_CAPTURE_VERSION = 2
-EXPECTED_BROWSER_MAJOR = 152
+CHROMIUM_VERSION_FILE = pathlib.Path(__file__).resolve().parents[2] / "build" / "CHROMIUM_VERSION"
 HEX64 = re.compile(r"^[0-9a-fA-F]{64}$")
 HEADLESS_MARKER = re.compile(r"headless", re.IGNORECASE)
 FOREIGN_UA_MARKER = re.compile(
@@ -54,6 +54,29 @@ CONTEXT_FIELDS = {
     "notes",
 }
 ADMISSION_DIRNAME = "admissions"
+
+
+def _pinned_browser_major(version_file: pathlib.Path) -> int:
+    """The Chromium major the fork is built from, read from build/CHROMIUM_VERSION.
+
+    A capture is admitted only from that major, so the check follows the pin
+    and a Chromium bump needs no edit here. The file holds one full version,
+    such as 152.0.7977.83, which scripts/validate-release-baseline.py enforces.
+    """
+    try:
+        text = version_file.read_text(encoding="utf-8")
+    except OSError as error:
+        sys.exit("cannot read %s, which names the Chromium version a capture "
+                 "must come from: %s" % (version_file, error.strerror or error))
+    values = [line.strip() for line in text.splitlines() if line.strip()]
+    match = re.fullmatch(r"([0-9]+)(?:\.[0-9]+){3,4}", values[0]) if len(values) == 1 else None
+    if match is None:
+        sys.exit("%s must hold exactly one Chromium version, such as 152.0.7977.83"
+                 % version_file)
+    return int(match.group(1))
+
+
+EXPECTED_BROWSER_MAJOR = _pinned_browser_major(CHROMIUM_VERSION_FILE)
 
 
 class CaptureAdmissionError(ValueError):
