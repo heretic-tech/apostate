@@ -65,6 +65,25 @@ Live results depend on the network. An IP address that a detector has seen misus
 | known gap | the check failed in exactly the way a gap in [Known gaps](/known-gaps) describes. The test names the gap; any other difference still fails |
 | skipped | the check could not run on this host, or a detector page produced no result. A page that did not finish is never a pass |
 
+## Screenshots
+
+A manual run: a Windows persona on an Apple silicon Mac, Chromium 152.0.7977.83, 2026-09-27. The IP address and location fields are hidden.
+
+<Columns cols={2}>
+  <Frame caption="FingerprintJS Pro playground: suspect score 0, every smart signal not detected">
+    <img src="/images/proof/fpjs.webp" alt="FingerprintJS Pro playground showing Chrome 152 on Windows 11 with suspect score 0" />
+  </Frame>
+  <Frame caption="BrowserScan: browser fingerprint authenticity 100%">
+    <img src="/images/proof/browserscan.webp" alt="BrowserScan showing Windows 11 and fingerprint authenticity 100%" />
+  </Frame>
+  <Frame caption="deviceandbrowserinfo.com: isBot false">
+    <img src="/images/proof/deviceandbrowserinfo.webp" alt="deviceandbrowserinfo.com showing You are human" />
+  </Frame>
+  <Frame caption="bot.sannysoft.com: every test passed">
+    <img src="/images/proof/sannysoft.webp" alt="bot.sannysoft.com with every row passed and an NVIDIA WebGL renderer" />
+  </Frame>
+</Columns>
+
 ## What it does not test
 
 - Behaviour: mouse movement, typing rhythm, timing between actions. Sites that score behaviour see what your script does.

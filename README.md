@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/images/banner.png" alt="Apostate: be any machine. Windows, macOS, Linux." width="100%">
+</p>
+
 # Apostate
 
 Apostate is a Chromium build that presents a machine you choose: a Windows,
@@ -62,6 +66,22 @@ tools on a headless Apostate browser. See
 [AI agents](https://docs.apostate.dev/agents/overview).
 
 ## Proof
+
+A Windows persona on an Apple silicon Mac, Chromium 152.0.7977.83, on
+2026-09-27. The IP address and location fields are hidden.
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/proof/fpjs.webp" alt="FingerprintJS Pro playground: Chrome 152 on Windows 11, suspect score 0, every smart signal not detected"></td>
+    <td width="50%"><img src="docs/images/proof/browserscan.webp" alt="BrowserScan: browser fingerprint authenticity 100%, Windows 11"><br><br><img src="docs/images/proof/deviceandbrowserinfo.webp" alt="deviceandbrowserinfo.com: You are human, isBot false"></td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="docs/images/proof/sannysoft.webp" alt="bot.sannysoft.com: every test passed, WebGL on an NVIDIA GPU"></td>
+  </tr>
+</table>
+
+FingerprintJS Pro: suspect score 0. BrowserScan: 100% authentic.
+deviceandbrowserinfo.com: human. bot.sannysoft.com: every test passed.
 
 [`tests/`](tests/) checks, on a real browser, that pages read exactly the
 machine the browser composed, from every context, with no automation trace,
