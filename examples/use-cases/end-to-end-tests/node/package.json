@@ -6,7 +6,7 @@
     "test": "patchright test"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "dependencies": {
     "@heretic-tech/apostate": "^0.4.3",

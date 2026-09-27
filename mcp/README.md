@@ -41,7 +41,7 @@ Windsurf and others):
 ```
 
 The browser starts on the first tool call. The first start downloads it
-(about 150 MB) unless `npx @heretic-tech/apostate install` ran before.
+(about 150 to 200 MB) unless `npx @heretic-tech/apostate install` ran before.
 
 ## Options
 

@@ -15,7 +15,7 @@ It runs headless on a server and still reads as a normal desktop browser.
    `browser_snapshot`, `browser_click`...). Use them. Take a snapshot before
    you click or type and use the element refs from the latest snapshot.
 2. **No MCP tools.** Write a Python script with the `apostate` package and run
-   it. The browser is a separate download of about 160 to 200 MB the first time.
+   it. The browser is a separate download of about 150 to 200 MB the first time.
 
 If a browser you start from a shell command crashes at once on macOS
 (`MachPortRendezvousServer ... Permission denied`) or with SIGTRAP on Linux,
