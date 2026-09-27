@@ -178,6 +178,20 @@ def _schema_path(path: str, key: Any) -> str:
     return f"{path}.{key}" if path != "$" else f"$.{key}"
 
 
+def _integral_doubles_as_integers(value: Any) -> Any:
+    """Mirror of the compositor's JSON writer, which runs with
+    OPTIONS_OMIT_DOUBLE_TYPE_PRESERVATION: a whole-number double in int64 range
+    is written as an integer, so a table's `1.0` reaches the browser as `1`.
+    A fractional value such as a device pixel ratio of 1.25 is left alone."""
+    if isinstance(value, dict):
+        return {key: _integral_doubles_as_integers(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_integral_doubles_as_integers(item) for item in value]
+    if isinstance(value, float) and value.is_integer() and -2**63 <= value < 2**63:
+        return int(value)
+    return value
+
+
 def _canonical_json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 
@@ -1904,6 +1918,7 @@ def _resolve_internal(config: Mapping[str, Any] | None = None, **overrides: Any)
     # seeded draw produced, and it is the one this precedence exists to make
     # unreachable rather than merely unlikely.
     _locale_provenance_check(profile, locale_sources)
+    profile = _integral_doubles_as_integers(profile)
     validate_profile(profile)
     _coherence_check(profile, platform, browser_build)
 
