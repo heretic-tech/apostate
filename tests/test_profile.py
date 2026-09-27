@@ -88,15 +88,20 @@ def _device_memory(total_bytes):
 def test_cpu_and_memory(case, record):
     profile = profile_of(case)
     window = case.values["window"]
-    pairs = {"hardwareConcurrency": (window["hardwareConcurrency"], profile["cpu"]["logical_cores"])}
+    host = host_facts()
+    pairs = {}
+    # When no option of the persona fits the host, the page reads the host's own value.
+    if "cpu" in profile:
+        pairs["hardwareConcurrency"] = (window["hardwareConcurrency"], profile["cpu"]["logical_cores"])
+    else:
+        pairs["hardwareConcurrency is the host's"] = (window["hardwareConcurrency"], host["cores"])
     if "memory" in profile:
         pairs["deviceMemory"] = (window["deviceMemory"], _device_memory(profile["memory"]["total_bytes"]))
-        compare(record, pairs)
-        return
-    # No memory option of the persona fits this host, so the page reads the host's own.
-    pairs["deviceMemory is the host's"] = (window["deviceMemory"], _device_memory(host_facts()["memory_bytes"]))
+    else:
+        pairs["deviceMemory is the host's"] = (window["deviceMemory"], _device_memory(host["memory_bytes"]))
     compare(record, pairs)
-    gaps.expect(record, "host-cap")
+    if "cpu" not in profile or "memory" not in profile:
+        gaps.expect(record, "host-cap")
 
 
 def test_screen(case, record):

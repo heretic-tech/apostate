@@ -41,8 +41,9 @@ GAPS = {
         f"{DOCS}#webgpu-in-headless-mode-on-linux",
     ),
     "host-cap": (
-        "The host has less memory than every option the persona's machine offers, so the page "
-        "reads the host's own navigator.deviceMemory next to the persona's GPU.",
+        "The host has fewer cores or less memory than every option the persona's machine offers, "
+        "so the page reads the host's own hardwareConcurrency or deviceMemory next to the "
+        "persona's GPU.",
         f"{DOCS}#cores-and-memory-are-capped-at-the-hosts",
     ),
     "host-pointer": (
