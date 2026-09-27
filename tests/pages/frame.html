@@ -1,0 +1,11 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>frame</title>
+<script src="common.js"></script>
+<script>
+self.contextName = new URLSearchParams(location.search).get("context") || "frame";
+collectContext().then((values) => {
+  values.screen = { width: screen.width, height: screen.height, availWidth: screen.availWidth, availHeight: screen.availHeight, devicePixelRatio: window.devicePixelRatio };
+  parent.postMessage(values, "*");
+}, (error) => parent.postMessage({ error: String(error) }, "*"));
+</script>
