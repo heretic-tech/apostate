@@ -7,19 +7,19 @@ Widevine is Google's DRM module. Video sites use it through Encrypted Media Exte
 
 ## How the packages add it
 
-The first launch through either package, and `apostate install`, add the module:
+Every launch through either package checks the browser for the module and adds it when it is missing. `apostate install` and `apostate run` in both CLIs do the same. To add it:
 
 1. The package looks for a copy on the host, in Google Chrome's install and in the user data directories of Chromium-based browsers, and takes the newest version it finds.
 2. With none found, it downloads the module from Google's component update service, as Chrome's own component updater does, and checks it against the SHA-256 the service returns.
-3. It keeps the module in the cache directory, in `widevinecdm/`, so this happens once per host. Both packages share the cache.
+3. It keeps the module in the cache directory, in `widevinecdm/`, so the download happens once per host. Both packages share the cache.
 4. It copies the module into the browser's install, where it loads for every profile, the temporary one `launch()` uses included. On Linux, a persistent profile also gets a file that points at the module.
 
-`apostate run` does the same before it starts the browser. If no copy can be had, the launch goes ahead without DRM and prints one warning.
+When the package finds no copy and cannot download one, the launch continues without DRM and prints one warning.
 
 The packages add the module only to a browser inside an Apostate install, the directory a release archive unpacks to, with `build/MANIFEST.lock` or `resources/profiles/` beside the executable.
 
 <Note>
-The packages have no option to skip Widevine. Every package launch adds it.
+The packages have no option to skip Widevine. A module you delete comes back on the next package launch.
 </Note>
 
 ## Install a copy you choose
@@ -47,11 +47,13 @@ console.log(await provisionWidevine({
 4.10.3112.0      20416896  /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Libraries/WidevineCdm
 ```
 
-Without `--source` or `source`, the command installs a copy it finds or downloads, as a launch does. Unlike a launch, it fails when no copy can be had. Both print or return the platform, whether Widevine is verified there, where the copy came from, its version, and the cache and install paths. The Node CLI has no `provision-drm` command. Use `provisionWidevine()`.
+Without `--source` or `source`, the command installs a copy it finds or downloads, as a launch does. Unlike a launch, it fails when it can neither find nor download a copy. Both print or return the platform, whether Widevine is verified there, where the copy came from, its version, and the cache and install paths. The Node CLI has no `provision-drm` command. Use `provisionWidevine()`.
 
 ## Keep component updates on
 
-`--disable-component-update` stops Chrome's preinstalled components from registering, and on a macOS host Widevine is one of them. A Playwright launch, which passes the switch by default, rejected the Widevine key system on a macOS arm64 host with the module installed. Patchright and Puppeteer do not pass it. The packages remove it from the driver's default switches, and keep it only when you put it in `args` yourself. If you drive the browser with Playwright yourself, remove it too:
+`--disable-component-update` stops Chrome's preinstalled components from registering. On a macOS host Widevine is one of them, and a Playwright launch, which passes the switch by default, rejected the Widevine key system on a macOS arm64 host with the module installed. On Linux the browser loads the module from `WidevineCdm` beside the executable, so the switch does not keep it out there.
+
+Patchright and Puppeteer do not pass the switch. The packages remove it from the driver's default switches and keep it only when you put it in `args` yourself. If you drive the browser with Playwright yourself, remove it too:
 
 <CodeGroup>
 ```python Python
@@ -126,4 +128,4 @@ The module is the host's build. On a Linux host, a Windows persona carries the L
 - On 2026-09-26, with the v0.4.3 release binary on a bare-metal x86 Linux server under Xvfb, FingerprintJS Pro flagged Windows personas as `anti_detect_browser` in 6 of 6 runs with the Linux module present, and in 0 of 6 runs without it. The seeds and the exit were the same in both sets.
 - The module's first license message names its platform, `Linux` and `x86-64`, in the clear, where real Windows Chrome sends a 2-byte certificate request.
 
-The packages add the module on every launch, so every package launch of a Windows persona on Linux carries it. [Known gaps](/known-gaps) tracks both issues and what to do about them. DRM playback still works.
+DRM playback works with the module present. The packages and `apostate run` put the module back on every launch, and `--disable-component-update` does not keep it out on Linux. To run a Windows persona on Linux without it, delete the `WidevineCdm` directory beside the executable and start the binary directly, not through the packages or `apostate run`. [Known gaps](/known-gaps#the-linux-widevine-module-under-a-windows-persona) tracks the issue.

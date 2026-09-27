@@ -123,6 +123,6 @@ To check a proxied setup, remove the `args` line, add your `proxy`, and read eac
 
 - `typ host` shows an mDNS name ending in `.local`, or the address `--fingerprint-webrtc-ip` set. It must not show the host's real address.
 - `typ srflx` is the address the STUN server saw. It must be the proxy's exit, the IP the [proxy check](/guides/proxies#check-the-exit-from-a-page) prints.
-- No candidates at all means the proxy carries no UDP. Pages that use WebRTC for calls then fail, and a page can see that WebRTC gathered nothing.
+- No candidates at all means the proxy carries no UDP. Pages that use WebRTC for calls then fail, and a page can see that WebRTC gathered nothing. [Known gaps](/known-gaps#webrtc-needs-a-socks5-proxy-with-udp) tracks this.
 
 [Verify](/guides/verify) covers checking a launch with public test pages.

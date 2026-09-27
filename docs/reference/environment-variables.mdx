@@ -28,9 +28,9 @@ The default cache directory is:
 
 | Variable | Read by | Effect |
 | --- | --- | --- |
-| `APOSTATE_PROXY` | the MCP server `apostate-mcp`, `scripts/measure-fpjs.py`, and the proxy examples in `examples/` | A proxy URL, such as `socks5://user:pass@proxy.example:1080`. The Python and Node packages do not read it. Pass `proxy` to a launch function. |
+| `APOSTATE_PROXY` | the MCP server `apostate-mcp`, the live tier of the test suite in `tests/`, `scripts/measure-fpjs.py`, and the proxy examples in `examples/` | A proxy URL, such as `socks5://user:pass@proxy.example:1080`. The Python and Node packages do not read it. Pass `proxy` to a launch function. |
 
-[MCP server](/agents/mcp) lists the server's options. `apostate-mcp` also reads `APOSTATE_BINARY`.
+[MCP server](/agents/mcp) lists the server's options. `apostate-mcp` and the test suite also read `APOSTATE_BINARY`. [Run the tests](/testing/run) covers the test suite.
 
 ### Variables the packages set
 

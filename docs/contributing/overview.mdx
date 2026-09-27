@@ -3,7 +3,7 @@ title: "Contributing"
 description: "The repository layout, the rules a change follows, how to propose one, and the checks a pull request must pass."
 ---
 
-Apostate's source is at [github.com/heretic-tech/apostate](https://github.com/heretic-tech/apostate) under GPL-3.0. Browser changes are patches to Chromium 152.0.7977.83. The Python and Node packages, the MCP server, the capture tools and this site are in the same repository.
+Apostate's source is at [github.com/heretic-tech/apostate](https://github.com/heretic-tech/apostate) under GPL-3.0. Browser changes are patches to Chromium 152.0.7977.83. The Python and Node packages, the MCP server, the test suite, the capture tools and this site are in the same repository.
 
 ## Repository layout
 
@@ -11,7 +11,7 @@ Apostate's source is at [github.com/heretic-tech/apostate](https://github.com/he
 | --- | --- |
 | `patches/` | The Chromium changes, one file each, and `series`, the order they apply in |
 | `build/` | Pinned build inputs, and `MANIFEST.lock`, the record of the last build |
-| `scripts/` | Build, release and check scripts, the table generator `generate-dispersion-tables.py`, the Python copy of the compositor `profile_resolver.py`, and `measure-fpjs.py` |
+| `scripts/` | Build, release and check scripts, the table generator `generate-dispersion-tables.py`, the Python copy of the compositor `profile_resolver.py`, and `measure-fpjs.py`, which measures one launch on FingerprintJS Pro |
 | `scripts/checks/` | Checks that run against a built browser |
 | `resources/profiles/` | The catalogue and its option tables |
 | `resources/fingerprints/raw/` | Captures of real machines |
@@ -19,12 +19,12 @@ Apostate's source is at [github.com/heretic-tech/apostate](https://github.com/he
 | `config/` | The profile and launch schemas, and the country-to-locale table GeoIP uses |
 | `capture/` | The collector page, the receiver and the tools that turn a capture into a profile |
 | `python/` | The Python package and its tests |
-| `npm/` | The Node package and its tests |
-| `mcp/` | The MCP server for AI agents |
-| `examples/` | Runnable scripts for both packages |
-| `tests/` | The browser test suite |
+| `npm/` | The Node package and its tests. Needs Node 22 or later |
+| `mcp/` | `@heretic-tech/apostate-mcp`, the MCP server that gives AI agents an Apostate browser, and its test. Needs Node 22 or later. See [MCP server](/agents/mcp) |
+| `examples/` | Runnable Python, Node, use-case, agent and Docker examples |
+| `tests/` | The test suite for what pages read from the browser, its result files in `tests/results/`, and `report.py`, which writes `docs/testing/results.mdx`. See [Test suite](/testing/overview) |
 | `release/` | The release manifest schema |
-| `.github/` | CI workflows, and `release/artifact-policy.json`, the release contract |
+| `.github/` | CI workflows in `workflows/`, and `release/artifact-policy.json`, the release contract |
 | `docs/` | This site |
 | `.workspace/` | Not committed. The Chromium checkout, depot_tools and build output |
 
@@ -57,7 +57,9 @@ To send a change, fork the repository, commit on a branch and open a pull reques
 
 ## Checks on a pull request
 
-`.github/workflows/check.yml` runs eight jobs on every push to `main` and every pull request. None of them needs a Chromium checkout.
+Two workflows run on every push to `main` and every pull request. Neither builds Chromium.
+
+`.github/workflows/check.yml` runs eight jobs. None of them needs a Chromium checkout or a browser.
 
 | Job | Checks |
 | --- | --- |
@@ -70,7 +72,14 @@ To send a change, fork the repository, commit on a branch and open a pull reques
 | Python package tests | `python/tests` |
 | Node package tests | `npm/test`, after `npm ci` |
 
-Run the same checks from the repository root with Python 3 and Node 20 or later:
+`.github/workflows/test-suite.yml` runs two jobs against the released browser, not a build of the checkout's patches:
+
+| Job | Checks |
+| --- | --- |
+| offline tier, linux-x64 | The offline tier of `tests/` on Ubuntu 24.04, with the Python package installed from the checkout, after `apostate install` and `apostate fonts install windows`. The results file is kept as a workflow artifact |
+| MCP server | `mcp/test` on Node 22, with the Node package from npm, after `npm ci` and `npx apostate install` |
+
+Run the `check.yml` checks from the repository root with Python 3 and Node 22 or later:
 
 ```bash
 python3 scripts/validate-release-baseline.py --root . --series-only
@@ -107,9 +116,11 @@ The whole set took 34 seconds on an Apple M4 Max. When `sync-packages.py --check
 | Python package | `python/tests/` | Launch options, switches, GeoIP, install and manifest checks, against fake drivers and local servers | `python3 -m unittest discover python/tests` | Yes |
 | Node package | `npm/test/` | The same contract for the Node package | `npm ci --prefix npm && npm --prefix npm test` | Yes |
 | Repository scripts | `scripts/test_*.py` | The resolver, GeoIP, release validators, patch tooling, capture decomposition | `python3 scripts/test_geoip.py`, one file per run | Yes |
-| MCP server | `mcp/test/` | Starts the server, launches the installed browser and drives a Windows persona through the MCP tools | `npm ci --prefix mcp && npm --prefix mcp test` | No |
+| MCP server | `mcp/test/` | Starts the server, launches the installed browser and drives a Windows persona through the MCP tools | `cd mcp && npm ci && npx apostate install && npm test` | Yes |
 | Built browser | `scripts/checks/*.mjs` | See below | Node, with the path to a browser | No |
-| Browser test suite | `tests/` | What pages see, across personas and seeds | [Run the tests](/testing/run) | No |
+| Test suite | `tests/` | What pages read, across personas, seeds and launch modes | `cd tests && python3 -m pytest` | Offline tier, on Linux x64 |
+
+The test suite has an offline tier, which uses only local pages, and a live tier, which loads public detector pages. [Test suite](/testing/overview) describes each check, and [Run the tests](/testing/run) has the options and the live tier. `python3 tests/report.py` rewrites [Latest results](/testing/results) from the files in `tests/results/`.
 
 `scripts/checks/` holds two checks that need a built browser. Both use only Node's standard library and exit non-zero on a failure.
 
@@ -147,6 +158,8 @@ mint broken-links --check-anchors --check-redirects
 mint a11y
 python3 ../scripts/generate-docs-reference.py --check
 ```
+
+Three pages are generated. `scripts/generate-docs-reference.py` writes `reference/gpu-models.mdx` and `reference/font-lists.mdx`, and `tests/report.py` writes `testing/results.mdx`. Edit the scripts, not those pages.
 
 `mint dev` serves the site at http://localhost:3000.
 

@@ -7,11 +7,26 @@ Each release publishes browser archives for Linux x64, Linux arm64, macOS arm64 
 
 ## Unreleased
 
-Changes on `main` since v0.4.3.
+Changes on `main` since v0.4.3. The Python and Node packages will ship them as 0.4.4. No browser patch changed.
 
+- **Node 22.** The Node package needs Node 22 or later, and its `engines` field says so. It calls `Promise.withResolvers`, which Node 20 lacks, so on Node 20 every GeoIP lookup of 0.4.3 failed.
+- **Dark themes.** Both packages turn off Playwright's `prefers-color-scheme: light` emulation, so a page reads the persona's own theme. On 0.4.3, pass `color_scheme="null"` in Python or call `page.emulateMedia({ colorScheme: null })` in Node. See [prefers-color-scheme in the 0.4.3 packages](/known-gaps#prefers-color-scheme-in-the-0-4-3-packages).
+- **Timezones.** Both packages refuse a `timezone` that is not an IANA zone name, before launch. Python raises `ConfigurationError` and Node throws `RangeError`. In 0.4.3 an unknown name went into `TZ`, and a page's `Intl` timezone read `undefined`.
+- **GeoIP warning.** The warning for a failed lookup says the persona uses `en-US` and the host's timezone. In 0.4.3 it said the launch keeps the host's own locale, which was wrong. The reason and the advice are joined without a double period.
+- **Python diagnostics.** Python launches carry `apostate_diagnostics`, as Node launches carry `apostateDiagnostics`. GeoIP warnings are in its `["warnings"]` list.
+- **Python sync API.** Several browsers can be open at once in one thread. They share the thread's driver, which stops when the last of them closes. In 0.4.3 a second `launch()` while one is open fails with `Sync API inside the asyncio loop`.
+- **Launch errors.** A launch error no longer carries the `--apostate-profile` value, which holds a proxy credential base64-encoded. The value reads `--apostate-profile=<redacted>`. In Python, a proxy URL in the error text has its credential replaced with `<redacted>`, and the rest of the text is kept. In 0.4.3 the text was cut at the first proxy URL, which dropped the browser's own `apostate:` refusal line.
+- **Sandbox.** Both packages keep Chromium's sandbox on where it can start: macOS, Windows, and Linux as a regular user outside a container, with no seccomp filter and with user namespaces allowed. Playwright otherwise passes `--no-sandbox`, and a headed window then shows Chromium's unsupported-flag bar on its first tab, which took 56 pixels from `innerHeight`. An explicit `chromium_sandbox` or `chromiumSandbox` is kept. See [A bar on the first tab](/known-gaps#a-bar-on-the-first-tab).
+- **Proxy credentials.** Both packages count the 4096 limit for a username or password in bytes of UTF-8, as the browser does, and both refuse a malformed escape such as `%zz`.
+- **Timezone case.** The Node package refuses a timezone that differs from a zone name only in letter case, such as `europe/berlin`, as the Python package does. On Windows the Python package depends on `tzdata`, so it can check names on a host with no tz database.
+- **Node first run.** Every Node launch passes `--no-first-run` and `--no-default-browser-check`. `launchProcess()` did not, so a headed first launch of a new user data directory could stop at a first-run dialog.
 - **Python CLI.** `apostate run` forwards every argument after `run` to the browser, so `apostate run --fingerprint=42` works without a `--` separator, as it already did in the Node CLI.
 - **Fonts.** `apostate fonts install windows` also installs the Windows 11 Marlett, which the font repository it clones lacks. It reads only that file out of the `liblaf/fonts` Win11 release zip with HTTP range requests, and installs it only when its SHA-256 matches.
-- **MCP server.** A new package in `mcp/`, `@heretic-tech/apostate-mcp`, gives an AI agent an Apostate browser with Playwright MCP's tools. [MCP server](/agents/mcp) describes it.
+- **Catalogue.** The catalogue the packages ship describes the seed as keyed on the version values v0.4.2 used, and names `apostate/identity` as the file a persistent profile stores its seed in. The browser's own catalogue is unchanged.
+- **MCP server.** A new package in `mcp/`, `@heretic-tech/apostate-mcp` 0.1.0, gives an AI agent an Apostate browser with Playwright MCP's tools. It needs Node 22 or later. [MCP server](/agents/mcp) describes it.
+- **Test suite.** `tests/` checks what a page reads from the browser, offline against a local probe page and live against public detector pages, and writes each run to a dated results file. The offline tier and the MCP server's test run in CI on Linux x64 with the released browser. [Test suite](/testing/overview) describes it, and [Results](/testing/results) has the published runs from macOS arm64 and Linux arm64.
+- **Examples.** `examples/` holds runnable Python, Node, use-case, agent and Docker examples. [Examples](/examples) lists them.
+- **Documentation.** This site replaces the Markdown pages in `docs/`. `docs/KNOWN_GAPS.md` stays as a pointer, because the 0.4.3 browser's `--fingerprint-explain` names it. The repository README and the PyPI and npm READMEs link to the site.
 
 ## v0.4.3
 
@@ -42,7 +57,7 @@ Released 23 September 2026. Python and Node packages 0.4.0.
 - **Normal profile.** `launch()` opens pages in a normal profile instead of an off-the-record context, on a temporary profile the driver deletes on close. `new_context()` stays off-the-record, as in Playwright. This needs Patchright 1.55 or Playwright 1.53 or later.
 - **Windows system values.** A Windows persona serves Windows system colours, Segoe UI for the CSS system fonts, Windows' `system-ui` and default fonts, no `BarcodeDetector`, a 48 kHz `AudioContext`, the claimed speakers on a host with no sound card, the claimed GPU's power-efficient codecs and the US Windows keyboard map.
 - **CPU architecture.** Windows and Linux personas claim the host's CPU architecture, `arm` on an ARM host.
-- **WebGPU.** A host with no GPU serves the claimed adapter instead of none, and every GPU model has a WebGPU adapter.
+- **WebGPU.** A host with no GPU serves the claimed adapter instead of none, and every GPU model has a WebGPU adapter. On Linux, `requestAdapter()` still returns null in headless mode and in a headed launch as root. See [WebGPU in headless mode on Linux](/known-gaps#webgpu-in-headless-mode-on-linux).
 - **Widevine.** The packages give the browser a Widevine CDM on first launch, copied from a local Google Chrome or downloaded from Google and checked by SHA-256. The Python CLI adds `apostate provision-drm`.
 - **Linux displays.** A headed launch on a Linux host with no display starts its own Xvfb, sized to the persona's screen, and stops it on close.
 - **Fonts.** Each persona shows only its platform's font families. The CLI adds `apostate fonts install windows`, `fonts install macos` and `fonts export-macos`.
@@ -81,7 +96,7 @@ Released 21 September 2026. Node package 0.2.0.
 
 Released 20 September 2026. Python and Node packages 0.1.0, and 0.1.1.
 
-The first public release: Chromium 152.0.7977.83 with a composer that builds a whole Windows, macOS or Linux machine from a seed, before any other browser process starts.
+The first public release. It is Chromium 152.0.7977.83 with a composer that builds a whole Windows, macOS or Linux machine from a seed before any other browser process starts.
 
 - **Switches.** `--fingerprint`, `--fingerprint-platform`, `--fingerprint-anchor` and `--fingerprint-explain`, the per-field switches, `--fingerprint=host` and `--apostate-profile`.
 - **Persistent identity.** A launch with `--user-data-dir` stores its seed in the directory and presents the same machine on every later launch.

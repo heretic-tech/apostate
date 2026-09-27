@@ -3,7 +3,7 @@ title: "Linux servers"
 description: "Run Apostate on a Linux server with no GPU and no display: libraries, fonts, headless and headed launches, root, and how the server's size shapes the persona."
 ---
 
-Apostate runs on a Linux server with no GPU and no display. The persona's GPU values are served whatever the server renders with. The default persona on Linux is Windows, so a server needs the Windows fonts as well as the browser.
+Apostate runs on a Linux server with no GPU and no display. The persona's WebGL values are served whatever the server renders with. The WebGPU adapter is served only in a headed launch as a regular user, as [Headless or headed](#headless-or-headed) shows. The default persona on Linux is Windows, so a server needs the Windows fonts as well as the browser.
 
 ## Set up the server
 
@@ -74,11 +74,11 @@ Apostate runs on a Linux server with no GPU and no display. The persona's GPU va
 
 ## Headless launches
 
-`headless=True` (Node: `headless: true`) is the default and needs no display. The package passes `--headless=new`, which leaves `HeadlessChrome` out of the User-Agent.
+`headless=True` (Node: `headless: true`) is the default and needs no display. The package passes `--headless=new`. The browser leaves `HeadlessChrome` out of the User-Agent, where stock Chromium writes it in headless mode.
 
 ## Headed launches
 
-With `headless=False` on a host where neither `DISPLAY` nor `WAYLAND_DISPLAY` names a display, the package starts Xvfb, gives its display to the browser, and stops it when the browser closes. It takes the first free display from `:99` up and sets `DISPLAY` only in the browser's environment.
+With `headless=False` on a host where `WAYLAND_DISPLAY` is unset and `DISPLAY` names no X server that answers, the package starts Xvfb, gives its display to the browser, and stops it when the browser closes. It takes the first free display from `:99` up and sets `DISPLAY` only in the browser's environment.
 
 <CodeGroup>
 ```python Python
@@ -118,13 +118,13 @@ await browser.close();
 ['Win32', 1920, 1080, 143]
 ```
 
-The display is the size of the screen you set with `--fingerprint-screen-width` and `--fingerprint-screen-height`, or that a profile names, and 3840x2160 otherwise. Each headed launch has its own Xvfb, which used 37 MiB at 3840x2160 (PSS, Debian 13 container). Without Xvfb installed, a headed launch fails with:
+The 143 includes a 56-pixel bar on the first tab, which [Headless or headed](#headless-or-headed) explains. The display is the size of the screen you set with `--fingerprint-screen-width` and `--fingerprint-screen-height`, or that a profile names, and 3840x2160 otherwise. Each headed launch has its own Xvfb, which used 37 MiB at 3840x2160 (PSS, Debian 13 container). Without Xvfb installed, a headed launch fails with:
 
 ```text
 Xvfb is not installed; install it (apt install xvfb) or pass headless=True
 ```
 
-To run the browser binary headed without the packages, start it under `xvfb-run`, which also needs the `xauth` package. [Raw binary](/guides/raw-binary#headed-without-a-display) has the command.
+To run the browser binary headed without the packages, start it under `xvfb-run`, which needs the `xauth` package, and pass `--no-first-run` for a new user data directory. [Raw binary](/guides/raw-binary#headed-without-a-display) has the command.
 
 ### Headless or headed
 
@@ -133,11 +133,13 @@ Two values a page can read differ between the modes. Measured on 2026-09-27 with
 | Value | Headless | Headed under Xvfb |
 | --- | --- | --- |
 | `navigator.gpu.requestAdapter()` | `null` | the persona's adapter (`intel`, `gen-12lp`) |
-| `outerHeight - innerHeight` | 87 | 143, as on real Windows at 100% scaling |
+| `outerHeight - innerHeight` | 87 | 143 |
 
-The same launches in an amd64 container gave the same WebGPU result. On a Mac, headless also read 87 for `outerHeight - innerHeight` and served the adapter.
+The same launches in an amd64 container gave the same WebGPU result. [Known gaps](/known-gaps#webgpu-in-headless-mode-on-linux) tracks it. On a Mac, headless also read 87 for `outerHeight - innerHeight` and served the adapter.
 
-Run headed on a server when the pages you visit read WebGPU or the window size.
+The headed 143 is the same 87 plus Chromium's bar for `--no-sandbox`, 56 pixels high, which the headed launch showed on its first tab. The packages pass that flag as root and in a container, where the sandbox cannot start. Google Chrome never shows the bar. [A bar on the first tab](/known-gaps#a-bar-on-the-first-tab) has the workaround, and [Browser chrome height](/known-gaps#browser-chrome-height) compares 87 with real Windows.
+
+Run headed on a server when the pages you visit use WebGPU.
 
 ## Run as a regular user
 
@@ -167,7 +169,7 @@ On this 2-CPU host, seed 42 presents 2 cores. On a 14-core host the same seed pr
 
 ## x86 or arm64
 
-Use an x86 server for Windows and Linux personas. On an arm64 server they report `arm` in `Sec-CH-UA-Arch` next to a desktop Intel or NVIDIA GPU. [Hosts](/concepts/hosts#arm-hosts) explains why.
+Use an x86 server for Windows and Linux personas. On an arm64 server they report `arm` in `Sec-CH-UA-Arch` next to a desktop Intel or NVIDIA GPU. No real Windows machine has that pair, and iphey.com flags it. [Hosts](/concepts/hosts#arm-hosts) explains why.
 
 ## Check the server
 

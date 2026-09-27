@@ -96,7 +96,9 @@ webgpuVendor        intel
 webgpuArchitecture  gen-12lp
 ```
 
-That output is from a Mac. A page reads the same values on any host. Within a family, every model has the same WebGL limits, extensions and shader precision and the same WebGPU features and limits. The WebGPU architecture follows the model's chip generation, and so does the smallest subgroup size on Intel's 12th-generation models.
+That output is from a Mac. A page reads the same values on any host, with one exception. On Linux, `requestAdapter()` returns `null` in headless launches and in headed launches as root, so the script above fails at `adapter.info` there. [Known gaps](/known-gaps#webgpu-in-headless-mode-on-linux) tracks it.
+
+Within a family, every model has the same WebGL limits, extensions and shader precision and the same WebGPU features and limits. The WebGPU architecture follows the model's chip generation, and so does the smallest subgroup size on Intel's 12th-generation models.
 
 `navigator.gpu` exists only on secure pages, such as `https://` and `http://localhost`.
 
@@ -202,7 +204,7 @@ An id that is not in the table above is not refused. The browser logs `--fingerp
 
 ## Rendering stays on the host
 
-The browser reports the persona's GPU, but the host draws. Canvas, WebGL and WebGPU pixels, and the time they take, come from the host's GPU, or from SwiftShader when the host has none. On a host without a GPU, the claimed WebGPU adapter runs on SwiftShader, and features the software device cannot back fail when a page calls `requestDevice()`. [Known gaps](/known-gaps) lists what a page can measure, and [Hosts](/concepts/hosts) which hosts suit which persona.
+The browser reports the persona's GPU, but the host draws. Canvas, WebGL and WebGPU pixels, and the time they take, come from the host's GPU, or from SwiftShader when the host has none. On a host without a GPU, the claimed WebGPU adapter runs on SwiftShader, and features the software device cannot back fail when a page calls `requestDevice()`. [Known gaps](/known-gaps#rendering-is-the-hosts) lists what a page can measure, and [Hosts](/concepts/hosts#pick-a-host-for-a-persona) which hosts suit which persona.
 
 Personas of one platform on one host draw the same canvas image unless their fonts differ.
 

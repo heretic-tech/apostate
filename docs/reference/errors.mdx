@@ -9,14 +9,14 @@ Errors come from three places:
 - **The Python package** raises a subclass of `ApostateError`. [Python API](/reference/python-api#exceptions) lists the classes.
 - **The Node package** throws a subclass of `ApostateError` with a `code` string. [Node API](/reference/node-api#errors) lists the classes and codes.
 
-Neither package puts a proxy credential into a message. [Troubleshooting](/troubleshooting) starts from symptoms instead of messages.
+From 0.4.4 neither package puts a proxy credential into a message. In 0.4.3 a failed launch can echo the `--apostate-profile` value, which holds the credential base64-encoded. [Troubleshooting](/troubleshooting) starts from symptoms instead of messages.
 
 ## Error classes
 
 | Python | Node | `code` | Meaning |
 | --- | --- | --- | --- |
 | `ApostateError` | `ApostateError` | `APOSTATE_ERROR` | Base class of every package error. |
-| `ConfigurationError` | `ProfileResolutionError`, or `TypeError` for a wrong option type | `PROFILE_RESOLUTION_FAILED` and [specific codes](/reference/node-api#errors) | A launch option or switch is refused. |
+| `ConfigurationError` | `ProfileResolutionError`, `TypeError` for a wrong option type, or `RangeError` for an unknown timezone | `PROFILE_RESOLUTION_FAILED` and [specific codes](/reference/node-api#errors) | A launch option or switch is refused. |
 | `ProfileError` | `ProfileResolutionError` | `PROFILE_RESOLUTION_FAILED` and specific codes | A profile is malformed or conflicts with another option. |
 | `GeoIPError`, `GeoIPUnavailableError` | `GeoIPError` | `GEOIP_LOOKUP_FAILED` | A direct GeoIP call failed. A launch turns a failed lookup into a warning. |
 | `BinaryError` | | | Base class for install errors in Python. |
@@ -120,9 +120,20 @@ apostate: --fingerprint-platform named 'beos', which is not one of windows, maco
 launch() returns a Browser and cannot take a persistent profile (user_data_dir); use launch_persistent_context(user_data_dir, ...), which returns the context bound to that directory. The identity is stable there with no flag.
 ```
 
-Node throws the same with code `APOSTATE_USER_DATA_DIR_ON_LAUNCH`, and with `APOSTATE_USER_DATA_DIR_SWITCH_IN_ARGS` for `--user-data-dir` in `args`.
+Node throws a message that names `launchPersistentContext(userDataDir, options)`, with code `APOSTATE_USER_DATA_DIR_ON_LAUNCH`, or `APOSTATE_USER_DATA_DIR_SWITCH_IN_ARGS` for `--user-data-dir` in `args`.
 
 **Cause.** `user_data_dir` or `userDataDir` passed to `launch()`, or `--user-data-dir` in `args`. **Fix.** Call `launch_persistent_context(path, ...)` or `launchPersistentContext(path, options)`.
+
+### A timezone that is not an IANA zone
+
+From 0.4.4 both packages refuse the name before launch. Python raises `ConfigurationError`, and Node throws `RangeError`:
+
+```text
+timezone 'Europe/Berlinn' is not an IANA zone name, such as Europe/Berlin
+timezone "Europe/Berlinn" is not an IANA zone name, such as Europe/Berlin.
+```
+
+**Cause.** `timezone` names a zone that the host's tz database (Python) or `Intl` (Node) does not know, such as a typo or an abbreviation like `CEST`. In 0.4.3 the name went into `TZ`, and a page's `Intl.DateTimeFormat().resolvedOptions().timeZone` read `undefined`. **Fix.** Pass an IANA name, such as `Europe/Berlin` or `America/New_York`.
 
 ### A proxy switch in `args` (Node)
 
@@ -138,7 +149,7 @@ Code `APOSTATE_PROXY_SWITCH_IN_ARGS`. **Fix.** Pass the proxy URL as the `proxy`
 new_page() opens a page in the launch's own profile, which takes its options (viewport) from launch(); pass them there, or use new_context(...), which is off-the-record
 ```
 
-Node throws a `TypeError` with the same text for `newPage()`.
+Node throws a `TypeError` with the same text in Node's names, `newPage()` and `newContext(options)`.
 
 **Cause.** Page options such as `viewport` given to the browser's `new_page()`. **Fix.** Pass them to `launch()`, which gives them to the profile's context, or open an off-the-record context with `new_context(...)`.
 
@@ -268,13 +279,15 @@ Node says `headless: true`.
 
 ### The GeoIP lookup failed
 
-A warning, not an error. The launch goes ahead. Version 0.4.3 prints:
+A warning, not an error. The launch goes ahead. From 0.4.4 the Python package prints:
 
 ```text
-apostate: GeoIP lookup failed for socks5://127.0.0.1:9: every GeoIP endpoint failed: 1 attempt across 1 endpoint (3s budget exhausted); last error: cannot reach the SOCKS5 proxy socks5://127.0.0.1:9: [Errno 61] Connection refused. No locale or timezone override is sent and none is invented, so the launch keeps the host's own locale and timezone. Behind a proxy that is the host's and not the exit's. Pass locale and timezone explicitly to guarantee a match.
+apostate: GeoIP lookup failed for socks5://127.0.0.1:9: every GeoIP endpoint failed: 1 attempt across 1 endpoint (3s budget exhausted); last error: cannot reach the SOCKS5 proxy socks5://127.0.0.1:9: [Errno 61] Connection refused. No locale or timezone is sent, so the persona uses en-US and the host's timezone. Behind a proxy that is the host's and not the exit's. Pass locale and timezone to match the exit.
 ```
 
-Node prints the same after `[Apostate]`. A similar warning says when the lookup answered without a country or a timezone.
+Node prints the same text after `[Apostate]`, with Node's own connection error, such as `connect ECONNREFUSED 127.0.0.1:9`. Both packages also put the warning in the launch's diagnostics: `apostate_diagnostics["warnings"]` in Python from 0.4.4, `apostateDiagnostics.warnings` in Node. A similar warning says when the lookup answered without a country or a timezone.
+
+In 0.4.3 the second half of the message says the launch keeps the host's own locale. That is wrong. The persona uses `en-US`, as the 0.4.4 text says.
 
 **Cause.** The lookup could not reach any endpoint, or the proxy refused the connection. The persona then uses `en-US` and the host's timezone, which behind a proxy is not the exit's. **Fix.** Check the proxy, or pass `locale` and `timezone` yourself. [Locale and timezone](/guides/locale-and-timezone) covers the lookup.
 
@@ -285,4 +298,4 @@ native Apostate browser launch failed: <driver message>
 Unable to launch Apostate Chromium through patchright: <driver message>.
 ```
 
-**Cause.** The driver or the browser failed after the package handed over, for example because the browser refused a switch. The driver's message follows, with any proxy URL removed. **Fix.** Run the same switches with `apostate run ... --fingerprint-explain` to see the browser's own `apostate:` message.
+**Cause.** The driver or the browser failed after the package handed over, for example because the browser refused a switch. The driver's message follows, with any proxy URL removed. From 0.4.4 the `--apostate-profile` value in it reads `--apostate-profile=<redacted>`. **Fix.** Run the same switches as `apostate run -- <switches> --fingerprint-explain` to see the browser's own `apostate:` message.

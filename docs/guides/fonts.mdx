@@ -59,11 +59,11 @@ A name shows only when its family is on the list and installed, and none of them
     The command needs `git`. It does four things:
 
     1. It clones [MauCariApa-com/windows-11-fonts](https://github.com/MauCariApa-com/windows-11-fonts) into a temporary directory.
-    2. It adds Marlett, which every Windows machine has and that repository lacks. It reads only `marlett.ttf` out of the [liblaf/fonts](https://github.com/liblaf/fonts/releases/tag/Win11) `Win11-English.zip` with HTTP range requests, about 80 KB of a 200 MB zip, and keeps the file only if its SHA-256 matches the one the command pins. If the download fails, it prints why and installs the rest.
+    2. From 0.4.4, it adds Marlett, which every Windows machine has and that repository lacks. It reads only `marlett.ttf` out of the [liblaf/fonts](https://github.com/liblaf/fonts/releases/tag/Win11) `Win11-English.zip` with HTTP range requests, about 80 KB of a 200 MB zip, and keeps the file only if its SHA-256 matches the one the command pins. If the download fails, it prints why and installs the rest.
     3. It installs the files whose family is on the Windows list, and no others. A file counts by the family name Windows lists it under.
     4. It lists the families the host still lacks.
 
-    On a Mac it installed 143 files and ended with `every core Windows family is installed`. When families are missing, it prints `still missing` and their names instead.
+    On a Mac it installed 143 files, Marlett included, and ended with `every core Windows family is installed`. The 0.4.3 command installs the same files without Marlett. When families are missing, it prints `still missing` and their names instead.
 
     | Host | Directory |
     | --- | --- |
@@ -107,7 +107,9 @@ A default launch on a Linux host is a Windows persona, so on a Linux server the 
 
 A page sees the families that are on the persona's list and installed on the host. A missing family is absent, and nothing warns you. The browser does not fake a font it does not have. A Windows persona on a Linux host with no Windows fonts shows almost no fonts, which no real Windows machine does. Check the host after every new setup.
 
-The host's font engine draws the glyphs, so even with the real Windows files, text metrics can differ slightly from Windows. [Known gaps](/known-gaps) covers this.
+The host's font engine draws the glyphs, so even with the real Windows files, text metrics can differ slightly from Windows. [Known gaps](/known-gaps#text-is-drawn-by-the-hosts-font-engine) covers this.
+
+iphey.com flags every composed persona as inconsistent because of the font filter, the macOS persona on a Mac included. [Known gaps](/known-gaps#iphey-and-the-font-filter) has the measurements.
 
 ## Check the fonts
 

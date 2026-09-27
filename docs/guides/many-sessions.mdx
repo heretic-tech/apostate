@@ -9,7 +9,7 @@ One session is one browser. Every page in a browser shares its machine, its prox
 
 Give each browser either its own seed or its own user data directory.
 
-- **A seed** fixes the machine. `launch(fingerprint=seed)` presents the same machine on every launch, with a temporary profile that is deleted on close.
+- **A seed** fixes the machine. `launch(fingerprint=seed)` presents the same machine on every launch, with a temporary profile that the driver deletes on close.
 - **A user data directory** keeps the machine together with cookies and storage. `launch_persistent_context(directory)` with no seed draws a machine on the first launch and stores its seed in `directory/apostate/identity`. [Seeds and identity](/concepts/seeds-and-identity) covers both.
 
 Two browsers cannot use one user data directory at the same time. The second launch fails with:
@@ -22,7 +22,9 @@ A context from `new_context()` is off-the-record and shares its browser's machin
 
 ## Run browsers concurrently
 
-This runs one persistent session per directory, each through its own proxy, with at most four browsers open at a time.
+From 0.4.4, the Python sync API can keep several browsers open in one thread, and they share the thread's driver. In 0.4.3 a second sync `launch()` while one is open fails with an error that contains `Sync API inside the asyncio loop`. On 0.4.3, use the async API, as the example below does.
+
+The example runs one persistent session per directory, each through its own proxy, with at most four browsers open at a time.
 
 <CodeGroup>
 ```python Python
@@ -142,6 +144,6 @@ A headed launch on a server adds its own Xvfb, 37 MiB at the default 3840x2160.
 ## Limits
 
 - **Memory.** Plan for 350 to 450 MiB per browser on light pages, and measure your own pages.
-- **Cores.** Every browser's persona is capped at the host's logical CPU count, not a share of it. All the browsers run on the same CPUs.
-- **GeoIP.** Each launch without both `locale` and `timezone` makes one lookup, through its proxy. A failed lookup does not stop the launch; the persona then uses `en-US` and the host's timezone. [Locale and timezone](/guides/locale-and-timezone#when-the-lookup-fails) has the details.
+- **Cores.** The browser caps every persona at the host's logical CPU count, not at a share of it. All the browsers run on the same CPUs.
+- **GeoIP.** Each launch without both `locale` and `timezone` makes one lookup, through its proxy. A failed lookup does not stop the launch. The persona then uses `en-US` and the host's timezone. [Locale and timezone](/guides/locale-and-timezone#when-the-lookup-fails) has the details.
 - **Displays.** Each headed launch on a server starts its own Xvfb, on the next free display number from `:99` up.

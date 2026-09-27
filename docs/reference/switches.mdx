@@ -3,7 +3,7 @@ title: "Switches"
 description: "Every command-line switch Apostate adds to Chromium, with its value, default, refusals and precedence, and the Chromium switches that change how Apostate behaves."
 ---
 
-A switch is a command-line argument to the browser. The Python and Node packages pass the seed, persona, locale and timezone switches from their options. Pass any other switch through the `args` option, or on the command line after `apostate run`. A page cannot read the command line.
+A switch is a command-line argument to the browser. The Python and Node packages pass the seed, persona, locale and timezone switches from their options. Pass any other switch through the `args` option, or on the command line after `apostate run --`. A page cannot read the command line.
 
 When the browser refuses a value, it prints `apostate: <reason>` on stderr and exits with status 1. A value that is logged and ignored instead is marked as such below.
 
@@ -109,10 +109,14 @@ surface                   layer             evidence               value
 anchor                    anchor            physical-ground-truth  windows-d3d11-intel-79dfeb5b4f99
 os_release                dispersion        physical-ground-truth  windows-11
 gpu_identity              dispersion        catalogue-value        d3d11-intel-uhd-graphics-770-4680
+webgpu                    anchor            physical-ground-truth  Intel(R) UHD Graphics 770
+machine_class             dispersion        catalogue-value        win-sff-desktop
 cpu                       dispersion        public-corpus          cores-12
 memory                    dispersion        catalogue-value        gib-8
 panel                     dispersion        public-corpus          fhd-1080p
+...
 locale.timezone           command-line      operator               America/New_York
+  ! locale.timezone was set from the command line: either named by the operator or resolved by the launcher's prelaunch GeoIP lookup of the effective egress. Neither the seed nor the catalogue reaches this surface
 ...
 ```
 
@@ -197,7 +201,8 @@ The seed never draws the locale or the timezone. The Python and Node packages fi
 An IANA timezone name, such as `Europe/Berlin`. `Intl`, `Date` and the timezone a page reads follow it.
 
 - **Default.** The host's timezone. Behind a proxy that is the host's timezone and not the exit's.
-- An unknown name is logged as `apostate: unknown timezone 'Mars/Olympus'; keeping the host zone`, and the host's timezone stays. The Python and Node packages also write the value into `TZ`, where an unknown name leaves a page with no timezone, so pass a valid name.
+- An unknown name is logged as `apostate: unknown timezone 'Mars/Olympus'; keeping the host zone`, and the host's timezone stays.
+- The Python and Node packages also write the value into `TZ`. From 0.4.4 they refuse a name that is not an IANA zone before launch, with the message in [Errors](/reference/errors#a-timezone-that-is-not-an-iana-zone). In 0.4.3 an unknown name went into `TZ`, and a page's `Intl` timezone read `undefined`.
 
 ## WebRTC
 
@@ -277,9 +282,9 @@ Strongest first:
 | `--use-angle=BACKEND` | Changes how the host renders and tells the composer which host backend to assume. The GPU a page is told about stays the persona's. |
 | `--disable-gpu` | The composer treats the host as having no GPU. A Linux host with no usable render node is treated the same way. |
 | `--remote-debugging-pipe` | CDP over a pipe, with no port. Playwright and Patchright use it. |
-| `--remote-debugging-port=N` | CDP over a TCP port. The browser closes requests to the port that come from web pages. |
+| `--remote-debugging-port=N` | CDP over a TCP port. The browser closes requests to the port that come from web pages. Chromium listens on 127.0.0.1. Keep it there, because anyone who reaches the port controls the browser. |
 | `--force-webrtc-ip-handling-policy=disable_non_proxied_udp` | Chromium's own WebRTC policy. The Node package adds it behind a proxy. The Python package does not. |
-| `--disable-component-update` | Stops every preinstalled component from registering, the Widevine CDM included. The packages remove it from Playwright's default switches unless you pass it in `args`. |
+| `--disable-component-update` | Stops every preinstalled component from registering. On macOS that includes the Widevine CDM. On Linux the browser loads the CDM beside its executable either way. See [the Linux Widevine module](/known-gaps#the-linux-widevine-module-under-a-windows-persona). The packages remove the switch from Playwright's default switches unless you pass it in `args`. |
 
 Launching the browser with `--enable-automation`, `--headless`, `--remote-debugging-pipe` or `--remote-debugging-port` leaves `navigator.webdriver` false.
 

@@ -185,10 +185,12 @@ What to check in the output:
 
 - **Page, worker and headers agree.** The User-Agent, platform, cores, memory, languages, timezone and WebGL renderer in `worker` match the page's. The `user-agent` and `accept-language` headers match `navigator`, and `sec-ch-ua-platform` matches `userAgentData.platform`.
 - **Locale and timezone match the exit.** Behind a proxy, `intl` and `accept-language` should belong to the proxy's location. [Locale and timezone](/guides/locale-and-timezone) covers the lookup.
-- **The persona's fonts are present.** A Windows persona reads `true` for Segoe UI and Calibri and `false` for the macOS and Linux families. `false` for Segoe UI means the Windows fonts are not installed on the host; see [Fonts](/guides/fonts).
-- **`webgpu` is not `null`.** It is `null` in headless launches on Linux and under root; see [Linux servers](/guides/linux-servers#headless-or-headed).
-- **`architecture` is the host's.** It reads `arm` here because the host is arm64, and `x86` in an amd64 container. [Hosts](/concepts/hosts#arm-hosts) explains why.
+- **The persona's fonts are present.** A Windows persona reads `true` for Segoe UI and Calibri and `false` for the macOS and Linux families. `false` for Segoe UI means the Windows fonts are not installed on the host. [Fonts](/guides/fonts) covers installing them.
+- **`webgpu` is not `null`.** On Linux it is `null` in headless launches and in headed launches as root. [Linux servers](/guides/linux-servers#headless-or-headed) compares the modes, and [Known gaps](/known-gaps#webgpu-in-headless-mode-on-linux) tracks the gap.
+- **`architecture` is the host's.** It reads `arm` here because the host is arm64, and `x86` in an amd64 container. No real Windows machine pairs `arm` with this GPU, and iphey.com flags the pair. [Hosts](/concepts/hosts#arm-hosts) explains why.
 - **`available` is smaller than `size`** for a Windows persona, by the taskbar.
+
+`viewport` is 889 high here, where a headless launch reads 945. The 0.4.3 package passes `--no-sandbox`, so this headed launch shows Chromium's unsupported-flag bar on its first tab, which takes 56 pixels. From 0.4.4 the package keeps the sandbox on where it runs and leaves the flag out. [Known gaps](/known-gaps#a-bar-on-the-first-tab) has the workaround.
 
 The script checks five font families by comparing text widths. `document.fonts.check()` returns `true` for every family name, installed or not, so it cannot tell.
 
@@ -217,4 +219,17 @@ APOSTATE_PROXY=socks5://user:pass@proxy.example:1080 \
   python3 scripts/measure-fpjs.py --platform windows --seed 42
 ```
 
-Use a new proxy session for each run, or the service sees a returning visitor. `--platform host` measures the real machine for comparison, `--out FILE` saves the full response, and `APOSTATE_BINARY` points it at a local build. [FingerprintJS](/testing/fingerprintjs) has dated results, and [Testing](/testing/overview) describes the whole test suite.
+Use a new proxy session for each run, or the service sees a returning visitor. `--platform host` measures the real machine for comparison, `--out FILE` saves the full response, and `APOSTATE_BINARY` points it at a local build. [FingerprintJS](/testing/fingerprintjs) has dated results.
+
+## Next steps
+
+The test suite checks what pages read on a real browser, in every context, and opens public detector pages beside control browsers. It writes every result to a file.
+
+<Columns cols={2}>
+  <Card title="Test suite" icon="flask-conical" href="/testing/overview">
+    What the offline and live tiers check, and how to read the outcomes.
+  </Card>
+  <Card title="Latest results" icon="list-checks" href="/testing/results">
+    The offline checks and public detector pages from the newest run on each host.
+  </Card>
+</Columns>

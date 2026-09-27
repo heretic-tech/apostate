@@ -1,6 +1,6 @@
 ---
 title: "Price monitoring"
-description: "Read prices from public product pages on a schedule, with one persistent profile per site, a delay between page loads, robots.txt rules and a SQLite history."
+description: "Read prices from public product pages on a schedule, with one user data directory per site, a delay between page loads, robots.txt rules and a SQLite history."
 ---
 
 You track prices or stock on public product pages and want to know when they change. This walkthrough reads one value from each page, stores it in SQLite and prints what changed since the last run.
@@ -23,12 +23,12 @@ cd apostate/examples/use-cases/price-monitoring
 
 `apostate fonts install windows` is for Linux and macOS hosts ([Fonts](/guides/fonts)). The folder holds two files:
 
-- [`monitor.py`](https://github.com/heretic-tech/apostate/blob/main/examples/use-cases/price-monitoring/monitor.py) reads the pages, stores each value in `prices.db` and prints the changes. It keeps one profile per site in `profiles/`.
+- [`monitor.py`](https://github.com/heretic-tech/apostate/blob/main/examples/use-cases/price-monitoring/monitor.py) reads the pages, stores each value in `prices.db` and prints the changes. It keeps one user data directory per site in `profiles/`.
 - [`demo_shop.py`](https://github.com/heretic-tech/apostate/blob/main/examples/use-cases/price-monitoring/demo_shop.py) is a local shop on `127.0.0.1:8765` whose prices change from one run to the next. `monitor.py` uses it when you pass no pages.
 
 ## The script
 
-`watch_site()` opens one site's profile, reads its robots.txt, and loads each page with a delay in between:
+`watch_site()` launches a browser on one site's user data directory, reads the site's robots.txt, and loads each page with a delay in between:
 
 ```python
 def watch_site(host, items, database, arguments):
@@ -59,7 +59,7 @@ def watch_site(host, items, database, arguments):
             print(f"    {status:36} {urlsplit(url).path}")
 ```
 
-The robots.txt file is fetched in the same profile and parsed with Python's `urllib.robotparser`:
+The script fetches robots.txt in the same browser and parses it with Python's `urllib.robotparser`:
 
 ```python
 def robots_rules(page, origin):
@@ -96,7 +96,7 @@ The second run compares with the first:
     skipped   disallowed by robots.txt   /cart
 ```
 
-The seed is the same on both runs because it comes from the profile's identity file. The demo shop's robots.txt disallows `/cart` and sets `Crawl-delay: 2`, so the pages load 2 to 3 seconds apart.
+The seed is the same on both runs because it comes from the identity file in the site's user data directory. The demo shop's robots.txt disallows `/cart` and sets `Crawl-delay: 2`, so the pages load 2 to 3 seconds apart.
 
 Every value is a row in the `observations` table of `prices.db`:
 
@@ -123,13 +123,13 @@ example.com  profile profiles/example.com, seed 1c6a6965b3d9...
     new       Learn more                 /
 ```
 
-Pages are grouped by host name, and each host gets its own profile. Run the script from cron or another scheduler at the interval you need.
+The script groups pages by host name, and each host gets its own user data directory. Run the script from cron or another scheduler at the interval you need.
 
 ## Points for this job
 
-- **One profile per site.** A site's cookies, such as a consent choice or a selected region and currency, stay in its profile from run to run. Copy the `profiles/` directory to back it up. The copy presents the same machine.
-- **Seeds.** The identity file holds each profile's seed. To choose the seed yourself, write it to `profiles/<host>/apostate/identity` before the first launch. [Seeds and identity](/concepts/seeds-and-identity#the-identity-file) covers the file.
-- **Pacing.** `--delay` sets the seconds between page loads on one site, 30 by default, plus up to half as much again at random. A larger `Crawl-delay` in robots.txt wins. Sites are read one after another, one page at a time.
-- **Region.** Prices often depend on the visitor's country. `--locale` and `--timezone` fix the locale and timezone, and with `APOSTATE_PROXY` set, every page loads through that proxy. Use an exit in the same region on every run, and pass the locale and timezone of that region, since the script turns off the GeoIP lookup. [Proxies](/guides/proxies) covers proxy URLs.
+- **One user data directory per site.** A site's cookies, such as a consent choice or a selected region and currency, stay in its directory from run to run. Copy the `profiles/` directory to back it up. The copy presents the same machine.
+- **Seeds.** The identity file holds each directory's seed. To choose the seed yourself, write it to `profiles/<host>/apostate/identity` before the first launch. [Seeds and identity](/concepts/seeds-and-identity#the-identity-file) covers the file.
+- **Pacing.** `--delay` sets the seconds between page loads on one site, 30 by default, plus up to half as much again at random. A larger `Crawl-delay` in robots.txt wins. The script reads sites one after another, one page at a time.
+- **Region.** Prices often depend on the visitor's country. `--locale` and `--timezone` fix the locale and timezone. With `APOSTATE_PROXY` set, every page loads through that proxy. Use an exit in the same region on every run, and pass that region's locale and timezone, because the script turns off the GeoIP lookup. [Proxies](/guides/proxies) covers proxy URLs.
 - **Values.** The script stores the element's text as it is. A selector that matches nothing within 10 seconds stores `(not found)`, so a page whose markup changed shows up as a change. Parse numbers yourself if you need them.
 - **Headless.** Reading pages needs no window. The default headless launch presents the persona's screen.

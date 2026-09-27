@@ -3,7 +3,7 @@ title: "Personas"
 description: "What a persona is, the three platforms, the default on each host, and every value a persona sets with where it comes from."
 ---
 
-A persona is the operating system a launch presents to web pages: Windows, macOS or Linux. From the persona and a [seed](/concepts/seeds-and-identity), the browser composes one machine of that kind, with an OS release, a GPU, cores and memory, a screen, fonts, voices, audio and media devices. Each value is served by the Chromium code that produces it, so the page, its workers, its iframes and the HTTP headers all read the same machine.
+A persona is the operating system a launch presents to web pages: Windows, macOS or Linux. From the persona and a [seed](/concepts/seeds-and-identity), the browser composes one machine of that kind, with an OS release, a GPU, cores and memory, a screen, fonts, voices, audio and media devices. The Chromium code that produces each value serves the machine's value, so the page, its workers, its iframes and the HTTP headers all read the same machine.
 
 ## Choose a persona
 
@@ -21,7 +21,7 @@ const browser = await launch({ fingerprint: 42, fingerprintPlatform: "macos" });
 ```
 </CodeGroup>
 
-The browser switch is `--fingerprint-platform=windows`, `macos` or `linux`. The packages refuse any other value. The browser logs an unknown value and uses the default persona.
+The browser switch is `--fingerprint-platform=windows`, `macos` or `linux`. The packages refuse any other value. The browser logs an error for any other value and uses the default persona.
 
 ## The default persona
 
@@ -55,26 +55,26 @@ Each platform draws from its own tables. The counts are those of catalogue versi
 
 ## What a persona sets
 
-Every row is served in the browser's C++, so every API and header that reads the value agrees. The section column names the part of the [profile](/reference/profile-schema) that carries it.
+The browser's C++ serves every row, so every API and header that reads the value agrees. The section column names the part of the [profile](/reference/profile-schema) that carries it.
 
 | What a page reads | Section | Where the value comes from |
 | --- | --- | --- |
 | `navigator.userAgent`, the `User-Agent` header | `browser` | The OS release table. The version reads `Chrome/152.0.0.0`, as in Chrome's reduced User-Agent. |
 | `navigator.platform` | `platform` | The OS release table: `Win32`, `MacIntel` or `Linux x86_64`. |
-| `navigator.userAgentData`, `Sec-CH-UA-Platform`, `-Platform-Version`, `-Arch`, `-Bitness`, `-Model`, `-Form-Factors`, `-WoW64` | `platform` | The OS release table. Windows and Linux personas report the host's CPU architecture (`x86` or `arm`). macOS personas report `arm`. The brand list and full version are the build's own, with the `Google Chrome` brand. |
+| `navigator.userAgentData`, `Sec-CH-UA-Platform`, `-Platform-Version`, `-Arch`, `-Bitness`, `-Model`, `-Form-Factors`, `-WoW64` | `platform` | The OS release table. Windows and Linux personas report the host's CPU architecture (`x86` or `arm`, see [ARM hosts](/concepts/hosts#arm-hosts)). macOS personas report `arm`. The brand list and full version are the build's own, with the `Google Chrome` brand. |
 | `navigator.hardwareConcurrency`, `navigator.cpuPerformance`, the browser's own thread pools | `cpu` | The core-count table, one list per GPU model. Never more than the host has. |
 | `navigator.deviceMemory`, the `Device-Memory` header, the heap limit in `performance.memory` | `memory` | The memory table, one list per GPU model. Never more than the host has. |
 | WebGL `UNMASKED_VENDOR_WEBGL`, `UNMASKED_RENDERER_WEBGL` | `gpu` | The GPU model table, within the GPU family. |
 | WebGL `getParameter()` limits such as `MAX_TEXTURE_SIZE`, `getSupportedExtensions()`, `getShaderPrecisionFormat()` | `gl_limits`, `gl_extensions`, `gl_precisions` | The GPU family, measured on real hardware. |
-| WebGPU `requestAdapter()`: `info.vendor`, `info.architecture`, subgroup sizes, `features`, `limits` | `webgpu` | The GPU family. The architecture and subgroup sizes follow the model. |
+| WebGPU `requestAdapter()`: `info.vendor`, `info.architecture`, subgroup sizes, `features`, `limits` | `webgpu` | The GPU family. The architecture and subgroup sizes follow the model. On Linux, `requestAdapter()` returns `null` in headless mode and as root ([Known gaps](/known-gaps#webgpu-in-headless-mode-on-linux)). |
 | `screen.width`, `height`, `availWidth`, `availHeight`, `availLeft`, `availTop`, `devicePixelRatio`, `colorDepth`, `screen.isExtended`, the `color-gamut` and `dynamic-range` media queries | `screen` | The screen table, one list per machine, and the taskbar, menu bar or panel table, one list per OS release. |
 | Where a new window opens and how large it is | `screen` | The persona's work area. A Windows persona opens maximized. |
-| `document.fonts.check()`, text measured in canvas or CSS, `@font-face local()`, `queryLocalFonts()` | `fonts` | The font pack table, one list per OS release. Only families installed on the host can appear. |
+| Text measured in canvas or CSS, `@font-face local()`, `queryLocalFonts()` | `fonts` | The font pack table, one list per OS release. Only families installed on the host can appear. `document.fonts.check()` returns true for any family name, installed or not, so it does not show the list. |
 | `system-ui`, the CSS system font keywords such as `font: menu`, text with no `font-family` | none | The persona's platform. `system-ui` is `Segoe UI` for Windows and `DejaVu Sans` for Linux. A macOS persona keeps the build's own `system-ui`. |
-| `prefers-color-scheme`, CSS system colours such as `Highlight` and `ButtonFace` | `theme` | Light or dark, drawn by seed. The colours are the persona's platform defaults. The Playwright and Patchright drivers override the scheme to light; [Known gaps](/known-gaps#prefers-color-scheme-reads-light-under-playwright-and-patchright) has the fix. |
+| `prefers-color-scheme`, CSS system colours such as `Highlight` and `ButtonFace` | `theme` | Light or dark, drawn by seed. The colours are the persona's platform defaults. The 0.4.3 packages let Playwright and Patchright emulate light, and from 0.4.4 they turn that emulation off ([Known gaps](/known-gaps#prefers-color-scheme-in-the-0-4-3-packages)). |
 | `speechSynthesis.getVoices()` | `speech` | The voice table, one list per OS release and language. US and UK English have measured lists; any other language gets the US list. |
 | `AudioContext.baseLatency`, `AudioContext.sampleRate` | `audio` | The platform's output buffer size. Every persona runs at 48 kHz. |
-| `navigator.mediaDevices.enumerateDevices()` | `media` | The device table, one list per machine, with cameras, microphones and speakers and their labels. The host's own devices are listed too; see [Known gaps](/known-gaps#host-cameras-microphones-and-speakers-show-through). |
+| `navigator.mediaDevices.enumerateDevices()` | `media` | The device table, one list per machine, with cameras, microphones and speakers and their labels. The host's own devices are listed too ([Known gaps](/known-gaps#cameras-and-microphones)). |
 | `MediaCapabilities` `powerEfficient` | none | The persona's GPU. |
 | `navigator.keyboard.getLayoutMap()` | none | The US layout of the persona's platform. A profile you write can carry another in `keyboard.layout_map`. |
 | `navigator.connection` (`effectiveType`, `rtt`, `downlink`, `saveData`), the `ECT`, `RTT`, `Downlink` and `Save-Data` headers | `network` | One of three 4G connections. |
@@ -85,7 +85,7 @@ Every row is served in the browser's C++, so every API and header that reads the
 | Timezone, `Intl` defaults, `navigator.language`, `navigator.languages`, `Accept-Language` | `locale` | Not the seed. The packages take them from the proxy's location, or from your `locale` and `timezone` options. See [Locale and timezone](/guides/locale-and-timezone). |
 | The `pointer` and `hover` media queries | `input` | Only a [profile you write](/guides/custom-profiles) sets them. Otherwise they are the host's, or a mouse under Playwright and Patchright in headless mode. |
 
-The machine is composed in a fixed order, and later choices depend on earlier ones. The core count and memory depend on the GPU model, and the screen, devices and battery depend on the machine, so a persona never pairs, for example, an Apple M4 Max with a MacBook Air screen. [How it works](/concepts/how-it-works) has the order.
+The browser composes the machine in a fixed order, and later choices depend on earlier ones. The core count and memory depend on the GPU model, and the screen, devices and battery depend on the machine, so a persona never pairs, for example, an Apple M4 Max with a MacBook Air screen. [How it works](/concepts/how-it-works) has the order.
 
 ## Read a persona
 
@@ -214,4 +214,4 @@ apostate: --fingerprint names an off value, so no profile is composed and --fing
 
 The packages refuse the same combination before the browser starts, with `host inheritance disables every layer below it, so a platform persona cannot be applied at the same time`.
 
-Headless host mode has no display to inherit, so a page reads Chrome's headless 800x600 screen with `availHeight` equal to `height`. A composed persona does not have this problem.
+Headless host mode has no display to inherit, so a page reads Chrome's headless 800x600 screen with `availHeight` equal to `height`. A composed persona serves its own screen in headless mode.

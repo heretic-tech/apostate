@@ -126,7 +126,7 @@ An array of WebGL extension names as `getSupportedExtensions()` spells them, eac
 
 ## `webgpu`
 
-Without this section, WebGPU shows the host's adapter.
+Without this section, WebGPU shows the host's adapter. On Linux, `requestAdapter()` returns null in headless mode and in a headed launch as root, with or without it. See [WebGPU in headless mode on Linux](/known-gaps#webgpu-in-headless-mode-on-linux).
 
 | Field | Type | Meaning |
 | --- | --- | --- |
@@ -157,7 +157,7 @@ Without this section, WebGPU shows the host's adapter.
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `outer_inner_delta_width` | integer, 0 to 1000 | `outerWidth - innerWidth` of the claimed browser window. Accepted and not used. A page sees the real window frame. |
-| `outer_inner_delta_height` | integer, 0 to 1000 | `outerHeight - innerHeight`. Accepted and not used. |
+| `outer_inner_delta_height` | integer, 0 to 1000 | `outerHeight - innerHeight`. Accepted and not used. [Browser chrome height](/known-gaps#browser-chrome-height) gives the value a page reads. |
 
 ## `locale`
 

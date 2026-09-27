@@ -3,7 +3,7 @@ title: "Patches"
 description: "Write a Chromium patch, place it in the series, and compile it before a full build."
 ---
 
-Every change to the browser is a patch file in `patches/`, a diff against the pinned Chromium tag 152.0.7977.83. `patches/series` lists the patches in the order they apply, and `scripts/apply-patches.sh` applies them with `git apply`, which allows no fuzz. The series has 134 patches. The checkout and build setup are on [Build from source](/contributing/build).
+Every change to the browser is a patch file in `patches/`, a diff against the pinned Chromium tag 152.0.7977.83. `patches/series` lists the patches in the order they apply, and `scripts/apply-patches.sh` applies them with `git apply`, which allows no fuzz. The series has 134 patches, and the highest number is 0153. The checkout and build setup are on [Build from source](/contributing/build).
 
 ## The patch format
 
@@ -83,7 +83,7 @@ diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
     scripts/apply-patches.sh
     ```
 
-    The series changed, so the script resets every file the series touches, removes the files it creates, and applies all patches in order. It stops at the first patch that does not apply and names it. Any edit in the checkout that no patch records is lost at this step. `scripts/build.sh` never applies patches, so run this after every change to a patch file, and check that the checkout has your change before you build.
+    The series changed, so the script runs `git checkout -- .` in `src` and in each sub-repository the series edits, removes the files the series creates, and applies all patches in order. It stops at the first patch that does not apply and names it. Any edit in the checkout that no patch records is lost at this step. `scripts/build.sh` never applies patches, so run this after every change to a patch file, and check that the checkout has your change before you build.
   </Step>
 
   <Step title="Validate">
@@ -104,7 +104,7 @@ diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
 - Every entry is named `NNNN-description.patch`, and no number is used twice.
 - A patch that edits or deletes a file comes after the patch that creates it.
 - No two patches create the same file.
-- Entries are in ascending numeric order. When a dependency moves a patch out of numeric order, put a `#` comment directly above the moved entries, with no blank line between, that names the dependency.
+- Entries are in ascending numeric order, except in a group that a `#` comment introduces. When a dependency moves a patch out of numeric order, put a comment that names the dependency directly above the moved entries, with no blank line between. The group ends at the next blank line or comment.
 
 ## Hunk headers
 
@@ -137,7 +137,7 @@ scripts/checkfile.sh third_party/blink/renderer/core/frame/navigator.cc
 scripts/checkfile.sh base/apostate/compose.cc macos-arm64
 ```
 
-`checkfile.sh` takes a path inside the Chromium checkout and an optional target, defaulting to the host's. It looks up the objects that file compiles into in `compile_commands.json` and asks ninja to build only those, with any generated headers they need. It prints `OK  <path> compiles` on success.
+`checkfile.sh` takes a path inside the Chromium checkout and an optional target, defaulting to the host's. It looks up the objects that file compiles into in `compile_commands.json` and asks ninja to build only those, with any generated headers they need. It prints `==> OK  <path> compiles` on success.
 
 ### The whole series
 

@@ -3,11 +3,11 @@ title: "Test your own defenses"
 description: "Sign up on your own site under several personas, seeds and host mode, and compare what your backend and your bot protection recorded for each visit."
 ---
 
-You run bot protection on your site and want to see what it records when a browser presents a given machine. This walkthrough submits a signup form once for each of four personas and seeds and once in host mode, then prints what the backend received. Run it against sites you operate or are engaged to test.
+You run bot protection on your site and want to see what it records when a browser presents a given machine. This walkthrough submits a signup form once for each of four persona and seed pairs and once in host mode, then prints what the backend received. Run it against sites you operate or are engaged to test.
 
 ## What Apostate changes
 
-Each launch presents one composed machine. The `User-Agent` and `Sec-CH-UA-*` headers, `navigator`, `navigator.userAgentData`, the screen and the WebGL renderer all describe the same Windows, macOS or Linux machine, so the checks a backend runs between headers and JavaScript agree. A seed selects the machine, and a run with the same seed presents the same values. Host mode (`fingerprint="host"`) presents the host's own values from the same browser build, which gives you a baseline. [Personas](/concepts/personas) lists every value a persona sets.
+Each launch presents one composed machine of a [persona](/concepts/personas), the platform you choose. The `User-Agent` and `Sec-CH-UA-*` headers, `navigator`, `navigator.userAgentData`, the screen and the WebGL renderer all describe the same Windows, macOS or Linux machine, so the checks a backend runs between headers and JavaScript agree. A seed selects the machine, and a run with the same seed presents the same values. Host mode (`fingerprint="host"`) presents the host's own values from the same browser build, which gives you a baseline. [Personas](/concepts/personas) lists every value a persona sets.
 
 ## Set up
 
@@ -19,7 +19,7 @@ git clone https://github.com/heretic-tech/apostate.git
 cd apostate/examples/use-cases/test-your-own-defenses
 ```
 
-`apostate fonts install windows` is for Linux and macOS hosts. [Fonts](/guides/fonts) explains it. The folder holds two files:
+`apostate fonts install windows` is for Linux and macOS hosts ([Fonts](/guides/fonts)). The folder holds two files:
 
 - [`signup_site.py`](https://github.com/heretic-tech/apostate/blob/main/examples/use-cases/test-your-own-defenses/signup_site.py) serves a signup page on `127.0.0.1`. The page's own script collects a probe and posts it with the form. The server appends the request headers and the probe to `out/visits.jsonl`.
 - [`compare.py`](https://github.com/heretic-tech/apostate/blob/main/examples/use-cases/test-your-own-defenses/compare.py) submits the form once per run and prints what the server recorded.
@@ -176,7 +176,7 @@ Each line of `out/visits.jsonl` is one signup as your backend would log it. The 
 }
 ```
 
-`architecture` is `arm` because a persona reports the host's CPU architecture, and this host is an Apple silicon Mac. [Detection](/concepts/detection#consistency) explains why.
+`architecture` is `arm` because a Windows or Linux persona reports the host's CPU architecture, and this host is an Apple silicon Mac. No real Windows machine pairs `arm` with a desktop Intel GPU, and some detectors flag the pair. To test a Windows persona without it, run the script on an x86-64 host. [ARM hosts](/known-gaps#arm-hosts) covers the gap.
 
 ## Test your staging site
 
@@ -199,18 +199,19 @@ python3 compare.py --url https://example.com/signup
     MacIntel, 14 cores, 32 GB, America/New_York, ANGLE (Apple, ANGLE Metal Renderer: Apple M4 Max, Unspecified Version)
 ```
 
-Find each visit in your server logs and in your detection vendor's dashboard by its `run` parameter or its time, and read the verdict the vendor gave it: the score, the bot flag, the rule that fired. Compare the persona runs with the `host` run. Runs start 10 to 15 seconds apart. Change the 10 seconds with `--delay`.
+Find each visit in your server logs and in your detection vendor's dashboard by its `run` parameter or its time. Read the score, the bot flag and the rule that fired for each visit, and compare the persona runs with the `host` run. Runs start 10 to 15 seconds apart. `--delay` changes the 10 seconds.
 
 `--url` only loads the page. To submit your real form, copy `sign_up()` and change its selectors to your form's, with a test address your backend can clean up.
 
 <Note>
-Cloudflare Turnstile's test sitekeys give a fixed answer for every browser: `1x00000000000000000000AA` always passes and `2x00000000000000000000AB` always fails. To see how Turnstile treats a persona, use your real sitekey on a staging hostname that you added to the widget.
+Cloudflare Turnstile's test sitekey `1x00000000000000000000AA` passes every browser, and `2x00000000000000000000AB` fails every browser. To see how Turnstile treats a persona, use your real sitekey on a staging hostname that you added to the widget.
 </Note>
 
 ## Points for this job
 
 - **Seeds.** Fixed seeds make each run repeatable, so a change in your rules shows as a different verdict for the same machine. To sample new machines instead, leave out `fingerprint`, and each launch draws one. [Seeds and identity](/concepts/seeds-and-identity) covers both.
-- **Proxies.** These runs come from `127.0.0.1` or from your own network. Bot protection weighs the IP address heavily ([Detection](/concepts/detection#network)). To include it in a test, add `proxy` to a run and remove `REGION` from its launch, so the package sets locale and timezone from the proxy's exit. [Proxies](/guides/proxies) covers proxy URLs.
+- **Proxies.** These runs come from `127.0.0.1` or from your own network. Bot protection scores the IP address too ([Detection](/concepts/detection#network)). To include it in a test, add `proxy` to a run and remove `REGION` from its launch, so the package sets locale and timezone from the proxy's exit. [Proxies](/guides/proxies) covers proxy URLs.
 - **Behaviour.** `page.fill()` and `page.click()` send input with no mouse path and no typing rhythm. A product that scores behaviour sees that. [Detection](/concepts/detection#behaviour) covers what is up to your script.
 - **Headless or headed.** The runs are headless, the packages' default. On a Linux server, `headless=False` needs Xvfb installed ([Linux servers](/guides/linux-servers)).
 - **Public test pages.** [Verify](/guides/verify) lists public pages that report what a detector sees.
+- **Measured results.** [Latest results](/testing/results) has the dated results of Apostate's test suite per host, public detector pages included. [Measure with FingerprintJS Pro](/testing/fingerprintjs) reads that detector's suspect score and flags for a persona.

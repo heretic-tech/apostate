@@ -7,7 +7,7 @@ You keep records of web pages for research or compliance, and each record has to
 
 ## What Apostate changes
 
-Some sites answer automated or headless browsers with a challenge page or less content. Apostate presents a desktop machine without the automation traces those sites check for ([Detection](/concepts/detection#automation-traces)), so the capture shows the page a visitor on that machine gets. The manifest records the persona and seed, and a later capture with the same seed uses the same machine.
+Some sites answer automated or headless browsers with a challenge page or less content. Apostate presents a desktop machine without the automation traces those sites check for ([Detection](/concepts/detection#automation-traces)), so the capture shows the page a visitor on that machine gets. A [persona](/concepts/personas) is the platform the browser presents, and a [seed](/concepts/seeds-and-identity) selects the machine. The manifest records both, and a later capture with the same seed uses the same machine.
 
 ## Set up
 
@@ -146,7 +146,8 @@ On Linux, `sha256sum` prints the same.
 
 - **Seed and persona.** The manifest records both, with the Apostate and browser versions. A later capture with the same seed, persona and version uses the same machine. A release that changes the catalogue tables can change it ([Seeds and identity](/concepts/seeds-and-identity#updates-and-catalogue-changes)).
 - **Region.** With `APOSTATE_PROXY` set, every page loads through that proxy, and the package sets the locale and timezone from the proxy's exit. Without a proxy, `--locale` and `--timezone` set them. The manifest records the language and timezone the page read. [Proxies](/guides/proxies) covers proxy URLs.
-- **Integrity.** Anyone who can edit the folder can edit the manifest too. If a record has to hold up later, sign the manifest or store the folder where it cannot be changed.
+- **Integrity.** Anyone who can edit the folder can edit the manifest too. To show later that a record is unchanged, sign the manifest or store the folder where it cannot be changed.
 - **Many pages.** To archive many pages of one site, follow its terms and robots.txt and space the page loads. [Price monitoring](/use-cases/price-monitoring) shows both.
-- **Waiting.** `wait_until="networkidle"` waits until the network has been quiet for 500 ms. Content that loads on scroll or on a timer appears only if the script scrolls or waits for it before the screenshot.
+- **Waiting.** With `wait_until="networkidle"`, `page.goto()` returns after 500 ms with no network connections. Content that loads on scroll or on a timer appears only if the script scrolls or waits for it before the screenshot.
+- **Theme.** A persona draws a light or dark theme. From 0.4.4 the page reads that theme through `prefers-color-scheme`. With the 0.4.3 package the page reads light unless you pass `color_scheme="null"` ([Known gaps](/known-gaps#prefers-color-scheme-in-the-0-4-3-packages)). To capture every page in one theme, pass `color_scheme="light"` or `color_scheme="dark"` to `launch()`.
 - **Headless.** `page.pdf()` works only headless, the default.

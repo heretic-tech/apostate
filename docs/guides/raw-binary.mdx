@@ -21,7 +21,7 @@ The archives hold the browser, its crash handler, the SwiftShader and ANGLE libr
 
 ## Run it
 
-`apostate run` downloads the browser if it is missing and provisions the Widevine module, then starts the browser with the switches you give it:
+`apostate run` downloads the browser if it is missing and adds the Widevine module, then starts the browser with the switches you give it, unchanged. It adds no seed, locale, timezone or `--no-first-run`, so the command below passes them:
 
 ```bash
 apostate run -- --fingerprint=42 --fingerprint-platform=windows \
@@ -30,6 +30,12 @@ apostate run -- --fingerprint=42 --fingerprint-platform=windows \
 ```
 
 Running the path from `apostate path` directly does the same without those two steps. Add `--fingerprint-explain` to print the machine and exit instead. [Switches](/reference/switches) lists every switch.
+
+The first tab of a launch without a driver shows Chromium's "Google API keys are missing" bar, which takes 56 pixels from `innerHeight`. Google Chrome never shows it. Set `GOOGLE_API_KEY=no`, `GOOGLE_DEFAULT_CLIENT_ID=no` and `GOOGLE_DEFAULT_CLIENT_SECRET=no` in the browser's environment, or open a second tab and use that. A launch with `--no-sandbox` shows a bar for that flag instead, so leave it out where the sandbox runs. [Known gaps](/known-gaps#a-bar-on-the-first-tab) has the measurements.
+
+### Keep the machine
+
+With `--user-data-dir` and no `--fingerprint`, the first launch draws a machine and stores its seed in `DIR/apostate/identity`, and later launches with that directory present it again. With neither switch, every launch draws a new machine while Chromium's default directory keeps the cookies. [Seeds and identity](/concepts/seeds-and-identity) covers both.
 
 ## What the packages add
 
@@ -40,18 +46,18 @@ A launch through the Python or Node package passes more than the persona switche
 | Look up the proxy exit's location and pass `--fingerprint-locale` and `--fingerprint-timezone`. | Pass both switches. Without them the persona presents `en-US` and the host's timezone. |
 | Set `LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG` and `TZ` in the browser's environment. | Nothing. With `LANG=fr_FR.UTF-8` and `TZ=Europe/Paris` in the environment and `--fingerprint-locale=de-DE --fingerprint-timezone=Europe/Berlin` passed, a page read German languages and formatting and `Europe/Berlin`, on macOS and on Linux. |
 | Pass `--headless=new` when headless. | Pass `--headless=new` or `--headless`. |
-| Pass `--no-first-run` and `--no-default-browser-check`. | Pass both. Without `--no-first-run`, a headed launch on a new user data directory on Linux opens a terms-of-service dialog and waits, and the DevTools port does not open. |
-| Put the proxy endpoint in `--proxy-server` and the credential in `--apostate-profile`. | Pass `--proxy-server=socks5://user:pass@proxy.example:1080`. The browser takes the credential off the switch. [Proxies](/guides/proxies) has the details. |
+| Pass `--no-first-run` and `--no-default-browser-check`. | Pass both. Without `--no-first-run`, a headed first launch of a new user data directory can stop at a first-run dialog. |
+| Put the proxy endpoint in `--proxy-server` and the credential in `--apostate-profile`. | Pass `--proxy-server=socks5://user:pass@proxy.example:1080`. The browser takes the credential off the switch, but the browser process's own command line, which `ps` shows, keeps it as you wrote it. [Proxies](/guides/proxies) has the details. |
 | Node, behind a proxy: pass `--fingerprint-webrtc-ip` with the exit's address and `--force-webrtc-ip-handling-policy=disable_non_proxied_udp`. | See [WebRTC](/guides/webrtc). |
-| Provision the Widevine module on the first launch. | `apostate install` and `apostate run` do it. [Widevine](/guides/widevine) has the details. |
+| Add the Widevine module on every launch when it is missing. | `apostate install` and `apostate run` do it. [Widevine](/guides/widevine) has the details. |
 | Start Xvfb for a headed launch on a Linux host with no display. | Use `xvfb-run`, [below](#headed-without-a-display). |
 | Through the driver, Patchright or Playwright: `--no-sandbox`, `--disable-dev-shm-usage`, `--remote-debugging-pipe` and more. | As root or in a container, pass `--no-sandbox`. In a container, see [Shared memory](/guides/docker#shared-memory). |
 
-The Node package's `launchProcess()` does the package's part, GeoIP, environment and Xvfb included, and starts the binary with no driver attached. It does not pass `--no-first-run`, so add it to `args` for a headed launch. [Node](/guides/node#launchprocess) covers it.
+The Node package's `launchProcess()` does the package's part, GeoIP, environment and Xvfb included, and starts the binary with no driver attached. From 0.4.4 it also passes `--no-first-run` and `--no-default-browser-check`. On 0.4.3, add both to `args` for a headed launch. [Node](/guides/node#launchprocess) covers it.
 
 ### Headed without a display
 
-On a Linux host with no display, run the browser under `xvfb-run`. It needs the `xauth` package as well as `xvfb`.
+On a Linux host with no display, run the browser under `xvfb-run`. It needs the `xauth` package as well as `xvfb`. Pass `--no-first-run` for a new user data directory.
 
 ```bash
 sudo apt install xvfb xauth
@@ -66,7 +72,9 @@ xvfb-run -a -s "-screen 0 3840x2160x24" "$(apostate path)" \
 A client such as Playwright or Puppeteer drives the browser over the Chrome DevTools Protocol, through a pipe or a port.
 
 - `--remote-debugging-pipe` passes the protocol over file descriptors 3 and 4 and opens no port. The packages' drivers use it, and only the process that started the browser can use it.
-- `--remote-debugging-port=9222` opens the protocol on `127.0.0.1:9222`. Any process on the host can connect to it and control the browser, with no password. The endpoint refuses requests that web pages send. In a test with 0.4.3 on macOS, a `fetch` from a page on `127.0.0.1` failed with the same `TypeError` for the open port as for a closed one. `--remote-debugging-port=0` picks a free port and writes it to `DevToolsActivePort` in the user data directory.
+- `--remote-debugging-port=9222` opens the protocol on `127.0.0.1:9222`. Any process on the host can connect to it and control the browser, with no password. Keep the port on `127.0.0.1`, and do not forward it to other hosts. `--remote-debugging-port=0` picks a free port and writes it to `DevToolsActivePort` in the user data directory.
+
+The endpoint refuses requests that web pages send. In a test with 0.4.3 on macOS, a `fetch` from a page on `127.0.0.1` failed with the same `TypeError` for the open port as for a closed one.
 
 Start the browser with a port:
 
@@ -112,13 +120,9 @@ await browser.disconnect();
 ['Win32', 12, 'America/New_York']
 ```
 
-Patchright comes with the Python package. `browser.contexts[0]` is the profile's own context; a context from `browser.new_context()` would be off-the-record. `defaultViewport: null` keeps Puppeteer from resizing the page to 800x600.
+Patchright comes with the Python package. `browser.contexts[0]` is the profile's own context. A context from `browser.new_context()` is off-the-record. `defaultViewport: null` keeps Puppeteer from resizing the page to 800x600.
 
 [`raw_cdp.py`](https://github.com/heretic-tech/apostate/blob/main/examples/python/raw_cdp.py) starts the binary with `--remote-debugging-port=0`, reads the port from `DevToolsActivePort` and connects. [`launch-process.mjs`](https://github.com/heretic-tech/apostate/blob/main/examples/node/launch-process.mjs) does the same through `launchProcess()`.
-
-### Keep the machine
-
-With `--user-data-dir` and no `--fingerprint`, the first launch draws a machine and stores its seed in `DIR/apostate/identity`, and later launches with that directory present it again. With neither switch, every launch draws a new machine while Chromium's default directory keeps the cookies. [Seeds and identity](/concepts/seeds-and-identity) covers both.
 
 ## Other languages
 

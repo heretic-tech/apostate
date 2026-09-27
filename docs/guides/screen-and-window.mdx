@@ -82,13 +82,15 @@ macos {'screen': [2560, 1440], 'avail': [0, 33, 2560, 1407], 'window': [22, 55, 
 linux {'screen': [3840, 2160], 'avail': [0, 32, 3840, 2128], 'window': [10, 42, 1905, 2108], 'inner': [1905, 2021], 'pixelRatio': 1}
 ```
 
-A Windows persona opens maximized, filling the work area above the taskbar, as Windows Chrome does. macOS and Linux personas get their platform's default placement inside the work area. The window is placed from the persona, not measured from the host's display. On a headed launch the host display has to be at least as large, or the window manager may shrink the window.
+A Windows persona opens maximized, filling the work area above the taskbar, as Windows Chrome does. macOS and Linux personas get their platform's default placement inside the work area. The browser places the window from the persona, not from the host's display. On a headed launch the host display has to be at least as large, or the window manager may shrink the window.
 
-The browser's own frame, `outerHeight` minus `innerHeight`, comes from the host's browser layout. [Known gaps](/known-gaps) has where it differs from real Windows.
+The browser's own frame, `outerHeight` minus `innerHeight`, comes from the host's browser layout. For a Windows persona it is 87 at 100% scaling, headless and headed, as in the output above. [Browser chrome height](/known-gaps#browser-chrome-height) compares it with real Windows.
+
+On the first tab of a launch without a driver, or of any launch with `--no-sandbox` except a headless package launch, Chromium shows a bar that takes another 56 pixels from `innerHeight`. Google Chrome never shows it. The 0.4.3 packages pass `--no-sandbox` on every host. [A bar on the first tab](/known-gaps#a-bar-on-the-first-tab) has the details and the workaround.
 
 ## Viewport
 
-Playwright and Puppeteer emulate a viewport by default. Playwright's reports `screen`, `innerWidth` and the available area all as 1280x720 at a pixel ratio of 1, which no desktop does. So the packages turn the driver's viewport off: `no_viewport=True` in Python, `viewport: null` for Playwright and `defaultViewport: null` for Puppeteer in Node. The page then gets the persona's screen and the real window size.
+Playwright and Puppeteer emulate a viewport by default. Playwright's reports `screen`, `innerWidth` and the available area all as 1280x720 at a pixel ratio of 1, which no desktop does. The packages turn the driver's viewport off: `no_viewport=True` in Python, `viewport: null` for Playwright and `defaultViewport: null` for Puppeteer in Node. The page then gets the persona's screen and the real window size.
 
 A viewport of your own replaces the persona's geometry. With `viewport={"width": 1280, "height": 720}`, the same Windows persona reports:
 

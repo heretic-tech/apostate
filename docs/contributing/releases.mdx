@@ -3,7 +3,7 @@ title: "Releases"
 description: "Tag a release, let CI build and check every platform, publish the draft, and put its digests into the packages."
 ---
 
-A release is a GitHub release that holds one archive and one manifest per platform. Pushing a version tag starts `.github/workflows/release.yml`, which checks the tagged commit, builds every target and creates the release as a draft. You test the draft, publish it, and then publish the Python and Node packages by hand with the release's digests in them.
+A release is a GitHub release that holds one archive and one manifest per platform. Pushing a version tag starts `.github/workflows/release.yml`, which checks the tagged commit, builds every target and creates the release as a draft. You test the draft, publish it, and then publish the Python and Node packages by hand with the release's digests in them. No workflow publishes to PyPI or npm.
 
 ## Cut a release
 
@@ -84,7 +84,7 @@ The macOS build signs and notarizes when the six `APPLE_*` repository secrets ar
 scripts/verify-release-inputs.sh ./artifacts linux-x64,macos-arm64 any
 ```
 
-It prints `verified <platform>  <archive>` for each pair and `release inputs verified: <platforms>` at the end. It needs bash 4 or later.
+It prints `verified <platform>  <archive>` for each pair and `release inputs verified: <platforms>` at the end. It needs Bash 4 or later.
 
 ## Refresh the golden profile digests
 
@@ -124,18 +124,18 @@ native-linux.json ['audio', 'battery', 'browser', 'cpu', 'extensions', 'fonts', 
 9172c6dc5887087376e019f0ccb495301817d8723722c57f14213687d9b3c2bf
 ```
 
-Paste each digest and section list into the test. Without `APOSTATE_REQUIRE_NATIVE_GOLDENS`, a stale digest is skipped with a message. With it, the test fails, which is how the release gate runs it.
+Paste each digest and section list into the test. A digest that differs while the sections match fails the test. When the sections differ from `GOLDEN_SECTIONS`, the test skips and names them. With `APOSTATE_REQUIRE_NATIVE_GOLDENS=1` it fails instead, which is how the release gate runs it.
 
 ## Archives and manifests
 
 Each platform gets one archive named `apostate-<chromium version>-<platform>`, `.tar.zst` for Linux and `.zip` for macOS and Windows:
 
-| Platform | Archive |
-| --- | --- |
-| `linux-x64` | `apostate-152.0.7977.83-linux-x64.tar.zst` |
-| `linux-arm64` | `apostate-152.0.7977.83-linux-arm64.tar.zst` |
-| `macos-arm64` | `apostate-152.0.7977.83-macos-arm64.zip` |
-| `windows-x64` | `apostate-152.0.7977.83-windows-x64.zip` |
+| Platform | Archive | Size in v0.4.3 |
+| --- | --- | --- |
+| `linux-x64` | `apostate-152.0.7977.83-linux-x64.tar.zst` | 192 MB |
+| `linux-arm64` | `apostate-152.0.7977.83-linux-arm64.tar.zst` | 195 MB |
+| `macos-arm64` | `apostate-152.0.7977.83-macos-arm64.zip` | 154 MB |
+| `windows-x64` | `apostate-152.0.7977.83-windows-x64.zip` | 185 MB |
 
 An archive holds the browser, the licence, `build/MANIFEST.lock` and the profile resources. Beside it is `<archive>.manifest.json`, with exactly the fields `release/manifest.schema.json` allows:
 
@@ -169,6 +169,17 @@ python3 -m build --outdir dist python
 twine upload dist/apostate-0.4.4*
 npm publish ./npm
 ```
+
+### The MCP server
+
+The MCP server, `@heretic-tech/apostate-mcp` in `mcp/`, has its own version in `mcp/package.json`, and `sync-packages.py` does not touch it. It depends on `@heretic-tech/apostate` `^0.4.3`, so a new 0.4.x Node package reaches it without an MCP release. When `mcp/` changes, or the Node package's minor version changes, raise that range and the MCP version, run its test, and publish it. The first publish of a scoped package needs `--access public`:
+
+```bash
+cd mcp && npm ci && npx apostate install && npm test && cd ..
+npm publish ./mcp --access public
+```
+
+The MCP server needs Node 22 or later. [MCP server](/agents/mcp) documents its options.
 
 ## Verify a download
 

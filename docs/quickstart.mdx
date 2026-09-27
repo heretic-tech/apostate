@@ -3,7 +3,7 @@ title: "Quickstart"
 description: "Install Apostate, launch a Windows persona and check what a page sees."
 ---
 
-This page takes you from nothing to a running Windows persona in Python or Node. It needs Python 3.10 or later, or Node 20 or later, on Linux x64, Linux arm64, macOS on Apple silicon or Windows x64.
+This page installs Apostate and launches a Windows persona from Python or Node. It needs Python 3.10 or later, or Node 22 or later, on Linux x64, Linux arm64, macOS on Apple silicon or Windows x64.
 
 <Steps>
   <Step title="Install the package">
@@ -17,11 +17,11 @@ This page takes you from nothing to a running Windows persona in Python or Node.
     ```
     </CodeGroup>
 
-    The package brings Patchright, the driver it launches the browser with. Do not run `playwright install`: Apostate brings its own browser.
+    The package brings Patchright, the driver it launches the browser with. Do not run `playwright install`. Apostate brings its own browser.
   </Step>
 
   <Step title="Download the browser">
-    The first launch downloads the browser (about 150 MB) and checks its SHA-256. To do it now instead:
+    The first launch downloads the browser (about 150 to 200 MB, depending on the host) and checks its SHA-256. To download it now instead:
 
     <CodeGroup>
     ```bash Python
@@ -77,13 +77,15 @@ This page takes you from nothing to a running Windows persona in Python or Node.
     ```
     </CodeGroup>
 
-    Seed 42 as a Windows persona is a desktop with 12 cores and a 1920x1080 screen whose taskbar takes 48 pixels:
+    Seed 42 as a Windows persona is a desktop with a 1920x1080 screen whose taskbar takes 48 pixels. This output is from a Mac with 14 cores:
 
     ```text
     {'platform': 'Win32', 'cores': 12, 'screen': [1920, 1080, 1920, 1032]}
     ```
 
-    Before the launch, the package looked up your IP address and gave the persona the timezone and language of its location. Behind a proxy it looks up the proxy's exit instead. On a host with fewer than 12 cores the count is lower, because a persona never claims more cores than the host has.
+    The core count depends on the host, because a persona never claims more cores than the host has. Seed 42 reports 12 on a host with 12 to 19 logical cores, 20 on a host with 20 or more, and the host's own count on a host with fewer than 12. [The host cap](/concepts/seeds-and-identity#the-host-cap) explains why.
+
+    Before the launch, the package looked up your IP address and gave the persona the timezone and language of its location. Behind a proxy it looks up the proxy's exit instead.
   </Step>
 
   <Step title="Read the whole machine">
@@ -94,14 +96,24 @@ This page takes you from nothing to a running Windows persona in Python or Node.
     ```
 
     ```text
-    platform persona    windows
-    seed                42
-    reproduce with      --fingerprint=42
+    apostate fingerprint composition
+
+      chromium            152.0.7977.83
+      ...
+      platform persona    windows
+      host platform       macos
+      host cores          14
+      ...
+      seed                42
+      seed source         --fingerprint (pinned by flag, identical on any machine)
+      reproduce with      --fingerprint=42
+      ...
 
     surface                   layer             evidence               value
     anchor                    anchor            physical-ground-truth  windows-d3d11-intel-79dfeb5b4f99
     os_release                dispersion        physical-ground-truth  windows-11
     gpu_identity              dispersion        catalogue-value        d3d11-intel-uhd-graphics-770-4680
+    webgpu                    anchor            physical-ground-truth  Intel(R) UHD Graphics 770
     machine_class             dispersion        catalogue-value        win-sff-desktop
     cpu                       dispersion        public-corpus          cores-12
     memory                    dispersion        catalogue-value        gib-8
@@ -113,7 +125,7 @@ This page takes you from nothing to a running Windows persona in Python or Node.
 
 ## Keep a machine between runs
 
-The same seed gives the same machine on every launch and every host. To keep cookies and logins as well, launch a persistent context. The first launch draws a machine and stores its seed in the directory; every later launch presents the same machine.
+The same seed gives the same machine on every launch. Across hosts, only the core count and memory can change. To keep cookies and logins as well, launch a persistent context. The first launch draws a machine and stores its seed in the directory. Every later launch presents the same machine.
 
 <CodeGroup>
 ```python Python

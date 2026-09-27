@@ -39,7 +39,7 @@ iphey.com rates every composed persona "Unreliable" with the signal "inconsisten
 
 ### ARM hosts
 
-On Apple silicon and Linux arm64, a Windows or Linux persona reports the `arm` architecture in User-Agent Client Hints. A page can tell the CPU family from arithmetic, such as the sign of a computed NaN, and from Web Audio output, which the host CPU renders. `navigator.platform` stays `Linux x86_64`, which Chrome reports on every Linux CPU. The GPU stays a desktop Intel or NVIDIA one, because no Windows-on-ARM GPU has been captured. No real Windows machine pairs an ARM CPU with those GPUs, and iphey.com flags the pair as "inconsistent browser fingerprint (butterfly)". Claiming x86 instead is worse: the arithmetic shows ARM, and FingerprintJS Pro then flags `virtual_machine` (suspect score 34 with x86, 20 with arm, 2026-09-23, development build before 0.4.0). A Windows-on-ARM GPU family, captured on a Snapdragon X laptop, would close this gap.
+On Apple silicon and Linux arm64, a Windows or Linux persona reports the `arm` architecture in User-Agent Client Hints. A page can tell the CPU family from arithmetic, such as the sign of a computed NaN, and from Web Audio output, which the host CPU renders. `navigator.platform` stays `Linux x86_64`, which Chrome reports on every Linux CPU. The GPU stays a desktop Intel or NVIDIA one, because the release has no Windows-on-ARM GPU family. No real Windows machine pairs an ARM CPU with those GPUs, and iphey.com flags the pair as "inconsistent browser fingerprint (butterfly)". A real Windows-on-ARM laptop reports `arm` next to a Qualcomm Adreno GPU. A Snapdragon X2 Elite with an Adreno X2-90, captured in Chrome 154 and in Chromium 152 on 2026-09-27, read `Win32`, `arm`, 64-bit, and WebGL values equal to the Intel family's except `MAX_SAMPLES` (8 instead of 16). Its GPU values were the same in both versions. Claiming x86 instead is worse: the arithmetic shows ARM, and FingerprintJS Pro then flags `virtual_machine` (suspect score 34 with x86, 20 with arm, 2026-09-23, development build before 0.4.0). An Adreno family built from that machine, for Windows personas on ARM hosts, is planned.
 
 A macOS persona always reports Apple silicon.
 
@@ -103,15 +103,22 @@ Chrome on Windows turns `c:\foo` and `\\server\share` into `file:` URLs, and a p
 
 ### Browser chrome height
 
-The height of the tab strip and toolbar, `outerHeight - innerHeight`, comes from the host's browser layout. Without the bar described [below](#the-first-tab-of-a-bare-launch), a Windows persona reads 87 at 100% scaling, headless and headed, on Mac and Linux hosts. Real Windows machines read more: a maximized Windows 11 machine with an RTX 3070 Ti read 143 at 100% (Chrome 153, captured 2026-09-14), and another machine running Chrome 154, not exactly maximized, read 133 at 100% and 149 at 200% (2026-09-26). Whether the 143 includes a bar of that machine's own, such as the default-browser prompt, was not recorded.
+The height of the tab strip and toolbar, `outerHeight - innerHeight`, comes from the host's browser layout. Without the bar described [below](#a-bar-on-the-first-tab), a Windows persona reads 87 at 100% scaling, headless and headed, on Mac and Linux hosts. Real Windows machines read more: a maximized Windows 11 machine with an RTX 3070 Ti read 143 at 100% (Chrome 153, captured 2026-09-14), and another machine running Chrome 154, not exactly maximized, read 133 at 100% and 149 at 200% (2026-09-26). Whether the 143 includes a bar of that machine's own, such as the default-browser prompt, was not recorded.
 
 **What to do.** Not fixed. Seeds whose `panel` row in `--fingerprint-explain` ends in `-125` or `-150` claim scaling; choose another seed where this matters.
 
-### The first tab of a bare launch
+### A bar on the first tab
 
-Apostate is built without Google API keys, so Chromium shows a "Google API keys are missing" bar on the first tab of a launch without a driver: the binary run directly, `apostate run`, or a browser you attach to over CDP. The bar takes 56 pixels from `innerHeight` (889 instead of 945 for seed 42 as Windows). Google Chrome ships with keys and never shows it. Launches through the packages' drivers do not show it in headless mode.
+Chromium can show a bar on the first tab that Google Chrome never shows. It takes 56 pixels from `innerHeight`: seed 42 as Windows reads 889 instead of 945, and `outerHeight - innerHeight` reads 143 instead of 87. Two conditions show it. When both hold, one bar shows.
 
-**What to do.** Set `GOOGLE_API_KEY=no`, `GOOGLE_DEFAULT_CLIENT_ID=no` and `GOOGLE_DEFAULT_CLIENT_SECRET=no` in the environment you start the browser from, or open a second tab and use that.
+| Bar | Shown on the first tab of | Removed by |
+| --- | --- | --- |
+| "Google API keys are missing" | A launch without a driver: the binary run directly, `apostate run`, or a browser you attach to over CDP. Apostate is built without Google API keys | Setting `GOOGLE_API_KEY=no`, `GOOGLE_DEFAULT_CLIENT_ID=no` and `GOOGLE_DEFAULT_CLIENT_SECRET=no` in the environment the browser starts from |
+| "You are using an unsupported command-line flag: --no-sandbox" | Any launch with `--no-sandbox`, except a headless launch through the packages. The 0.4.3 packages always pass it, so every headed package launch shows this bar | Leaving out `--no-sandbox`. From 0.4.4 the packages keep the sandbox on where it runs: macOS, Windows, and Linux as a regular user outside a container |
+
+Measured on 2026-09-27: a headless package launch in a Linux container reads 945 on its first tab, with `--no-sandbox`. A headed one under Xvfb reads 889, with or without the three variables. A bare launch with the variables and `--no-sandbox` reads 889, headless and headed.
+
+**What to do.** When you start the binary yourself, set the three variables and leave out `--no-sandbox` where the sandbox runs. In a container or as root the browser needs `--no-sandbox`: run headless through the packages there, or open a second tab and use that one, which shows no bar.
 
 ### The window is placed from the persona, not measured
 
@@ -187,7 +194,7 @@ Linux has no share sheet, so under a Windows or macOS persona `navigator.share()
 
 ### Pointer and hover come from the driver or the host
 
-A composed persona carries no `input` section. In headless mode, Playwright and Patchright pass Chromium a switch that reports a mouse (`pointer: fine`, `hover: hover`). Under Puppeteer, `launchProcess()` or the binary itself, the `pointer` and `hover` media queries report the host's input devices. What a headless launch without the driver's switch reports on a server has not been measured.
+A composed persona carries no `input` section. In headless mode, Playwright and Patchright pass Chromium a switch that reports a mouse (`pointer: fine`, `hover: hover`). Under Puppeteer, `launchProcess()` or the binary itself, the `pointer` and `hover` media queries report the host's input devices. On a Linux server with no mouse, such as a Docker container or a CI runner, a headless launch without the driver's switch reports `(pointer: none)` and `(hover: none)` under every persona. That reads as a device with no mouse. On a Mac with a trackpad the same launch reports `fine` and `hover`. The [test suite](/testing/overview) reports this gap as `host-pointer`.
 
 **What to do.** Use Playwright or Patchright for headless launches, or write a [profile](/guides/custom-profiles) that sets `input.pointer_type` and `input.hover`.
 

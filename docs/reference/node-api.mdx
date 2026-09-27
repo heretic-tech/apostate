@@ -3,13 +3,13 @@ title: "Node API"
 description: "Every export of the @heretic-tech/apostate Node package: launch functions and their options, binary management, profiles, Widevine, constants and error classes with their codes."
 ---
 
-This page lists every export of the Node package 0.4.3. [Node](/guides/node) shows how to use them together.
+This page lists every export of the Node package 0.4.3. Behaviour that differs in the next release is marked "from 0.4.4". [Node](/guides/node) shows how to use them together.
 
 ```bash
 npm install @heretic-tech/apostate
 ```
 
-The package is an ES module and needs Node 20 or later. It depends on Patchright, the driver it launches the browser with. Playwright, `playwright-core`, Puppeteer and `puppeteer-core` are optional peers: install one to use it instead.
+The package is an ES module and needs Node 22 or later. It depends on Patchright, the driver it launches the browser with. Playwright, `playwright-core`, Puppeteer and `puppeteer-core` are optional peers. Install one to use it instead.
 
 Every function has a snake_case alias for code shared with the Python package: `launch_context`, `launch_persistent_context`, `launch_process`, `ensure_binary`, `binary_info`, `discover_binary`, `discovery_report`, `clear_cache`, `load_catalogue`, `ensure_widevine` and `provision_widevine`. `translateOptions` is an alias of `toCanonicalLaunchConfig`.
 
@@ -67,7 +67,7 @@ The result carries `apostateDriverName`, `apostateExecutablePath` and `apostateD
 function launchContext(options?: LaunchOptions): Promise<any>
 ```
 
-Launches the browser and returns the context of its temporary profile: the persistent context under Playwright, `defaultBrowserContext()` under Puppeteer. It is a normal profile, not off-the-record. Closing it closes the browser. `apostateBrowser` holds the browser it came from.
+Launches the browser and returns the context of its temporary profile. Under Playwright it is the persistent context, and under Puppeteer it is `defaultBrowserContext()`. It is a normal profile, not off-the-record. Closing it closes the browser. `apostateBrowser` holds the browser it came from.
 
 ### `launchProcess`
 
@@ -77,7 +77,9 @@ function launchProcess(options?: LaunchOptions): Promise<ApostateProcess>
 
 Starts the browser with no driver attached. Use it to run the browser for a CDP client in another language, or with no automation at all. [Raw binary](/guides/raw-binary) shows it with `--remote-debugging-port`.
 
-It takes `cwd`, `stdio` (default `"ignore"`) and `env` for the child process, and passes `--user-data-dir` itself when `userDataDir` is set.
+It takes `cwd`, `stdio` (default `"ignore"`) and `env` for the child process, and passes `--user-data-dir` itself when `userDataDir` is set. It gives the browser a Widevine CDM first, as the other launch functions do. With `headless: false` on a Linux host with no display, it starts Xvfb and stops it when the browser exits.
+
+From 0.4.4 it passes `--no-first-run` and `--no-default-browser-check`. In 0.4.3, add them to `args` for a headed launch on a new user data directory, or the browser can stop at a first-run dialog.
 
 ### `ApostateProcess`
 
@@ -105,7 +107,7 @@ class ApostateProcess {
 | `profile` | object or `string` | none | A profile you wrote, as an object or the path of a JSON file. A string is a path when it ends in `.json`, contains `/` or `\`, starts with `.`, or is absolute. It is validated against the [profile schema](/reference/profile-schema) and sent as `--apostate-profile`, and the seed and persona are then ignored. |
 | `profilePath`, `profileFile`, `profile_file` | `string` | none | The path of a profile JSON file. |
 | `locale`, `fingerprintLocale`, `fingerprint_locale` | `string` | from GeoIP | Sent as `--fingerprint-locale`, and its first tag as `--lang`. One tag, such as `de-DE`, or a comma list, such as `de-DE,de`. |
-| `timezone`, `fingerprintTimezone`, `fingerprint_timezone` | `string` | from GeoIP | An IANA name, sent as `--fingerprint-timezone` and set as `TZ` in the browser's environment. |
+| `timezone`, `fingerprintTimezone`, `fingerprint_timezone` | `string` | from GeoIP | An IANA name, sent as `--fingerprint-timezone` and set as `TZ` in the browser's environment. From 0.4.4 a name `Intl` does not know throws `RangeError`. |
 | `geoip` | `boolean` | `true` | Look up the exit before launch, through the proxy when there is one. It runs when `locale` or `timezone` is missing, and behind a proxy also to fill `--fingerprint-webrtc-ip`. |
 | `geoipTimeoutMs` | `number` | `20000` | Milliseconds the whole lookup may take. |
 | `geoipUrl` | `string` | none | Ask this one endpoint instead of `ip-api.com`, `ipinfo.io`, `ipwho.is` and `ifconfig.co`. |
@@ -125,15 +127,15 @@ class ApostateProcess {
 | `target` | `string` | this host | `linux-x64`, `linux-arm64`, `macos-arm64` or `windows-x64`. |
 | `driver` | `string` | first installed | One of [`DRIVERS`](#drivers). |
 | `env` | object | none | Merged over the environment the package builds, which sets `LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG` and `TZ` to the persona's locale and timezone. Host mode keeps yours. |
-| `ignoreDefaultArgs` | `boolean` or `string[]` | none | Passed to the driver. The package always adds `--disable-component-update`, so the Widevine CDM registers, unless `args` contains that switch. |
+| `ignoreDefaultArgs` | `boolean` or `string[]` | none | Passed to the driver. The package adds `--disable-component-update` to the list, so the driver does not pass that switch and the Widevine CDM registers. It does not when `args` contains the switch. |
 | `defaultViewport` | object or `null` | `null` | Puppeteer only. `null` lets the window set the viewport. |
 | `cwd`, `stdio` | | | `launchProcess()` only. |
 
-Under Patchright and Playwright the package always passes `viewport: null`, so the window sets the viewport. Other Playwright or Puppeteer launch options are not passed through.
+Under Patchright and Playwright the package always passes `viewport: null`, so the window sets the viewport. From 0.4.4 it also passes `colorScheme: null`, so a page reads the persona's own `prefers-color-scheme`. In 0.4.3 Playwright emulates `light`. Call `page.emulateMedia({ colorScheme: null })` there. See [prefers-color-scheme in the 0.4.3 packages](/known-gaps#prefers-color-scheme-in-the-0-4-3-packages). From 0.4.4 it passes `chromiumSandbox: true` where the sandbox can start (macOS, Windows, and Linux as a regular user outside a container, with no seccomp filter and with user namespaces allowed), and a `chromiumSandbox` you pass is kept. Elsewhere Playwright passes `--no-sandbox`, and a headed first tab shows a 56-pixel bar for it. See [A bar on the first tab](/known-gaps#a-bar-on-the-first-tab). Other Playwright or Puppeteer launch options are not passed through.
 
 `humanize: true` throws `UnsupportedFeatureError`.
 
-A failed GeoIP lookup does not throw. It prints a warning starting with `[Apostate]`, adds it to `apostateDiagnostics.warnings`, and sends no switch for the field it could not fill, so the persona uses `en-US` and the host's timezone there.
+A failed GeoIP lookup does not throw. It prints a warning starting with `[Apostate]`, adds it to `apostateDiagnostics.warnings`, and sends no switch for the field it could not fill, so the persona uses `en-US` and the host's timezone there. [Errors](/reference/errors#the-geoip-lookup-failed) shows the text.
 
 ### Refused switches
 
@@ -166,7 +168,7 @@ Reports which driver a launch would use, without starting a browser:
 
 ### `DRIVERS`
 
-`["patchright", "playwright", "playwright-core", "puppeteer", "puppeteer-core"]`: the drivers the package can launch with, in preference order.
+The drivers the package can launch with, in preference order: `["patchright", "playwright", "playwright-core", "puppeteer", "puppeteer-core"]`.
 
 ## Binary management
 
@@ -447,7 +449,7 @@ Installs a CDM into this package's browser now, replacing any it has, and reject
 
 ## Errors
 
-Every error the package throws for its own reasons is an `ApostateError` with a `code` string and a `details` object. Messages never contain a proxy credential. Invalid option types, such as a `proxy` that is not a URL, throw a plain `TypeError`. [Errors](/reference/errors) lists the common messages and their fixes.
+Every error the package throws for its own reasons is an `ApostateError` with a `code` string and a `details` object. From 0.4.4 messages never contain a proxy credential. In 0.4.3 a `BrowserLaunchError` can echo the `--apostate-profile` value, which holds the credential base64-encoded. Invalid option types, such as a `proxy` that is not a URL, throw a plain `TypeError`. From 0.4.4 a `timezone` that is not an IANA zone name throws a `RangeError`. [Errors](/reference/errors) lists the common messages and their fixes.
 
 | Class | Parent | `code` | Thrown when |
 | --- | --- | --- | --- |

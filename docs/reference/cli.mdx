@@ -73,19 +73,19 @@ Deletes the install cache. In the Python CLI it deletes the whole cache director
 ## `run`
 
 ```bash
-apostate run [browser switches]
+apostate run -- [browser switches]
 ```
 
-Runs the browser with the switches that follow `run`, installing it first when none is found. The browser owns the terminal, and its exit status is the command's.
+Runs the browser with the switches that follow `--`, installing it first when none is found and giving it a Widevine CDM when it has none. The browser owns the terminal, and its exit status is the command's.
 
 ```bash
-apostate run --fingerprint=42 --fingerprint-platform=windows --fingerprint-explain
+apostate run -- --fingerprint=42 --fingerprint-platform=windows --fingerprint-explain
 ```
 
-`run` passes the switches through unchanged. It adds no seed, GeoIP locale, timezone or proxy handling, which the packages' launch functions add. [Switches](/reference/switches) lists what to pass.
+`run` passes the switches through unchanged. It adds no seed, locale, timezone, proxy handling or `--no-first-run`, which the packages' launch functions add. [Switches](/reference/switches) lists what to pass.
 
-- **Python.** From 0.4.4, everything after `run` goes to the browser. In 0.4.3, put `--` before the switches: `apostate run -- --fingerprint=42`. Without it, 0.4.3 prints its usage and exits with status 2. Every `--` on the line is dropped in both versions.
-- **Node.** Everything after `run` goes to the browser, except the CLI's own options (`--cache-dir`, `--manifest`, `--target`, `--from`, `--force`, `--keep-archive`, `--version`, `-v`, `--help`, `-h`), which the CLI reads wherever they are. Put `--` before browser switches with those names. `apostate run --version` prints the package version, and `apostate run -- --version` prints the browser's.
+- **Python.** The published 0.4.3 CLI needs the `--`. Without it, 0.4.3 prints its usage and exits with status 2. From 0.4.4 everything after `run` goes to the browser, with or without `--`. Every `--` on the line is dropped in both versions.
+- **Node.** Everything after `run` goes to the browser, except the CLI's own options (`--cache-dir`, `--manifest`, `--target`, `--from`, `--force`, `--keep-archive`, `--version`, `-v`, `--help`, `-h`), which the CLI reads wherever they are before a `--`. The first `--` is dropped. `apostate run --version` prints the package version, and `apostate run -- --version` prints the browser's.
 
 With `--user-data-dir=DIR` among the switches, `run` also writes the Widevine CDM's location into `DIR` on Linux.
 
@@ -158,5 +158,5 @@ For `run`, the status is the browser's. The Python CLI replaces its own process 
 | `--manifest` | file path | file path or URL |
 | Global options | before the command | anywhere before `--` |
 | `run` without `--` | from 0.4.4 | yes |
-| `clear --target` | ignored, deletes the whole cache | deletes that target only |
+| `--target` with `clear` | ignored, deletes the whole cache | deletes that target only |
 | `info` | `cached` | `cache_hit`, `target`, `reason` |

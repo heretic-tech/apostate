@@ -9,7 +9,9 @@ Opening a tracking link can register a click with the ad network. Check links fr
 
 ## What Apostate changes
 
-The persona sets the operating system in the `User-Agent`, the Client Hints and `navigator.platform`, which ad servers and landing pages use to pick a creative or a download page. A proxy gives the visit an IP address in the region, and the package sets the locale and timezone from the proxy's exit before launch, so the language and timezone agree with the IP address. Personas are Windows, macOS and Linux desktops. Apostate has no mobile personas.
+A [persona](/concepts/personas) is the platform a launch presents. It sets the operating system in the `User-Agent`, the Client Hints and `navigator.platform`, which ad servers and landing pages use to pick a creative or a download page. Personas are Windows, macOS and Linux desktops. Apostate has no mobile personas.
+
+A proxy gives the visit an IP address in the region. Before launch, the package sets the locale and timezone from the proxy's exit, so the language and timezone agree with the IP address.
 
 ## Set up
 
@@ -23,7 +25,7 @@ cd apostate/examples/use-cases/ad-verification
 
 `apostate fonts install windows` is for Linux and macOS hosts ([Fonts](/guides/fonts)).
 
-[`verify_ads.py`](https://github.com/heretic-tech/apostate/blob/main/examples/use-cases/ad-verification/verify_ads.py) takes an ad or tracking link. For each region, it reads a proxy from `APOSTATE_PROXY_US`, `APOSTATE_PROXY_DE` or `APOSTATE_PROXY_FR` and skips a region whose variable is not set. With no link, it runs against a local ad server that redirects from `/click` to `/track` to a landing page in the language of `Accept-Language`, and whose landing page sends Mac visitors on to a `/mac` page with a script.
+[`verify_ads.py`](https://github.com/heretic-tech/apostate/blob/main/examples/use-cases/ad-verification/verify_ads.py) takes an ad or tracking link. For each region, it reads a proxy from `APOSTATE_PROXY_US`, `APOSTATE_PROXY_DE` or `APOSTATE_PROXY_FR` and skips a region whose variable is not set. With no link, it runs against a local ad server. The server redirects `/click` to `/track`, and `/track` to a landing page in the language of `Accept-Language`. The landing page's script sends Mac visitors on to a `/mac` page.
 
 ## The script
 
@@ -109,7 +111,7 @@ FR  macos  Europe/Paris  fr-FR
     screenshot out/FR-macos.png
 ```
 
-The first line of each block is the region, the persona, and the timezone and language the landing page read. The two `302` lines are the HTTP redirects. The tracker chose the landing page from `Accept-Language`, and on the macOS persona the landing page's script moved on to `/mac`, which shows as a second `200`.
+The first line of each block is the region, the persona, and the timezone and language the landing page read. The two `302` lines are the HTTP redirects. The tracker chose the landing page from `Accept-Language`. Under the macOS persona, the landing page's script moved on to `/mac`, which shows as a second `200`.
 
 ## Run through regional proxies
 
@@ -121,7 +123,7 @@ export APOSTATE_PROXY_DE="socks5://user:pass@proxy.example:1081"
 python3 verify_ads.py "https://ads.example/click?id=123"
 ```
 
-A region with no proxy is skipped. With no variable set, the output is:
+The script skips a region with no proxy. With no variable set, the output is:
 
 ```text
 US  skipped: APOSTATE_PROXY_US is not set
@@ -129,11 +131,11 @@ DE  skipped: APOSTATE_PROXY_DE is not set
 FR  skipped: APOSTATE_PROXY_FR is not set
 ```
 
-Through a proxy, the package looks up the exit's location before launch, so the timezone and language on each block's first line are the ones it found. Check that they belong to the region. A failed lookup prints a warning that starts with `apostate: ` and leaves the host's timezone. [Proxies](/guides/proxies#geoip-through-the-proxy) covers the lookup.
+Through a proxy, the package looks up the exit's location before launch, so the timezone and language on each block's first line are the ones it found. Check that they belong to the region. If the lookup fails, the package prints a warning that starts with `apostate: `, and the persona uses `en-US` and the host's timezone. From 0.4.4 the warning is also in `browser.apostate_diagnostics["warnings"]`. [Proxies](/guides/proxies#geoip-through-the-proxy) covers the lookup.
 
 ## Points for this job
 
 - **Proxies.** Use one exit per region, sticky for the length of a launch. [Proxies](/guides/proxies#sticky-and-rotating-exits) covers sticky sessions.
-- **Seeds.** Each persona uses seed 42, so a rerun visits with the same two machines and a change in the result comes from the campaign. To see how a campaign treats other machines of one persona, add seeds.
-- **What the chain records.** Responses to main-frame navigations, which are HTTP redirects and navigations the page's script starts, such as `location.replace()`. An ad inside an iframe navigates its own frame, so filter on that frame instead of `page.main_frame`. `wait_for_load_state("networkidle")` waits until the network has been quiet for 500 ms. A redirect that a page schedules later than that is missed. Add `page.wait_for_timeout()` before the screenshot to catch it.
+- **Seeds.** Each persona uses [seed](/concepts/seeds-and-identity) 42, so a rerun visits with the same two machines and a change in the result comes from the campaign. To see how a campaign treats other machines of one persona, add seeds.
+- **What the chain records.** The chain holds HTTP redirects and the navigations a page's script starts, such as `location.replace()`. An ad inside an iframe navigates its own frame, so filter on that frame instead of `page.main_frame`. `wait_for_load_state("networkidle")` returns after 500 ms with no network connections. The chain misses a redirect that a page schedules later than that. To catch it, add `page.wait_for_timeout()` before the screenshot.
 - **Headless.** The screenshots are full-page captures from a headless launch, which presents the persona's screen and window.

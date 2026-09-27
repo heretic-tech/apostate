@@ -35,7 +35,7 @@ The persona is part of the hash. Seed 42 as Windows and seed 42 as Linux are unr
 
 `launch()` in both packages runs on a temporary profile that is deleted on close, so without a seed every `launch()` is a new machine. `launch_persistent_context(DIR)` (Node: `launchPersistentContext(DIR)`) passes `--user-data-dir=DIR` and keeps the machine with the cookies and logins in that directory.
 
-A seed outranks the directory. With both, the seed's machine is presented and the identity file is neither written nor read.
+A seed outranks the directory. With both, the browser presents the seed's machine and neither reads nor writes the identity file.
 
 ## The identity file
 
@@ -67,7 +67,7 @@ a34d4b3c7564d50ba8aa055d7f72248cbb4fe53358785aeca2385ae9b56d4d26
 - Copying the directory copies the machine. Renaming or moving it changes nothing.
 - The file does not record the persona. Pass the same `fingerprint_platform` on every launch, because the default persona differs between hosts.
 - To bind a new directory to a seed you chose, write the seed into `DIR/apostate/identity` before the first launch. A directory holding `42` presents the same machine as `--fingerprint=42`.
-- A file that does not hold a valid seed is replaced with a new one, and `--fingerprint-explain` says so in its `limitations` list.
+- The browser replaces a file that does not hold a valid seed with a new one, and `--fingerprint-explain` says so in its `limitations` list.
 - If the file cannot be read or written, that launch gets a one-off machine, the stored seed is left alone, and `--fingerprint-explain` says so.
 
 For a fresh machine on every run of a persistent context, give each run its own directory or delete `DIR/apostate/identity` between runs.
@@ -76,7 +76,7 @@ For a fresh machine on every run of a persistent context, give each run its own 
 
 **A Chrome update keeps the machine.** The browser hashes the seed with three fixed epochs (profile schema 3, catalogue 2, Chromium 152.0.7977.83), not with the running build's versions. A later build draws the same options for the same seed. Only the browser version a page reads, in the User-Agent and Client Hints, moves with the build.
 
-**A catalogue change can move the machine.** The catalogue tables are compiled into the browser. A release that edits a table re-draws the choices that table decides, and the choices that depend on them, for seeds and persistent profiles alike. Each choice has its own hash stream, so the other choices stay.
+**A catalogue change can move the machine.** The build compiles the catalogue tables into the browser. A release that edits a table re-draws the choices that table decides, and the choices that depend on them, for seeds and persistent profiles alike. Each choice has its own hash stream, so the other choices stay.
 
 - Apostate 0.4.3 uses the same tables as 0.4.2, so every seed presents the same machine in both.
 - Seeds from releases before 0.4.2 present different machines in 0.4.2 and later.
@@ -90,7 +90,7 @@ To check whether two builds use the same tables, compare the `catalogue` line of
 
 ## The host cap
 
-A persona never claims more cores or more memory than the host has, because a page can measure both. Options the host cannot serve are removed before the draw, and the draw runs over the options left. So the same seed can present a different core count or memory size on a smaller host, even a count that host could serve. When no option fits, the page reads the host's own value.
+A persona never claims more cores or more memory than the host has, because a page can measure both. The browser removes the options the host cannot serve before the draw, then draws from the options left. So the same seed can present a different core count or memory size on a smaller host, even a count that host could serve. When no option fits, the page reads the host's own value.
 
 Seed 42 as Windows draws an Intel UHD Graphics 770, whose core-count table offers 12, 16, 20, 24 and 32. The count a page reads depends on the host:
 
@@ -105,7 +105,7 @@ Memory follows the same rule, against the memory the host's OS reports. The `hos
 To present the same counts everywhere:
 
 - Run on hosts with at least as many cores and as much memory as the largest options. The largest in any table are 56 cores and 128 GiB.
-- Or pin them with `--fingerprint-hardware-concurrency` and `--fingerprint-device-memory` in `args`. A pinned value above the host's is refused:
+- Pin them with `--fingerprint-hardware-concurrency` and `--fingerprint-device-memory` in `args`. The browser refuses a pinned value above the host's:
 
 ```text
 apostate: --fingerprint-hardware-concurrency=64 is above this host's 14 logical cores. A page can measure parallel throughput, so a count the machine cannot deliver is falsifiable in a way a lower count is not. Pass a value of 14 or less.
@@ -119,7 +119,7 @@ On a small server, most personas report the server's own core count next to a de
 - Never give two accounts the same seed. They would present the same machine, and a site can link them by it.
 - Keep the seed and the persona together. Changing the persona changes the machine.
 - For a machine that lives with its cookies, prefer a persistent context. The identity file is the seed, and the directory is the one thing to back up.
-- The tables hold a finite number of hardware combinations, so two seeds can compose the same hardware. Check a seed with `--fingerprint-explain` before you assign it if that matters to you.
+- The tables hold a finite number of hardware combinations, so two seeds can compose the same hardware. To rule that out, compare seeds with `--fingerprint-explain` before you assign them.
 
 [Many sessions](/guides/many-sessions) covers running many seeds at once.
 

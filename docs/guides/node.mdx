@@ -3,7 +3,7 @@ title: "Node"
 description: "Launch Apostate from Node with its entry points, options, diagnostics, drivers including Puppeteer, launchProcess and errors."
 ---
 
-The Node package (`@heretic-tech/apostate` on npm) finds or downloads the browser, looks up the proxy's exit, and starts the browser through Patchright, a Playwright build. It returns the driver's own objects, so the rest of your script is ordinary Playwright or Puppeteer code. The package is an ES module, loaded with `import`. [Installation](/installation) covers `npm install @heretic-tech/apostate`, the supported Node versions and the browser download.
+The Node package (`@heretic-tech/apostate` on npm) finds or downloads the browser, looks up the proxy's exit, and starts the browser through Patchright, a Playwright build. It returns the driver's own objects, so the rest of your script is ordinary Playwright or Puppeteer code. The package is an ES module, loaded with `import`, and needs Node 22 or later. [Installation](/installation) covers `npm install @heretic-tech/apostate` and the browser download.
 
 ## Launch a browser
 
@@ -83,7 +83,7 @@ The first `launchPersistentContext()` with a directory stores a seed in `DIR/apo
 | `fingerprint` | A new seed per launch | The seed, a non-negative integer or a string of `A-Z a-z 0-9 . _ : -`. `"host"` turns the persona off. |
 | `fingerprintPlatform` | `macos` on a Mac, `windows` on Windows and Linux | `windows`, `macos` or `linux`. |
 | `locale` | From GeoIP, else `en-US` | One tag such as `de-DE`, or a list such as `de-DE,de`. |
-| `timezone` | From GeoIP, else the host's | An IANA name such as `Europe/Berlin`. |
+| `timezone` | From GeoIP, else the host's | An IANA name such as `Europe/Berlin`. From 0.4.4, any other name throws a `RangeError`. |
 | `geoip` | `true` | Look up the exit's country and timezone before the browser starts. |
 | `geoipTimeoutMs` | `20000` | Milliseconds for the whole lookup. |
 | `geoipResolver` | The built-in lookup | Your own lookup function. |
@@ -101,11 +101,11 @@ The first `launchPersistentContext()` with a directory stores a seed in `DIR/apo
 
 Three options go through to the driver:
 
-- `env` is added over the browser's environment, which the package gives `LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG` and `TZ` ([Locale and timezone](/guides/locale-and-timezone#environment-variables)). Your entries win.
+- `env` goes over the browser's environment, which the package gives `LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG` and `TZ` ([Locale and timezone](/guides/locale-and-timezone#environment-variables)). Your entries win.
 - `ignoreDefaultArgs` removes switches the driver adds by default. The package adds `--disable-component-update` to the list, so the driver does not pass that switch ([Widevine](/guides/widevine#keep-component-updates-on)).
 - `defaultViewport` goes to Puppeteer. The package passes `null` unless you set it.
 
-The package passes no other driver option. Under Playwright drivers the viewport is off, so the page gets the persona's real window size. To set a viewport on one page, call `page.setViewportSize()`. [Screen and window](/guides/screen-and-window#viewport) has what a viewport of your own changes.
+The package passes no other driver option of yours. Under Playwright drivers it turns the viewport off, so the page gets the persona's real window size. To set a viewport on one page, call `page.setViewportSize()`. From 0.4.4 it also turns off colour-scheme emulation, so a page reads the persona's light or dark theme. With 0.4.3, call `await page.emulateMedia({ colorScheme: null })` on each page ([Known gaps](/known-gaps#prefers-color-scheme-in-the-0-4-3-packages)). [Screen and window](/guides/screen-and-window#viewport) has what a viewport of your own changes.
 
 ```javascript
 import { launch } from "@heretic-tech/apostate";
@@ -223,7 +223,7 @@ Both come from the driver, and the browser cannot remove them. Use Patchright wh
 
 ## launchProcess
 
-`launchProcess()` starts the browser with no driver attached. It takes the same options as `launch()`, applies the persona, proxy and GeoIP the same way, and returns an `ApostateProcess`. Connect any client to it, for example over the DevTools protocol:
+`launchProcess()` starts the browser with no driver attached. It takes the same options as `launch()`, applies the persona, proxy and GeoIP the same way, starts Xvfb for a headed launch on a Linux host with no display, and returns an `ApostateProcess`. Connect any client to it, for example over the DevTools protocol:
 
 ```javascript
 import { launchProcess } from "@heretic-tech/apostate";
@@ -261,7 +261,9 @@ Win32
 | `isConnected()` | Whether the process is still running |
 | `close()` | Sends `SIGTERM`, then `SIGKILL` if the process is still running |
 
-`userDataDir` works here as an option. `stdio` and `cwd` go to Node's `spawn()`, and `stdio` defaults to `"ignore"`. A page served from a local or private network address can detect an open `--remote-debugging-port`. [Raw binary](/guides/raw-binary) covers other ways to connect.
+`userDataDir` works here as an option. `stdio` and `cwd` go to Node's `spawn()`, and `stdio` defaults to `"ignore"`. From 0.4.4, `launchProcess()` passes `--no-first-run` and `--no-default-browser-check`. With 0.4.3, add both to `args`, or a headed first launch of a new user data directory can stop at a first-run dialog and never open its DevTools port.
+
+Keep `--remote-debugging-port` on 127.0.0.1, its default. Any program that reaches the port can drive the browser. The browser closes DevTools requests that web pages send ([Detection](/concepts/detection#automation-traces)). [Raw binary](/guides/raw-binary) covers other ways to connect.
 
 ## Host mode
 
@@ -283,7 +285,7 @@ import { launch } from "@heretic-tech/apostate";
 
 ## Errors
 
-Package errors are subclasses of `ApostateError` and carry a `code` and a `details` object. A malformed option value, such as a proxy URL that does not parse, throws a `TypeError` instead.
+Package errors are subclasses of `ApostateError` and carry a `code` and a `details` object. A malformed option value, such as a proxy URL that does not parse, throws a `TypeError` instead. From 0.4.4, a timezone that is not an IANA zone throws a `RangeError`.
 
 | Class | `code` | Thrown when |
 | --- | --- | --- |
@@ -291,6 +293,7 @@ Package errors are subclasses of `ApostateError` and carry a `code` and a `detai
 | `BrowserLaunchError` | `BROWSER_LAUNCH_FAILED` | No driver is installed, the driver name is unknown, Xvfb is missing, or the browser exited at startup. When the browser refused a switch, the message includes its `apostate:` line. |
 | `MissingBinaryError`, `BinaryDownloadError`, `BinaryIntegrityError`, `BinaryExtractionError`, `ManifestError`, `UnsupportedPlatformError` | Various | The browser could not be found, downloaded or verified ([Installation](/installation)). |
 | `WidevineError` | `WIDEVINE_NOT_FOUND` | Only from `provisionWidevine()`. A launch without Widevine prints a warning and continues. |
+| `UnsupportedFeatureError` | `UNSUPPORTED_FEATURE` | `humanize: true` was passed. The package does not move the mouse or pace input. |
 
 ```javascript
 import { ApostateError, launch } from "@heretic-tech/apostate";

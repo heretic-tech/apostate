@@ -70,7 +70,7 @@ def connect(port: int) -> Browser:
     )
 ```
 
-- The environment is what the Python package would set: the locale variables, and `GOOGLE_API_KEY=no`, which keeps Chromium's "Google API keys are missing" bar off the first tab.
+- The environment holds the locale variables the Python package would set, and `GOOGLE_API_KEY=no` with the two client variables, which keep Chromium's "Google API keys are missing" bar off the first tab of a launch without a driver.
 - The user data directory keeps the machine. Its first launch draws one and stores the seed; later launches present the same machine. Add `--fingerprint=SEED` to pin one instead.
 - `headless=False` stops browser-use from emulating a viewport. The browser is already headless.
 - `permissions=[]` and `highlight_elements=False` keep browser-use from granting permissions to every site and from injecting overlays.

@@ -7,7 +7,7 @@ You ship a site in several languages and want to check what visitors in each loc
 
 ## What Apostate changes
 
-The `locale` option sets the browser's UI locale, `navigator.languages` and the `Accept-Language` header. The `timezone` option sets the timezone that `Intl` and `Date` use. The browser takes both at launch, so the request headers, the page and its workers agree. A Windows persona shows only the Windows fonts installed on the host, so a screenshot uses the fonts a Windows visitor has. [Locale and timezone](/guides/locale-and-timezone) covers both options.
+The `locale` option sets the browser's UI locale, `navigator.languages` and the `Accept-Language` header. The `timezone` option sets the timezone that `Intl` and `Date` use. The browser takes both at launch, so the request headers, the page and its workers agree. A Windows [persona](/concepts/personas) shows only Windows fonts, and only the ones installed on the host. With the Windows fonts installed, a screenshot uses the fonts a Windows visitor has. [Locale and timezone](/guides/locale-and-timezone) covers both options.
 
 ## Set up
 
@@ -47,7 +47,7 @@ READ = """() => {
 }"""
 ```
 
-One launch per region, with the same seed and persona each time:
+One launch per region, with the same [seed](/concepts/seeds-and-identity) and persona each time:
 
 ```python
 def check(url, locale, timezone, proxy):
@@ -136,6 +136,6 @@ The region's line then reads `de-DE  Europe/Berlin  through APOSTATE_PROXY_DE`. 
 
 - **Seed and persona.** Every region uses seed 42 as Windows, so only the locale and timezone change between screenshots. To compare macOS rendering, change `fingerprint_platform` in `check()`.
 - **Fonts.** The host's font engine draws the glyphs, so glyph edges in a screenshot can differ slightly from a Windows machine's ([Known gaps](/known-gaps#text-is-drawn-by-the-hosts-font-engine)). Compare screenshots taken on one host with each other.
-- **Voices and keyboard.** A Windows persona lists English speech voices, and every persona reports a US keyboard layout, whatever the locale. [Known gaps](/known-gaps#windows-voices-are-english) covers both, for a site that uses either.
-- **Timezone names.** Pass IANA names such as `Asia/Tokyo`. The packages do not check them, and [Locale and timezone](/guides/locale-and-timezone#what-intl-shows) describes what an unknown name does.
-- **Headless.** The screenshots are taken headless, the default. A persona presents the same screen and window headless as headed ([Screen and window](/guides/screen-and-window#headless)).
+- **Voices and keyboard.** A Windows persona lists English speech voices, and every persona reports a US keyboard layout, whatever the locale. For a site that uses either, [Windows voices are English](/known-gaps#windows-voices-are-english) and [The keyboard layout is US](/known-gaps#the-keyboard-layout-is-us) say what to do.
+- **Timezone names.** Pass IANA names such as `Asia/Tokyo`. From 0.4.4 both packages refuse any other name before launch. Python raises `ConfigurationError` with `timezone 'Asia/Tokio' is not an IANA zone name, such as Europe/Berlin`, and Node throws `RangeError` with the same text. In 0.4.3 the package writes an unknown name into `TZ`, and a page's `Intl` timeZone reads `undefined`. [Locale and timezone](/guides/locale-and-timezone#what-intl-shows) covers what `Intl` shows.
+- **Headless.** The script takes the screenshots headless, the default. A persona presents the same screen and window headless as headed ([Screen and window](/guides/screen-and-window#headless)).

@@ -38,7 +38,7 @@ await browser.close();
 | `http://` | HTTP proxy | Answered on the proxy's `407` challenge |
 | `https://` | HTTP proxy reached over TLS | Answered on the proxy's `407` challenge |
 | `socks5://` | SOCKS5 proxy | SOCKS5 username and password |
-| `socks4://` | SOCKS4 proxy | None |
+| `socks4://` | SOCKS4 proxy | The username, sent as the SOCKS4 user ID |
 
 The Python package's GeoIP lookup cannot go through a SOCKS4 proxy, so with the Python package pass `locale` and `timezone` yourself. Write the scheme every time. `socks5h://` does not work. The Node package refuses it, and with the Python package every request fails with `net::ERR_NO_SUPPORTED_PROXIES`. Use `socks5://`, which already sends hostnames to the proxy to resolve.
 
@@ -96,11 +96,11 @@ console.log(`socks5://user:${encodeURIComponent(password)}@proxy.example:1080`);
 socks5://user:pa%2Fss%40%3Ax@proxy.example:1080
 ```
 
-A username or password longer than 4096 bytes, a malformed escape and invalid UTF-8 are refused.
+Both packages refuse a username or password longer than 4096 bytes of UTF-8, one whose escapes decode to invalid UTF-8, and one with a malformed escape such as `%zz`. In 0.4.3 the limit counted characters, and the Python package passed a malformed escape on as written.
 
 ## SOCKS5 with a credential
 
-Stock Chromium cannot log in to a SOCKS5 proxy, and Playwright refuses to start with a SOCKS5 credential in its own `proxy` option (`Browser does not support socks5 proxy authentication`). Apostate's browser does the SOCKS5 username and password exchange itself. So the packages put the credential in the `--apostate-profile` value, where the browser reads it, and give the driver only the endpoint. An HTTP proxy's credential goes to the driver as well.
+Stock Chromium cannot log in to a SOCKS5 proxy, and Playwright refuses to start with a SOCKS5 credential in its own `proxy` option (`Browser does not support socks5 proxy authentication`). Apostate's browser does the SOCKS5 username and password exchange itself. The packages put the credential in the `--apostate-profile` value, where the browser reads it, and give the driver only the endpoint. An HTTP proxy's credential goes to the driver as well.
 
 A wrong SOCKS5 credential fails every request with `net::ERR_SOCKS_CONNECTION_FAILED`. A proxy that does not answer fails it with `net::ERR_PROXY_CONNECTION_FAILED`.
 
@@ -108,9 +108,9 @@ Pass the proxy with the `proxy` option, not as `--proxy-server` in `args`. The N
 
 ## What stays out of logs
 
-The browser takes the credential off `--proxy-server` before Chromium parses it and keeps it in memory for the launch. It does not appear in NetLog, in Chromium's error messages, in `chrome://version` or in `--fingerprint-explain` output.
+The browser keeps the credential in memory for the launch. It does not appear in NetLog, in Chromium's error messages, in `chrome://version` or in `--fingerprint-explain` output.
 
-The browser's own command line and those of its child processes carry the `--apostate-profile` value, base64-encoded. Anything that prints the browser's command line shows the credential in that form: `ps` on the host, and a driver's launch log in an error message. Treat logs that contain launch errors as secret.
+The browser's own command line and those of its child processes carry the `--apostate-profile` value, base64-encoded, so `ps` on the host shows the credential in that form. A package's launch error can quote the driver's launch log, which holds the command line. From 0.4.4 the packages remove the `--apostate-profile` value from launch errors. On 0.4.3, treat logs that contain launch errors as secret. A credential you put in `--proxy-server` yourself, without the packages, stays in the browser process's command line as you wrote it.
 
 ## GeoIP through the proxy
 

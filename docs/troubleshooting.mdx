@@ -116,12 +116,12 @@ When nothing here matches, run the same launch in [host mode](/concepts/personas
 
   <Accordion title="Promise.withResolvers is not a function (Node 20)">
     ```text
-    [Apostate] GeoIP lookup failed for the direct network: Promise.withResolvers is not a function. No locale or timezone override is sent and none is invented, ...
+    [Apostate] GeoIP lookup failed for the direct network: Promise.withResolvers is not a function. ...
     ```
 
     **Cause.** The Node package runs on Node 20, which lacks `Promise.withResolvers`. The package uses it for the GeoIP lookup, Linux archive extraction, Widevine provisioning, `launchProcess()` and the Xvfb display, so all of these fail on Node 20.
 
-    **Fix.** Use Node 22 or later.
+    **Fix.** Use Node 22 or later. The Node package and the [MCP server](/agents/mcp) both need it.
   </Accordion>
 </AccordionGroup>
 
@@ -139,13 +139,22 @@ When nothing here matches, run the same launch in [host mode](/concepts/personas
   </Accordion>
 
   <Accordion title="Missing X server or $DISPLAY">
-    **Cause.** The browser was started headed on a Linux host with no display, through `apostate run`, `launchProcess()` or the binary itself. Only the package launch functions start Xvfb.
+    **Cause.** The browser was started headed on a Linux host with no display, through `apostate run` or the binary itself. The package launch functions and Node's `launchProcess()` start Xvfb for a headed launch. The CLI and the binary do not.
 
-    **Fix.** Add `--headless=new`, or run it under Xvfb:
+    **Fix.** Add `--headless=new`, or run the browser under `xvfb-run`. It needs the `xauth` package as well as `xvfb`. Pass `--no-first-run` too, or a headed first launch of a new user data directory can stop at a first-run dialog:
 
     ```bash
-    xvfb-run -s "-screen 0 3840x2160x24" apostate run -- --fingerprint=42
+    sudo apt install xvfb xauth
+    xvfb-run -a -s "-screen 0 3840x2160x24" apostate run -- --fingerprint=42 --no-first-run
     ```
+
+    [Raw binary](/guides/raw-binary#headed-without-a-display) has the same command for the binary.
+  </Accordion>
+
+  <Accordion title="A headed launch stops at a first-run dialog">
+    **Cause.** A headed first launch of a new user data directory without `--no-first-run`. `apostate run` and the binary add nothing to the switches you pass. In 0.4.3, Node's `launchProcess()` did not pass it either, so its DevTools port never opened.
+
+    **Fix.** Add `--no-first-run` and `--no-default-browser-check` to the switches. The package launch functions pass both, and from 0.4.4 so does `launchProcess()`.
   </Accordion>
 
   <Accordion title="Running as root without --no-sandbox is not supported">
@@ -162,7 +171,9 @@ When nothing here matches, run the same launch in [host mode](/concepts/personas
 
     **Cause.** The browser refused a switch and exited. The browser's log lines inside the error say which, after `apostate:`. Common refusals: a core count or memory size above the host's, a GPU renderer string not in the launch's GPU family, a screen smaller than `--window-size`, a seed with spaces or over 512 bytes, and a proxy credential the browser cannot parse.
 
-    **Fix.** Change the value the `apostate:` line names. [Switches](/reference/switches) lists what each switch accepts.
+    **Fix.** Change the value the `apostate:` line names. [Switches](/reference/switches) lists what each switch accepts. With a `proxy` set, the Python package cuts the message at the proxy URL, which drops the `apostate:` line. Run the launch once without `proxy` to read it.
+
+    With 0.4.3, the message can include the `--apostate-profile` switch, which holds the proxy credential base64-encoded. Remove it before you share the message. From 0.4.4 the packages replace it with `<redacted>`.
   </Accordion>
 
   <Accordion title="launch() cannot take a persistent profile">
@@ -199,7 +210,7 @@ When nothing here matches, run the same launch in [host mode](/concepts/personas
     **Fix.** Correct the spelling. [Switches](/reference/switches) lists them all.
   </Accordion>
 
-  <Accordion title="--fingerprint-noise=false turns readback noise ON">
+  <Accordion title="--fingerprint-noise=false turns readback noise on">
     **Cause.** `--fingerprint-noise` takes no value. The browser only checks whether it is present, so any value turns noise on, and the packages refuse values that read as off.
 
     **Fix.** Leave the switch out to keep noise off.
@@ -217,13 +228,13 @@ When nothing here matches, run the same launch in [host mode](/concepts/personas
     Please use the Async API instead.
     ```
 
-    **Cause.** `launch()` was called where an asyncio loop is already running, such as a Jupyter notebook.
+    **Cause.** The script called `launch()` where an asyncio loop is already running, such as in a Jupyter notebook. In 0.4.3 a second `launch()` in a thread that still has a browser open fails the same way.
 
-    **Fix.** Use `launch_async()`, `launch_context_async()` or `launch_persistent_context_async()` with `await`.
+    **Fix.** Use `launch_async()`, `launch_context_async()` or `launch_persistent_context_async()` with `await`. From 0.4.4, browsers launched in one thread share its driver, so several can be open at once. [Python](/guides/python#several-browsers-at-once) has both ways.
   </Accordion>
 
   <Accordion title="Widevine is unavailable, launching without DRM">
-    **Cause.** The package could neither copy the Widevine module from a local Google Chrome nor download it from Google's update service. The browser runs without DRM.
+    **Cause.** The text after the colon names what failed. Usually the package could neither copy the Widevine module from a local Google Chrome nor download it from Google's update service, or it could not write the module beside the browser. The browser runs without DRM.
 
     **Fix.** [Widevine](/guides/widevine) covers installing the module yourself.
   </Accordion>
@@ -268,10 +279,10 @@ When nothing here matches, run the same launch in [host mode](/concepts/personas
 
   <Accordion title="GeoIP lookup failed">
     ```text
-    apostate: GeoIP lookup failed for socks5://proxy.example:1080: every GeoIP endpoint failed: ... No locale or timezone override is sent and none is invented, so the launch keeps the host's own locale and timezone. Behind a proxy that is the host's and not the exit's. Pass locale and timezone explicitly to guarantee a match.
+    apostate: GeoIP lookup failed for socks5://proxy.example:1080: every GeoIP endpoint failed: ... No locale or timezone is sent, so the persona uses en-US and the host's timezone. Behind a proxy that is the host's and not the exit's. Pass locale and timezone to match the exit.
     ```
 
-    **Cause.** Before launch, the package asks `ip-api.com`, `ipinfo.io`, `ipwho.is` and `ifconfig.co` over plain HTTP, through the proxy, for the exit's country and timezone. None answered within the time limit (20 seconds), because the proxy blocks port 80, rejected the credential, or the services were unreachable. The launch goes ahead with the host's timezone and the persona's default language, `en-US`. The Node package also puts the warning in `browser.apostateDiagnostics.warnings`.
+    **Cause.** Before launch, the package asks `ip-api.com`, `ipinfo.io`, `ipwho.is` and `ifconfig.co` over plain HTTP, through the proxy, for the exit's country and timezone. None answered within the time limit (20 seconds), because the proxy blocks port 80, rejected the credential, or the services were unreachable. The launch goes ahead with the host's timezone and the persona's default language, `en-US`. The Node package also puts the warning in `browser.apostateDiagnostics.warnings`, and from 0.4.4 the Python package puts it in `browser.apostate_diagnostics["warnings"]`. The 0.4.3 packages print an older wording, which says the launch keeps the host's locale. The persona uses `en-US` in that case.
 
     **Fix.** Pass `locale` and `timezone` yourself when you know the exit's location. Raise `geoip_timeout` (Node: `geoipTimeoutMs`) for slow proxies. See [Locale and timezone](/guides/locale-and-timezone).
   </Accordion>
@@ -301,15 +312,25 @@ When nothing here matches, run the same launch in [host mode](/concepts/personas
   </Accordion>
 
   <Accordion title="The timezone is the host's">
-    **Cause.** No timezone reached the browser: `geoip=False` with no `timezone`, or a GeoIP lookup that failed. The browser then keeps the host's timezone.
+    **Cause.** No timezone reached the browser, because of `geoip=False` with no `timezone`, or a GeoIP lookup that failed. The browser then keeps the host's timezone.
 
     **Fix.** Pass `timezone="Europe/Berlin"` or another IANA name.
+  </Accordion>
+
+  <Accordion title="The timezone reads undefined, or is not an IANA zone name">
+    ```text
+    timezone 'Mars/Olympus' is not an IANA zone name, such as Europe/Berlin
+    ```
+
+    **Cause.** The `timezone` option is not an IANA zone. From 0.4.4 the packages refuse it before launch, Python with this `ConfigurationError` and Node with a `RangeError` that says the same. The 0.4.3 packages passed it to the browser, and a page's `Intl.DateTimeFormat().resolvedOptions().timeZone` read `undefined`.
+
+    **Fix.** Pass an IANA name such as `Europe/Berlin` or `America/New_York`.
   </Accordion>
 
   <Accordion title="A Windows persona shows few fonts">
     **Cause.** A persona shows only the fonts on its list that the host has installed, and nothing warns you. A Linux or macOS host has no Windows fonts until you install them.
 
-    **Fix.** Run `apostate fonts install windows`. It needs `git`, and on Linux `fc-cache` from fontconfig, and it prints any core Windows family still missing. [Fonts](/guides/fonts) covers macOS personas and checking.
+    **Fix.** Run `apostate fonts install windows`. It needs `git`, and on Linux `fc-cache` from fontconfig, and it prints any core Windows family still missing. [Fonts](/guides/fonts) covers macOS personas and checking. Do not check with `document.fonts.check()`, which returns true for any family name. Measure text widths instead.
   </Accordion>
 
   <Accordion title="The core count or memory differs from another host">
@@ -325,9 +346,9 @@ When nothing here matches, run the same launch in [host mode](/concepts/personas
   </Accordion>
 
   <Accordion title="prefers-color-scheme is always light">
-    **Cause.** Playwright and Patchright emulate a light color scheme by default, over the persona's theme.
+    **Cause.** Playwright and Patchright emulate a light colour scheme unless told not to, over the persona's theme. The 0.4.3 packages did not turn that off. From 0.4.4 they do.
 
-    **Fix.** See [Known gaps](/known-gaps#prefers-color-scheme-reads-light-under-playwright-and-patchright).
+    **Fix.** With the 0.4.3 packages, pass `color_scheme="null"` in Python, or call `await page.emulateMedia({ colorScheme: null })` on each page in Node. [Known gaps](/known-gaps#prefers-color-scheme-in-the-0-4-3-packages) has the details.
   </Accordion>
 
   <Accordion title="The screen is 800x600 with availHeight equal to height">

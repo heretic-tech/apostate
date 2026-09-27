@@ -5,7 +5,7 @@ description: "The profile, how a seed composes it, where the values come from, h
 
 A web page learns about the machine it runs on through hundreds of values: `navigator.hardwareConcurrency`, the WebGL renderer string, `screen.availHeight`, the fonts it can measure, the voices `speechSynthesis` lists, and the HTTP headers the browser sends. A detector reads many of them and checks that they agree with each other.
 
-Apostate changes each of these values in Chromium's C++, at the place Chromium produces it. Every API, worker, iframe and header that reads the value then reads the new one, and nothing is added to the page that a script could find. The values come from one document, the profile, which the browser composes from a seed when it starts.
+Apostate changes each of these values in Chromium's C++, at the place Chromium produces it. Every API, worker, iframe and header that reads the value then reads the new one, and Apostate adds nothing to the page that a script could find. The values come from one document, the profile, which the browser composes from a seed when it starts.
 
 ## The profile
 
@@ -13,7 +13,7 @@ The profile is a JSON document of the values a machine shows: platform, User-Age
 
 The browser process composes the profile before it starts any other process. Every child process, whether renderer, GPU process or network service, receives the same profile, base64-encoded, in its `--apostate-profile` switch. No child draws values of its own, so a value computed in two processes agrees. The `Device-Memory` header, which the browser process sends, and `navigator.deviceMemory`, which a renderer answers, read the same number.
 
-Composition runs in `ChromeMainDelegate::PreSandboxStartup`, after the user data directory is known and before any child exists. On Linux that is before the zygote forks, so every renderer forked from it carries the profile. Nothing is written to disk apart from the [identity file](/concepts/seeds-and-identity#the-identity-file).
+Composition runs in `ChromeMainDelegate::PreSandboxStartup`, after the user data directory is known and before any child exists. On Linux that is before the zygote forks, so every renderer forked from it carries the profile. The browser writes nothing to disk apart from the [identity file](/concepts/seeds-and-identity#the-identity-file).
 
 ## Composing a machine
 
@@ -48,7 +48,7 @@ A machine is a series of weighted choices, made in this order:
 
 Later choices are keyed on earlier ones. Cores and memory depend on the GPU model, and the screen, media devices and battery depend on the machine class. An Apple M1 therefore gets 8 cores, an M4 Max 14 or 16, and a MacBook Air never gets a Studio Display.
 
-For each choice, the browser takes a SHA-256 hash of the seed, the persona and three fixed version epochs, then a second hash of that result with the choice's name, and picks an option from the weights with it. The draw uses no floating point and no modulo, so the same inputs pick the same option on every host. Before each draw, options the host cannot serve, such as more cores or memory than it has, are removed. [Seeds and identity](/concepts/seeds-and-identity) covers what that means for stability.
+For each choice, the browser takes a SHA-256 hash of the seed, the persona and three fixed version epochs, then a second hash of that result with the choice's name, and picks an option from the weights with it. The draw uses no floating point and no modulo, so the same inputs pick the same option on every host. Before each draw, the browser removes the options the host cannot serve, such as more cores or memory than it has. [Seeds and identity](/concepts/seeds-and-identity) covers what that means for stability.
 
 Language and timezone are not drawn. A drawn timezone could not match the IP address a site sees. The packages look up the proxy's exit and pass `--fingerprint-locale` and `--fingerprint-timezone`. See [Locale and timezone](/guides/locale-and-timezone).
 
@@ -113,9 +113,9 @@ The other values follow the same rule:
 - `navigator.platform` is set at the constant `NavigatorBase` returns, so workers report the same value as the window.
 - The User-Agent Client Hints come from the one `UserAgentMetadata` struct that feeds every `Sec-CH-UA` header and `navigator.userAgentData`.
 - The screen is set on the `ScreenInfo` the browser process sends to renderers, so `screen.*`, the CSS media queries and the pixel-ratio client hint agree, in top frames and in out-of-process iframes.
-- Fonts are hidden by one predicate that `document.fonts.check()`, canvas and CSS text measurement, `@font-face local()` and `queryLocalFonts()` all ask.
+- One predicate hides fonts from canvas and CSS text measurement, `@font-face local()` and `queryLocalFonts()`. `document.fonts.check()` returns true for any family name, installed or not, so it does not read the font list.
 
-No script is injected, no getter is redefined and no DevTools override is set. [`patches/series`](https://github.com/heretic-tech/apostate/blob/main/patches/series) lists the patches in the order they apply, and each patch file starts with a description of what it changes. [Patches](/contributing/patches) explains how to write one.
+Apostate injects no script, redefines no getter and sets no DevTools override. [`patches/series`](https://github.com/heretic-tech/apostate/blob/main/patches/series) lists the patches in the order they apply, and each patch file starts with a description of what it changes. [Patches](/contributing/patches) explains how to write one.
 
 ## Which setting wins
 

@@ -3,7 +3,7 @@ title: "Python API"
 description: "Every public name in the apostate Python package: launch functions and their options, binary management, profiles and the resolver, GeoIP, Widevine, constants and exceptions."
 ---
 
-This page lists every name in `apostate.__all__` for the Python package 0.4.3. [Python](/guides/python) shows how to use them together.
+This page lists every name in `apostate.__all__` for the Python package 0.4.3. Behaviour that differs in the next release is marked "from 0.4.4". [Python](/guides/python) shows how to use them together.
 
 ```bash
 pip install apostate
@@ -40,12 +40,15 @@ Returns a `Browser`: Playwright's `Browser`, with pages in a normal profile. The
 | `contexts` | The launch's profile first, then each context from `new_context()`. |
 | `pages` | The pages open in the launch's profile. |
 | `close(**options)` | Closes the browser, which deletes its profile, and stops the driver and the virtual display. A second call does nothing. |
-| `apostate_driver` | The started driver object, from `sync_playwright().start()`. |
+| `apostate_driver` | The driver object, from `sync_playwright().start()`. |
 | `apostate_driver_name` | `"patchright"` or `"playwright"`. |
+| `apostate_diagnostics` | From 0.4.4. What the launch resolved, as a dict with the fields of [`ProfileResolution.to_dict()`](#profileresolution). Any GeoIP warnings are added to its `["warnings"]` list. |
 
 Every other attribute is Playwright's `Browser`: `version`, `is_connected()`, `browser_type` and the rest. `Browser` is a context manager, so `with launch() as browser:` closes it.
 
 `launch()` refuses `user_data_dir` and `--user-data-dir` in `args` with `ConfigurationError`. Use `launch_persistent_context()` to keep a profile.
+
+From 0.4.4, several browsers can be open at once in one thread with the sync API. Every `launch()`, `launch_context()` and `launch_persistent_context()` in a thread shares that thread's driver, and the driver stops when the last of those browsers closes. In 0.4.3 a second launch while one is open fails with `Sync API inside the asyncio loop`. There, close the first browser before launching the next, or launch each browser in its own thread or with the [async API](#async-versions).
 
 ### `launch_persistent_context`
 
@@ -58,7 +61,7 @@ Creates `user_data_dir` if it does not exist and returns Playwright's `BrowserCo
 
 - `options` are [the launch options](#launch-options).
 - `context_options` are Playwright context options, such as `viewport` or `permissions`. They are merged with `options`.
-- The context has `apostate_driver` and `apostate_driver_name`, as `Browser` does. `close()` also stops the driver and the virtual display.
+- The context has `apostate_driver` and `apostate_driver_name`, as `Browser` does, and `apostate_diagnostics` from 0.4.4. `close()` also stops the driver and the virtual display.
 
 ### `launch_context`
 
@@ -68,7 +71,7 @@ def launch_context(*, context_options: Mapping[str, Any] | None = None, **option
 
 Launches the browser and returns the `BrowserContext` of its temporary profile. It is a normal profile, not off-the-record. `context_options` apply to it at launch. Closing it closes the browser, which deletes the profile.
 
-The context has one extra attribute, `apostate_browser`, which is the `Browser` it came from.
+The context has one extra attribute, `apostate_browser`, which is the `Browser` it came from. From 0.4.4 the diagnostics are at `context.apostate_browser.apostate_diagnostics`.
 
 ### Async versions
 
@@ -79,7 +82,7 @@ async def launch_persistent_context_async(user_data_dir: str | Path, *, context_
                                           **options: Any) -> Any
 ```
 
-The same functions for Playwright's async API. `AsyncBrowser` has the members of `Browser`, with `new_page()`, `new_context()` and `close()` as coroutines, and works with `async with`.
+The same functions for Playwright's async API. `AsyncBrowser` has the members of `Browser`, with `new_page()`, `new_context()` and `close()` as coroutines, and works with `async with`. Each async launch starts its own driver, so several can be open in one event loop.
 
 ### Launch options
 
@@ -91,7 +94,7 @@ Every launch function takes these as keywords.
 | `fingerprint_platform` | `str` or `None` | `None` | The persona, sent as `--fingerprint-platform`: `windows`, `macos` or `linux`, or the aliases `win`, `win32`, `darwin`, `mac`, `osx`, `linux2`. `None` sends nothing, and the browser picks `macos` on a Mac and `windows` elsewhere. |
 | `profile` | `dict`, path or `None` | `None` | A profile you wrote, as a mapping or the path of a JSON file. It is validated against the [profile schema](/reference/profile-schema) and sent as `--apostate-profile`. The seed and persona are then ignored. |
 | `locale` | `str` or `None` | from GeoIP | Sent as `--fingerprint-locale`. One tag, such as `de-DE`, or a comma list, such as `de-DE,de`. |
-| `timezone` | `str` or `None` | from GeoIP | An IANA name, sent as `--fingerprint-timezone` and set as `TZ` in the browser's environment. |
+| `timezone` | `str` or `None` | from GeoIP | An IANA name, sent as `--fingerprint-timezone` and set as `TZ` in the browser's environment. From 0.4.4 a name the host's tz database does not know raises `ConfigurationError`. |
 | `geoip` | `bool` | `True` | Look up the locale and timezone of the connection's exit before launch, through the proxy when there is one. It runs only when `locale` or `timezone` is `None`. |
 | `geoip_timeout` | `float` | `20.0` | Seconds the whole lookup may take. |
 | `geoip_provider` | callable, object or `None` | `None` | Your own lookup. See [`resolve_geoip`](#resolve_geoip). `None` uses the built-in lookup, which asks `ip-api.com`, `ipinfo.io`, `ipwho.is` and `ifconfig.co` over HTTP. |
@@ -106,13 +109,15 @@ Every launch function takes these as keywords.
 | `catalogue` | mapping, path or `None` | the package's own | The catalogue the default resolver checks. |
 | `driver` | `str` or `None` | `None` | `"patchright"` or `"playwright"`. `None` takes the first one installed, in that order. |
 
-Any other keyword goes to Playwright's `launch_persistent_context`, so its launch options (`slow_mo`, `env`, `ignore_default_args`, `downloads_path` and the rest) and its context options (`viewport`, `permissions`, `accept_downloads` and the rest) both work. The package's own options, such as `locale` and `proxy`, are not passed on. Three details:
+Any other keyword goes to Playwright's `launch_persistent_context`, so its launch options (`slow_mo`, `env`, `ignore_default_args`, `downloads_path` and the rest) and its context options (`viewport`, `permissions`, `accept_downloads` and the rest) both work. The package's own options, such as `locale` and `proxy`, are not passed on. Four details:
 
 - The window sets the viewport. Pass `viewport` to fix one. `viewport=None` means no viewport.
 - `env` is merged over the environment the package builds. That environment has `LANGUAGE`, `LC_ALL`, `LC_MESSAGES` and `LANG` set to the persona's locale, and `TZ` set to the timezone. Host mode keeps yours.
-- The package removes `--disable-component-update` from Playwright's default switches, so the Widevine CDM registers. Pass it in `args` to keep it.
+- The package removes `--disable-component-update` from Playwright's default switches, so the Widevine CDM registers. Pass it in `args` to keep the switch. On macOS that keeps the CDM out. On Linux the browser loads the CDM beside its executable either way. See [the Linux Widevine module](/known-gaps#the-linux-widevine-module-under-a-windows-persona).
+- From 0.4.4 the package passes `chromium_sandbox=True` unless you pass `chromium_sandbox`, where the sandbox can start: macOS, Windows, and Linux as a regular user outside a container, with no seccomp filter and with user namespaces allowed. Elsewhere Playwright passes `--no-sandbox`, and a headed first tab shows a 56-pixel bar for it. See [A bar on the first tab](/known-gaps#a-bar-on-the-first-tab).
+- From 0.4.4 the package passes `color_scheme="null"` unless you pass `color_scheme`, so a page reads the persona's own `prefers-color-scheme`. In 0.4.3 Playwright emulates `light`. Pass `color_scheme="null"` there. See [prefers-color-scheme in the 0.4.3 packages](/known-gaps#prefers-color-scheme-in-the-0-4-3-packages).
 
-A failed GeoIP lookup does not raise. It prints `apostate: ...` on stderr, sends no switch for the field it could not fill, and the persona uses `en-US` and the host's timezone there.
+A failed GeoIP lookup does not raise. It prints `apostate: ...` on stderr, sends no switch for the field it could not fill, and the persona uses `en-US` and the host's timezone there. From 0.4.4 the warning is also in `apostate_diagnostics["warnings"]`. [Errors](/reference/errors#the-geoip-lookup-failed) shows the text.
 
 ### `driver_info`
 
@@ -129,11 +134,11 @@ Reports which driver a launch would use, without starting a browser.
 
 ### `DRIVERS`
 
-`("patchright", "playwright")`: the drivers the package can launch with, in preference order.
+The drivers the package can launch with, in preference order: `("patchright", "playwright")`.
 
 ### `DriverSelection`
 
-A named tuple, `DriverSelection(name, factory)`: the chosen driver's name and its `sync_playwright` or `async_playwright` entry point.
+A named tuple, `DriverSelection(name, factory)`, of the chosen driver's name and its `sync_playwright` or `async_playwright` entry point.
 
 ### `LaunchPlan`
 
@@ -518,7 +523,7 @@ Exported as `discover_widevine`. Every CDM on this machine for `target`, newest 
 
 ## Exceptions
 
-Every exception the package raises is an `ApostateError`. Messages never contain a proxy credential. [Errors](/reference/errors) lists the common messages and their fixes.
+Every exception the package raises is an `ApostateError`. From 0.4.4 messages never contain a proxy credential. In 0.4.3 a `LaunchError` can echo the `--apostate-profile` value, which holds the credential base64-encoded. [Errors](/reference/errors) lists the common messages and their fixes.
 
 | Class | Parent | Raised when |
 | --- | --- | --- |

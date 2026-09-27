@@ -38,9 +38,9 @@ CMD ["python", "check.py"]
 ```
 
 - **Base image.** Python 3.14 unpacks the browser's `.tar.zst` archive itself. On an older Python, add `zstd` to the packages.
-- **Packages.** The libraries are the ones `ldd` reports missing for the browser on this base. [Linux servers](/guides/linux-servers#set-up-the-server) has the same list for Debian 12 and Ubuntu 22.04. `xvfb` adds 10 MB; leave it out if you only run headless.
-- **User.** The image runs as `apostate` (UID 1000). The driver the package uses passes `--no-sandbox`, so the container needs no extra capability. Under root, WebGPU returns no adapter; see [Run as a regular user](/guides/linux-servers#run-as-a-regular-user).
-- **Browser and fonts.** `apostate install` puts the browser and the Widevine module in the image (685 MiB). `apostate fonts install windows` installs 142 font files (341 MiB). Containers start without downloading anything. The image is 663 MB compressed.
+- **Packages.** The libraries are the ones `ldd` reports missing for the browser on this base. [Linux servers](/guides/linux-servers#set-up-the-server) has the same list for Debian 12 and Ubuntu 22.04. `xvfb` adds 10 MB. Leave it out if you only run headless.
+- **User.** The image runs as `apostate` (UID 1000). The driver the package uses passes `--no-sandbox`, so the container needs no extra capability. Under root, WebGPU returns no adapter even in a headed launch. See [Run as a regular user](/guides/linux-servers#run-as-a-regular-user).
+- **Browser and fonts.** `apostate install` puts the browser and the Widevine module in the image (685 MiB). `apostate fonts install windows` installs 142 font files (341 MiB). From 0.4.4 it also installs Marlett. Containers start without downloading anything. The image is 663 MB compressed.
 - **`profiles`.** A named volume mounted on this directory takes its owner, so the `apostate` user can write to it.
 
 ## Build and run
@@ -71,7 +71,7 @@ For an x86 server, build for `linux/amd64`:
 docker build --platform linux/amd64 -t apostate-example:amd64 .
 ```
 
-An amd64 image on an Apple silicon Mac runs under emulation. Use that only to check the build; [Hosts](/concepts/hosts#pick-a-host-for-a-persona) has what emulation shows to a detector.
+An amd64 image on an Apple silicon Mac runs under emulation. Use that only to check the build. [Hosts](/concepts/hosts#pick-a-host-for-a-persona) has what emulation shows to a detector.
 
 ## Headed
 
@@ -79,7 +79,7 @@ An amd64 image on an Apple silicon Mac runs under emulation. Use that only to ch
 docker run --rm apostate-example python check.py --headed
 ```
 
-The package starts Xvfb inside the container and stops it when the browser closes. The output is the same as above. The WebGPU adapter and `outerHeight - innerHeight` differ from a headless launch; [Linux servers](/guides/linux-servers#headless-or-headed) has the measurements.
+The package starts Xvfb inside the container and stops it when the browser closes. The output is the same as above. Unlike a headless launch, a headed one gets a WebGPU adapter, and its first tab shows a 56-pixel bar for `--no-sandbox`, which the browser needs in a container. [Linux servers](/guides/linux-servers#headless-or-headed) has the measurements.
 
 ## Keep profiles on a volume
 
@@ -158,4 +158,4 @@ COPY check.mjs .
 CMD ["node", "check.mjs"]
 ```
 
-The `node` user of the base image runs the browser. The Node code from [Headed launches](/guides/linux-servers#headed-launches), saved as `check.mjs`, printed `[ 'Win32', 1920, 1080, 143 ]` in this image.
+The `node` user of the base image runs the browser. The Node code from [Headed launches](/guides/linux-servers#headed-launches), saved as `check.mjs`, printed `[ 'Win32', 1920, 1080, 143 ]` in this image. The 143 includes the 56-pixel `--no-sandbox` bar on the first tab. [A bar on the first tab](/known-gaps#a-bar-on-the-first-tab) has the workaround.

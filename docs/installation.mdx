@@ -25,7 +25,7 @@ The browser runs on four hosts:
 
 There is no build for Intel Macs or 32-bit Windows. The packages' install path on Windows has only been tested against a test archive.
 
-On Linux, reading a `.tar.zst` archive needs one of these: Python 3.14 or later, the `zstandard` Python package, or the `zstd` command for the Python package; the `zstd` command, or a `tar` that accepts `--zstd`, for the Node package.
+The Linux archives are `.tar.zst`. The Python package reads them with Python 3.14 or later, the `zstandard` Python package, or the `zstd` command. The Node package needs the `zstd` command or a `tar` that accepts `--zstd`.
 
 ## Install the package
 
@@ -99,9 +99,9 @@ A launch looks for the browser in four places, in this order, and takes the firs
 | The package's own install | whatever `apostate install` wrote to the cache |
 | Well-known locations | macOS: `/Applications` and `~/Applications`. Linux: `~/.cache/apostate` and `/opt/apostate`. Windows: `%LOCALAPPDATA%\apostate`. Each directory and one level below it. |
 
-A path you name, in either of the first two, can be the executable, a macOS `Chromium.app` bundle, or the directory the archive unpacks to, such as `apostate-152.0.7977.83-linux-x64/`. The first two are taken at your word. A path that names nothing is refused with `does not name a file`, and a directory with no browser inside with `names a directory with no browser inside it (expected Chromium.app, chrome or chrome.exe)`.
+A path you name, in either of the first two, can be the executable, a macOS `Chromium.app` bundle, or the directory the archive unpacks to, such as `apostate-152.0.7977.83-linux-x64/`. The package takes the first two at your word. It refuses a path that names nothing with `does not name a file`, and a directory with no browser inside with `names a directory with no browser inside it (expected Chromium.app, chrome or chrome.exe)`.
 
-The well-known search never adopts a stock Chrome or Chromium. A candidate counts only if `build/MANIFEST.lock` with this build's patch digests, or `resources/profiles/catalogue.json`, sits beside it, and its version is 152.0.7977.83. So if you extract an archive by hand and want it found, move the whole extracted directory into a well-known location, not only the browser out of it.
+The well-known search never adopts a stock Chrome or Chromium. A candidate counts only if `build/MANIFEST.lock` with this build's patch digests, or `resources/profiles/catalogue.json`, sits beside it, and its version is 152.0.7977.83. To have an archive you extracted by hand found, move the whole extracted directory into a well-known location, not only the browser out of it.
 
 `apostate info` prints what the search found and what it passed over, under `discovery`, with a reason for each rejected candidate. In code, `discovery_report()` (Node: `discoveryReport()`) returns the same.
 
@@ -130,7 +130,7 @@ Without network access and without a copied cache, the package cannot fetch Wide
 
 ## Verify a download
 
-Both packages hash the whole archive and compare it with a manifest's `sha256` before extracting anything. A mismatch stops the install and nothing is opened. Where the digest came from decides what the check proves, and `apostate info` reports it:
+Both packages hash the whole archive and compare it with a manifest's `sha256` before extracting anything. A mismatch stops the install, and the package opens nothing. Where the digest came from decides what the check proves, and `apostate info` reports it:
 
 ```bash
 apostate info | jq '{manifest_source, manifest_trust, provenance}'
@@ -186,7 +186,7 @@ npm install @heretic-tech/apostate@latest
 ```
 </CodeGroup>
 
-The next launch, or `apostate install`, installs the archive the new package pins. A new Chromium version installs beside the old one in the cache. A seed keeps its machine across Chrome updates; a release that changes the catalogue tables can move it. [Seeds and identity](/concepts/seeds-and-identity#updates-and-catalogue-changes) explains how to check before you upgrade, and the [changelog](/changelog) lists what each release changed.
+The next launch, or `apostate install`, installs the archive the new package pins. A new Chromium version installs beside the old one in the cache. A seed keeps its machine across Chrome updates. A release that changes the catalogue tables can move it. [Seeds and identity](/concepts/seeds-and-identity#updates-and-catalogue-changes) explains how to check before you upgrade, and the [changelog](/changelog) lists what each release changed.
 
 ## Remove
 

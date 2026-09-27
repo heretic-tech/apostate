@@ -1,6 +1,6 @@
 ---
 title: "Python"
-description: "Launch Apostate from Python with its entry points, options, Playwright options, async API, warnings, drivers and errors."
+description: "Launch Apostate from Python with its entry points, options, Playwright options, async API, several browsers at once, warnings and diagnostics, drivers and errors."
 ---
 
 The Python package (`apostate` on PyPI) finds or downloads the browser, looks up the proxy's exit, and starts the browser through Patchright, a Playwright build. It returns Playwright objects, so the rest of your script is ordinary Playwright code. [Installation](/installation) covers `pip install apostate` and the browser download.
@@ -109,7 +109,35 @@ asyncio.run(main())
 Win32
 ```
 
-The async functions take the same options as the sync ones. [Many sessions](/guides/many-sessions) runs several browsers at once with `asyncio.gather()`.
+The async functions take the same options as the sync ones.
+
+## Several browsers at once
+
+Give each browser its own seed or its own user data directory. Two browsers cannot open one user data directory at the same time, and the second launch fails with a `LaunchError` that names a `ProcessSingleton`.
+
+From 0.4.4, the sync API can keep several browsers open in one thread. They share the thread's driver, and the last `close()` stops it.
+
+```python
+from apostate import launch
+
+browsers = [launch(fingerprint=seed, fingerprint_platform="windows") for seed in (1, 2, 3)]
+for browser in browsers:
+    page = browser.new_page()
+    page.goto("https://example.com")
+    print(page.evaluate("[navigator.hardwareConcurrency, screen.width, screen.height]"))
+for browser in browsers:
+    browser.close()
+```
+
+On a Mac with 14 cores:
+
+```text
+[12, 1280, 1024]
+[12, 1920, 1080]
+[12, 1920, 1080]
+```
+
+In 0.4.3, a second `launch()` while the first browser is still open fails with `It looks like you are using Playwright Sync API inside the asyncio loop`. On 0.4.3, use the async API, which runs several browsers from one event loop. [Many sessions](/guides/many-sessions) runs them with `asyncio.gather()` and a limit on how many are open.
 
 ## Options
 
@@ -118,7 +146,7 @@ The async functions take the same options as the sync ones. [Many sessions](/gui
 | `fingerprint` | A new seed per launch | The seed, an integer or a string of up to 512 bytes of `A-Z a-z 0-9 . _ : -`. `"host"` turns the persona off. |
 | `fingerprint_platform` | `macos` on a Mac, `windows` on Windows and Linux | `windows`, `macos` or `linux`. |
 | `locale` | From GeoIP, else `en-US` | One tag such as `de-DE`, or a list such as `de-DE,de`. |
-| `timezone` | From GeoIP, else the host's | An IANA name such as `Europe/Berlin`. |
+| `timezone` | From GeoIP, else the host's | An IANA name such as `Europe/Berlin`. From 0.4.4, any other name raises `ConfigurationError`. |
 | `geoip` | `True` | Look up the exit's country and timezone before the browser starts. |
 | `geoip_timeout` | `20.0` | Seconds for the whole lookup. |
 | `geoip_provider` | The built-in lookup | Your own lookup function. |
@@ -158,20 +186,43 @@ self-signed.badssl.com
 The package sets some of these itself:
 
 - `executable_path`, `headless`, `args` and `user_data_dir` come from the package. Use `binary_path`, `headless` and `args` instead.
-- `env` is added over the browser's environment, which the package gives `LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG` and `TZ` ([Locale and timezone](/guides/locale-and-timezone#environment-variables)). Your entries win.
+- `env` goes over the browser's environment, which the package gives `LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG` and `TZ` ([Locale and timezone](/guides/locale-and-timezone#environment-variables)). Your entries win.
 - `ignore_default_args` gets `--disable-component-update` added, so the driver does not pass that switch ([Widevine](/guides/widevine#keep-component-updates-on)).
 - `viewport` is off unless you pass one, so the page gets the persona's real window size. A viewport of your own changes the screen a page sees ([Screen and window](/guides/screen-and-window#viewport)).
+- From 0.4.4, `color_scheme` is `"null"` unless you pass one, so a page reads the persona's own light or dark theme. The 0.4.3 package left the driver's light emulation on ([Known gaps](/known-gaps#prefers-color-scheme-in-the-0-4-3-packages)).
 - `proxy` comes from the package's `proxy` option.
 
 ## Warnings
 
-The Python package does not attach diagnostics to the objects it returns. It prints each warning to stderr as one line that starts with `apostate: `. A failed GeoIP lookup prints:
+From 0.4.4, the object `launch()` or `launch_persistent_context()` returns carries `apostate_diagnostics`, a dict of what the launch resolved. A context from `launch_context()` carries its browser as `context.apostate_browser`, which has it.
 
-```text
-apostate: GeoIP lookup failed for the direct network: every GeoIP endpoint failed: 1 attempt across 1 endpoint (0.001s budget exhausted); last error: GeoIP lookup timed out after 0.001s (direct mode; proxy=none). No locale or timezone override is sent and none is invented, so the launch keeps the host's own locale and timezone. Behind a proxy that is the host's and not the exit's. Pass locale and timezone explicitly to guarantee a match.
+```python
+from apostate import launch
+
+browser = launch(fingerprint=42, fingerprint_platform="windows", proxy="socks5://proxy.example:1080")
+diagnostics = browser.apostate_diagnostics
+print({key: diagnostics[key] for key in ("locale_source", "timezone_source", "locale", "timezone")})
+for warning in diagnostics["warnings"]:
+    print(warning)
+browser.close()
 ```
 
-The persona then presents `en-US` and the host's timezone. To handle warnings in code, capture stderr during the launch:
+`proxy.example` does not resolve, so the lookup fails:
+
+```text
+{'locale_source': 'host', 'timezone_source': 'host', 'locale': None, 'timezone': None}
+GeoIP lookup failed for socks5://proxy.example:1080: every GeoIP endpoint failed: ... No locale or timezone is sent, so the persona uses en-US and the host's timezone. Behind a proxy that is the host's and not the exit's. Pass locale and timezone to match the exit.
+```
+
+| Key | Holds |
+| --- | --- |
+| `warnings` | The launch's warnings, as a list of strings |
+| `locale`, `timezone` | What the package sent to the browser, or `None` |
+| `locale_source`, `timezone_source` | `explicit` for your own option, `geoip-derived` from the lookup, or `host` when nothing was sent |
+| `platform` | The persona |
+| `catalogue_version` | The version of the catalogue tables |
+
+The package also prints each warning to stderr as one line that starts with `apostate: `. The 0.4.3 package has no `apostate_diagnostics`, and its GeoIP warning is worded differently. To read warnings in code on 0.4.3, capture stderr during the launch:
 
 ```python
 import contextlib
@@ -246,9 +297,9 @@ That output is from a Mac. Host mode refuses `fingerprint_platform` with a `Prof
 
 ## Close the browser
 
-`browser.close()` closes the browser, deletes its temporary profile, and stops the driver and any Xvfb display the package started. `launch()` and `launch_persistent_context()` also work as context managers, as the examples above show. Closing a context from `launch_context()` closes its browser.
+`browser.close()` closes the browser, deletes its temporary profile, and stops any Xvfb display the package started. It stops the driver too, unless another browser in the same thread still uses it. `launch()` and `launch_persistent_context()` also work as context managers, as the examples above show. Closing a context from `launch_context()` closes its browser.
 
-Close every browser you launch. The sync driver keeps an event loop in the thread until the browser closes, and a second sync launch in that thread fails with `It looks like you are using Playwright Sync API inside the asyncio loop`.
+Close every browser you launch. The sync driver keeps an event loop in the thread until its last browser closes.
 
 ## Errors
 
@@ -256,9 +307,9 @@ Every package error is a subclass of `ApostateError`.
 
 | Exception | Raised when |
 | --- | --- |
-| `ConfigurationError` | An option is invalid: an unknown driver, a malformed seed, a misspelt `--fingerprint*` switch, options passed to `new_page()`, a user data directory passed to `launch()`. |
+| `ConfigurationError` | An option is invalid: an unknown driver, a malformed seed, a misspelt `--fingerprint*` switch, options passed to `new_page()`, a user data directory passed to `launch()`, and from 0.4.4 a timezone that is not an IANA zone. |
 | `ProfileError` | A profile does not match the schema, host mode is combined with a persona, or a profile is combined with `--fingerprint`. |
-| `LaunchError` | The driver is missing, Xvfb is missing, or the browser exited at startup. When the browser refused a switch, the message includes its `apostate:` line. |
+| `LaunchError` | The driver is missing, Xvfb is missing, or the browser exited at startup. When the browser refused a switch, the message includes its `apostate:` line, unless a `proxy` is set. |
 | `BinaryError` and its subclasses | The browser could not be found, downloaded or verified ([Installation](/installation)). |
 | `GeoIPError` | Only from `resolve_geoip()` called directly. `launch()` turns a failed lookup into a warning. |
 

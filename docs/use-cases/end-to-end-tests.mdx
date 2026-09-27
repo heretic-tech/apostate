@@ -7,7 +7,7 @@ Your app runs behind bot protection, and your end-to-end tests fail when it bloc
 
 ## What Apostate changes
 
-Bot protection looks for traces of automation, such as `HeadlessChrome` in the User-Agent, `navigator.webdriver` set to true, and the 800x600 screen of headless Chrome. Apostate's browser shows none of them and presents the persona's machine instead. [Detection](/concepts/detection#automation-traces) lists the traces and what the browser does about each. A fixed seed presents the same machine on every run and every host, so a failure reproduces.
+Bot protection looks for traces of automation, such as `HeadlessChrome` in the User-Agent, `navigator.webdriver` set to true, and the 800x600 screen of headless Chrome. Apostate's browser shows none of them. It presents the machine of a [persona](/concepts/personas), the Windows, macOS or Linux platform you choose. [Detection](/concepts/detection#automation-traces) lists the traces and what the browser does about each. A fixed [seed](/concepts/seeds-and-identity), the value that selects the machine, presents the same machine on every run, so a failure reproduces.
 
 The example app stands in for your protection. It refuses a signup whose User-Agent contains `HeadlessChrome` or whose page reports `navigator.webdriver`.
 
@@ -148,7 +148,7 @@ jobs:
 
 ## Playwright Test for Node
 
-Patchright, the driver the Node package launches with, includes Playwright Test as `patchright/test`. The fixture file replaces Playwright Test's `page` with a page from Apostate:
+The Node package needs Node 22 or later. Patchright, the driver it launches with, includes Playwright Test as `patchright/test`. The fixture file replaces Playwright Test's `page` with a page from Apostate:
 
 ```javascript
 import { test as base, expect } from "patchright/test";
@@ -218,7 +218,7 @@ Running 2 tests using 1 worker
 ## Points for this job
 
 - **Fixed seed.** Assert on values the seed decides, such as the platform, screen and GPU. The core count and memory are capped at the host's, so they can differ between your computer and a CI runner ([The host cap](/concepts/seeds-and-identity#the-host-cap)).
-- **Isolation.** All tests share one browser and its profile, and the fixtures clear cookies before each test. For a fresh profile per test, make `browser` a function-scoped fixture. Each test then launches its own browser, which is slower.
+- **Isolation.** All tests share one browser and its user data directory, and the fixtures clear cookies before each test. For a fresh user data directory per test, make `browser` a function-scoped fixture. Each test then launches its own browser, which is slower.
 - **New pages only.** Open pages with `new_page()`, not `new_context()`. [Python](/guides/python#launch-a-browser) explains why.
 - **Test keys.** Some bot protection products offer test keys for automated tests, such as Cloudflare Turnstile's test sitekeys. Those tests pass whatever the browser. Apostate is for the tests that go through your real protection, such as a staging site with production keys. [Test your own defenses](/use-cases/test-your-own-defenses) covers that.
 - **Headed runs.** On a Linux runner, `headless=False` needs Xvfb installed, and the package starts it ([Linux servers](/guides/linux-servers)).

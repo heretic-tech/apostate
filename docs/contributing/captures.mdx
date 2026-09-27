@@ -23,7 +23,7 @@ The tools are in `capture/`:
 3. **Read twice.** 40 of the 49 probes run a second time in the same session, and both results are kept, in `probes` and `repeat`. A field that differs between the two reads is one that moves on real hardware.
 4. **Record the context.** Each capture records when it was taken, the device label, the User-Agent, the SHA-256 of the `collector.js` that measured it, the device pixel ratio, whether the page was a secure context, whether a window was on screen, and any automation signals.
 5. **No automation.** Captures come from a normal headed browser that nothing drives: no CDP, WebDriver, Playwright or Puppeteer. The receiver rejects a capture with any automation signal.
-6. **Capture machines you are allowed to measure.** The repository holds only captures the project took itself. It does not redistribute anyone else's fingerprint corpus.
+6. **Capture machines you are allowed to measure.** The repository holds only captures the project took itself. Do not commit a third-party dataset, such as someone else's fingerprint corpus. `.gitignore` excludes `resources/fingerprints/raw/vendor/` for material you keep locally.
 
 ## Take a capture
 
@@ -39,7 +39,7 @@ The tools are in `capture/`:
   </Step>
 
   <Step title="Open the page in a normal Chrome window">
-    Open the URL on the machine you are capturing, in Google Chrome or Chromium of the release's major version (152, from `build/CHROMIUM_VERSION`). Enter a device name, such as `thinkpad-t14-win11`, and click **Run capture**. Allow the window-management prompt. If you decline it, the `screen.details` probe fails and the receiver rejects the capture.
+    Open the URL on the machine you are capturing, in Google Chrome or Chromium 152, the major version in `build/CHROMIUM_VERSION`. Enter a device name, such as `thinkpad-t14-win11`, and click **Run capture**. Allow the window-management prompt. If you decline it, the `screen.details` probe fails and the receiver rejects the capture.
   </Step>
 
   <Step title="Read the result">

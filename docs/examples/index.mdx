@@ -40,7 +40,7 @@ The Python scripts need Python 3.10 or later. The Node scripts need Node 22 or l
 | [`custom_profile.py`](https://github.com/heretic-tech/apostate/blob/main/examples/python/custom_profile.py) | [`custom-profile.mjs`](https://github.com/heretic-tech/apostate/blob/main/examples/node/custom-profile.mjs) | A launch from a profile you write, with cores, memory, screen, locale and timezone. Values the profile leaves out are the host's. | [Custom profiles](/guides/custom-profiles) |
 | [`async_sessions.py`](https://github.com/heretic-tech/apostate/blob/main/examples/python/async_sessions.py) | [`many-sessions.mjs`](https://github.com/heretic-tech/apostate/blob/main/examples/node/many-sessions.mjs) | Three browsers at once with seeds 1, 2 and 3, each a different machine. | [Many sessions](/guides/many-sessions) |
 | [`screenshot_and_pdf.py`](https://github.com/heretic-tech/apostate/blob/main/examples/python/screenshot_and_pdf.py) | | Writes `out/example.png` and `out/example.pdf` for a page. `page.pdf()` works only headless. | [Python](/guides/python) |
-| [`what_a_page_sees.py`](https://github.com/heretic-tech/apostate/blob/main/examples/python/what_a_page_sees.py) | | Prints a JSON of what a page, a worker and the request headers read, from a local HTTP server. | [Check what a page sees](/guides/verify) |
+| [`what_a_page_sees.py`](https://github.com/heretic-tech/apostate/blob/main/examples/python/what_a_page_sees.py) | | Prints a JSON of what a page, a worker and the request headers read, from a local HTTP server. | [Verify](/guides/verify) |
 | | [`puppeteer.mjs`](https://github.com/heretic-tech/apostate/blob/main/examples/node/puppeteer.mjs) | The Node package driving `puppeteer-core` instead of Patchright. | [Node](/guides/node) |
 | [`raw_cdp.py`](https://github.com/heretic-tech/apostate/blob/main/examples/python/raw_cdp.py) | [`launch-process.mjs`](https://github.com/heretic-tech/apostate/blob/main/examples/node/launch-process.mjs) | The browser started without a driver, with `--remote-debugging-port=0` and a temporary user data directory, then a Patchright connection over CDP. `raw_cdp.py` runs the binary itself. `launch-process.mjs` uses `launchProcess()`. | [Raw binary](/guides/raw-binary) |
 
@@ -54,12 +54,12 @@ The Python scripts need Python 3.10 or later. The Node scripts need Node 22 or l
 | --- | --- | --- |
 | [`agents/mcp/`](https://github.com/heretic-tech/apostate/tree/main/examples/agents/mcp) | MCP configuration for Claude Code, Codex, Cursor, Gemini CLI, VS Code and OpenCode, all running `@heretic-tech/apostate-mcp`, and a Playwright MCP config file for the Apostate binary. | [MCP server](/agents/mcp) |
 | [`agents/skills/apostate/SKILL.md`](https://github.com/heretic-tech/apostate/blob/main/examples/agents/skills/apostate/SKILL.md) | A skill that shows an agent when to use the browser tools and how to write an Apostate script. | [Claude Code](/agents/claude-code#scripts-and-the-apostate-skill) |
-| [`agents/claude-api/agent.py`](https://github.com/heretic-tech/apostate/blob/main/examples/agents/claude-api/agent.py) | A browsing agent on the Claude API's tool runner with the MCP server's browser tools. | [Build an agent](/agents/claude-api) |
-| [`agents/browser-use/agent.py`](https://github.com/heretic-tech/apostate/blob/main/examples/agents/browser-use/agent.py) | browser-use connected over CDP to an Apostate browser the script starts. | [browser-use](/agents/browser-use) |
+| [`agents/claude-api/agent.py`](https://github.com/heretic-tech/apostate/blob/main/examples/agents/claude-api/agent.py) | A browsing agent on the Claude API's tool runner with the MCP server's browser tools. `--check` starts the tools without a model call. | [Build an agent](/agents/claude-api) |
+| [`agents/browser-use/agent.py`](https://github.com/heretic-tech/apostate/blob/main/examples/agents/browser-use/agent.py) | browser-use connected over CDP to an Apostate browser the script starts. `--check` connects without a model call. | [browser-use](/agents/browser-use) |
 
 ## Use cases
 
-[`examples/use-cases/`](https://github.com/heretic-tech/apostate/tree/main/examples/use-cases) holds one folder per use-case walkthrough. The Python scripts run from any directory and write their output next to themselves, in folders the repository ignores. With no arguments, each one runs against a local test server, except `web-archiving` and `account-profiles`, which open `https://example.com`.
+[`examples/use-cases/`](https://github.com/heretic-tech/apostate/tree/main/examples/use-cases) holds one folder per use-case walkthrough. The Python scripts run from any directory and write their output next to themselves, in `out/`, `profiles/`, `backups/` or `prices.db`, which the repository ignores. With no arguments, each one runs against a local test server, except `web-archiving` and `account-profiles`, which open `https://example.com`.
 
 | Folder | What it shows | Page |
 | --- | --- | --- |
@@ -73,4 +73,8 @@ The Python scripts need Python 3.10 or later. The Node scripts need Node 22 or l
 
 ## Docker
 
-[`examples/docker/`](https://github.com/heretic-tech/apostate/tree/main/examples/docker) holds a Dockerfile that installs the Python package, the browser and the Windows fonts, and a script that launches a Windows persona in the container. [Docker](/guides/docker) explains how to build and run it.
+[`examples/docker/`](https://github.com/heretic-tech/apostate/tree/main/examples/docker) holds a Dockerfile that installs the Python package, the browser, the Windows fonts and Xvfb, and [`check.py`](https://github.com/heretic-tech/apostate/blob/main/examples/docker/check.py), which launches a Windows persona in the container and prints what a page reads. [Docker](/guides/docker) explains how to build and run it.
+
+## Test suite
+
+[`tests/`](https://github.com/heretic-tech/apostate/tree/main/tests) checks what pages read on a real browser and writes dated results. [Test suite](/testing/overview) describes the checks, [Run the tests](/testing/run) runs them on your host, and [Latest results](/testing/results) lists the newest results per host.

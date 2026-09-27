@@ -3,7 +3,7 @@ title: "Account profiles"
 description: "Keep one stable browser machine, with its cookies, region and proxy, for each account you operate, and check that the machine stays the same between launches."
 ---
 
-You operate several accounts on the same sites, such as an agency that runs its clients' accounts with their permission or a team that shares test accounts, and each account should always sign in from the same browser. This walkthrough keeps a registry of accounts, gives each its own profile, persona, region and proxy, and checks that each account's machine stays the same from one launch to the next. Follow each site's terms for the accounts you run on it.
+You operate several accounts on the same sites, such as an agency that runs its clients' accounts with their permission, or a team that shares test accounts. Each account should sign in from the same browser every time. This walkthrough keeps a registry of accounts, gives each its own user data directory, [persona](/concepts/personas), region and proxy, and checks that each account's machine stays the same from one launch to the next. Follow each site's terms for the accounts you run on it.
 
 ## What Apostate changes
 
@@ -50,13 +50,13 @@ cd apostate/examples/use-cases/account-profiles
 ```
 
 - `user_data_dir` is relative to the registry file.
-- `persona` is passed as `fingerprint_platform` on every launch. The identity file does not record the persona, so the registry does.
+- The script passes `persona` as `fingerprint_platform` on every launch. The identity file does not record the persona, so the registry does.
 - `locale` and `timezone` fix the account's region, so it is the same on every launch whatever a GeoIP lookup would answer.
 - `proxy_env` names the environment variable that holds the account's proxy URL, so the credential stays out of the file. `null` launches without a proxy.
 
 ## Open an account
 
-`open` launches the account's profile, reads the machine from a page, and compares it with the machine recorded at the last launch:
+`open` launches a browser on the account's user data directory, reads the machine from a page, and compares it with the machine recorded at the last launch:
 
 ```python
 def open_account(name, account, url):
@@ -94,7 +94,7 @@ def open_account(name, account, url):
 
 ## Run it
 
-List the accounts. No profile exists yet:
+List the accounts. No user data directory exists yet:
 
 ```bash
 python3 accounts.py list
@@ -136,9 +136,9 @@ qa-shared-login  seed 947bfbe8d30a...
     same machine as the launch at 2026-09-27T17:39:24+00:00
 ```
 
-The first launch drew seed `947bfbe8d30a...` and stored it in the profile. The second launch read it back and presented the same machine. `--url` opens a page other than the default `https://example.com`.
+The first launch drew seed `947bfbe8d30a...` and stored it in the user data directory. The second launch read it back and presented the same machine. `--url` opens a page other than the default `https://example.com`.
 
-An account with a proxy variable does not open until the variable is set:
+An account with a proxy variable does not open until you set the variable:
 
 ```bash
 python3 accounts.py open client-a-shop
@@ -155,7 +155,7 @@ python3 accounts.py open client-a-shop
 
 ## Check the registry
 
-`check` fails when two accounts share a directory or when two directories hold the same seed, which happens when one profile was copied to start another:
+`check` fails when two accounts share a directory or when two directories hold the same seed. Two directories hold the same seed when you copy one account's directory to start another:
 
 ```bash
 python3 accounts.py check
@@ -165,7 +165,7 @@ python3 accounts.py check
 accounts: 3, problems: 0
 ```
 
-The same command after `profiles/qa-shared-login` was copied to `profiles/client-b-store`:
+The same command after a copy of `profiles/qa-shared-login` to `profiles/client-b-store`:
 
 ```text
 problem: qa-shared-login and client-b-store hold the same seed, so one profile is a copy
@@ -174,7 +174,7 @@ accounts: 3, problems: 1
 
 `open` and `backup` refuse to run while `check` reports a problem.
 
-## Back up a profile
+## Back up an account
 
 ```bash
 python3 accounts.py backup qa-shared-login
@@ -184,13 +184,13 @@ python3 accounts.py backup qa-shared-login
 qa-shared-login  backups/qa-shared-login-20260927T173925Z.zip  131226 bytes
 ```
 
-`backup` refuses while a browser has the profile open, because Chromium is still writing to it. To restore, unzip the archive into the account's own directory. The restored profile presents the same machine, with the cookies from the time of the backup.
+`backup` refuses while a browser has the directory open, because Chromium is still writing to it. To restore, unzip the archive into the account's own directory. The restored directory presents the same machine, with the cookies from the time of the backup.
 
-## Rules for account profiles
+## Rules for each account
 
 - **One directory per account.** Two accounts in one directory share cookies and a machine, and a site can link them. Never copy one account's directory to start another, because the copy carries the same identity file. [Choose seeds](/concepts/seeds-and-identity#choose-seeds) has the same rule for seeds.
 - **One browser per directory at a time.** A second launch on a directory that a browser has open fails with a `LaunchError` that says `Failed to create a ProcessSingleton for your profile directory`.
 - **A proxy per account.** Give each account one sticky exit in its registry region, and keep the proxy URL in the account's variable. With `locale` and `timezone` set, the package skips its GeoIP lookup, so the registry values have to match the exit. [Proxies](/guides/proxies#sticky-and-rotating-exits) covers sticky sessions.
-- **Backups hold logins.** A profile holds the account's cookies. Store backups with the same care as the account's password.
+- **Backups hold logins.** A backup holds the account's cookies. Store backups with the same care as the account's password.
 - **Updates.** A release that changes the catalogue tables can change part of a machine. `open` compares each launch with the last one and names what changed. Pin the package version and read the [changelog](/changelog) before you upgrade. [Updates and catalogue changes](/concepts/seeds-and-identity#updates-and-catalogue-changes) covers what can move.
 - **Working in the window.** `open` runs headless. To sign in by hand, pass `headless=False` to `launch_persistent_context()` on a computer with a display.

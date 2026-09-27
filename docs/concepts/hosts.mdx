@@ -15,11 +15,11 @@ The host is the computer the browser runs on. A [persona](/concepts/personas) ch
 | Linux x64 | Windows | The usual server pair and the default on Linux. Install the Windows fonts. Text is drawn by FreeType and the Widevine module is the Linux one; [Known gaps](/known-gaps#the-linux-widevine-module-under-a-windows-persona) has what that costs. |
 | Linux x64 | Linux | Needs nothing installed. The persona names an NVIDIA RTX GPU. FingerprintJS Pro scored Linux personas `anomaly_score` 1 on a bare-metal x86 Linux server, as it scored stock Chrome there (4 of 4 runs, 2026-09-26, the build released as 0.4.3). |
 | Linux x64 | macOS | The least real Linux pair. The persona claims Apple silicon on an x86 CPU, needs 184 font families copied from a Mac, and its `serif`, `sans-serif` and `system-ui` fonts are the host's. |
-| Linux arm64 | Windows | Use an x86 host when you have one. The persona reports an ARM CPU next to a desktop Intel or NVIDIA GPU, a pair few real machines have. |
+| Linux arm64 | Windows | Use an x86 host when you have one. The persona reports an ARM CPU next to a desktop Intel or NVIDIA GPU, a pair no real Windows machine has, and iphey.com flags it. |
 | Linux arm64 | Linux | The same ARM CPU next to a desktop NVIDIA GPU. `navigator.platform` stays `Linux x86_64`, as Chrome reports on every Linux CPU. |
 | Linux arm64 | macOS | The CPU family matches the Apple silicon claim. The fonts and text drawing are Linux's. Not measured on a detector. |
 | macOS, Apple silicon | macOS | The closest pair for a macOS persona. |
-| macOS, Apple silicon | Windows | Fine for development and testing. The persona reports an ARM CPU next to a desktop GPU, WebGL limits above the Apple GPU's fail when used, and the Mac's own cameras and microphones show through. |
+| macOS, Apple silicon | Windows | Fine for development and testing. The persona reports an ARM CPU next to a desktop GPU, a few WebGL and WebGPU limits read the Apple GPU's values ([Known gaps](/known-gaps#webgl-and-webgpu-limits-on-apple-silicon)), and the Mac's own cameras and microphones show through ([Known gaps](/known-gaps#cameras-and-microphones)). |
 | macOS, Apple silicon | Linux | The same ARM and WebGL limits as a Windows persona on a Mac. |
 
 There is no build for Intel Macs or 32-bit Windows. Do not run the Linux x64 build under x86 emulation on an ARM machine. In a Docker container under Rosetta on an Apple silicon Mac, FingerprintJS Pro reported `developer_tools` on every run, host mode included (measured 2026-09-23, development build before Apostate 0.4.0, Windows persona and host mode).
@@ -28,13 +28,13 @@ There is no build for Intel Macs or 32-bit Windows. Do not run the Linux x64 bui
 
 A page can tell the CPU family from arithmetic, such as the sign bit of a computed NaN, and from Web Audio output, which the host CPU renders. When a Windows persona on an Apple silicon Mac claimed an x86 CPU, FingerprintJS Pro flagged the session as `virtual_machine`, which reads as x86 Windows emulated on ARM. Claiming `arm` cleared the flag (measured 2026-09-23 on an Apple silicon Mac, development build before Apostate 0.4.0, Windows persona).
 
-So Windows and Linux personas report the host's CPU architecture in `Sec-CH-UA-Arch` and `navigator.userAgentData`. On an ARM host they report `arm`. No Windows-on-ARM GPU has been captured, so the GPU next to that `arm` is always a desktop Intel or NVIDIA part. macOS personas always report `arm`, which matches an ARM host and not an x86 one.
+Windows and Linux personas therefore report the host's CPU architecture in `Sec-CH-UA-Arch` and `navigator.userAgentData`. On an ARM host they report `arm`. The release has no Windows-on-ARM GPU family, so the GPU next to that `arm` is always a desktop Intel or NVIDIA part. A real Windows-on-ARM laptop pairs `arm` with a Qualcomm Adreno GPU, and an Adreno family is planned. iphey.com flags that pair as "inconsistent browser fingerprint (butterfly)". macOS personas always report `arm`, which matches an ARM host and not an x86 one.
 
-For Windows and Linux personas, use an x86 Linux server or a Windows machine. For a macOS persona, use a Mac.
+For Windows and Linux personas, use an x86 Linux server or a Windows machine. For a macOS persona, use a Mac. [Known gaps](/known-gaps#arm-hosts) has the measurements.
 
 ## GPU-less servers
 
-A Linux server with no GPU runs every persona. The persona still names its GPU family's hardware, and WebGL reports the family's limits and extensions. The pixels are drawn by a software renderer, SwiftShader or Mesa's llvmpipe. WebGPU serves the persona's adapter with SwiftShader underneath.
+A Linux server with no GPU runs every persona. The persona still names its GPU family's hardware, and WebGL reports the family's limits and extensions. A software renderer, SwiftShader or Mesa's llvmpipe, draws the pixels. In a headed launch as a regular user, WebGPU serves the persona's adapter with SwiftShader underneath. In headless mode, and in headed mode as root, `navigator.gpu.requestAdapter()` returns `null` ([Known gaps](/known-gaps#webgpu-in-headless-mode-on-linux)).
 
 The browser treats a Linux host as GPU-less when it has no readable and writable DRM render node, or when you pass `--disable-gpu`. What changes:
 
@@ -47,7 +47,7 @@ The browser treats a Linux host as GPU-less when it has no readable and writable
 
 ## Cores and memory
 
-A persona never claims more cores or memory than the host has. Options above the host's are dropped before the draw, and when no option fits, the page reads the host's own value. On a small server, most Windows personas report the server's own core count next to a desktop GPU.
+A persona never claims more cores or memory than the host has. The browser drops options above the host's before the draw, and when no option fits, the page reads the host's own value. On a small server, most Windows personas report the server's own core count next to a desktop GPU.
 
 How often that happens, for 400 Windows seeds (0 to 399) composed with the 0.4.3 tables by `scripts/profile_resolver.py`, which matches the browser's compositor:
 
@@ -75,4 +75,4 @@ These come from the host whatever the persona. [Known gaps](/known-gaps) has eac
 - The Widevine module and the first message it sends.
 - Cameras, microphones and speakers the host has.
 - File path parsing on a Windows host.
-- The height of the tab strip and toolbar at display scaling above 100%.
+- The height of the tab strip and toolbar, `outerHeight - innerHeight`. A Windows persona reads 87 at 100% scaling ([Known gaps](/known-gaps#browser-chrome-height)).

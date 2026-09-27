@@ -39,7 +39,7 @@ GeoIP always gives one tag, never a list.
 
 ## Set them yourself
 
-Pass both options to make a launch independent of the lookup. The Python package then skips it. The Node package still runs it behind a proxy, to learn the exit IP for WebRTC ([WebRTC](/guides/webrtc)).
+Pass both options to make a launch independent of the lookup. The Python package then skips it. Behind a proxy, the Node package still runs it to learn the exit IP for WebRTC, unless `args` has `--fingerprint-webrtc-ip` ([WebRTC](/guides/webrtc)).
 
 <CodeGroup>
 ```python Python
@@ -127,7 +127,15 @@ Chrome's UI locale for Japanese is `ja`, so the tag `ja-JP` gives the same resul
 
 The UI locale is `Intl`'s default locale. It decides date, time and number formats, collation, and the default calendar and hour cycle. `Intl.DateTimeFormat().resolvedOptions().locale` reports the UI locale as Chrome names it, such as `de` for `de-DE` and for `de-CH`, and `ja` for `ja-JP`. With `ja-JP` and `Asia/Tokyo`, the same noon UTC prints as `2026/9/27 21:00:00` and the number as `1,234,567.891`.
 
-The timezone sets `Intl.DateTimeFormat().resolvedOptions().timeZone`, `Date` offsets and every local time a page formats. Pass an IANA name such as `Europe/Berlin`. The packages do not check the name. A name the browser does not know leaves `Intl` reporting no timezone and `Date` running on UTC, which no real machine does.
+The timezone sets `Intl.DateTimeFormat().resolvedOptions().timeZone`, `Date` offsets and every local time a page formats. Pass an IANA name such as `Europe/Berlin`. From 0.4.4 the packages refuse any other name before the browser starts. Python raises `ConfigurationError`:
+
+```text
+timezone 'Europe/Berln' is not an IANA zone name, such as Europe/Berlin
+```
+
+Node raises `RangeError` with the same wording.
+
+The 0.4.3 packages do not check the name. They put an unknown name in `TZ`, and a page's `Intl.DateTimeFormat().resolvedOptions().timeZone` then reads `undefined`.
 
 ## Environment variables
 
@@ -173,7 +181,7 @@ en-GB ['Microsoft George - English (United Kingdom) (default)', 'Microsoft Hazel
 de-DE ['Microsoft David - English (United States) (default)', 'Microsoft Mark - English (United States)', 'Microsoft Zira - English (United States)']
 ```
 
-A Windows persona set to German lists English voices. [Known gaps](/known-gaps) tracks this.
+A Windows persona set to German lists English voices. [Known gaps](/known-gaps#windows-voices-are-english) tracks this.
 
 ## --lang
 
@@ -214,10 +222,16 @@ Behind a proxy, the host's timezone is not the exit's. Pass `timezone` whenever 
 
 ## When the lookup fails
 
-A lookup that fails or times out does not stop the launch. The package sends no locale or timezone switch, so the persona presents `en-US` and the host's timezone, and it reports a warning:
+A lookup that fails or times out does not stop the launch. The package sends no locale or timezone switch, so the persona presents `en-US` and the host's timezone. It reports a warning:
 
-- The Python package prints it to stderr, prefixed `apostate: ` ([Python](/guides/python#warnings)).
+- The Python package prints it to stderr, prefixed `apostate: `. From 0.4.4 it also adds it to `browser.apostate_diagnostics["warnings"]` ([Python](/guides/python#warnings)).
 - The Node package prints it with `console.warn`, prefixed `[Apostate]`, adds it to `browser.apostateDiagnostics.warnings` and sets `apostateDiagnostics.geoip` to `unresolved` ([Node](/guides/node#diagnostics)).
+
+From 0.4.4 the warning names the lookup's error and ends:
+
+```text
+No locale or timezone is sent, so the persona uses en-US and the host's timezone. Behind a proxy that is the host's and not the exit's. Pass locale and timezone to match the exit.
+```
 
 A lookup that answers without a timezone, or without a country, sets the field it has and warns about the other.
 
