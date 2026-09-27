@@ -2208,6 +2208,45 @@ class LaunchErrorRedactionTests(unittest.TestCase):
         self.assertNotIn("s3cret-pw", str(error))
         self.assertIn("--apostate-profile=<redacted>", str(error))
 
+    def test_the_browser_log_after_a_proxy_url_survives_and_the_credential_does_not(self) -> None:
+        # Playwright echoes --proxy-server before the browser's own log, and
+        # the browser's apostate: line is the reason the launch failed.
+        launch_module = importlib.import_module("apostate.launch")
+        error = launch_module._backend_error(Exception(
+            "Browser closed.\n<launching> /opt/chrome --proxy-server=http://ada:s3cret%40pw@proxy.example:8080 "
+            "--headless=new\n[pid=1][err] apostate: --fingerprint-platform='amiga' is not a platform."))
+        self.assertNotIn("s3cret", str(error))
+        self.assertIn("--proxy-server=http://<redacted>@proxy.example:8080 --headless=new", str(error))
+        self.assertIn("apostate: --fingerprint-platform='amiga' is not a platform.", str(error))
+        for proxy in ("socks5://ada:s3cret@proxy.example:1080", "https://s3cret@proxy.example",
+                      "http://ada:s3c@ret@proxy.example:8080"):
+            with self.subTest(proxy=proxy):
+                text = str(launch_module._backend_error(Exception(f"--proxy-server={proxy} apostate: x")))
+                self.assertNotIn("s3c", text)
+                self.assertIn("<redacted>@proxy.example", text)
+                self.assertIn("apostate: x", text)
+
+
+class ProxyCredentialTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.credentials = importlib.import_module("apostate.launch")._proxy_credentials
+
+    def test_a_malformed_escape_is_refused_as_node_refuses_it(self) -> None:
+        for proxy in ("socks5://us%zzer:pw@proxy.example:1080", "socks5://user:pw%@proxy.example:1080",
+                      "socks5://user:p%4@proxy.example:1080", "socks5://user%:41@proxy.example:1080"):
+            with self.subTest(proxy=proxy):
+                with self.assertRaisesRegex(ConfigurationError, "valid URL-encoded text"):
+                    self.credentials(proxy)
+        self.assertEqual(self.credentials("socks5://us%41er:p%2fw@proxy.example:1080"),
+                         {"password": "p/w", "username": "usAer"})
+
+    def test_the_limit_counts_utf8_bytes_not_characters(self) -> None:
+        # 2048 two-byte characters are 4096 bytes; 2049 are 4098, though only
+        # 2049 characters.
+        self.assertEqual(len(self.credentials(f"socks5://{'%C3%A9' * 2048}:pw@proxy.example")["username"]), 2048)
+        with self.assertRaisesRegex(ConfigurationError, "at most 4096 bytes"):
+            self.credentials(f"socks5://user:{'%C3%A9' * 2049}@proxy.example")
+
 
 class TimezoneOptionTests(unittest.TestCase):
     def test_an_unknown_zone_is_refused(self) -> None:
@@ -2217,6 +2256,111 @@ class TimezoneOptionTests(unittest.TestCase):
     def test_known_zones_pass(self) -> None:
         for name in ("Europe/Berlin", "America/New_York", "UTC"):
             self.assertEqual(config_module.LaunchConfig(timezone=name).timezone, name)
+
+    def test_a_case_variant_of_a_zone_is_refused(self) -> None:
+        for name in ("europe/berlin", "utc"):
+            with self.subTest(name=name), self.assertRaises(config_module.ConfigurationError):
+                config_module.LaunchConfig(timezone=name)
+
+    def test_windows_installs_carry_a_tz_database(self) -> None:
+        # Windows has no system tz database; without tzdata the check below
+        # would have nothing to check against.
+        try:
+            import tomllib
+        except ImportError:
+            self.skipTest("tomllib needs Python 3.11")
+        pyproject = PACKAGE_ROOT / "pyproject.toml"
+        dependencies = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["dependencies"]
+        self.assertIn('tzdata; sys_platform == "win32"', dependencies)
+
+    def test_a_host_with_no_tz_database_lets_the_name_through(self) -> None:
+        with mock.patch("zoneinfo.available_timezones", return_value=set()):
+            self.assertEqual(config_module.LaunchConfig(timezone="Mars/Olympus").timezone, "Mars/Olympus")
+
+
+class GeoIPWarningTests(unittest.TestCase):
+    def test_a_reason_that_is_already_a_sentence_is_not_ended_twice(self) -> None:
+        launch_module = importlib.import_module("apostate.launch")
+        for message, expected in (("GeoIP request aborted.", "aborted. No locale"),
+                                  ("connect ECONNREFUSED 203.0.113.9:443", ":443. No locale")):
+            def failing(proxy: Any, timeout: Any, message: str = message) -> dict[str, Any]:
+                raise RuntimeError(message)
+
+            with self.subTest(message=message), contextlib.redirect_stderr(io.StringIO()):
+                plan = launch_module._resolve_plan(translate_options(fingerprint=4242), geoip_provider=failing)
+                warning = next(entry for entry in plan.diagnostics["warnings"] if "GeoIP lookup failed" in entry)
+                self.assertIn(expected, warning)
+                self.assertNotIn("..", warning)
+
+
+class SandboxTests(unittest.TestCase):
+    """The driver passes --no-sandbox unless told the sandbox can start."""
+
+    def setUp(self) -> None:
+        self.launch_module = importlib.import_module("apostate.launch")
+        self.root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+
+    def _write(self, name: str, value: str) -> None:
+        path = self.root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(value + "\n", encoding="ascii")
+
+    def _can_start(self, system: str = "linux", euid: int = 1000) -> bool:
+        return self.launch_module._sandbox_can_start(system=system, euid=euid, root=self.root)
+
+    def test_macos_and_windows_always_sandbox(self) -> None:
+        self._write(".dockerenv", "")
+        for system in ("darwin", "win32"):
+            self.assertTrue(self._can_start(system=system, euid=0), system)
+
+    def test_linux_sandboxes_when_nothing_blocks_it(self) -> None:
+        # A missing setting blocks nothing.
+        self.assertTrue(self._can_start())
+        self._write("proc/sys/kernel/apparmor_restrict_unprivileged_userns", "0")
+        self._write("proc/sys/kernel/unprivileged_userns_clone", "1")
+        self._write("proc/sys/user/max_user_namespaces", "63229")
+        self.assertTrue(self._can_start())
+
+    def test_linux_leaves_the_sandbox_off_as_root_in_docker_or_without_user_namespaces(self) -> None:
+        self.assertFalse(self._can_start(euid=0))
+        self._write("proc/self/status", "Name:\tpython3\nSeccomp:\t0")
+        self.assertTrue(self._can_start())
+        for name, value in ((".dockerenv", ""),
+                            ("run/.containerenv", ""),
+                            ("proc/self/status", "Name:\tpython3\nSeccomp:\t2\nSeccomp_filters:\t1"),
+                            ("proc/sys/kernel/apparmor_restrict_unprivileged_userns", "1"),
+                            ("proc/sys/kernel/unprivileged_userns_clone", "0"),
+                            ("proc/sys/user/max_user_namespaces", "0")):
+            with self.subTest(name=name):
+                self._write(name, value)
+                self.assertFalse(self._can_start())
+                (self.root / name).unlink()
+                self.assertTrue(self._can_start())
+
+    def test_every_launch_path_passes_the_decision_and_a_callers_value_stands(self) -> None:
+        fake = _FakePersistentPlaywright()
+        profile = self.root / "profile"
+        with tempfile.NamedTemporaryFile() as executable:
+            os.chmod(executable.name, 0o755)
+            selection = self.launch_module.DriverSelection("patchright", lambda: fake)
+            with mock.patch.object(self.launch_module, "_load_sync_backend", return_value=selection):
+                for can_start in (True, False):
+                    with mock.patch.object(self.launch_module, "_sandbox_can_start", return_value=can_start):
+                        launch(geoip=False, binary_path=executable.name, fingerprint="host").close()
+                        launch_persistent_context(profile, geoip=False, binary_path=executable.name,
+                                                  fingerprint="host").close()
+                with mock.patch.object(self.launch_module, "_sandbox_can_start", return_value=True):
+                    launch(geoip=False, binary_path=executable.name, fingerprint="host",
+                           chromium_sandbox=False).close()
+        self.assertEqual([item.get("chromium_sandbox") for item in fake.launches], [True, True, None, None, False])
+
+
+class ManifestOptionTests(unittest.TestCase):
+    def test_the_help_names_only_what_the_reader_accepts(self) -> None:
+        # binary._read_manifest reads a path; it has never fetched a URL.
+        action = next(item for item in cli_module._parser()._actions if item.dest == "manifest")
+        self.assertEqual(action.help, "path to a release manifest JSON file")
 
 
 class SharedDriverTests(unittest.TestCase):

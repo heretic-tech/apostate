@@ -54,6 +54,8 @@ export interface LaunchOptions {
   binaryPath?: string;
   searchRoots?: string[];
   target?: string;
+  // Playwright only. Left unset, it is true wherever sandboxCanStart() is.
+  chromiumSandbox?: boolean;
   [key: string]: unknown;
 }
 
@@ -189,6 +191,13 @@ export declare function driverInfo(): Promise<{
   selected: string | null;
   recommended: string;
 }>;
+// Whether Chromium's sandbox can start on this host, which decides the
+// chromiumSandbox a Playwright launch passes when the caller names none.
+export declare function sandboxCanStart(host?: {
+  platform?: string;
+  euid?: number;
+  root?: string;
+}): boolean;
 export declare const launch_context: typeof launchContext;
 export declare const launch_persistent_context: typeof launchPersistentContext;
 export declare const launch_process: typeof launchProcess;

@@ -981,8 +981,9 @@ function launchProxyCredentials(proxy) {
   } catch {
     throw new TypeError("proxy credentials must be valid URL-encoded text.");
   }
-  if (username.length > 4096 || password.length > 4096) {
-    throw new TypeError("proxy credentials must be at most 4096 characters.");
+  // The browser's limit is in UTF-8 bytes, not UTF-16 code units.
+  if (Buffer.byteLength(username, "utf8") > 4096 || Buffer.byteLength(password, "utf8") > 4096) {
+    throw new TypeError("proxy credentials must be at most 4096 bytes of UTF-8.");
   }
   return { username, password };
 }
@@ -1062,9 +1063,15 @@ export function toCanonicalLaunchConfig(options = {}) {
   if (timezone !== null && typeof timezone !== "string") throw new TypeError("timezone must be a string.");
   if (timezone !== null) {
     // An unknown zone written into TZ leaves a page's Intl timeZone undefined.
+    // Intl matches names case-insensitively and the tz database does not, so a
+    // name that is only a case variant of a zone is refused, as Python does.
+    let canonical;
     try {
-      new Intl.DateTimeFormat("en-US", { timeZone: timezone });
+      canonical = new Intl.DateTimeFormat("en-US", { timeZone: timezone }).resolvedOptions().timeZone;
     } catch {
+      canonical = null;
+    }
+    if (canonical === null || (canonical !== timezone && canonical.toLowerCase() === timezone.toLowerCase())) {
       throw new RangeError(`timezone ${JSON.stringify(timezone)} is not an IANA zone name, such as Europe/Berlin.`);
     }
   }
@@ -1540,9 +1547,11 @@ async function prepareLaunch(options = {}) {
       // restore the fallback.
       const reason = error?.name === "AbortError"
         ? `timed out after ${timeoutMs} ms`
-        : sanitizeErrorMessage(error?.message ?? error, canonical.proxy);
+        : sanitizeErrorMessage(error?.message ?? error, canonical.proxy).trimEnd();
+      // Most lookup errors are already sentences; do not end one twice.
       geoipWarnings.push(
-        `GeoIP lookup failed for ${redactProxy(canonical.proxy) ?? "the direct network"}: ${reason}. `
+        `GeoIP lookup failed for ${redactProxy(canonical.proxy) ?? "the direct network"}: `
+        + `${reason}${/[.!?]$/.test(reason) ? "" : "."} `
         + "No locale or timezone is sent, so the persona uses en-US and the host's timezone. "
         + "Behind a proxy that is the host's and not the exit's. Pass locale and timezone to "
         + "match the exit.",
@@ -3135,7 +3144,7 @@ export class ApostateProcess {
 //
 // Puppeteer is last on a measured basis: its stack traces from driver-evaluated
 // code carry the operator's absolute filesystem path, and exposeFunction installs
-// a puppeteer___-prefixed global alongside the requested name.
+// a puppeteer_-prefixed global alongside the requested name.
 export const DRIVERS = ["patchright", "playwright", "playwright-core", "puppeteer", "puppeteer-core"];
 const DRIVER_MODULES = DRIVERS;
 // Patchright is a real dependency, so reaching this hint means a partial or
@@ -3611,11 +3620,17 @@ async function launchWithDriver(options) {
     let browser;
     if (driver.kind === "playwright") {
       const proxy = playwrightProxy(prepared.config.proxy);
+      // A caller's own value stands; see sandboxCanStart. Puppeteer passes no
+      // --no-sandbox of its own, so this is Playwright's alone.
+      const chromiumSandbox = options.chromiumSandbox ?? (sandboxCanStart() ? true : undefined);
       // An empty user data dir is a temporary profile; see temporaryProfileBrowser.
       // colorScheme null: Playwright otherwise emulates prefers-color-scheme:
       // light, which hid a dark-theme persona's theme from every page.
-      const context = await driver.chromium.launchPersistentContext(prepared.config.user_data_dir ?? "",
-        { ...common, viewport: null, colorScheme: null, ...(proxy ? { proxy } : {}) });
+      const context = await driver.chromium.launchPersistentContext(prepared.config.user_data_dir ?? "", {
+        ...common, viewport: null, colorScheme: null,
+        ...(chromiumSandbox === undefined ? {} : { chromiumSandbox }),
+        ...(proxy ? { proxy } : {}),
+      });
       browser = prepared.config.user_data_dir
         ? stopsDisplay(context, display)
         : temporaryProfileBrowser(context, display);
@@ -3719,6 +3734,46 @@ export async function launchPersistentContext(userDataDir, options = {}) {
 // through Patchright the empty robustness level resolved; through Playwright,
 // same install and same code, it rejected NotSupportedError.
 const DISABLE_COMPONENT_UPDATE = "--disable-component-update";
+
+// Linux settings that, holding the value beside them, stop the unprivileged
+// user namespace Chromium's sandbox needs when it has no setuid helper.
+const USERNS_BLOCKERS = [
+  ["proc/sys/kernel/apparmor_restrict_unprivileged_userns", "1"],
+  ["proc/sys/kernel/unprivileged_userns_clone", "0"],
+  ["proc/sys/user/max_user_namespaces", "0"],
+];
+
+// Whether Chromium's sandbox can start on this host. Playwright and Patchright
+// pass --no-sandbox unless chromiumSandbox is true, and a headed window then
+// shows Chrome's "unsupported command-line flag" bar. Measured on Linux under
+// Xvfb: the bar takes 56 px, so outerHeight - innerHeight read 143 instead of
+// 87. On Linux it cannot start as root, in Docker, or where unprivileged user
+// namespaces are blocked, so there the driver's default stands; a missing
+// setting blocks nothing.
+export function sandboxCanStart({ platform = process.platform, euid = process.geteuid?.(), root = "/" } = {}) {
+  if (platform === "darwin" || platform === "win32") return true;
+  if (platform !== "linux") return false;
+  if (euid === 0 || existsSync(join(root, ".dockerenv")) || existsSync(join(root, "run/.containerenv"))) return false;
+  // Podman, Kubernetes, snap and flatpak filter system calls with seccomp and
+  // block the user namespaces the sandbox needs.
+  let status = "";
+  try {
+    status = readFileSyncNative(join(root, "proc/self/status"), "latin1");
+  } catch {
+    // No status file blocks nothing.
+  }
+  if (/^Seccomp:\s*2\s*$/m.test(status)) return false;
+  for (const [name, blocking] of USERNS_BLOCKERS) {
+    let value;
+    try {
+      value = readFileSyncNative(join(root, name), "ascii").trim();
+    } catch {
+      continue;
+    }
+    if (value === blocking) return false;
+  }
+  return true;
+}
 
 // A switch the caller put in args themselves is honoured; only the driver's
 // injected default is removed.

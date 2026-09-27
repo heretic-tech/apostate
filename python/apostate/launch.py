@@ -166,13 +166,19 @@ def _proxy_credentials(value: str | Mapping[str, Any] | None) -> dict[str, str] 
     parsed = urlsplit(raw)
     if not parsed.username and not parsed.password:
         return None
+    # unquote() keeps a malformed escape such as ``%zz`` as literal text, where
+    # Node's decodeURIComponent refuses it; refuse it here too.
+    if any(re.search(r"%(?![0-9A-Fa-f]{2})", item or "") for item in (parsed.username, parsed.password)):
+        raise ConfigurationError("proxy credentials must be valid URL-encoded text")
     try:
         username = unquote(parsed.username or "", errors="strict")
         password = unquote(parsed.password or "", errors="strict")
+        # The browser's limit is in UTF-8 bytes, not characters.
+        too_long = any(len(item.encode("utf-8")) > 4096 for item in (username, password))
     except (UnicodeDecodeError, ValueError) as exc:
         raise ConfigurationError("proxy credentials must be valid URL-encoded text") from exc
-    if len(username) > 4096 or len(password) > 4096:
-        raise ConfigurationError("proxy credentials must be at most 4096 characters")
+    if too_long:
+        raise ConfigurationError("proxy credentials must be at most 4096 bytes of UTF-8")
     return {"password": password, "username": username}
 
 
@@ -342,8 +348,11 @@ def _resolve_plan(config: LaunchConfig, *, resolver: Any = None, catalogue: Any 
             # drawn one could not match any egress by construction. The cost is
             # still reported rather than hidden, because behind a proxy the
             # host's zone is the host's and not the exit's.
+            reason = str(exc).rstrip()
+            if not reason.endswith((".", "!", "?")):
+                reason += "."
             geoip_warnings.append(
-                f"{exc}. No locale or timezone is sent, so the persona uses en-US and the "
+                f"{reason} No locale or timezone is sent, so the persona uses en-US and the "
                 "host's timezone. Behind a proxy that is the host's and not the exit's. Pass "
                 "locale and timezone to match the exit."
             )
@@ -611,12 +620,12 @@ def _backend_error(exc: Exception) -> LaunchError:
     text = str(exc)
     # Playwright errors can echo the complete command line. Never expose a
     # credential-bearing proxy URL in a package exception, nor the profile
-    # envelope, which carries the proxy credential base64-encoded.
+    # envelope, which carries the proxy credential base64-encoded. Only the
+    # credential goes: the browser's own log follows the command line, and its
+    # ``apostate:`` refusal is the reason the launch failed. The userinfo runs
+    # to the last ``@`` of the authority, where urlsplit splits it.
     text = re.sub(r"--apostate-profile=\S+", "--apostate-profile=<redacted>", text)
-    for token in ("http://", "https://", "socks5://", "socks5h://"):
-        if token in text:
-            text = text.split(token, 1)[0].rstrip() + " [proxy details redacted]"
-            break
+    text = re.sub(r"([a-z][a-z0-9+.-]*://)[^\s/?#]+@", r"\1<redacted>@", text, flags=re.IGNORECASE)
     return LaunchError(f"native Apostate browser launch failed: {text or 'unknown error'}")
 
 
@@ -669,6 +678,53 @@ def _ignore_default_args(requested: Any, args: Any) -> Any:
     return merged
 
 
+#: Linux settings that, holding the value beside them, stop the unprivileged
+#: user namespace Chromium's sandbox needs when it has no setuid helper.
+_USERNS_BLOCKERS = (
+    ("proc/sys/kernel/apparmor_restrict_unprivileged_userns", "1"),
+    ("proc/sys/kernel/unprivileged_userns_clone", "0"),
+    ("proc/sys/user/max_user_namespaces", "0"),
+)
+
+
+def _sandbox_can_start(*, system: str | None = None, euid: int | None = None,
+                       root: str | Path = "/") -> bool:
+    """Whether Chromium's sandbox can start on this host.
+
+    Playwright and Patchright pass ``--no-sandbox`` unless ``chromium_sandbox``
+    is true, and a headed window then shows Chrome's "unsupported command-line
+    flag" bar. Measured on Linux under Xvfb: the bar takes 56 px, so
+    ``outerHeight - innerHeight`` read 143 instead of 87. On Linux it cannot
+    start as root, in a container, under a seccomp filter, or where
+    unprivileged user namespaces are blocked, so there the driver's default
+    stands; a missing setting blocks nothing.
+    """
+    system = sys.platform if system is None else system
+    if system in ("darwin", "win32"):
+        return True
+    if not system.startswith("linux"):
+        return False
+    if euid is None:
+        euid = os.geteuid()
+    if euid == 0 or Path(root, ".dockerenv").exists() or Path(root, "run/.containerenv").exists():
+        return False
+    # Podman, Kubernetes, snap and flatpak filter system calls with seccomp and
+    # block the user namespaces the sandbox needs.
+    try:
+        status = Path(root, "proc/self/status").read_text(encoding="ascii", errors="replace")
+    except OSError:
+        status = ""
+    if any(line.split(":", 1)[1].strip() == "2" for line in status.splitlines() if line.startswith("Seccomp:")):
+        return False
+    for name, blocking in _USERNS_BLOCKERS:
+        try:
+            if Path(root, name).read_text(encoding="ascii").strip() == blocking:
+                return False
+        except (OSError, UnicodeDecodeError):
+            continue
+    return True
+
+
 def _persistent_options(plan: LaunchPlan, binary: Path, user_data_dir: str,
                         options: Mapping[str, Any]) -> dict[str, Any]:
     """Playwright's ``launch_persistent_context`` options for *plan*.
@@ -698,6 +754,9 @@ def _persistent_options(plan: LaunchPlan, binary: Path, user_data_dir: str,
     # hid a dark-theme persona's theme from every page. "null" turns the
     # emulation off, so the persona's own theme shows.
     launch_options.setdefault("color_scheme", "null")
+    # A caller's own value stands; see _sandbox_can_start.
+    if launch_options.get("chromium_sandbox") is None and _sandbox_can_start():
+        launch_options["chromium_sandbox"] = True
     if plan.config.proxy is not None and "proxy" not in launch_options:
         launch_options["proxy"] = _playwright_proxy(plan.config.proxy)
     return launch_options

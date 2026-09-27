@@ -57,7 +57,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version",
                         version=f"apostate {PACKAGE_VERSION} (Chromium {CHROMIUM_VERSION})")
     parser.add_argument("--cache-dir", help="override the install cache directory")
-    parser.add_argument("--manifest", help="release manifest path, URL, or JSON file")
+    parser.add_argument("--manifest", help="path to a release manifest JSON file")
     parser.add_argument("--target", help="platform target; defaults to this host")
     commands = parser.add_subparsers(dest="command", required=True)
 

@@ -18,7 +18,9 @@ authors = [{name = "Apostate contributors"}]
 # ranges playwright pins, so installing both resolves one of each and a user
 # who already has Playwright is not broken. It is a fork rather than a plugin,
 # so it does not depend on playwright itself.
-dependencies = ["patchright>=1.55"]
+# Windows ships no tz database, and zoneinfo reads the tzdata package in its
+# place; without it a timezone option cannot be checked before launch.
+dependencies = ["patchright>=1.55", "tzdata; sys_platform == \"win32\""]
 
 [project.optional-dependencies]
 # The alternative driver, for a caller who wants `driver="playwright"`. Neither

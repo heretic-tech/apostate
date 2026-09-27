@@ -33,6 +33,7 @@ import {
   loadCatalogue,
   resolveLaunchConfig,
   resolveProfile,
+  sandboxCanStart,
   toCanonicalLaunchConfig,
 } from "../dist/index.js";
 import { fetchMarlett } from "../scripts/cli.mjs";
@@ -1574,6 +1575,99 @@ test("an authenticated SOCKS5 proxy reaches the browser through the envelope, no
   }
 });
 
+test("the sandbox is on wherever it can start: macOS and Windows, and Linux unless blocked", async () => {
+  // Playwright passes --no-sandbox unless chromiumSandbox is true, and a headed
+  // window then shows Chrome's unsupported-flag bar.
+  const root = await mkdtemp(join(tmpdir(), "apostate-node-sandbox-"));
+  try {
+    const write = async (name, value) => {
+      await mkdir(dirname(join(root, name)), { recursive: true });
+      await writeFile(join(root, name), `${value}\n`);
+    };
+    const canStart = (host = {}) => sandboxCanStart({ platform: "linux", euid: 1000, root, ...host });
+    await write(".dockerenv", "");
+    assert.equal(canStart({ platform: "darwin", euid: 0 }), true);
+    assert.equal(canStart({ platform: "win32" }), true);
+    await rm(join(root, ".dockerenv"));
+    // A missing setting blocks nothing.
+    assert.equal(canStart(), true);
+    await write("proc/sys/kernel/apparmor_restrict_unprivileged_userns", "0");
+    await write("proc/sys/kernel/unprivileged_userns_clone", "1");
+    await write("proc/sys/user/max_user_namespaces", "63229");
+    assert.equal(canStart(), true);
+    assert.equal(canStart({ euid: 0 }), false);
+    await write("proc/self/status", "Name:\tnode\nSeccomp:\t0");
+    assert.equal(canStart(), true);
+    const allowed = {
+      "proc/self/status": "Name:\tnode\nSeccomp:\t0",
+      "proc/sys/kernel/apparmor_restrict_unprivileged_userns": "0",
+      "proc/sys/kernel/unprivileged_userns_clone": "1",
+      "proc/sys/user/max_user_namespaces": "63229",
+    };
+    for (const [name, value] of [[".dockerenv", ""], ["run/.containerenv", ""],
+      ["proc/self/status", "Name:\tnode\nSeccomp:\t2\nSeccomp_filters:\t1"],
+      ["proc/sys/kernel/apparmor_restrict_unprivileged_userns", "1"],
+      ["proc/sys/kernel/unprivileged_userns_clone", "0"], ["proc/sys/user/max_user_namespaces", "0"]]) {
+      await write(name, value);
+      assert.equal(canStart(), false, name);
+      if (name in allowed) await write(name, allowed[name]);
+      else await rm(join(root, name));
+      assert.equal(canStart(), true, name);
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("every Playwright launch path passes the sandbox decision, and a caller's value stands", async () => {
+  const root = await mkdtemp(join(tmpdir(), "apostate-node-sandbox-launch-"));
+  try {
+    const executable = join(root, "browser");
+    await writeFile(executable, "#!/bin/sh\nexit 0\n");
+    await chmod(executable, 0o755);
+    const fake = fakePlaywright();
+    const base = { executablePath: executable, _driverModule: fake.module, geoip: false, fingerprint: "host" };
+    await (await launch(base)).close();
+    await (await launchContext(base)).close();
+    await (await launchPersistentContext(join(root, "profile"), base)).close();
+    await (await launch({ ...base, chromiumSandbox: false })).close();
+    const expected = sandboxCanStart() ? true : undefined;
+    assert.deepEqual(fake.launches.map(({ options }) => options.chromiumSandbox), [expected, expected, expected, false]);
+    // Puppeteer adds no --no-sandbox of its own, so it is given nothing.
+    let seen = null;
+    const puppeteer = { default: { async launch(options) { seen = options; return { async close() {} }; } } };
+    await (await launch({ ...base, driver: "puppeteer-core", _driverModule: puppeteer })).close();
+    assert.equal("chromiumSandbox" in seen, false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("proxy credentials are limited in UTF-8 bytes, as the browser limits them", async () => {
+  const root = await mkdtemp(join(tmpdir(), "apostate-node-credential-bytes-"));
+  try {
+    const executable = join(root, "browser");
+    await writeFile(executable, "#!/bin/sh\nexit 0\n");
+    await chmod(executable, 0o755);
+    const fake = fakePlaywright();
+    const base = { executablePath: executable, _driverModule: fake.module, geoip: false, fingerprint: "host" };
+    // 2048 two-byte characters are 4096 bytes; 2049 are 4098, though only
+    // 2049 UTF-16 code units.
+    const fits = await launch({ ...base, proxy: `socks5://${"%C3%A9".repeat(2048)}:p@proxy.invalid:1080` });
+    await fits.close();
+    await assert.rejects(
+      launch({ ...base, proxy: `socks5://u:${"%C3%A9".repeat(2049)}@proxy.invalid:1080` }),
+      (error) => error instanceof TypeError && error.message === "proxy credentials must be at most 4096 bytes of UTF-8.",
+    );
+    await assert.rejects(
+      launch({ ...base, proxy: "socks5://us%zzer:p@proxy.invalid:1080" }),
+      (error) => error instanceof TypeError && error.message === "proxy credentials must be valid URL-encoded text.",
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("a GeoIP failure sends no override rather than inventing en-US and UTC", async () => {
   // Two independent invention sites used to live in prepareLaunch: the catch
   // handler substituted { locale: "en-US", timezone: "UTC" }, and a second
@@ -1609,6 +1703,10 @@ test("a GeoIP failure sends no override rather than inventing en-US and UTC", as
           }, { once: true });
         }),
       }, [], "timed out"],
+      // A reason that is already a sentence is not ended twice.
+      ["an abort that is not an AbortError", {
+        geoipResolver: async () => { throw new Error("GeoIP request aborted."); },
+      }, [], "GeoIP request aborted. No locale or timezone is sent"],
       // Nothing failed in the next two: the resolver answered, without one of
       // the two fields. This is the site the removed hard fallback re-invented
       // from, independently of the handler above.
@@ -2064,6 +2162,16 @@ test("a launch error does not carry the profile envelope or the proxy password",
 test("an unknown timezone is refused before launch", async () => {
   await assert.rejects(resolveLaunchConfig({ timezone: "Mars/Olympus", geoip: false }), RangeError);
   assert.equal((await resolveLaunchConfig({ timezone: "Europe/Berlin", geoip: false })).timezone, "Europe/Berlin");
+});
+
+test("a timezone that is only a case variant of a zone is refused, as Python refuses it", async () => {
+  for (const timezone of ["europe/berlin", "EUROPE/BERLIN", "utc"]) {
+    await assert.rejects(
+      resolveLaunchConfig({ timezone, geoip: false }),
+      (error) => error instanceof RangeError && error.message === `timezone ${JSON.stringify(timezone)} is not an IANA zone name, such as Europe/Berlin.`,
+    );
+  }
+  assert.equal((await resolveLaunchConfig({ timezone: "UTC", geoip: false })).timezone, "UTC");
 });
 
 test("launches carry the first-run switches the Python package passes", async () => {

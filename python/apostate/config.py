@@ -344,8 +344,9 @@ def _check_timezone(name: str | None) -> None:
     """Refuse a zone the host's tz database does not know.
 
     The packages write the zone into TZ, and an unknown one leaves a page's
-    Intl timeZone undefined. A host with no tz database cannot check, so the
-    name goes through and the browser decides.
+    Intl timeZone undefined. Windows has no system tz database, so the package
+    depends on tzdata there. A host with no tz database at all cannot check,
+    so the name goes through and the browser decides.
     """
     if name is None:
         return
