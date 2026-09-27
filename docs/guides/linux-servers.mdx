@@ -169,7 +169,7 @@ On this 2-CPU host, seed 42 presents 2 cores. On a 14-core host the same seed pr
 
 ## x86 or arm64
 
-Use an x86 server for Windows and Linux personas. On an arm64 server they report `arm` in `Sec-CH-UA-Arch` next to a desktop Intel or NVIDIA GPU. No real Windows machine has that pair, and iphey.com flags it. [Hosts](/concepts/hosts#arm-hosts) explains why.
+Use an x86 server for Windows and Linux personas. On an arm64 server they report `arm` in `Sec-CH-UA-Arch`. A Linux persona names a desktop NVIDIA GPU next to it. In 0.4.3 and earlier, a Windows persona names a desktop Intel or NVIDIA GPU next to it, a pair no real Windows machine has. From 0.4.4, a Windows persona on an arm64 server draws the Qualcomm Adreno family instead. [Hosts](/concepts/hosts#arm-hosts) explains why.
 
 ## Check the server
 

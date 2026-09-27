@@ -231,7 +231,7 @@ A GPU family is a file in `corpus/anchors/` with the schema `apostate/corpus/anc
 | --- | --- |
 | `windows-d3d11-nvidia-0947761dfbe9.json` | NVIDIA GeForce RTX 3070 Ti, NVIDIA RTX A4500 |
 | `windows-d3d11-intel-79dfeb5b4f99.json` | Intel UHD Graphics 630 |
-| `windows-d3d11-qualcomm-6388f9914f3f.json` | Qualcomm Adreno X2-90, in a Snapdragon X2 Elite laptop on Windows 11 ARM64 |
+| `windows-d3d11-qualcomm-6388f9914f3f.json` | Qualcomm Adreno X2-90 in a Snapdragon X2 Elite laptop, Adreno X1-85 in a Snapdragon X Elite reference design, Adreno X1-45 in a Snapdragon X Plus reference design, all on Windows 11 ARM64 |
 | `macos-metal-apple-850a91233555.json` | Apple M4 Max |
 | `linux-vulkan-nvidia-adf287b8f0ee.json` | NVIDIA GeForce RTX 4070 Ti SUPER, RTX 4080 SUPER, RTX 3090, RTX PRO 4000 Blackwell |
 | `linux-swiftshader-google-6922d61bab83.json` | SwiftShader, as a `compatibility-capture` |
@@ -242,10 +242,14 @@ The GPU models a persona can name are the options in `resources/profiles/dispers
 
 ### Build a GPU family
 
-`scripts/build-anchor.py` builds a family from one or more admitted captures of the same GPU. A capture is admitted when its record in `admissions/` says `accepted`, or when it passes the receiver's checks. The script refuses captures that differ in vendor, graphics backend, WebGL1 or WebGL2 capabilities, or render digest. It derives every field from the captures, `build/CHROMIUM_VERSION` and the other families, and names the file after the family id:
+`scripts/build-anchor.py` builds a family from one or more admitted captures of one GPU family. A capture is admitted when its record in `admissions/` says `accepted`, or when it passes the receiver's checks. The script refuses captures that differ in vendor, graphics backend, WebGL1 or WebGL2 capabilities, or render digest. Captures can differ in their WebGPU adapter. The family keeps each capture's adapter, or no adapter for a capture that reported none. It derives every field from the captures, `build/CHROMIUM_VERSION` and the other families, and names the file after the family id:
 
 ```bash
-python3 scripts/build-anchor.py resources/fingerprints/raw/windows-qualcomm-adreno-x2-90-20260927T185251Z.json --host-architecture arm --write --relink
+python3 scripts/build-anchor.py \
+  resources/fingerprints/raw/windows-qualcomm-adreno-x2-90-20260927T185251Z.json \
+  resources/fingerprints/raw/windows-qualcomm-adreno-x1-85-20260927T221842Z.json \
+  resources/fingerprints/raw/windows-qualcomm-adreno-x1-45-20260927T222539Z.json \
+  --host-architecture auto --write --relink
 ```
 
 | Option | Effect |

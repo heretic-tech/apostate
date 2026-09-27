@@ -15,11 +15,11 @@ The host is the computer the browser runs on. A [persona](/concepts/personas) ch
 | Linux x64 | Windows | The usual server pair and the default on Linux. Install the Windows fonts. Text is drawn by FreeType and the Widevine module is the Linux one; [Known gaps](/known-gaps#the-linux-widevine-module-under-a-windows-persona) has what that costs. |
 | Linux x64 | Linux | Needs nothing installed. The persona names an NVIDIA RTX GPU. FingerprintJS Pro scored Linux personas `anomaly_score` 1 on a bare-metal x86 Linux server, as it scored stock Chrome there (4 of 4 runs, 2026-09-26, the build released as 0.4.3). |
 | Linux x64 | macOS | The least real Linux pair. The persona claims Apple silicon on an x86 CPU, needs 184 font families copied from a Mac, and its `serif`, `sans-serif` and `system-ui` fonts are the host's. |
-| Linux arm64 | Windows | Use an x86 host when you have one. The persona reports an ARM CPU next to a desktop Intel or NVIDIA GPU, a pair no real Windows machine has, and iphey.com flags it. |
+| Linux arm64 | Windows | From 0.4.4, the persona pairs the ARM CPU with a Qualcomm Adreno GPU, as Windows on ARM does ([ARM hosts](#arm-hosts)). The fonts and text drawing are Linux's. Not measured on a detector. In 0.4.3 and earlier, use an x86 host. The persona names a desktop Intel or NVIDIA GPU next to the ARM CPU, a pair no real Windows machine has. |
 | Linux arm64 | Linux | The same ARM CPU next to a desktop NVIDIA GPU. `navigator.platform` stays `Linux x86_64`, as Chrome reports on every Linux CPU. |
 | Linux arm64 | macOS | The CPU family matches the Apple silicon claim. The fonts and text drawing are Linux's. Not measured on a detector. |
 | macOS, Apple silicon | macOS | The closest pair for a macOS persona. |
-| macOS, Apple silicon | Windows | Fine for development and testing. The persona reports an ARM CPU next to a desktop GPU, a few WebGL and WebGPU limits read the Apple GPU's values ([Known gaps](/known-gaps#webgl-and-webgpu-limits-on-apple-silicon)), and the Mac's own cameras and microphones show through ([Known gaps](/known-gaps#cameras-and-microphones)). |
+| macOS, Apple silicon | Windows | Fine for development and testing. From 0.4.4, the persona pairs the ARM CPU with a Qualcomm Adreno GPU ([ARM hosts](#arm-hosts)). In 0.4.3 and earlier, it names a desktop GPU. A few WebGL and WebGPU limits read the Apple GPU's values ([Known gaps](/known-gaps#webgl-and-webgpu-limits-on-apple-silicon)), and the Mac's own cameras and microphones show through ([Known gaps](/known-gaps#cameras-and-microphones)). |
 | macOS, Apple silicon | Linux | The same ARM and WebGL limits as a Windows persona on a Mac. |
 
 There is no build for Intel Macs or 32-bit Windows. Do not run the Linux x64 build under x86 emulation on an ARM machine. In a Docker container under Rosetta on an Apple silicon Mac, FingerprintJS Pro reported `developer_tools` on every run, host mode included (measured 2026-09-23, development build before Apostate 0.4.0, Windows persona and host mode).
@@ -28,9 +28,28 @@ There is no build for Intel Macs or 32-bit Windows. Do not run the Linux x64 bui
 
 A page can tell the CPU family from arithmetic, such as the sign bit of a computed NaN, and from Web Audio output, which the host CPU renders. When a Windows persona on an Apple silicon Mac claimed an x86 CPU, FingerprintJS Pro flagged the session as `virtual_machine`, which reads as x86 Windows emulated on ARM. Claiming `arm` cleared the flag (measured 2026-09-23 on an Apple silicon Mac, development build before Apostate 0.4.0, Windows persona).
 
-Windows and Linux personas therefore report the host's CPU architecture in `Sec-CH-UA-Arch` and `navigator.userAgentData`. On an ARM host they report `arm`. The release has no Windows-on-ARM GPU family, so the GPU next to that `arm` is always a desktop Intel or NVIDIA part. A real Windows-on-ARM laptop pairs `arm` with a Qualcomm Adreno GPU, and an Adreno family is planned. macOS personas always report `arm`, which matches an ARM host and not an x86 one.
+Windows and Linux personas therefore report the host's CPU architecture in `Sec-CH-UA-Arch` and `navigator.userAgentData`. On an ARM host they report `arm`. macOS personas always report `arm`, which matches an ARM host and not an x86 one.
 
-For Windows and Linux personas, use an x86 Linux server or a Windows machine. For a macOS persona, use a Mac. [Known gaps](/known-gaps#arm-hosts) has the measurements.
+From 0.4.4, a Windows persona on an ARM host draws the Qualcomm Adreno GPU family, the GPU a real Windows-on-ARM machine pairs with `arm`. The seed picks one of three measured models with equal odds, and the model sets the core count and memory:
+
+| Model | Measured on | Cores | Memory | WebGPU adapter |
+| --- | --- | --- | --- | --- |
+| Adreno X2-90 | Snapdragon X2 Elite laptop | 18 | 32 GiB | `qualcomm`, `adreno-8xx` |
+| Adreno X1-85 | Snapdragon X Elite reference design | 12 | 32 GiB | `qualcomm`, `adreno-7xx` |
+| Adreno X1-45 | Snapdragon X Plus reference design | 8 | 16 GiB | none, `requestAdapter()` returns `null` |
+
+In 0.4.3 and earlier, the GPU next to `arm` is a desktop Intel or NVIDIA part, a pair no real Windows machine has. A Linux persona on an ARM host names a desktop NVIDIA GPU in every release.
+
+A persona never claims more cores or memory than the host has ([Cores and memory](#cores-and-memory)). A seed whose model has more cores or memory than the host reports the host's own core count, memory, or both. How often that happens, for 400 Windows seeds (0 to 399) on an ARM host, composed with the 0.4.4 tables by `scripts/profile_resolver.py`:
+
+| Host | Seeds showing the host's own cores or memory |
+| --- | --- |
+| 8 cores, 8 GiB | 400 |
+| 10 cores, 16 GiB | 250 |
+| 14 cores, 36 GiB | 119 |
+| 18 cores, 32 GiB | 0 |
+
+For Windows and Linux personas, use an x86 Linux server or a Windows machine. On an ARM host, a Windows persona needs at least 18 cores and 32 GiB for every model to present its own counts. For a macOS persona, use a Mac. [Known gaps](/known-gaps#arm-hosts) has the measurements.
 
 ## GPU-less servers
 

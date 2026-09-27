@@ -1809,7 +1809,7 @@
     {
      "evidence": "physical-ground-truth",
      "id": "d3d11-qualcomm-adreno-x2-90-gpu",
-     "note": "Measured identity strings on anchor windows-d3d11-qualcomm-6388f9914f3f (Windows / ANGLE/D3D11), a Snapdragon X2 Elite (X2E88100) laptop on Windows 11 ARM64. Measured on Chromium 152.0.7977.82 against release pin 152.0.7977.83: same major, different patch. The anchor carries host_architecture arm, so it is drawn only on an ARM host, and its one measured member is the only identity it offers. media.hw_decode_codecs is the capture's own decodingInfo() answer in codecs.media of resources/fingerprints/raw/windows-qualcomm-adreno-x2-90-20260927T185251Z.json: powerEfficient true for H.264, VP9, HEVC and AV1, in both reads. Without the list patch 0132 answers false for AV1, because its generation rule names no Qualcomm architecture.",
+     "note": "Measured identity strings on anchor windows-d3d11-qualcomm-6388f9914f3f (Windows / ANGLE/D3D11), a Snapdragon X2 Elite (X2E88100) laptop on Windows 11 ARM64. Measured on Chromium 152.0.7977.82 against release pin 152.0.7977.83: same major, different patch. All three measured members (Adreno X2-90, X1-85, X1-45) agree on the WebGL1 and WebGL2 capability tables and both render digests; WebGPU is per member, and this one's adapter is qualcomm/adreno-8xx with subgroup size 64. The anchor carries host_architecture arm, so it is drawn only on an ARM host, and its three measured members are the only identities it offers. media.hw_decode_codecs is the capture's own decodingInfo() answer in codecs.media of resources/fingerprints/raw/windows-qualcomm-adreno-x2-90-20260927T185251Z.json: powerEfficient true for H.264, VP9, HEVC and AV1, in both reads. Without the list patch 0132 answers false for AV1, because its generation rule names no Qualcomm architecture.",
      "requires": {
       "anchor": "windows-d3d11-qualcomm-6388f9914f3f"
      },
@@ -1817,6 +1817,54 @@
      "value": {
       "gpu": {
        "unmasked_renderer": "ANGLE (Qualcomm, Qualcomm(R) Adreno(TM) X2-90 GPU (0x36334630) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+       "unmasked_vendor": "Google Inc. (Qualcomm)"
+      },
+      "media": {
+       "hw_decode_codecs": [
+        "h264",
+        "vp9",
+        "hevc",
+        "av1"
+       ]
+      }
+     },
+     "weight": 100
+    },
+    {
+     "evidence": "physical-ground-truth",
+     "id": "d3d11-qualcomm-adreno-x1-85-gpu",
+     "note": "Measured identity strings on anchor windows-d3d11-qualcomm-6388f9914f3f (Windows / ANGLE/D3D11), a Snapdragon X Elite Qualcomm reference design on Windows 11 ARM64. Measured on Chromium 152.0.7977.82 against release pin 152.0.7977.83: same major, different patch. All three measured members (Adreno X2-90, X1-85, X1-45) agree on the WebGL1 and WebGL2 capability tables and both render digests; WebGPU is per member, and this one's adapter is qualcomm/adreno-7xx with subgroup sizes 64 to 128. The anchor carries host_architecture arm, so it is drawn only on an ARM host, and its three measured members are the only identities it offers. media.hw_decode_codecs is the capture's own decodingInfo() answer in codecs.media of resources/fingerprints/raw/windows-qualcomm-adreno-x1-85-20260927T221842Z.json: powerEfficient true for H.264, VP9, HEVC and AV1, in both reads. Without the list patch 0132 answers false for AV1, because its generation rule names no Qualcomm architecture.",
+     "requires": {
+      "anchor": "windows-d3d11-qualcomm-6388f9914f3f"
+     },
+     "source": "corpus/anchors/windows-d3d11-qualcomm-6388f9914f3f.json#Qualcomm(R) Adreno(TM) X1-85 GPU",
+     "value": {
+      "gpu": {
+       "unmasked_renderer": "ANGLE (Qualcomm, Qualcomm(R) Adreno(TM) X1-85 GPU (0x36334330) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+       "unmasked_vendor": "Google Inc. (Qualcomm)"
+      },
+      "media": {
+       "hw_decode_codecs": [
+        "h264",
+        "vp9",
+        "hevc",
+        "av1"
+       ]
+      }
+     },
+     "weight": 100
+    },
+    {
+     "evidence": "physical-ground-truth",
+     "id": "d3d11-qualcomm-adreno-x1-45-gpu",
+     "note": "Measured identity strings on anchor windows-d3d11-qualcomm-6388f9914f3f (Windows / ANGLE/D3D11), a Snapdragon X Plus 8-core Qualcomm reference design on Windows 11 ARM64. Measured on Chromium 152.0.7977.82 against release pin 152.0.7977.83: same major, different patch. All three measured members (Adreno X2-90, X1-85, X1-45) agree on the WebGL1 and WebGL2 capability tables and both render digests; WebGPU is per member, and this one reported none: requestAdapter() returned null for both power preferences, in both reads, so a seed that draws it claims no adapter (webgpu.available false, patch 0155) rather than a sibling's or the host's. The anchor carries host_architecture arm, so it is drawn only on an ARM host, and its three measured members are the only identities it offers. media.hw_decode_codecs is the capture's own decodingInfo() answer in codecs.media of resources/fingerprints/raw/windows-qualcomm-adreno-x1-45-20260927T222539Z.json: powerEfficient true for H.264, VP9, HEVC and AV1, in both reads. Without the list patch 0132 answers false for AV1, because its generation rule names no Qualcomm architecture.",
+     "requires": {
+      "anchor": "windows-d3d11-qualcomm-6388f9914f3f"
+     },
+     "source": "corpus/anchors/windows-d3d11-qualcomm-6388f9914f3f.json#Qualcomm(R) Adreno(TM) X1-45 GPU",
+     "value": {
+      "gpu": {
+       "unmasked_renderer": "ANGLE (Qualcomm, Qualcomm(R) Adreno(TM) X1-45 GPU (0x37314430) Direct3D11 vs_5_0 ps_5_0, D3D11)",
        "unmasked_vendor": "Google Inc. (Qualcomm)"
       },
       "media": {

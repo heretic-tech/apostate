@@ -11,7 +11,7 @@ A persona presents a GPU from a GPU family. A GPU family is a set of WebGL and W
 | --- | --- | --- | --- |
 | `windows-d3d11-nvidia-0947761dfbe9` | Windows, NVIDIA, Direct3D 11 | RTX 3070 Ti, RTX A4500 | 45: GeForce GTX 10 series to RTX 50 series, RTX A2000 to A4500 |
 | `windows-d3d11-intel-79dfeb5b4f99` | Windows, Intel, Direct3D 11 | UHD Graphics 630 | 12: UHD Graphics 620, 630, 730, 770 and Iris Xe |
-| `windows-d3d11-qualcomm-6388f9914f3f` | Windows, Qualcomm, Direct3D 11 | Adreno X2-90 | 1: Adreno X2-90 |
+| `windows-d3d11-qualcomm-6388f9914f3f` | Windows, Qualcomm, Direct3D 11 | Adreno X2-90, X1-85, X1-45 | 3: Adreno X2-90, X1-85 and X1-45 |
 | `macos-metal-apple-850a91233555` | macOS, Apple silicon, Metal | M4 Max | 12: M1 to M4, each base, Pro and Max |
 | `linux-vulkan-nvidia-adf287b8f0ee` | Linux, NVIDIA, Vulkan | RTX 4070 Ti SUPER, RTX 4080 SUPER, RTX 3090, RTX PRO 4000 | 11: RTX 3090, RTX 40 series, RTX PRO 4000 |
 | `linux-swiftshader-google-6922d61bab83` | SwiftShader software renderer | A host with no GPU | 1 |
@@ -100,7 +100,7 @@ webgpuArchitecture  gen-12lp
 
 That output is from a Mac. A page reads the same values on any host, with one exception. On Linux, `requestAdapter()` returns `null` in headless launches and in headed launches as root, so the script above fails at `adapter.info` there. [Known gaps](/known-gaps#webgpu-in-headless-mode-on-linux) tracks it.
 
-Within a family, every model has the same WebGL limits, extensions and shader precision and the same WebGPU features and limits. The WebGPU architecture follows the model's chip generation, and so does the smallest subgroup size on Intel's 12th-generation models.
+Within a family, every model has the same WebGL limits, extensions and shader precision and the same WebGPU features and limits. The WebGPU architecture follows the model's chip generation, and so does the smallest subgroup size on Intel's 12th-generation models. A model measured without a WebGPU adapter, such as the Adreno X1-45, has none, and `requestAdapter()` returns `null`.
 
 `navigator.gpu` exists only on secure pages, such as `https://` and `http://localhost`.
 

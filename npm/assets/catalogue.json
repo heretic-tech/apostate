@@ -173,12 +173,14 @@
     "platform": "windows"
    },
    "id": "windows-d3d11-qualcomm-6388f9914f3f",
-   "member_count": 1,
+   "member_count": 3,
    "members": [
+    "Qualcomm(R) Adreno(TM) X1-45 GPU",
+    "Qualcomm(R) Adreno(TM) X1-85 GPU",
     "Qualcomm(R) Adreno(TM) X2-90 GPU"
    ],
    "platform": "windows",
-   "rotation_status": "single-member",
+   "rotation_status": "measured-safe",
    "vendor": "Qualcomm"
   }
  ],
@@ -203,7 +205,7 @@
    "file": "dispersion/gpu_identity.json",
    "label": "gpu_identity",
    "option_sets": 6,
-   "options": 82,
+   "options": 84,
    "selection": "single",
    "servability": "anchor-member"
   },
@@ -214,8 +216,8 @@
    ],
    "file": "dispersion/machine_class.json",
    "label": "machine_class",
-   "option_sets": 82,
-   "options": 178,
+   "option_sets": 84,
+   "options": 180,
    "selection": "single",
    "servability": "none"
   },
@@ -226,8 +228,8 @@
    ],
    "file": "dispersion/cpu.json",
    "label": "cpu",
-   "option_sets": 82,
-   "options": 383,
+   "option_sets": 84,
+   "options": 385,
    "selection": "single",
    "servability": "clamp-down"
   },
@@ -238,8 +240,8 @@
    ],
    "file": "dispersion/memory.json",
    "label": "memory",
-   "option_sets": 82,
-   "options": 261,
+   "option_sets": 84,
+   "options": 263,
    "selection": "single",
    "servability": "clamp-down"
   },

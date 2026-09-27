@@ -593,8 +593,9 @@ def member_webgpu(path: Path, anchor_id: str, cluster: dict, capture: str) -> di
     nvidia/lovelace and the RTX 3090 and RTX PRO 4000 Blackwell returned no
     adapter at all. So it is taken from the resolved member's variant and never
     from the anchor as a whole -- presenting lovelace on a 3090 is an unmeasured
-    assertion, and an absent section leaves the host adapter untouched, which is
-    the only honest answer for a member that measured none.
+    assertion. A member that measured none gets an empty fragment, which the
+    compositor turns into `webgpu.available: false` (patch 0155): the claimed
+    device has no adapter, on any host.
     """
     variants = (cluster.get("webgpu") or {}).get("variants") or []
     matches = [
@@ -887,6 +888,16 @@ def register_identities(axes: list[dict], anchors: list[dict]) -> int:
 
                 webgpu: dict = {}
                 source = block.get("webgpu_measured_on")
+                if source is None:
+                    # The compiled table cannot say "unknown": an empty
+                    # fragment claims that the device has no adapter (patch
+                    # 0155), which only a capture of that device can show.
+                    raise GeneratorError(
+                        f"gpu_identity option {option['id']!r}: a registered identity "
+                        "names no donor in `member.webgpu_measured_on`, so its adapter is "
+                        "unknown and it would claim to have none. Name the measured member "
+                        "whose adapter it presents"
+                    )
                 if source is not None:
                     if not isinstance(source, str) or not source:
                         raise GeneratorError(
@@ -911,8 +922,8 @@ def register_identities(axes: list[dict], anchors: list[dict]) -> int:
                         raise GeneratorError(
                             f"gpu_identity option {option['id']!r}: "
                             f"`member.webgpu_measured_on` names {source!r}, which measured no "
-                            "WebGPU adapter. Omit the field: WebGPU then stays host-inherited "
-                            "instead of claiming a cluster nothing measured"
+                            "WebGPU adapter. Name a member that measured one: this identity "
+                            "would otherwise claim to have none, which nothing measured"
                         )
                     webgpu = donor["webgpu"]
 
@@ -1239,8 +1250,8 @@ def emit_anchor(out: list[str], anchor: dict) -> str:
         out.append(
             f"        /*unmasked_renderer=*/{cpp_literal_block(member['renderer'], '            ')},"
         )
-        # Empty when this member measured no adapter. WebGPU then stays
-        # host-inherited rather than borrowing a sibling's.
+        # Empty when this member measured no adapter. The compositor then
+        # claims none (patch 0155) rather than borrowing a sibling's.
         out.append("        /*webgpu_json=*/")
         out.append(
             f"            {cpp_literal_block(canonical_json(member['webgpu']) if member['webgpu'] else '', '            ')},"

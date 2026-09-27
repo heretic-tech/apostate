@@ -1825,8 +1825,8 @@ def _resolve_internal(config: Mapping[str, Any] | None = None, **overrides: Any)
                 # A registered identity is not a measured member. Its `member`
                 # block names the measured member whose adapter it carries,
                 # which is what scripts/generate-dispersion-tables.py folds into
-                # the compiled member table. With no donor named, WebGPU stays
-                # host-inherited rather than borrowing a sibling's.
+                # the compiled member table. The generator refuses an identity
+                # that names no donor, so one is always named.
                 donor = block.get("webgpu_measured_on")
                 identity_renderer = None
                 for member in anchor_records[anchor["id"]]["record"].get("members", []):
