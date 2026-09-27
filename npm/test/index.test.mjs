@@ -1321,6 +1321,8 @@ test("launch() under Playwright opens pages in a temporary normal profile", asyn
     const [{ userDataDir, options, context }] = fake.launches;
     assert.equal(userDataDir, "");
     assert.equal(options.viewport, null);
+    // Playwright would otherwise emulate prefers-color-scheme: light.
+    assert.equal(options.colorScheme, null);
     const first = await browser.newPage();
     const second = await browser.newPage();
     assert.notEqual(first, second);

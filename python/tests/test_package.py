@@ -1914,6 +1914,20 @@ print(catalogue['browser_build'])
         self.assertNotIn("viewport", fake.launches[0])
         self.assertEqual(fake.contexts[0].off_the_record, [{"no_viewport": True}, {"viewport": chosen}])
 
+    def test_color_scheme_is_not_emulated(self) -> None:
+        # Playwright emulates prefers-color-scheme: light by default, which
+        # hides a dark-theme persona's theme. "null" turns emulation off.
+        launch_module = importlib.import_module("apostate.launch")
+        fake = _FakePersistentPlaywright()
+        with tempfile.NamedTemporaryFile() as executable:
+            os.chmod(executable.name, 0o755)
+            with mock.patch.object(launch_module, "_load_sync_backend",
+                                   return_value=launch_module.DriverSelection("patchright", lambda: fake)):
+                launch(geoip=False, binary_path=executable.name, fingerprint="host").close()
+                launch(geoip=False, binary_path=executable.name, fingerprint="host", color_scheme="dark").close()
+        self.assertEqual(fake.launches[0]["color_scheme"], "null")
+        self.assertEqual(fake.launches[1]["color_scheme"], "dark")
+
     def test_launch_opens_pages_in_a_temporary_normal_profile(self) -> None:
         # Playwright's Browser.new_page() opens an off-the-record context, which
         # FingerprintJS reports as incognito. launch() and launch_context() run

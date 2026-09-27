@@ -3597,8 +3597,10 @@ async function launchWithDriver(options) {
     if (driver.kind === "playwright") {
       const proxy = playwrightProxy(prepared.config.proxy);
       // An empty user data dir is a temporary profile; see temporaryProfileBrowser.
+      // colorScheme null: Playwright otherwise emulates prefers-color-scheme:
+      // light, which hid a dark-theme persona's theme from every page.
       const context = await driver.chromium.launchPersistentContext(prepared.config.user_data_dir ?? "",
-        { ...common, viewport: null, ...(proxy ? { proxy } : {}) });
+        { ...common, viewport: null, colorScheme: null, ...(proxy ? { proxy } : {}) });
       browser = prepared.config.user_data_dir
         ? stopsDisplay(context, display)
         : temporaryProfileBrowser(context, display);

@@ -692,6 +692,10 @@ def _persistent_options(plan: LaunchPlan, binary: Path, user_data_dir: str,
         del launch_options["viewport"]
     if "viewport" not in launch_options and "no_viewport" not in launch_options:
         launch_options["no_viewport"] = True
+    # Playwright emulates prefers-color-scheme: light unless told not to, which
+    # hid a dark-theme persona's theme from every page. "null" turns the
+    # emulation off, so the persona's own theme shows.
+    launch_options.setdefault("color_scheme", "null")
     if plan.config.proxy is not None and "proxy" not in launch_options:
         launch_options["proxy"] = _playwright_proxy(plan.config.proxy)
     return launch_options
