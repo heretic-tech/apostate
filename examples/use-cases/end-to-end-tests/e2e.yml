@@ -1,0 +1,24 @@
+# A GitHub Actions workflow for these tests. Copy it to .github/workflows/e2e.yml
+# in your repository.
+name: e2e
+
+on: [push, pull_request]
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # A pinned version keeps the machine a seed gives from one run to the next.
+      # zstandard unpacks the Linux browser archive on Python older than 3.14.
+      - run: pip install apostate==0.4.3 pytest zstandard
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/apostate
+          key: apostate-0.4.3-${{ runner.os }}-${{ runner.arch }}
+      - run: apostate install
+      - run: apostate fonts install windows
+      - run: pytest

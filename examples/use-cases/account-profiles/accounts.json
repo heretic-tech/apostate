@@ -1,0 +1,23 @@
+{
+  "client-a-shop": {
+    "user_data_dir": "profiles/client-a-shop",
+    "persona": "windows",
+    "locale": "en-US",
+    "timezone": "America/Chicago",
+    "proxy_env": "APOSTATE_PROXY_CLIENT_A"
+  },
+  "client-b-store": {
+    "user_data_dir": "profiles/client-b-store",
+    "persona": "macos",
+    "locale": "en-GB",
+    "timezone": "Europe/London",
+    "proxy_env": "APOSTATE_PROXY_CLIENT_B"
+  },
+  "qa-shared-login": {
+    "user_data_dir": "profiles/qa-shared-login",
+    "persona": "windows",
+    "locale": "de-DE",
+    "timezone": "Europe/Berlin",
+    "proxy_env": null
+  }
+}

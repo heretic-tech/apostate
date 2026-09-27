@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "apostate": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@heretic-tech/apostate-mcp", "--platform", "windows"]
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "apostate": {
+      "command": "npx",
+      "args": ["-y", "@heretic-tech/apostate-mcp", "--platform", "windows"],
+      "timeout": 600000
+    }
+  }
+}

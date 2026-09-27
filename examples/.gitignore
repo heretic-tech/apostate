@@ -1,0 +1,10 @@
+# What the examples write when they run.
+out/
+profiles/
+backups/
+*.db
+*.db-journal
+.pytest_cache/
+test-results/
+node_modules/
+package-lock.json

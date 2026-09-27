@@ -1,0 +1,15 @@
+{
+  "name": "apostate-e2e-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "patchright test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@heretic-tech/apostate": "^0.4.3",
+    "patchright": "^1.63.0"
+  }
+}

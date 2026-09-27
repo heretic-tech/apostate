@@ -1,0 +1,10 @@
+# Add to ~/.codex/config.toml, or a trusted project's .codex/config.toml.
+[mcp_servers.apostate]
+command = "npx"
+args = ["-y", "@heretic-tech/apostate-mcp", "--platform", "windows"]
+startup_timeout_sec = 120
+tool_timeout_sec = 300
+# codex exec cannot ask for approval, so its MCP calls fail without this.
+default_tools_approval_mode = "approve"
+# Codex passes only a few variables to MCP servers. Name the ones Apostate uses.
+env_vars = ["APOSTATE_PROXY", "APOSTATE_BINARY", "DISPLAY", "XAUTHORITY"]

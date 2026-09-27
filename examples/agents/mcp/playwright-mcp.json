@@ -1,0 +1,29 @@
+{
+  "browser": {
+    "browserName": "chromium",
+    "userDataDir": "/path/to/profiles/agent",
+    "launchOptions": {
+      "executablePath": "/path/to/apostate/chrome",
+      "headless": true,
+      "args": [
+        "--fingerprint-platform=windows",
+        "--fingerprint-locale=en-US",
+        "--fingerprint-timezone=America/New_York"
+      ],
+      "ignoreDefaultArgs": ["--disable-component-update"],
+      "env": {
+        "LANGUAGE": "en-US",
+        "LANG": "en_US.UTF-8",
+        "LC_ALL": "en_US.UTF-8",
+        "LC_MESSAGES": "en_US.UTF-8",
+        "GOOGLE_API_KEY": "no",
+        "GOOGLE_DEFAULT_CLIENT_ID": "no",
+        "GOOGLE_DEFAULT_CLIENT_SECRET": "no"
+      }
+    },
+    "contextOptions": {
+      "viewport": null,
+      "colorScheme": null
+    }
+  }
+}
