@@ -24,7 +24,7 @@ except ImportError:
 BASE_CONFIG = {
     "fingerprint": 12345,
     "fingerprint_platform": "windows",
-    "browser_build": "152.0.7977.83",
+    "browser_build": "155.0.8059.12",
     "host_platform": "windows",
     "host_backend": "ANGLE/D3D11",
     "host_logical_cores": 32,
@@ -327,7 +327,7 @@ class CompositionTests(unittest.TestCase):
         resolved = resolver.resolve_with_diagnostics(BASE_CONFIG)
         root = resolver.seed_root(str(BASE_CONFIG["fingerprint"]),
                                   BASE_CONFIG["fingerprint_platform"],
-                                  BASE_CONFIG["browser_build"])
+                                  resolver.ROOT_CHROMIUM_EPOCH)
         self.assertEqual(f"fp-{root.hex()[:24]}", resolved["profile"]["id"])
         changed = resolver.resolve_with_diagnostics(dict(BASE_CONFIG, fingerprint=12346))
         self.assertNotEqual(resolved["profile"]["id"], changed["profile"]["id"])
@@ -335,7 +335,7 @@ class CompositionTests(unittest.TestCase):
     def test_identity_changes_with_every_component_of_the_seed_root(self) -> None:
         base = resolver.resolve_with_diagnostics(BASE_CONFIG)["diagnostics"]["identity"]
         for override in ({"fingerprint": 12346},
-                         {"browser_build": "152.0.7977.82"},
+                         {"browser_build": "155.0.8059.11"},
                          {"fingerprint_platform": "macos"}):
             changed = resolver.resolve_with_diagnostics(dict(BASE_CONFIG, **override))
             self.assertNotEqual(base, changed["diagnostics"]["identity"], override)
@@ -351,7 +351,7 @@ class CompositionTests(unittest.TestCase):
         build-bound values (the user agent) move.
         """
         base = resolver.resolve_with_diagnostics(BASE_CONFIG)
-        other = resolver.resolve_with_diagnostics(dict(BASE_CONFIG, browser_build="152.0.7977.82"))
+        other = resolver.resolve_with_diagnostics(dict(BASE_CONFIG, browser_build="155.0.8059.11"))
         self.assertEqual(base["diagnostics"]["axes"], other["diagnostics"]["axes"])
         self.assertEqual(base["diagnostics"]["anchor"], other["diagnostics"]["anchor"])
         self.assertEqual(base["profile"]["id"], other["profile"]["id"])
@@ -992,6 +992,9 @@ class CompositionTests(unittest.TestCase):
         "gl_limits", "gl_precisions", "gpu", "id", "media", "memory", "network",
         "platform", "screen", "speech", "theme", "webgpu", "window",
     })
+    # The Chromium build the digests were taken on. The profile carries the
+    # build's user agent, so a new build moves every digest.
+    GOLDEN_BUILD = "152.0.7977.83"
     GOLDEN_PROFILES = {
         # On this ARM host the Windows persona draws the Adreno family (patch
         # 0154); seed 12345 draws the 12-core X1-85, which the 14-core host
@@ -1015,8 +1018,18 @@ class CompositionTests(unittest.TestCase):
         they were taken against, the pin is stale rather than wrong, and the
         honest result is to say so and name the one thing that can move it.
         """
+        build = resolver.load_catalogue()["browser_build"]
         moved = set(profile) ^ set(sections)
-        if moved:
+        reason = None
+        if build != self.GOLDEN_BUILD:
+            reason = (
+                f"{persona}: the golden digest was taken on Chromium "
+                f"{self.GOLDEN_BUILD} and the catalogue now pins {build}. The "
+                "digest was produced by the C++ compositor, so only a build can "
+                "refresh it -- see docs/contributing/releases.mdx, 'Refresh the "
+                "golden profile digests'."
+            )
+        elif moved:
             reason = (
                 f"{persona}: the golden digest covers "
                 f"{len(sections)} sections and the composition now has "
@@ -1026,6 +1039,7 @@ class CompositionTests(unittest.TestCase):
                 "profile digests'. Recomputing it here would make the test "
                 "compare this module against itself."
             )
+        if reason:
             if os.environ.get("APOSTATE_REQUIRE_NATIVE_GOLDENS"):
                 self.fail(reason)
             self.skipTest(reason)
@@ -1052,7 +1066,7 @@ class CompositionTests(unittest.TestCase):
         for persona, (profile_id, sections, digest) in self.GOLDEN_PROFILES.items():
             profile = resolver.resolve_profile(dict(
                 self.GOLDEN_HOST, fingerprint=12345, fingerprint_platform=persona,
-                browser_build="152.0.7977.83"))
+                browser_build=resolver.load_catalogue()["browser_build"]))
             # The identity is derived from the seed root alone, so it is
             # comparable whatever the composition grew, and it is what proves
             # the two implementations still agree on the seed derivation.
@@ -1063,7 +1077,7 @@ class CompositionTests(unittest.TestCase):
                 stale.append(str(skipped))
         macos = resolver.resolve_profile(dict(
             self.GOLDEN_HOST, fingerprint=12345, fingerprint_platform="macos",
-            browser_build="152.0.7977.83", locale_policy="en-us"))
+            browser_build=resolver.load_catalogue()["browser_build"], locale_policy="en-us"))
         self.assertTrue(any(ord(char) > 127 for voice in macos["speech"]["voices"]
                             for char in voice["name"]),
                         "the macOS digest only proves escaping agreement if it has non-ASCII")
@@ -1121,7 +1135,8 @@ class CompositionTests(unittest.TestCase):
         self.assertEqual(0x19d1abcfc04392c7, resolver.draw(root, "cpu", 0))
         profile = resolver.resolve_profile({
             "fingerprint": 12345, "fingerprint_platform": "windows",
-            "browser_build": "152.0.7977.83", "host_platform": "macos",
+            "browser_build": resolver.load_catalogue()["browser_build"],
+            "host_platform": "macos",
             "host_backend": "ANGLE/Metal", "host_logical_cores": 14,
             "host_total_bytes": 38654705664, "host_architecture": "arm",
         })

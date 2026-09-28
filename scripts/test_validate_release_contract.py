@@ -12,6 +12,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent.parent
+CHROMIUM_VERSION = (ROOT / "build" / "CHROMIUM_VERSION").read_text(encoding="utf-8").strip()
 
 
 def run_validator(kind: str, value: dict[str, object]) -> subprocess.CompletedProcess[str]:
@@ -76,10 +77,10 @@ class ContractValidatorTests(unittest.TestCase):
     def test_manifest_requires_exactly_the_release_fields(self) -> None:
         value = {
             "package_version": "0.1.0",
-            "chromium_version": "152.0.7977.83",
+            "chromium_version": CHROMIUM_VERSION,
             "catalogue_version": 1,
             "platform": "linux-x64",
-            "artifact": "apostate-152.0.7977.83-linux-x64.tar.zst",
+            "artifact": f"apostate-{CHROMIUM_VERSION}-linux-x64.tar.zst",
             "sha256": "a" * 64,
             "source_revision": "b" * 40,
             "patch_series_sha256": "c" * 64,

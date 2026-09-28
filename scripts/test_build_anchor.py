@@ -25,6 +25,8 @@ SPEC = importlib.util.spec_from_file_location("build_anchor", SCRIPT)
 BUILD = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(BUILD)
 
+# The pin the Intel capture was measured against, for tests of other refusals.
+INTEL_PIN = json.loads(INTEL.read_text(encoding="utf-8"))["release_pin"]
 
 def run(*args: str) -> subprocess.CompletedProcess:
     return subprocess.run([sys.executable, str(SCRIPT), *args],
@@ -33,16 +35,20 @@ def run(*args: str) -> subprocess.CompletedProcess:
 
 class BuildAnchorTests(unittest.TestCase):
     def test_intel_anchor_is_reproduced_byte_for_byte(self) -> None:
-        result = run(str(INTEL_CAPTURE), "--host-architecture", "x86")
+        result = run(str(INTEL_CAPTURE), "--host-architecture", "x86", "--release-pin", INTEL_PIN)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, INTEL.read_text(encoding="utf-8"))
 
     def test_every_committed_anchor_is_reproduced(self) -> None:
-        """Only the fields no capture holds are passed in: the software anchor's prose."""
+        """Only the fields no capture holds are passed in: the software anchor's prose.
+
+        Each anchor is rebuilt against the release pin it records, which is the
+        pin it was measured against, not necessarily today's.
+        """
         peers = [BUILD._strip(peer) for peer in BUILD.load_anchors(ANCHORS)]
-        pin = BUILD.read_release_pin()
         for path in sorted(ANCHORS.glob("*.json")):
             committed = json.loads(path.read_text(encoding="utf-8"))
+            pin = committed["release_pin"]
             with self.subTest(anchor=committed["anchor_id"]):
                 extra = {key: committed[key] for key in ("software_anchor_policy",) if key in committed}
                 built = BUILD.build_anchor(
@@ -61,7 +67,7 @@ class BuildAnchorTests(unittest.TestCase):
         self.assertEqual(anchor["anchor_sha256"], BUILD.sha256_of(anchor["capability_cluster"]))
 
     def test_captures_of_two_vendors_are_refused(self) -> None:
-        result = run(str(INTEL_CAPTURE), str(ADRENO_CAPTURE))
+        result = run(str(INTEL_CAPTURE), str(ADRENO_CAPTURE), "--release-pin", INTEL_PIN)
         self.assertEqual(result.returncode, 1)
         self.assertIn("has vendor 'Qualcomm' where", result.stderr)
 
@@ -73,7 +79,7 @@ class BuildAnchorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             other = Path(temporary) / "windows-intel-other.json"
             other.write_text(json.dumps(capture), encoding="utf-8")
-            result = run(str(INTEL_CAPTURE), str(other))
+            result = run(str(INTEL_CAPTURE), str(other), "--release-pin", INTEL_PIN)
         self.assertEqual(result.returncode, 1)
         self.assertIn("differ on webgl2_caps_sha256, so they are not one GPU family", result.stderr)
 

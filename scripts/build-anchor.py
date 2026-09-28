@@ -228,8 +228,13 @@ def _browser_version(user_agent_data: Mapping[str, Any], where: str) -> str:
     return version
 
 
-def _is_admitted(raw: bytes, capture: Any) -> str | None:
-    """None when the capture is admitted, else the reason it is not."""
+def _is_admitted(raw: bytes, capture: Any, release_pin: str) -> str | None:
+    """None when the capture is admitted, else the reason it is not.
+
+    A capture with no admission record is checked against the major of
+    `release_pin`, not of build/CHROMIUM_VERSION, so an anchor built against an
+    earlier pin can still be reproduced after a Chromium update.
+    """
     digest = hashlib.sha256(raw).hexdigest()
     record = ADMISSIONS_DIR / f"{digest}.json"
     if record.is_file():
@@ -237,7 +242,9 @@ def _is_admitted(raw: bytes, capture: Any) -> str | None:
         if decision.get("raw_sha256") == digest and decision.get("decision") == "accepted":
             return None
         return f"its admission record says {decision.get('decision')!r}: {decision.get('reason')}"
-    return _load_decomposer().admission_rejection_reason(capture)
+    decomposer = _load_decomposer()
+    decomposer.EXPECTED_BROWSER_MAJOR = int(_major(release_pin))
+    return decomposer.admission_rejection_reason(capture)
 
 
 def _display_path(path: Path) -> str:
@@ -253,7 +260,7 @@ def read_member(path: Path, release_pin: str, allow_unadmitted: bool = False) ->
     raw = path.read_bytes()
     capture = json.loads(raw)
     where = path.name
-    refusal = _is_admitted(raw, capture)
+    refusal = _is_admitted(raw, capture, release_pin)
     if refusal is not None and not allow_unadmitted:
         raise AnchorError(f"{where} is not an admitted capture: {refusal}")
 
