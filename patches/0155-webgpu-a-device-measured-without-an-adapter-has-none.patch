@@ -12,7 +12,7 @@ profile says so, on any host. Members that measured an adapter are
 unchanged.
 
 diff --git a/base/apostate/compose.cc b/base/apostate/compose.cc
-index 8ba4c7f..5725500 100644
+index 8ba4c7f..86b66b3 100644
 --- a/base/apostate/compose.cc
 +++ b/base/apostate/compose.cc
 @@ -1573,10 +1573,11 @@ std::optional<Composition> Compose(const ComposeRequest& request,
@@ -31,7 +31,7 @@ index 8ba4c7f..5725500 100644
          const ClaimedIdentity identity =
              IdentityFromProfile(composition.profile);
          const AnchorMember* member =
-@@ -1603,17 +1604,16 @@ std::optional<Composition> Compose(const ComposeRequest& request,
+@@ -1603,17 +1604,17 @@ std::optional<Composition> Compose(const ComposeRequest& request,
                .limitation = std::string(),
            });
          } else if (member) {
@@ -39,7 +39,8 @@ index 8ba4c7f..5725500 100644
 -              "the resolved member measured no WebGPU adapter, so WebGPU is "
 -              "the host's own rather than a sibling member's";
 +          MergeFragment(composition.profile,
-+                        ParseFragment("webgpu", R"({"available":false})"),
++                        ParseFragment("webgpu",
++                                      R"({"webgpu":{"available":false}})"),
 +                        request.union_array_paths);
            composition.surfaces.push_back({
                .surface = "webgpu",

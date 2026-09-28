@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 import gaps
-from harness import TABLES, WINDOWS_ALIASES, host_facts
+from harness import ROOT, TABLES, WINDOWS_ALIASES, host_facts
 
 PLATFORMS = {"windows": "Windows", "macos": "macOS", "linux": "Linux"}
 UA_TOKENS = {"windows": "Windows NT 10.0; Win64; x64", "macos": "Macintosh; Intel Mac OS X", "linux": "X11; Linux x86_64"}
@@ -156,7 +156,12 @@ def test_webgpu(case, record):
     webgpu = case.values["window"]["webgpu"]
     want = profile.get("webgpu")
     if not want:
-        pytest.skip("the profile claims no WebGPU adapter")
+        pytest.skip("the profile leaves WebGPU to the host")
+    if want.get("available") is False:
+        # The claimed device reported no adapter when it was captured (patch 0155).
+        record["webgpu"] = webgpu
+        assert not webgpu.get("available"), f"the claimed device has no WebGPU adapter and the page has one: {webgpu}"
+        return
     if not webgpu.get("available") or not webgpu.get("vendor"):
         record["webgpu"] = webgpu
         if sys.platform.startswith("linux") and not case.launch.headed:
@@ -281,3 +286,38 @@ def test_the_gpu_matches_the_cpu_family(case, record):
     gap = "arm-windows-gpu" if architecture == "arm" and not adreno else None
     compare(record, pairs, gap, allowed=set(pairs))
 
+
+def _measured_member(renderer):
+    """The corpus member whose captured WebGL renderer is *renderer*, and its WebGPU adapter."""
+    for path in sorted((ROOT / "corpus" / "anchors").glob("*.json")):
+        anchor = json.loads(path.read_text())
+        for member in anchor.get("members", []):
+            if ((member.get("identity") or {}).get("webgl1") or {}).get("unmaskedRenderer") != renderer:
+                continue
+            capture = member["capture"].rsplit("/", 1)[-1]
+            for variant in anchor["capability_cluster"]["webgpu"]["variants"]:
+                if capture in variant["members"]:
+                    adapters = variant["cluster"]["adapters"]
+                    return member, adapters.get("high-performance") or adapters.get("low-power")
+            return member, None
+    return None, None
+
+
+def test_webgpu_is_the_captured_devices(case, record):
+    """A persona that claims a measured GPU gets that GPU's WebGPU adapter, or none when the capture had none."""
+    profile_of(case)
+    renderer = case.values["window"]["webgl"]["renderer"]
+    member, adapter = _measured_member(renderer)
+    if member is None:
+        pytest.skip("the renderer is a registered identity, not a captured one")
+    webgpu = case.values["window"]["webgpu"]
+    record.update(renderer=renderer, captured_adapter=bool(adapter), page_adapter=webgpu.get("available"))
+    if adapter is None:
+        assert not webgpu.get("available"), f"{member['device']} had no WebGPU adapter and the page has one: {webgpu}"
+        return
+    if not webgpu.get("available"):
+        if sys.platform.startswith("linux") and not case.launch.headed:
+            gaps.expect(record, "linux-headless-webgpu")
+        pytest.fail(f"{member['device']} had a WebGPU adapter and the page has none")
+    compare(record, {"vendor": (webgpu["vendor"], adapter["vendor"]),
+                     "architecture": (webgpu["architecture"], adapter["architecture"])})
