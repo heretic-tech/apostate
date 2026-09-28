@@ -28,7 +28,7 @@
 # SOURCES
 #
 # .workspace/src/docs/windows_build_instructions.md:54-56 requires
-#   "[Windows 11 SDK] version 10.0.26100.7705", and build/WINDOWS_SDK_INSTALLER_*
+#   "[Windows 11 SDK] version 10.0.28000.2270", and build/WINDOWS_SDK_INSTALLER_*
 #   pins that exact release. Chromium names a revision, not a floor, and the
 #   pin travels with build/CHROMIUM_VERSION.
 #
@@ -47,7 +47,8 @@
 #   edges on SDK 10.0.26100.4654 and failed with
 #   "error: unknown type name 'IUIAutomationClientInfo'".
 #
-#   Both are confirmed present in 10.0.26100.7705 and confirmed absent from an
+#   Both are confirmed present in 10.0.26100.7705 and 10.0.28000.2270 (x64
+#   and x86 uuid.lib alike) and confirmed absent from an
 #   earlier 26100 revision, by reading the official Microsoft.Windows.SDK.CPP
 #   NuGet packages for each -- the same headers the installer lays down, so the
 #   pin is verified against the bytes rather than against the release notes, and
@@ -90,6 +91,12 @@
 #   26100, and build/vs_toolchain.py only bothers checking for
 #   IDCompositionDevice4 when the SDK's major build is <= 22621.
 #
+# bin/<version>/x64/midl.exe and Lib/<version>/um/x86 are listed because SDK
+#   10.0.28000 is a major the runner image does not carry. The build runs
+#   midl.exe from bin/<version> (build/toolchain/win/midl.py), and
+#   setup_toolchain.py fails for the x86 toolchain when its LIB directories do
+#   not exist. midl.exe has a version resource, so that row is numeric.
+#
 # ADDING A ROW
 #
 # A row belongs here when a build input's adequacy depends on an SDK servicing
@@ -111,3 +118,5 @@ symbol	Include/<version>/um	IUIAutomationClientInfoSource
 symbol	Include/<version>/um	IUIAutomationClientInfo
 libsymbol	Lib/<version>/um/x64/uuid.lib	CLSID_CUIAutomationClientInfoSource
 version	Debuggers/x64/dbghelp.dll	10.0.26100.3323
+libsymbol	Lib/<version>/um/x86/uuid.lib	CLSID_CUIAutomationClientInfoSource
+version	bin/<version>/x64/midl.exe	10.0.28000.2270

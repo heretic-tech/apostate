@@ -15,7 +15,11 @@
 # SDK root, with <version> replaced by build/WINDOWS_SDK_VERSION:
 #
 #   include   c/Include/<version>/  ->  <SDK>/Include/<version>/
+#   bin       c/bin/<version>/{x64,x86}/  ->  <SDK>/bin/<version>/{x64,x86}/
 #   lib-x64   c/um/x64/ and c/ucrt/x64/  ->  <SDK>/Lib/<version>/{um,ucrt}/x64/
+#   lib-x86   c/um/x86/ and c/ucrt/x86/  ->  <SDK>/Lib/<version>/{um,ucrt}/x86/
+#
+# A package may name several destinations, separated by commas.
 #
 # WHY NOT THE SDK INSTALLER
 #
@@ -42,12 +46,15 @@
 #
 # WHAT IS AND IS NOT COVERED
 #
-# The x86 libraries are deliberately not overlaid, so <SDK>/Lib/<version>/um/x86
-# stays at whatever revision the image carries. Nothing links x86 here: no
-# windows-x86 target exists, and the only reason an x86 toolchain is configured
-# at all is that build/toolchain/win/BUILD.gn instantiates win_toolchains("x86")
-# alongside x64, whose setup only requires the directories to EXIST. A mixed
-# revision is worth naming rather than hiding, and this is where it is named.
+# Chrome 155 moved to SDK 10.0.28000, a major the runner image does not carry,
+# so the overlay lays down the whole tree the build reads rather than refreshing
+# one that exists: headers, the x64 and x86 libraries, and bin/<version>, whose
+# midl.exe the build runs from PATH. The x86 libraries are there because
+# build/toolchain/win/BUILD.gn instantiates win_toolchains("x86") alongside x64
+# and setup_toolchain.py fails when a LIB directory does not exist; nothing
+# links x86. The Debugging Tools are not in these packages and still come from
+# the installer, but they live outside the versioned directories and the image
+# already carries a new enough dbghelp.dll.
 #
 # The libraries are overlaid and not only the headers, because the headers alone
 # would compile and then fail at link. um/UIAutomationCore.h declares
@@ -57,5 +64,6 @@
 # CoCreateInstance. The series compile gate never links, so the gate would not
 # have caught that and a nightly build would have.
 
-microsoft.windows.sdk.cpp	ff455660bee071a744715a9665666fa29c07681579d3d815959a9eec5a556424	include
-microsoft.windows.sdk.cpp.x64	ad6ce90ff94010699d29548b3c2b1e52c89eb81143e2199155d9a5c38001b52b	lib-x64
+microsoft.windows.sdk.cpp	0a4887a64d1b17128f9ffd80032f20debabf943f34eea927aac00cc46cb32879	include,bin
+microsoft.windows.sdk.cpp.x64	72076d00b16c3882bf9eab0c80e350f33d8bc65e5f29e2f0e9b66a3f2569ccb1	lib-x64
+microsoft.windows.sdk.cpp.x86	5bf7b8811cd8e7640b5475ddbbf0a873f90077622c73bc6f6c2f1d368d5d55e3	lib-x86

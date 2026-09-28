@@ -338,7 +338,7 @@ fi
 # still pinned by URL and by SHA-256, because a pinned URL only promises a name.
 #
 # Which Include/Lib DIRECTORY the build uses is not decided here and cannot
-# drift: build/vs_toolchain.py hardcodes SDK_VERSION = '10.0.26100.0' and
+# drift: build/vs_toolchain.py hardcodes SDK_VERSION = '10.0.28000.0' and
 # prints it verbatim as gn's sdk_version, with
 # build/toolchain/win/setup_toolchain.py holding a second copy as a
 # cross-check. That is also precisely why the revision needs its own table: an
@@ -446,7 +446,8 @@ combination does not exist on nuget.org; check the version before repinning."
   7z x -bso0 -bsp0 -y -o"$extract_win" "$nupkg" > /dev/null ||
     die "could not extract $nupkg"
 
-  case "$dest" in
+  for part_dest in ${dest//,/ }; do
+  case "$part_dest" in
     include)
       src="$extract/c/Include/$sdk_version"
       [ -d "$src" ] ||
@@ -457,18 +458,32 @@ build/WINDOWS_SDK_VERSION no longer matches the packages' directory name."
       cp -rf "$src/." "$sdk_root/Include/$sdk_version/" ||
         die "could not overlay headers; the SDK tree may not be writable"
       ;;
-    lib-x64)
-      for part in um ucrt; do
-        src="$extract/c/$part/x64"
-        [ -d "$src" ] || die "$pkg has no c/$part/x64"
-        say "overlaying $part x64 libraries into $sdk_root/Lib/$sdk_version/$part/x64"
-        mkdir -p "$sdk_root/Lib/$sdk_version/$part/x64"
-        cp -rf "$src/." "$sdk_root/Lib/$sdk_version/$part/x64/" ||
-          die "could not overlay $part x64 libraries"
+    bin)
+      # midl.exe and the other SDK tools the build runs from PATH. An image
+      # that does not carry this SDK major has no bin/<version> at all.
+      for arch in x64 x86; do
+        src="$extract/c/bin/$sdk_version/$arch"
+        [ -d "$src" ] || die "$pkg has no c/bin/$sdk_version/$arch"
+        say "overlaying $arch tools into $sdk_root/bin/$sdk_version/$arch"
+        mkdir -p "$sdk_root/bin/$sdk_version/$arch"
+        cp -rf "$src/." "$sdk_root/bin/$sdk_version/$arch/" ||
+          die "could not overlay $arch tools"
       done
       ;;
-    *) die "build/WINDOWS_SDK_PACKAGES has an unknown destination '$dest'" ;;
+    lib-x64|lib-x86)
+      arch="${part_dest#lib-}"
+      for part in um ucrt; do
+        src="$extract/c/$part/$arch"
+        [ -d "$src" ] || die "$pkg has no c/$part/$arch"
+        say "overlaying $part $arch libraries into $sdk_root/Lib/$sdk_version/$part/$arch"
+        mkdir -p "$sdk_root/Lib/$sdk_version/$part/$arch"
+        cp -rf "$src/." "$sdk_root/Lib/$sdk_version/$part/$arch/" ||
+          die "could not overlay $part $arch libraries"
+      done
+      ;;
+    *) die "build/WINDOWS_SDK_PACKAGES has an unknown destination '$part_dest'" ;;
   esac
+  done
   overlaid=$((overlaid + 1))
 done < <(windows_sdk_packages)
 say "overlaid $overlaid pinned SDK package(s) at $version"

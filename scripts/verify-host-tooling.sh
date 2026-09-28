@@ -275,10 +275,10 @@ case "$target" in
               case "$?" in
                 0) note "present  $expected, declared under $path" ;;
                 2) fail "no directory $sdk_root/$path, so $expected cannot be checked
-      install: Windows 11 SDK ${want_revision:-10.0.26100.7705}
+      install: Windows 11 SDK ${want_revision:-10.0.28000.2270}
       needed by: build/WINDOWS_SDK_REQUIREMENTS" ;;
                 *) fail "$expected is not declared by any header under $sdk_root/$path
-      install: Windows 11 SDK ${want_revision:-10.0.26100.7705}; this SDK is an OLDER servicing revision
+      install: Windows 11 SDK ${want_revision:-10.0.28000.2270}; this SDK is an OLDER servicing revision
       needed by: build/WINDOWS_SDK_REQUIREMENTS, which cites the consumer. The
       directories are all present -- the revision is what is wrong, and the
       directory names cannot show it" ;;
@@ -293,10 +293,10 @@ case "$target" in
               case "$?" in
                 0) note "present  $expected, defined in $path" ;;
                 2) fail "no library at $sdk_root/$path, so $expected cannot be checked
-      install: Windows 11 SDK ${want_revision:-10.0.26100.7705}
+      install: Windows 11 SDK ${want_revision:-10.0.28000.2270}
       needed by: build/WINDOWS_SDK_REQUIREMENTS" ;;
                 *) fail "$expected is not defined by $sdk_root/$path
-      install: Windows 11 SDK ${want_revision:-10.0.26100.7705}; this library is an OLDER servicing revision
+      install: Windows 11 SDK ${want_revision:-10.0.28000.2270}; this library is an OLDER servicing revision
       needed by: build/WINDOWS_SDK_REQUIREMENTS. The header that declares this
       symbol may well be current -- a compile would succeed and the LINK would
       fail, which the compile-only gate cannot catch" ;;
@@ -306,13 +306,13 @@ case "$target" in
               got_version="$(windows_file_version "$sdk_root/$path" || true)"
               if [ -z "$got_version" ]; then
                 fail "cannot read a FileVersion from $sdk_root/$path
-      install: Windows 11 SDK ${want_revision:-10.0.26100.7705}
+      install: Windows 11 SDK ${want_revision:-10.0.28000.2270}
       needed by: build/WINDOWS_SDK_REQUIREMENTS requires it to be >= $expected"
               elif version_at_least "$got_version" "$expected"; then
                 note "present  $path is $got_version (>= $expected)"
               else
                 fail "$sdk_root/$path is $got_version, older than the required $expected
-      install: Windows 11 SDK ${want_revision:-10.0.26100.7705} including \"Debugging Tools for Windows\"
+      install: Windows 11 SDK ${want_revision:-10.0.28000.2270} including \"Debugging Tools for Windows\"
       needed by: docs/windows_build_instructions.md, for reading the large-page PDBs Chrome uses above 4 GiB"
               fi
               ;;
