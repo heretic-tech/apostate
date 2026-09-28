@@ -19,9 +19,13 @@ def app_url():
 
 @pytest.fixture(scope="session")
 def browser():
-    # A fixed seed gives every run, on every host, the same machine, so a failure reproduces.
+    # A fixed seed gives every run the same machine, so a failure reproduces. The
+    # machine a seed draws depends on the host's CPU family, so the screen the tests
+    # assert is pinned, and holds on x86 and ARM hosts alike.
     with launch(fingerprint=42, fingerprint_platform="windows",
-                locale="en-US", timezone="America/New_York", geoip=False) as browser:
+                locale="en-US", timezone="America/New_York", geoip=False,
+                args=["--fingerprint-screen-width=1920",
+                      "--fingerprint-screen-height=1080"]) as browser:
         yield browser
 
 
