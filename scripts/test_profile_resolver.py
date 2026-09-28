@@ -994,12 +994,10 @@ class CompositionTests(unittest.TestCase):
     })
     GOLDEN_PROFILES = {
         # On this ARM host the Windows persona draws the Adreno family (patch
-        # 0154). This digest was taken when the family's one member was the
-        # 18-core X2-90, so the 14-core host served no cpu section. Seed 12345
-        # now draws the 12-core X1-85 and carries cpu, so the pin is stale
-        # until a native build refreshes it against GOLDEN_SECTIONS.
-        "windows": ("fp-b0b97b3a3531b65ee50f45fc", GOLDEN_SECTIONS - {"cpu"},
-                    "e9365784b9585a28d420b35831a419b0a8ec96a993b5602c85900b19e6711202"),
+        # 0154); seed 12345 draws the 12-core X1-85, which the 14-core host
+        # can serve. Refreshed from a native build of 69d6c1a.
+        "windows": ("fp-b0b97b3a3531b65ee50f45fc", GOLDEN_SECTIONS,
+                    "dfdf800039847434f32ac67db0110cd6d5f196e9a5127f6e5d0f9d708276dd78"),
         "macos": ("fp-60eab51485a4a8465ce3c24a", GOLDEN_SECTIONS,
                   "3738d7b64c6b52da997aac166ad6343f365821075562e66bfa860c56f4ff4b5e"),
         "linux": ("fp-8c5f63da9ef88ea749549a91", GOLDEN_SECTIONS,
