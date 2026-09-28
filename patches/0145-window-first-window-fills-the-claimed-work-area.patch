@@ -12,7 +12,7 @@ platform's default placement on it. Explicit bounds, --window-size,
 --window-position, --start-maximized and saved placement stay upstream.
 
 diff --git a/chrome/browser/ui/window_sizer/window_sizer.cc b/chrome/browser/ui/window_sizer/window_sizer.cc
-index 54369c7b79..3d4423e0d6 100644
+index 54369c7b79..3011db126c 100644
 --- a/chrome/browser/ui/window_sizer/window_sizer.cc
 +++ b/chrome/browser/ui/window_sizer/window_sizer.cc
 @@ -5,8 +5,11 @@
@@ -27,7 +27,7 @@ index 54369c7b79..3d4423e0d6 100644
  #include "base/command_line.h"
  #include "base/functional/function_ref.h"
  #include "base/memory/raw_ptr.h"
-@@ -206,6 +209,97 @@ class DefaultStateProvider : public WindowSizer::StateProvider {
+@@ -206,6 +209,99 @@ class DefaultStateProvider : public WindowSizer::StateProvider {
    const raw_ptr<BrowserWindowInterface> browser_;
  };
  
@@ -47,13 +47,15 @@ index 54369c7b79..3d4423e0d6 100644
 +// window_sizer_aura.cc.
 +//
 +// A null browser is a caller asking for a new window's bounds before there is
-+// a Browser. Other window types, and the switches that decide where a window
++// a browser window. Other window types, and the switches that decide where a window
 +// goes, keep upstream placement.
-+std::optional<gfx::Rect> ClaimedWindowBounds(const Browser* browser,
-+                                             const display::Display& display,
-+                                             bool* fills_work_area) {
++std::optional<gfx::Rect> ClaimedWindowBounds(
++    const BrowserWindowInterface* browser,
++    const display::Display& display,
++    bool* fills_work_area) {
 +  const base::apostate::Profile* profile = base::apostate::Profile::Get();
-+  if (!profile || (browser && !browser->is_type_normal())) {
++  if (!profile || (browser && browser->GetType() !=
++                                  BrowserWindowInterface::Type::TYPE_NORMAL)) {
 +    return std::nullopt;
 +  }
 +  const base::CommandLine& command_line =
@@ -125,7 +127,7 @@ index 54369c7b79..3d4423e0d6 100644
  }  // namespace
  
  WindowSizer::WindowSizer(std::unique_ptr<StateProvider> state_provider,
-@@ -253,8 +347,18 @@ void WindowSizer::DetermineWindowBoundsAndShowState(
+@@ -253,8 +349,18 @@ void WindowSizer::DetermineWindowBoundsAndShowState(
      gfx::Rect* bounds,
      ui::mojom::WindowShowState* show_state) {
    if (bounds->IsEmpty()) {
@@ -144,7 +146,7 @@ index 54369c7b79..3d4423e0d6 100644
        return;
      }
      // See if there's saved placement information.
-@@ -264,7 +368,7 @@ void WindowSizer::DetermineWindowBoundsAndShowState(
+@@ -264,7 +370,7 @@ void WindowSizer::DetermineWindowBoundsAndShowState(
  
      // No saved placement, figure out some sensible default size based on
      // the user's screen size.

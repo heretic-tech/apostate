@@ -11,12 +11,12 @@ identity, limits and validation stay as SwiftShader reports them, and
 other profiles and contexts keep the upstream behavior.
 
 diff --git a/gpu/apostate_dawn_software_check.cc b/gpu/apostate_dawn_software_check.cc
-index 2c68aeacf5..79df21678c 100644
+index 2369257389..b546ca64ea 100644
 --- a/gpu/apostate_dawn_software_check.cc
 +++ b/gpu/apostate_dawn_software_check.cc
-@@ -384,6 +384,7 @@ bool Run(State& state) {
+@@ -383,6 +383,7 @@ bool Run(State& state) {
+   dawn::native::DawnInstanceDescriptor native_desc;
    native_desc.nextInChain = &toggles;
-   native_desc.additionalRuntimeSearchPathsCount = 1;
    native_desc.additionalRuntimeSearchPaths = paths;
 +  native_desc.onlyUseSwiftShader = true;
    native_desc.backendValidationLevel = dawn::native::BackendValidationLevel::Full;
@@ -172,7 +172,7 @@ index 6c0e5660d0..255dab2d59 100644
      }
  
 diff --git a/gpu/config/webgpu_blocklist_unittest.cc b/gpu/config/webgpu_blocklist_unittest.cc
-index 37802c6129..845df80947 100644
+index 37802c6129..5edb56f853 100644
 --- a/gpu/config/webgpu_blocklist_unittest.cc
 +++ b/gpu/config/webgpu_blocklist_unittest.cc
 @@ -4,6 +4,8 @@
@@ -275,13 +275,14 @@ index 37802c6129..845df80947 100644
 +}
 +
 +TEST(ProfileSoftwareWebGPUPolicyTest, InvalidExclusivePathsNeverDiscoverAdapters) {
-+  const char* relative[] = {"relative/"};
-+  const char* multiple[] = {"/first/", "/second/"};
++  std::string_view relative[] = {"relative/"};
++  std::string_view multiple[] = {"/first/", "/second/"};
 +  for (unsigned variant : {0u, 1u, 2u}) {
 +    dawn::native::DawnInstanceDescriptor native_desc;
 +    native_desc.onlyUseSwiftShader = true;
-+    native_desc.additionalRuntimeSearchPathsCount = variant;
-+    native_desc.additionalRuntimeSearchPaths = variant == 1 ? relative : multiple;
++    native_desc.additionalRuntimeSearchPaths =
++        variant == 1 ? std::span<std::string_view>(relative)
++                     : std::span<std::string_view>(multiple).first(variant);
 +    wgpu::InstanceDescriptor desc;
 +    desc.nextInChain = &native_desc;
 +    dawn::native::Instance instance(&desc);
@@ -293,10 +294,9 @@ index 37802c6129..845df80947 100644
 +}
 +
 +TEST(ProfileSoftwareWebGPUPolicyTest, ExclusiveInstanceCannotProbeOtherBackends) {
-+  const char* paths[] = {"/not-probed/"};
++  std::string_view paths[] = {"/not-probed/"};
 +  dawn::native::DawnInstanceDescriptor native_desc;
 +  native_desc.onlyUseSwiftShader = true;
-+  native_desc.additionalRuntimeSearchPathsCount = 1;
 +  native_desc.additionalRuntimeSearchPaths = paths;
 +  wgpu::InstanceDescriptor desc;
 +  desc.nextInChain = &native_desc;

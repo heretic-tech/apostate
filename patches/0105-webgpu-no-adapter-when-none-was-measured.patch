@@ -87,7 +87,7 @@ index 03ca36524f..5094386246 100644
    }
  #endif
 diff --git a/gpu/config/webgpu_blocklist_unittest.cc b/gpu/config/webgpu_blocklist_unittest.cc
-index 845df80947..f22bff03bb 100644
+index 5edb56f853..b6f2958868 100644
 --- a/gpu/config/webgpu_blocklist_unittest.cc
 +++ b/gpu/config/webgpu_blocklist_unittest.cc
 @@ -213,6 +213,7 @@ TEST(ProfileSoftwareWebGPUPolicyTest, RequiresProfileAndActualSoftwareContext) {

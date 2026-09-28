@@ -113,7 +113,7 @@ index 5094386246..09fbf4eb58 100644
    }
  #endif
 diff --git a/gpu/config/webgpu_blocklist_unittest.cc b/gpu/config/webgpu_blocklist_unittest.cc
-index f22bff03bb..86eae0a40d 100644
+index b6f2958868..fecd49095e 100644
 --- a/gpu/config/webgpu_blocklist_unittest.cc
 +++ b/gpu/config/webgpu_blocklist_unittest.cc
 @@ -207,32 +207,25 @@ TEST_F(WebGPUBlocklistTest, BlockDriverDescription) {

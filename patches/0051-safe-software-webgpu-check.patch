@@ -36,10 +36,10 @@ index d7056881ab..18eed76d46 100644
 +}
 diff --git a/gpu/apostate_dawn_software_check.cc b/gpu/apostate_dawn_software_check.cc
 new file mode 100644
-index 0000000000..2c68aeacf5
+index 0000000000..2369257389
 --- /dev/null
 +++ b/gpu/apostate_dawn_software_check.cc
-@@ -0,0 +1,552 @@
+@@ -0,0 +1,551 @@
 +// Test-only executable. Never add this target to browser packaging.
 +#include <dlfcn.h>
 +#include <unistd.h>
@@ -421,10 +421,9 @@ index 0000000000..2c68aeacf5
 +  wgpu::DawnTogglesDescriptor toggles;
 +  toggles.disabledToggleCount = std::size(disabled);
 +  toggles.disabledToggles = disabled;
-+  const char* paths[] = {"/provider/"};
++  std::string_view paths[] = {"/provider/"};
 +  dawn::native::DawnInstanceDescriptor native_desc;
 +  native_desc.nextInChain = &toggles;
-+  native_desc.additionalRuntimeSearchPathsCount = 1;
 +  native_desc.additionalRuntimeSearchPaths = paths;
 +  native_desc.backendValidationLevel = dawn::native::BackendValidationLevel::Full;
 +  native_desc.SetLoggingCallback([](wgpu::LoggingType, wgpu::StringView message, State* state) {
