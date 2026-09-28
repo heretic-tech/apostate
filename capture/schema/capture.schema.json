@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/apostate/apostate/capture/schema/capture.schema.json",
   "title": "Native capture",
-  "description": "Lossless record of what a real device emitted. Only capture version 2 records with explicit provenance, no automation signals, a Chromium 152 identity, and complete deterministic repeats are eligible for corpus admission.",
+  "description": "Lossless record of what a real device emitted. Only capture version 2 records with explicit provenance, no automation signals, a Chromium identity of the major in build/CHROMIUM_VERSION, and complete deterministic repeats are eligible for corpus admission.",
   "type": "object",
   "additionalProperties": false,
   "required": ["capture_version", "context", "probes", "repeat"],

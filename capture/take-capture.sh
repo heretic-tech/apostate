@@ -7,21 +7,22 @@
 # WebDriver and no injected script, because the receiver rejects any capture
 # carrying an automation signal.
 #
-# Chrome is pinned, and the pin tracks WHAT THE RECEIVER ACCEPTS, not what we
-# build. probe.chaser.sh currently refuses anything else: a 152 capture comes
-# back 422 "context.ua reports Chrome 152; release requires Chromium 153".
-# That is survivable only because a rented GPU box contributes its GPU
-# cluster and nothing else, and the cluster was measured clean across the
-# 152/153 boundary -- extension lists, precision tables and WebGPU limits
-# identical, with the four differing WebGL limits all explained by ANGLE's
-# NVIDIA-on-D3D11 feature gates at 152. A 153 BASE would not be usable.
-# Override with CHROME_VERSION=<version> when the receiver moves again.
+# Chrome is pinned to the Chrome for Testing build of build/CHROMIUM_VERSION,
+# because the receiver admits only captures from the major Apostate is built
+# from (capture/server/receive.py reads the same file). When the script is
+# copied to a host without the repository beside it, it falls back to the
+# version written here. Override with CHROME_VERSION=<version> for a receiver
+# that pins another major.
 #
 # Usage:  ./take-capture.sh <label>
 # Example: ./take-capture.sh rtx-4090-vast
 set -euo pipefail
 
-CHROME_VERSION="${CHROME_VERSION:-153.0.8010.52}"
+PINNED_VERSION_FILE="$(cd "$(dirname "$0")" && pwd)/../build/CHROMIUM_VERSION"
+if [ -z "${CHROME_VERSION:-}" ] && [ -f "$PINNED_VERSION_FILE" ]; then
+  CHROME_VERSION="$(tr -d '[:space:]' < "$PINNED_VERSION_FILE")"
+fi
+CHROME_VERSION="${CHROME_VERSION:-155.0.8059.12}"
 PROBE="${PROBE:-https://probe.chaser.sh}"
 LABEL="${1:-}"
 WORK="${WORK:-$HOME/.apostate-capture}"
@@ -78,7 +79,7 @@ fi
 # --------------------------------------------------------------- pinned chrome
 CHROME="$WORK/chrome-linux64/chrome"
 if [ ! -x "$CHROME" ]; then
-  say "fetching Chrome $CHROME_VERSION (pinned; stable is 153 and would be refused)"
+  say "fetching Chrome $CHROME_VERSION (pinned; the receiver refuses another major)"
   URL="https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/linux64/chrome-linux64.zip"
   curl -fsSL --retry 3 -o chrome.zip "$URL" || die "could not fetch $URL"
   unzip -q -o chrome.zip && rm -f chrome.zip
@@ -157,7 +158,7 @@ rm -f "$NETLOG"
   --enable-features=Vulkan \
   --log-net-log="$NETLOG" \
   --net-log-capture-mode=Everything \
-  --window-size="${SCREEN%x*}" \
+  --window-size="$(printf '%s' "${SCREEN%x*}" | tr x ,)" \
   "$PROBE/?auto=1&label=$LABEL" \
   >"$WORK/chrome.log" 2>&1 &
 CHROME_PID=$!

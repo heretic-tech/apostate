@@ -61,7 +61,7 @@ not kept.
 instead:
 
 ```sh
-python3 capture/collect-unattended.py --label <name> --out <dir> --chrome <chrome 152>
+python3 capture/collect-unattended.py --label <name> --out <dir> --chrome <chrome of the major in build/CHROMIUM_VERSION>
 ```
 
 Google's apt repository serves only the newest stable Chrome, but older `.deb`
