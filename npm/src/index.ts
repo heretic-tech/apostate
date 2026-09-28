@@ -44,7 +44,7 @@ import { SocksProxyAgent } from "socks-proxy-agent";
 import { HttpProxyAgent } from "http-proxy-agent";
 import { HttpsProxyAgent } from "https-proxy-agent";
 export const PACKAGE_VERSION = "0.4.4";
-export const CHROMIUM_VERSION = "152.0.7977.83";
+export const CHROMIUM_VERSION = "155.0.8059.12";
 export const CATALOGUE_VERSION = 2;
 const PROFILE_SCHEMA_VERSION = 3;
 const SUPPORTED_EVIDENCE = {
@@ -2154,7 +2154,7 @@ function safeArchiveMemberName(value) {
 // `.github/release/artifact-policy.json` says reject every symbolic link. That
 // rule cannot be satisfied and also ship macOS: the macos-arm64 artifact reaches
 // its framework payload through five relative symlinks
-// (Chromium Framework.framework/Versions/Current -> 152.0.7977.83 and four
+// (Chromium Framework.framework/Versions/Current -> the Chromium version and four
 // siblings), and a bundle without them does not launch. The property the rule
 // protects is containment, so containment is what is enforced -- a relative
 // target that stays inside the extraction root is accepted, an absolute target

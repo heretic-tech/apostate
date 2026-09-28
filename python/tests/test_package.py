@@ -935,7 +935,7 @@ print(catalogue['browser_build'])
         binary_module = importlib.import_module("apostate.binary")
         self._as_unpublished_package()
         archive_bytes = self._zip_archive({
-            "apostate-152.0.7977.83-macos-arm64/Chromium.app/Contents/MacOS/Chromium": b"native binary",
+            f"apostate-{CHROMIUM_VERSION}-macos-arm64/Chromium.app/Contents/MacOS/Chromium": b"native binary",
         })
         urls = dict(binary_module.release_manifest_urls("macos-arm64"))
         latest = urls["release-latest"]
@@ -962,7 +962,7 @@ print(catalogue['browser_build'])
                 f"apostate: release manifest fetched from {latest} (no published "
                 "manifest is baked into this package). A fetched manifest verifies "
                 "transport integrity only; for provenance run: gh attestation verify "
-                "apostate-152.0.7977.83-macos-arm64.zip --repo heretic-tech/apostate\n")
+                f"apostate-{CHROMIUM_VERSION}-macos-arm64.zip --repo heretic-tech/apostate\n")
 
             with _release(served):
                 report = manager.info(target="macos-arm64")
@@ -975,7 +975,7 @@ print(catalogue['browser_build'])
             self.assertEqual(report["manifest_trust"], "transport-integrity")
             self.assertEqual(
                 report["provenance"],
-                "gh attestation verify apostate-152.0.7977.83-macos-arm64.zip "
+                f"gh attestation verify apostate-{CHROMIUM_VERSION}-macos-arm64.zip "
                 "--repo heretic-tech/apostate")
             # The manifest is the binary release's, so it keeps that release's
             # version while this package is 0.1.1. They are different lines.
@@ -995,7 +995,7 @@ print(catalogue['browser_build'])
                 with _release(served) as mirrored:
                     report = manager.info(target="macos-arm64")
             self.assertEqual(report["artifact_url"],
-                             "https://mirror.test/a/apostate-152.0.7977.83-macos-arm64.zip")
+                             f"https://mirror.test/a/apostate-{CHROMIUM_VERSION}-macos-arm64.zip")
             self.assertEqual(mirrored, [urls["release-tag"], latest])
 
     def test_an_unreachable_release_manifest_names_both_urls_it_tried(self) -> None:
@@ -1013,7 +1013,7 @@ print(catalogue['browser_build'])
             str(raised.exception),
             "Release manifest is unpublished; Apostate binary artifacts are not "
             "available for acquisition. No release manifest for "
-            "apostate-152.0.7977.83-macos-arm64.zip could be fetched. Tried: "
+            f"apostate-{CHROMIUM_VERSION}-macos-arm64.zip could be fetched. Tried: "
             + ", ".join(urls))
         self.assertEqual(requested, urls)
         self.assertEqual(calls, [])
@@ -1028,15 +1028,15 @@ print(catalogue['browser_build'])
         latest = urls["release-latest"]
         archive_bytes = b"not really an archive"
         for label, overrides, detail in (
-            ("another Chromium", {"chromium_version": "152.0.7977.84"},
-             "chromium_version is 152.0.7977.84, not 152.0.7977.83"),
+            ("another Chromium", {"chromium_version": "1.0.0.0"},
+             f"chromium_version is 1.0.0.0, not {CHROMIUM_VERSION}"),
             ("another catalogue", {"catalogue_version": 3},
              "catalogue_version is 3, not 2"),
             ("another platform", {"platform": "linux-x64"},
              "platform is linux-x64, not macos-arm64"),
-            ("another archive", {"artifact": "apostate-152.0.7977.83-linux-x64.tar.zst"},
-             "artifact is apostate-152.0.7977.83-linux-x64.tar.zst, not "
-             "apostate-152.0.7977.83-macos-arm64.zip"),
+            ("another archive", {"artifact": f"apostate-{CHROMIUM_VERSION}-linux-x64.tar.zst"},
+             f"artifact is apostate-{CHROMIUM_VERSION}-linux-x64.tar.zst, not "
+             f"apostate-{CHROMIUM_VERSION}-macos-arm64.zip"),
             ("an uppercase digest", {"sha256": "A" * 64},
              "sha256 is not a 64-character lowercase digest"),
             ("no platform at all", {"platform": None},
@@ -1431,7 +1431,7 @@ print(catalogue['browser_build'])
         binary_module = importlib.import_module("apostate.binary")
         launch_module = importlib.import_module("apostate.launch")
         with tempfile.TemporaryDirectory() as temporary:
-            payload_root = Path(temporary) / "apostate-152.0.7977.83-macos-arm64"
+            payload_root = Path(temporary) / f"apostate-{CHROMIUM_VERSION}-macos-arm64"
             bundle = payload_root / "Chromium.app"
             executable = bundle / "Contents" / "MacOS" / "Chromium"
             executable.parent.mkdir(parents=True)

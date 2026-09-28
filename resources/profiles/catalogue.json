@@ -373,7 +373,7 @@
   "extensions",
   "locale"
  ],
- "browser_build": "152.0.7977.83",
+ "browser_build": "155.0.8059.12",
  "catalogue_id": "apostate",
  "catalogue_version": 2,
  "invariants": {
@@ -575,7 +575,7 @@
   "weighted_selection": "u64 = high 64 bits of draw(label, 0); index = (u64 * total_weight) >> 64 resolved against cumulative option weights in file order. No modulo, no rejection, no floating point."
  },
  "supported_browser_builds": [
-  "152.0.7977.83"
+  "155.0.8059.12"
  ],
  "version": 2
 }

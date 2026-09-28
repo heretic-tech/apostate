@@ -14,7 +14,7 @@
     ],
     "additional_fields": false,
     "package_version": "0.4.4",
-    "chromium_version": "152.0.7977.83",
+    "chromium_version": "155.0.8059.12",
     "catalogue_version_rule": "Derived, never pinned here. A manifest's catalogue_version must equal the catalogue_version of resources/profiles/catalogue.json at manifest.source_revision. The profile catalogue is versioned independently of this release contract, so a constant in this field would forbid every future catalogue. The publish job reads the catalogue from the tagged revision it is checked out at and requires the manifest to agree.",
     "platforms_rule": "The platforms this contract recognises, not the set every release must carry. A release publishes exactly the targets it built, resolved by scripts/resolve-build-targets.sh from the APOSTATE_BUILD_TARGETS repository variable, and each of those must appear here. Requiring the full set instead means a repository without a runner for every platform can never publish anything. Every artifact's SHA-256 is verified against its manifest regardless, and every artifact carries a build-provenance attestation, so a subset release is smaller, not weaker.",
     "platforms": [
@@ -31,10 +31,10 @@
   },
   "artifacts": {
     "filenames": [
-      "apostate-152.0.7977.83-linux-x64.tar.zst",
-      "apostate-152.0.7977.83-linux-arm64.tar.zst",
-      "apostate-152.0.7977.83-macos-arm64.zip",
-      "apostate-152.0.7977.83-windows-x64.zip"
+      "apostate-155.0.8059.12-linux-x64.tar.zst",
+      "apostate-155.0.8059.12-linux-arm64.tar.zst",
+      "apostate-155.0.8059.12-macos-arm64.zip",
+      "apostate-155.0.8059.12-windows-x64.zip"
     ],
     "hash": {
       "algorithm": "SHA-256",
@@ -62,7 +62,7 @@
     "reject_absolute_paths": true,
     "reject_parent_traversal": true,
     "symbolic_links": "contained",
-    "symbolic_links_rule": "Containment, not prohibition. A relative link target that resolves inside the extraction root is accepted; an absolute target, or one that climbs out of the root, is refused. Outright prohibition was unsatisfiable and shipping macOS at the same time: the macos-arm64 artifact contains five symlinks, all inside Chromium Framework.framework -- Versions/Current pointing at 152.0.7977.83, and Chromium Framework, Resources, Libraries and Helpers pointing through Versions/Current -- and that is simply how a macOS framework bundle is laid out. A bundle without them does not launch. Containment preserves the property the prohibition was protecting, which is that extracting an archive can never write outside the directory you pointed it at.",
+    "symbolic_links_rule": "Containment, not prohibition. A relative link target that resolves inside the extraction root is accepted; an absolute target, or one that climbs out of the root, is refused. Outright prohibition was unsatisfiable and shipping macOS at the same time: the macos-arm64 artifact contains five symlinks, all inside Chromium Framework.framework -- Versions/Current pointing at the Chromium version directory, and Chromium Framework, Resources, Libraries and Helpers pointing through Versions/Current -- and that is simply how a macOS framework bundle is laid out. A bundle without them does not launch. Containment preserves the property the prohibition was protecting, which is that extracting an archive can never write outside the directory you pointed it at.",
     "require_manifest_binding": true
   }
 }

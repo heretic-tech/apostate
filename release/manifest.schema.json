@@ -23,7 +23,7 @@
       "description": "Apostate package release version, the identity shared by the binary release and both launcher packages. The contract pins the shape, not the number: the number lives once, in .github/release/artifact-policy.json manifest_contract.package_version, and scripts/verify-release-inputs.sh requires every manifest to state it. A constant here was a second copy of that pin, and it failed the v0.2.0 publish job after every other version site had been bumped."
     },
     "chromium_version": {
-      "const": "152.0.7977.83",
+      "const": "155.0.8059.12",
       "description": "Chromium version embedded in the artifact."
     },
     "catalogue_version": {
@@ -44,7 +44,7 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 256,
-      "pattern": "^apostate-152\\.0\\.7977\\.83-(?:linux-x64|linux-arm64|macos-arm64|windows-x64)\\.(?:tar\\.zst|zip)$",
+      "pattern": "^apostate-155\\.0\\.8059\\.12-(?:linux-x64|linux-arm64|macos-arm64|windows-x64)\\.(?:tar\\.zst|zip)$",
       "description": "Immutable artifact filename. It is deliberately restricted to the release naming contract and cannot contain a path or credential-bearing URI."
     },
     "sha256": {
@@ -83,7 +83,7 @@
       "then": {
         "properties": {
           "artifact": {
-            "pattern": "^apostate-152\\.0\\.7977\\.83-(?:macos-arm64|windows-x64)\\.zip$"
+            "pattern": "^apostate-155\\.0\\.8059\\.12-(?:macos-arm64|windows-x64)\\.zip$"
           }
         }
       }
@@ -102,7 +102,7 @@
       "then": {
         "properties": {
           "artifact": {
-            "pattern": "^apostate-152\\.0\\.7977\\.83-(?:linux-x64|linux-arm64)\\.tar\\.zst$"
+            "pattern": "^apostate-155\\.0\\.8059\\.12-(?:linux-x64|linux-arm64)\\.tar\\.zst$"
           }
         }
       }
