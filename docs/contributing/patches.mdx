@@ -122,7 +122,7 @@ python3 scripts/validate-patch-headers.py
 
 Patch files are byte-exact. `.gitattributes` marks `*.patch` and `patches/series` as `-text`, so Git never converts their line endings on any platform.
 
-A patch that edits a Chromium file with CRLF line endings carries CRLF on those lines. `0042-audio-portable-neon-profile.patch` does, because the vendored `rustfft` sources under `third_party/rust/chromium_crates_io/vendor/rustfft-v6/` use CRLF. Edit such a patch with a tool that keeps the bytes, or regenerate its diff. An editor that normalizes line endings breaks the patch.
+A patch that edits a Chromium file with CRLF line endings carries CRLF on those lines. `0042-audio-portable-neon-profile.patch` does, because the vendored `rustfft` sources under `third_party/rust/chromium_crates_io/vendor/rustfft-v6/` use CRLF. Edit such a patch with a tool that keeps the bytes, or regenerate its diff. An editor that normalizes line endings breaks the patch, and so does a script that reads `git diff` output as text: Python's `text=True` turns CRLF into LF. Read the diff as bytes.
 
 `scripts/test_patch_line_endings.py` checks that `git apply --check --whitespace=error`, with `core.whitespace` set to `blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol`, accepts a CRLF line and still rejects trailing spaces and tabs. Use that `core.whitespace` value when you check a CRLF patch for whitespace errors.
 
