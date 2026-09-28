@@ -9,10 +9,10 @@ clamp the claim back. Any size from 128 to 8192 frames is accepted,
 which covers the 480 frames Windows uses.
 
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
-index 0f66556..cd466fc 100644
+index 7dc9803d94..d49a6cd3b1 100644
 --- a/base/apostate/profile.cc
 +++ b/base/apostate/profile.cc
-@@ -181,6 +181,21 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
+@@ -184,6 +184,21 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
      }
    }
  
@@ -35,7 +35,7 @@ index 0f66556..cd466fc 100644
      if (const std::string* v = locale->FindString("timezone")) {
        profile->timezone_ = *v;
 diff --git a/base/apostate/profile.h b/base/apostate/profile.h
-index 38a189d..546eda3 100644
+index 38a189d1bd..546eda36a2 100644
 --- a/base/apostate/profile.h
 +++ b/base/apostate/profile.h
 @@ -160,6 +160,15 @@ class BASE_EXPORT Profile {
@@ -63,18 +63,18 @@ index 38a189d..546eda3 100644
    std::optional<bool> prefers_dark_;
    std::optional<std::string> accept_languages_;
 diff --git a/content/renderer/media/renderer_webaudiodevice_impl.cc b/content/renderer/media/renderer_webaudiodevice_impl.cc
-index 9625297..b14e9f1 100644
+index aaf515a17d..7b9d096232 100644
 --- a/content/renderer/media/renderer_webaudiodevice_impl.cc
 +++ b/content/renderer/media/renderer_webaudiodevice_impl.cc
-@@ -43,6 +43,7 @@
+@@ -41,6 +41,7 @@
+ #include "third_party/blink/public/web/modules/media/audio/audio_device_factory.h"
  #include "third_party/blink/public/web/web_local_frame.h"
  #include "third_party/blink/public/web/web_local_frame_client.h"
- #include "third_party/blink/public/web/web_view.h"
 +#include "base/apostate/profile.h"
  
  using blink::AudioDeviceFactory;
- using blink::WebAudioDevice;
-@@ -259,6 +260,27 @@ RendererWebAudioDeviceImpl::RendererWebAudioDeviceImpl(
+ using blink::WebAudioLatencyHint;
+@@ -292,6 +293,27 @@ void RendererWebAudioDeviceImpl::HandleDeviceStatus(
          base::BindOnce(&RendererWebAudioDeviceImpl::NotifyRenderError,
                         weak_ptr_factory_.GetWeakPtr()));
    }

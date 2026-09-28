@@ -9,9 +9,11 @@ draws a fresh identity and stores nothing. The file holds one seed and a
 newline, so it can be pasted back as --fingerprint, and a corrupt file
 is replaced once.
 
+diff --git a/base/apostate/compose.cc b/base/apostate/compose.cc
+index 539389464f..8b3e77f44f 100644
 --- a/base/apostate/compose.cc
 +++ b/base/apostate/compose.cc
-@@ -1663,7 +1663,30 @@ std::optional<std::string> ComposeProfileForCurrentProcess(
+@@ -1696,7 +1696,30 @@ std::optional<std::string> ComposeProfileForCurrentProcess(
      return std::nullopt;
    }
  
@@ -43,7 +45,7 @@ is replaced once.
  
    std::string rejection;
    FieldOverrides overrides;
-@@ -1712,15 +1735,7 @@ std::optional<std::string> ComposeProfileForCurrentProcess(
+@@ -1745,15 +1768,7 @@ std::optional<std::string> ComposeProfileForCurrentProcess(
    request.catalogue_version = kCatalogueVersion;
    request.chromium_version = kChromiumVersion;
    request.catalogue_digest = kCatalogueDigest;
@@ -60,7 +62,7 @@ is replaced once.
    request.pinned_anchor =
        command_line.GetSwitchValueASCII(switches::kFingerprintAnchor);
    request.accept_languages = command_line.GetSwitchValueASCII(kLangSwitch);
-@@ -1752,6 +1767,8 @@ std::optional<std::string> ComposeProfileForCurrentProcess(
+@@ -1785,6 +1800,8 @@ std::optional<std::string> ComposeProfileForCurrentProcess(
    }
  
    composition->seed_origin = seed.origin;
@@ -69,6 +71,8 @@ is replaced once.
    if (!seed.limitation.empty()) {
      composition->limitations.push_back("seed: " + seed.limitation);
    }
+diff --git a/base/apostate/compose.h b/base/apostate/compose.h
+index 39f812d5da..36cd88623f 100644
 --- a/base/apostate/compose.h
 +++ b/base/apostate/compose.h
 @@ -48,8 +48,9 @@ namespace switches {
@@ -96,6 +100,8 @@ is replaced once.
  
    // The requested persona and the host it is running on. When they differ the
    // GPU cluster stays with the host and that is recorded in `limitations`.
+diff --git a/base/apostate/compose_unittest.cc b/base/apostate/compose_unittest.cc
+index 081f8dc6e0..e1535b226e 100644
 --- a/base/apostate/compose_unittest.cc
 +++ b/base/apostate/compose_unittest.cc
 @@ -12,10 +12,16 @@
@@ -422,6 +428,8 @@ is replaced once.
 +
  }  // namespace
  }  // namespace base::apostate
+diff --git a/base/apostate/explain.cc b/base/apostate/explain.cc
+index 027928856f..efc14e9068 100644
 --- a/base/apostate/explain.cc
 +++ b/base/apostate/explain.cc
 @@ -24,9 +24,11 @@ namespace {
@@ -460,6 +468,8 @@ is replaced once.
    AppendField(out, "reproduce with", "--fingerprint=" + composition.seed);
    AppendField(out, "root", HexEncodeLower(composition.root));
  
+diff --git a/base/apostate/seed.cc b/base/apostate/seed.cc
+index 62edaa44dd..3fe60997df 100644
 --- a/base/apostate/seed.cc
 +++ b/base/apostate/seed.cc
 @@ -6,14 +6,19 @@
@@ -733,6 +743,8 @@ is replaced once.
    resolution.seed = GenerateSeed();
    resolution.origin = SeedOrigin::kGenerated;
    return resolution;
+diff --git a/base/apostate/seed.h b/base/apostate/seed.h
+index cf4e70de36..e9f7cf13c8 100644
 --- a/base/apostate/seed.h
 +++ b/base/apostate/seed.h
 @@ -8,6 +8,7 @@

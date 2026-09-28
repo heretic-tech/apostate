@@ -8,28 +8,11 @@ flags, and speech runs on a real engine with real events. Otherwise a
 Windows profile on a Mac lists the Mac's own voices, or an empty list
 that no desktop Chrome reports.
 
-diff --git a/content/browser/speech/tts_controller_impl.h b/content/browser/speech/tts_controller_impl.h
---- a/content/browser/speech/tts_controller_impl.h
-+++ b/content/browser/speech/tts_controller_impl.h
-@@ -124,6 +124,14 @@
-   // Get the platform TTS implementation (or injected mock).
-   TtsPlatform* GetTtsPlatform();
- 
-+  // The voices this build's real providers offer, before a profile's
-+  // enumeration is composed over them. GetVoices() is this plus that
-+  // composition; SpeakNow() needs both halves, because what the page is shown
-+  // and what actually synthesises are not the same record.
-+  void GetProviderVoices(BrowserContext* browser_context,
-+                         const GURL& source_url,
-+                         std::vector<VoiceData>* out_voices);
-+
-   // Whether the platform implementation is supported and completed its
-   // initialization.
-   bool TtsPlatformReady();
 diff --git a/content/browser/speech/tts_controller_impl.cc b/content/browser/speech/tts_controller_impl.cc
+index 075608464e..4a06633622 100644
 --- a/content/browser/speech/tts_controller_impl.cc
 +++ b/content/browser/speech/tts_controller_impl.cc
-@@ -39,6 +39,105 @@
+@@ -41,6 +41,105 @@
  
  namespace content {
  namespace {
@@ -135,7 +118,7 @@ diff --git a/content/browser/speech/tts_controller_impl.cc b/content/browser/spe
  // A value to be used to indicate that there is no char index available.
  const int kInvalidCharIndex = -1;
  
-@@ -390,9 +489,10 @@
+@@ -457,9 +556,10 @@ void TtsControllerImpl::OnTtsUtteranceBecameInvalid(int utterance_id) {
  #endif
  }
  
@@ -149,7 +132,7 @@ diff --git a/content/browser/speech/tts_controller_impl.cc b/content/browser/spe
    // Initialize GetTtsPlatform first, so that engine_delegate_ can be set
    // if necessary.
    TtsPlatform* tts_platform = GetTtsPlatform();
-@@ -418,22 +518,19 @@
+@@ -485,22 +585,19 @@ void TtsControllerImpl::GetVoices(BrowserContext* browser_context,
      out_voices->resize(it - out_voices->begin());
    }
  
@@ -184,7 +167,7 @@ diff --git a/content/browser/speech/tts_controller_impl.cc b/content/browser/spe
  }
  
  bool TtsControllerImpl::IsSpeaking() {
-@@ -597,15 +694,27 @@
+@@ -664,15 +761,27 @@ bool TtsControllerImpl::TtsPlatformLoading() {
  void TtsControllerImpl::SpeakNow(std::unique_ptr<TtsUtterance> utterance) {
    // Get all available voices and try to find a matching voice.
    std::vector<VoiceData> voices;
@@ -215,7 +198,7 @@ diff --git a/content/browser/speech/tts_controller_impl.cc b/content/browser/spe
      // Upstream may retry an unmatched request with the native default voice.
      // That would speak a different identity after a profile filter removed
      // unavailable providers. Use the normal synthesis failure callback instead.
-@@ -618,7 +727,9 @@
+@@ -685,7 +794,9 @@ void TtsControllerImpl::SpeakNow(std::unique_ptr<TtsUtterance> utterance) {
    }
    VoiceData voice;
    if (index >= 0) {
@@ -226,14 +209,33 @@ diff --git a/content/browser/speech/tts_controller_impl.cc b/content/browser/spe
    } else {
      voice.native = true;
      voice.engine_id = utterance->GetEngineId();
+diff --git a/content/browser/speech/tts_controller_impl.h b/content/browser/speech/tts_controller_impl.h
+index 130300f26e..b5de18f72e 100644
+--- a/content/browser/speech/tts_controller_impl.h
++++ b/content/browser/speech/tts_controller_impl.h
+@@ -128,6 +128,14 @@ class CONTENT_EXPORT TtsControllerImpl
+   // Get the platform TTS implementation (or injected mock).
+   TtsPlatform* GetTtsPlatform();
+ 
++  // The voices this build's real providers offer, before a profile's
++  // enumeration is composed over them. GetVoices() is this plus that
++  // composition; SpeakNow() needs both halves, because what the page is shown
++  // and what actually synthesises are not the same record.
++  void GetProviderVoices(BrowserContext* browser_context,
++                         const GURL& source_url,
++                         std::vector<VoiceData>* out_voices);
++
+   // Whether the platform implementation is supported and completed its
+   // initialization.
+   bool TtsPlatformReady();
 diff --git a/content/browser/speech/tts_controller_unittest.cc b/content/browser/speech/tts_controller_unittest.cc
+index 954f117aef..12c3b0658b 100644
 --- a/content/browser/speech/tts_controller_unittest.cc
 +++ b/content/browser/speech/tts_controller_unittest.cc
-@@ -1182,7 +1182,102 @@
-   EXPECT_FALSE(controller()->IsSpeaking());
+@@ -1490,6 +1490,101 @@ TEST_F(TtsControllerTest, SpeakWhenLoadingBuiltInEngine) {
  }
  #endif  // !BUILDFLAG(IS_ANDROID)
-+
+ 
 +// A persona's voice is listed whether or not this host has a provider of that
 +// name. The alternatives are both readable: the host's own voices under a
 +// foreign persona say which machine this is, and an empty list says nothing
@@ -257,7 +259,7 @@ diff --git a/content/browser/speech/tts_controller_unittest.cc b/content/browser
 +  EXPECT_EQ("en-US", voices[0].lang);
 +  EXPECT_FALSE(voices[0].remote);
 +}
- 
++
 +// The host's own voices are never page-visible under a profile, whatever the
 +// profile asked for and however many the host has.
 +TEST_F(TtsControllerTest, ProfileVoicesReplaceTheHostList) {
@@ -332,7 +334,7 @@ diff --git a/content/browser/speech/tts_controller_unittest.cc b/content/browser
  TEST_F(TtsControllerTest, ProfileVoicesRequireActualProviderAndLocality) {
    ScopedSpeechProfile profile(R"({"speech":{"voices":[
        {"name":"Allowed","lang":"en-US","local_service":true}]}})");
-@@ -1250,10 +1345,15 @@
+@@ -1557,10 +1652,15 @@ TEST_F(TtsControllerTest, ProfileMissingProviderErrorsWithoutNativeFallback) {
    EXPECT_EQ(std::vector<TtsEventType>{TTS_EVENT_ERROR}, events);
  }
  
@@ -351,7 +353,7 @@ diff --git a/content/browser/speech/tts_controller_unittest.cc b/content/browser
    VoiceData available;
    available.name = "Allowed";
    available.lang = "en-US";
-@@ -1264,6 +1364,27 @@
+@@ -1571,6 +1671,27 @@ TEST_F(TtsControllerTest, ProfileExplicitMissingVoiceDoesNotSpeakOtherAllowedVoi
    utterance->SetVoiceName("Unavailable");
    utterance->SetEventDelegate(std::make_unique<RecordingSpeechEvents>(events));
    controller()->SpeakOrEnqueue(std::move(utterance));

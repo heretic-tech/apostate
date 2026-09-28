@@ -7,9 +7,11 @@ real Windows reads 0.01. When the profile names a platform, the renderer
 uses 48 kHz, and the audio service resamples if the real device runs
 another rate. Host mode and OfflineAudioContext are unchanged.
 
+diff --git a/content/renderer/media/renderer_webaudiodevice_impl.cc b/content/renderer/media/renderer_webaudiodevice_impl.cc
+index 7b9d096232..282a7ee012 100644
 --- a/content/renderer/media/renderer_webaudiodevice_impl.cc
 +++ b/content/renderer/media/renderer_webaudiodevice_impl.cc
-@@ -279,6 +279,20 @@
+@@ -312,6 +312,20 @@ void RendererWebAudioDeviceImpl::HandleDeviceStatus(
            *profile->audio_hardware_buffer_frames());
        original_sink_params_.set_hardware_capabilities(std::nullopt);
      }

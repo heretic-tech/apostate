@@ -10,30 +10,72 @@ Arial Narrow, which every real Windows machine with Arial reports. One
 FontCache function serves text rendering, document.fonts.check() and CSS
 local(), so they agree.
 
---- a/third_party/blink/renderer/platform/fonts/font_cache.h
-+++ b/third_party/blink/renderer/platform/fonts/font_cache.h
-@@ -130,6 +130,21 @@
-       const FontDescription&,
-       const AtomicString& unique_font_name);
+diff --git a/third_party/blink/renderer/core/css/css_font_selector_base.cc b/third_party/blink/renderer/core/css/css_font_selector_base.cc
+index d6d2e1c7ac..6c21e4d93f 100644
+--- a/third_party/blink/renderer/core/css/css_font_selector_base.cc
++++ b/third_party/blink/renderer/core/css/css_font_selector_base.cc
+@@ -4,7 +4,6 @@
  
-+  // Whether the profile's font enumeration allowlist hides `family` from the
-+  // families a page is allowed to observe.
-+  //
-+  // The single predicate every page-visible enumeration route consults, so
-+  // that they cannot disagree: a filter applied to document.fonts.check() but
-+  // not to canvas measurement would have the two contradict each other, which
-+  // is a signal no real machine produces. Lives here because the suffix rules
-+  // it has to mirror are the platform font caches' own.
-+  //
-+  // Subtractive only. A true answer declines to look a family up; it never
-+  // makes an absent family resolve, because the platform matcher still has to
-+  // find a face afterwards. Generic families are the caller's business and are
-+  // not recognised here.
-+  static bool ProfileHidesFamily(const AtomicString& family);
-+
-   static String FirstAvailableOrFirst(const String&);
+ #include "third_party/blink/renderer/core/css/css_font_selector_base.h"
  
-   void AddClient(FontCacheClient*);
+-#include "base/apostate/profile.h"
+ #include "build/build_config.h"
+ #include "third_party/blink/renderer/core/css/css_segmented_font_face.h"
+ #include "third_party/blink/renderer/core/frame/web_feature.h"
+@@ -36,12 +35,9 @@ bool CSSFontSelectorBase::IsPlatformFamilyMatchAvailable(
+   //
+   // The page's own spelling is what is tested, not the settings-resolved name:
+   // a probe asks about the family it named.
+-  if (!passed_family.FamilyIsGeneric()) {
+-    const base::apostate::Profile* profile = base::apostate::Profile::Get();
+-    if (profile && profile->filters_font_enumeration() &&
+-        !profile->FontFamilyEnumerable(passed_family.FamilyName().Utf8())) {
+-      return false;
+-    }
++  if (!passed_family.FamilyIsGeneric() &&
++      FontCache::ProfileHidesFamily(passed_family.FamilyName())) {
++    return false;
+   }
+ 
+   AtomicString family = FamilyNameFromSettings(font_description, passed_family);
+diff --git a/third_party/blink/renderer/core/css/local_font_face_source.cc b/third_party/blink/renderer/core/css/local_font_face_source.cc
+index f6d8125dd1..df122249d3 100644
+--- a/third_party/blink/renderer/core/css/local_font_face_source.cc
++++ b/third_party/blink/renderer/core/css/local_font_face_source.cc
+@@ -6,7 +6,6 @@
+ 
+ #include <string_view>
+ 
+-#include "base/apostate/profile.h"
+ #include "base/metrics/histogram_functions.h"
+ #include "build/build_config.h"
+ #include "third_party/blink/renderer/core/css/css_custom_font_data.h"
+@@ -38,11 +37,7 @@ namespace {
+ // name still gets it, and a face belonging to a hidden family does not.
+ bool ProfileHidesResolvedFace(const AtomicString& font_name,
+                               const SkTypeface* typeface) {
+-  const base::apostate::Profile* profile = base::apostate::Profile::Get();
+-  if (!profile || !profile->filters_font_enumeration()) {
+-    return false;
+-  }
+-  if (profile->FontFamilyEnumerable(font_name.Utf8())) {
++  if (!FontCache::ProfileHidesFamily(font_name)) {
+     return false;
+   }
+   if (!typeface) {
+@@ -50,8 +45,8 @@ bool ProfileHidesResolvedFace(const AtomicString& font_name,
+   }
+   SkString family;
+   typeface->getFamilyName(&family);
+-  return !profile->FontFamilyEnumerable(
+-      std::string_view(family.c_str(), family.size()));
++  return FontCache::ProfileHidesFamily(
++      AtomicString::FromUtf8(std::string_view(family.c_str(), family.size())));
+ }
+ 
+ }  // namespace
+diff --git a/third_party/blink/renderer/platform/fonts/font_cache.cc b/third_party/blink/renderer/platform/fonts/font_cache.cc
+index 372b10936b..2f2ba62b54 100644
 --- a/third_party/blink/renderer/platform/fonts/font_cache.cc
 +++ b/third_party/blink/renderer/platform/fonts/font_cache.cc
 @@ -33,13 +33,18 @@
@@ -55,7 +97,7 @@ local(), so they agree.
  #include "base/system/sys_info.h"
  #include "base/timer/elapsed_timer.h"
  #include "base/trace_event/process_memory_dump.h"
-@@ -82,6 +87,89 @@
+@@ -82,6 +87,89 @@ namespace blink {
  const char kColorEmojiLocale[] = "und-Zsye";
  const char kMonoEmojiLocale[] = "und-Zsym";
  
@@ -145,6 +187,34 @@ local(), so they agree.
  #if BUILDFLAG(IS_ANDROID)
  extern const char kNotoColorEmojiCompat[] = "Noto Color Emoji Compat";
  #endif
+diff --git a/third_party/blink/renderer/platform/fonts/font_cache.h b/third_party/blink/renderer/platform/fonts/font_cache.h
+index cdeca583f0..2b3c1593c6 100644
+--- a/third_party/blink/renderer/platform/fonts/font_cache.h
++++ b/third_party/blink/renderer/platform/fonts/font_cache.h
+@@ -130,6 +130,21 @@ class PLATFORM_EXPORT FontCache final {
+       const FontDescription&,
+       const AtomicString& unique_font_name);
+ 
++  // Whether the profile's font enumeration allowlist hides `family` from the
++  // families a page is allowed to observe.
++  //
++  // The single predicate every page-visible enumeration route consults, so
++  // that they cannot disagree: a filter applied to document.fonts.check() but
++  // not to canvas measurement would have the two contradict each other, which
++  // is a signal no real machine produces. Lives here because the suffix rules
++  // it has to mirror are the platform font caches' own.
++  //
++  // Subtractive only. A true answer declines to look a family up; it never
++  // makes an absent family resolve, because the platform matcher still has to
++  // find a face afterwards. Generic families are the caller's business and are
++  // not recognised here.
++  static bool ProfileHidesFamily(const AtomicString& family);
++
+   static String FirstAvailableOrFirst(const String&);
+ 
+   void AddClient(FontCacheClient*);
+diff --git a/third_party/blink/renderer/platform/fonts/font_fallback_list.cc b/third_party/blink/renderer/platform/fonts/font_fallback_list.cc
+index af894f2bbd..7dbc18b956 100644
 --- a/third_party/blink/renderer/platform/fonts/font_fallback_list.cc
 +++ b/third_party/blink/renderer/platform/fonts/font_fallback_list.cc
 @@ -28,7 +28,6 @@
@@ -155,7 +225,7 @@ local(), so they agree.
  #include "base/timer/elapsed_timer.h"
  #include "third_party/blink/renderer/platform/font_family_names.h"
  #include "third_party/blink/renderer/platform/fonts/alternate_font_family.h"
-@@ -66,11 +65,7 @@
+@@ -66,11 +65,7 @@ bool ProfileHidesPageNamedFamily(const FontFamily& family) {
    if (family.FamilyIsGeneric()) {
      return false;
    }
@@ -165,66 +235,6 @@ local(), so they agree.
 -  }
 -  return !profile->FontFamilyEnumerable(family.FamilyName().Utf8());
 +  return FontCache::ProfileHidesFamily(family.FamilyName());
- }
- 
- }  // namespace
---- a/third_party/blink/renderer/core/css/css_font_selector_base.cc
-+++ b/third_party/blink/renderer/core/css/css_font_selector_base.cc
-@@ -4,7 +4,6 @@
- 
- #include "third_party/blink/renderer/core/css/css_font_selector_base.h"
- 
--#include "base/apostate/profile.h"
- #include "build/build_config.h"
- #include "third_party/blink/renderer/core/css/css_segmented_font_face.h"
- #include "third_party/blink/renderer/core/frame/web_feature.h"
-@@ -36,12 +35,9 @@
-   //
-   // The page's own spelling is what is tested, not the settings-resolved name:
-   // a probe asks about the family it named.
--  if (!passed_family.FamilyIsGeneric()) {
--    const base::apostate::Profile* profile = base::apostate::Profile::Get();
--    if (profile && profile->filters_font_enumeration() &&
--        !profile->FontFamilyEnumerable(passed_family.FamilyName().Utf8())) {
--      return false;
--    }
-+  if (!passed_family.FamilyIsGeneric() &&
-+      FontCache::ProfileHidesFamily(passed_family.FamilyName())) {
-+    return false;
-   }
- 
-   AtomicString family = FamilyNameFromSettings(font_description, passed_family);
---- a/third_party/blink/renderer/core/css/local_font_face_source.cc
-+++ b/third_party/blink/renderer/core/css/local_font_face_source.cc
-@@ -6,7 +6,6 @@
- 
- #include <string_view>
- 
--#include "base/apostate/profile.h"
- #include "base/metrics/histogram_functions.h"
- #include "build/build_config.h"
- #include "third_party/blink/renderer/core/css/css_custom_font_data.h"
-@@ -38,11 +37,7 @@
- // name still gets it, and a face belonging to a hidden family does not.
- bool ProfileHidesResolvedFace(const AtomicString& font_name,
-                               const SkTypeface* typeface) {
--  const base::apostate::Profile* profile = base::apostate::Profile::Get();
--  if (!profile || !profile->filters_font_enumeration()) {
--    return false;
--  }
--  if (profile->FontFamilyEnumerable(font_name.Utf8())) {
-+  if (!FontCache::ProfileHidesFamily(font_name)) {
-     return false;
-   }
-   if (!typeface) {
-@@ -50,8 +45,8 @@
-   }
-   SkString family;
-   typeface->getFamilyName(&family);
--  return !profile->FontFamilyEnumerable(
--      std::string_view(family.c_str(), family.size()));
-+  return FontCache::ProfileHidesFamily(
-+      AtomicString::FromUtf8(std::string_view(family.c_str(), family.size())));
  }
  
  }  // namespace

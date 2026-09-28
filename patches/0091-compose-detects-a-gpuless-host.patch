@@ -8,40 +8,41 @@ inference it made. The check only moves the answer toward software, and
 --use-angle still names a backend by hand. Windows and macOS keep the
 platform default.
 
---- a/base/apostate/host_capability.h
-+++ b/base/apostate/host_capability.h
-@@ -38,16 +38,26 @@
-   // "vulkan", "gl" or "swiftshader".
-   std::string graphics_backend;
- 
--  // True when `graphics_backend` is the platform's default rather than an
--  // observed fact. It always is, unless --use-angle named one explicitly.
-+  // True when `graphics_backend` was reasoned about rather than stated. It is
-+  // false only when the launch named the backend itself -- --use-angle picking
-+  // one, or --disable-gpu ruling every hardware backend out.
-   //
-   // A real backend probe requires the GPU process, and the GPU process is a
-   // child: A3 requires the profile to be fully materialised before the first
--  // renderer starts, so no child exists yet when this runs. The platform
--  // default is therefore the best available fact at composition time, and the
--  // explain report says so rather than implying a measurement happened.
-+  // renderer starts, so no child exists yet when this runs. An inference from
-+  // host facts is therefore the best available answer at composition time, and
-+  // the explain report says which inference it was rather than implying a
-+  // measurement happened.
-   bool graphics_backend_is_inferred = true;
- 
-+  // How `graphics_backend` was established, as a short phrase for the explain
-+  // report and the composition's limitations: "the platform default",
-+  // "--use-angle", "--disable-gpu" or "no DRM render node on this host".
-+  //
-+  // Carried rather than recomputed at the point of display because only the
-+  // probe knows which branch it took.
-+  std::string graphics_backend_basis;
-+
-   // The host OS, as a fingerprint platform token: "windows", "macos" or
-   // "linux". Empty on a platform the model has no persona for.
-   std::string platform;
+diff --git a/base/apostate/compose.cc b/base/apostate/compose.cc
+index 2eb321393d..428b4f7c5b 100644
+--- a/base/apostate/compose.cc
++++ b/base/apostate/compose.cc
+@@ -544,8 +544,9 @@ std::optional<Composition> Compose(const ComposeRequest& request) {
+   }
+   if (request.host.graphics_backend_is_inferred) {
+     composition.limitations.push_back(
+-        "the host graphics backend was taken to be the platform default (" +
+-        request.host.graphics_backend +
++        "the host graphics backend was inferred to be " +
++        request.host.graphics_backend + " (" +
++        request.host.graphics_backend_basis +
+         ") because the GPU process does not exist yet at composition time; "
+         "pass --use-angle to state it");
+   }
+diff --git a/base/apostate/explain.cc b/base/apostate/explain.cc
+index a399fba586..7a511ce045 100644
+--- a/base/apostate/explain.cc
++++ b/base/apostate/explain.cc
+@@ -97,10 +97,8 @@ std::string FormatExplainReport(const Composition& composition,
+   AppendField(out, "host memory",
+               NumberToString(host.total_memory_bytes) + " bytes");
+   AppendField(out, "host backend",
+-              host.graphics_backend +
+-                  (host.graphics_backend_is_inferred
+-                       ? " (platform default, not probed)"
+-                       : " (from --use-angle)"));
++              host.graphics_backend + " (" + host.graphics_backend_basis +
++                  (host.graphics_backend_is_inferred ? ", not probed)" : ")"));
+   if (host.window_width > 0 && host.window_height > 0) {
+     AppendField(out, "window bounds",
+                 NumberToString(host.window_width) + "x" +
+diff --git a/base/apostate/host_capability.cc b/base/apostate/host_capability.cc
+index c457c16a8a..d43702b073 100644
 --- a/base/apostate/host_capability.cc
 +++ b/base/apostate/host_capability.cc
 @@ -9,25 +9,36 @@
@@ -84,7 +85,7 @@ platform default.
  // The backend ANGLE selects when nothing overrides it.
  //
  // Grounded in this project's own T0 captures rather than asserted: the corpus
-@@ -82,12 +93,61 @@
+@@ -82,12 +93,61 @@ std::string_view BackendFromANGLEValue(std::string_view value) {
        value == "gles-egl") {
      return "gl";
    }
@@ -148,7 +149,7 @@ platform default.
  }  // namespace
  
  HostCapability ProbeHostCapability(const CommandLine& command_line) {
-@@ -98,6 +158,7 @@
+@@ -98,6 +158,7 @@ HostCapability ProbeHostCapability(const CommandLine& command_line) {
    host.platform = HostPlatformToken();
  
    host.graphics_backend = PlatformDefaultBackend();
@@ -156,7 +157,7 @@ platform default.
    if (command_line.HasSwitch(kUseANGLESwitch)) {
      const std::string requested =
          command_line.GetSwitchValueASCII(kUseANGLESwitch);
-@@ -105,9 +166,30 @@
+@@ -105,9 +166,30 @@ HostCapability ProbeHostCapability(const CommandLine& command_line) {
      if (!mapped.empty()) {
        host.graphics_backend = std::string(mapped);
        host.graphics_backend_is_inferred = false;
@@ -187,38 +188,47 @@ platform default.
    if (command_line.HasSwitch(kWindowSizeSwitch)) {
      const std::string value = command_line.GetSwitchValueASCII(kWindowSizeSwitch);
      const std::vector<std::string_view> parts =
---- a/base/apostate/compose.cc
-+++ b/base/apostate/compose.cc
-@@ -529,8 +529,9 @@
-   }
-   if (request.host.graphics_backend_is_inferred) {
-     composition.limitations.push_back(
--        "the host graphics backend was taken to be the platform default (" +
--        request.host.graphics_backend +
-+        "the host graphics backend was inferred to be " +
-+        request.host.graphics_backend + " (" +
-+        request.host.graphics_backend_basis +
-         ") because the GPU process does not exist yet at composition time; "
-         "pass --use-angle to state it");
-   }
---- a/base/apostate/explain.cc
-+++ b/base/apostate/explain.cc
-@@ -93,10 +93,8 @@
-   AppendField(out, "host memory",
-               NumberToString(host.total_memory_bytes) + " bytes");
-   AppendField(out, "host backend",
--              host.graphics_backend +
--                  (host.graphics_backend_is_inferred
--                       ? " (platform default, not probed)"
--                       : " (from --use-angle)"));
-+              host.graphics_backend + " (" + host.graphics_backend_basis +
-+                  (host.graphics_backend_is_inferred ? ", not probed)" : ")"));
-   if (host.window_width > 0 && host.window_height > 0) {
-     AppendField(out, "window bounds",
-                 NumberToString(host.window_width) + "x" +
+diff --git a/base/apostate/host_capability.h b/base/apostate/host_capability.h
+index 34d146108e..df42fa775e 100644
+--- a/base/apostate/host_capability.h
++++ b/base/apostate/host_capability.h
+@@ -38,16 +38,26 @@ struct BASE_EXPORT HostCapability {
+   // "vulkan", "gl" or "swiftshader".
+   std::string graphics_backend;
+ 
+-  // True when `graphics_backend` is the platform's default rather than an
+-  // observed fact. It always is, unless --use-angle named one explicitly.
++  // True when `graphics_backend` was reasoned about rather than stated. It is
++  // false only when the launch named the backend itself -- --use-angle picking
++  // one, or --disable-gpu ruling every hardware backend out.
+   //
+   // A real backend probe requires the GPU process, and the GPU process is a
+   // child: A3 requires the profile to be fully materialised before the first
+-  // renderer starts, so no child exists yet when this runs. The platform
+-  // default is therefore the best available fact at composition time, and the
+-  // explain report says so rather than implying a measurement happened.
++  // renderer starts, so no child exists yet when this runs. An inference from
++  // host facts is therefore the best available answer at composition time, and
++  // the explain report says which inference it was rather than implying a
++  // measurement happened.
+   bool graphics_backend_is_inferred = true;
+ 
++  // How `graphics_backend` was established, as a short phrase for the explain
++  // report and the composition's limitations: "the platform default",
++  // "--use-angle", "--disable-gpu" or "no DRM render node on this host".
++  //
++  // Carried rather than recomputed at the point of display because only the
++  // probe knows which branch it took.
++  std::string graphics_backend_basis;
++
+   // The host OS, as a fingerprint platform token: "windows", "macos" or
+   // "linux". Empty on a platform the model has no persona for.
+   std::string platform;
+diff --git a/base/apostate/host_capability_unittest.cc b/base/apostate/host_capability_unittest.cc
+index d563f4cef5..aed9e40b88 100644
 --- a/base/apostate/host_capability_unittest.cc
 +++ b/base/apostate/host_capability_unittest.cc
-@@ -72,6 +72,34 @@
+@@ -72,6 +72,34 @@ TEST(ApostateHostCapabilityTest, UseAngleMakesTheBackendAnObservedFact) {
    EXPECT_TRUE(null_backend.graphics_backend_is_inferred);
  }
  

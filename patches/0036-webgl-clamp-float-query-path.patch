@@ -6,20 +6,8 @@ profile reports 2 where SwiftShader reports 15. With the 32-bit and
 64-bit hooks, every limit in the table is served whichever query a page
 uses. Only whole-number claims are served.
 
-diff --git a/ui/gl/gl_gl_api_implementation.h b/ui/gl/gl_gl_api_implementation.h
-index 4971a0b..5484ef7 100644
---- a/ui/gl/gl_gl_api_implementation.h
-+++ b/ui/gl/gl_gl_api_implementation.h
-@@ -56,6 +56,7 @@ class GL_EXPORT RealGLApi : public GLApiBase {
- 
-   void glGetIntegervFn(GLenum pname, GLint* params) override;
-   void glGetInteger64vFn(GLenum pname, GLint64* params) override;
-+  void glGetFloatvFn(GLenum pname, GLfloat* params) override;
-   void glGetShaderPrecisionFormatFn(GLenum shadertype,
-                                     GLenum precisiontype,
-                                     GLint* range,
 diff --git a/ui/gl/gl_gl_api_implementation.cc b/ui/gl/gl_gl_api_implementation.cc
-index 1e702dc..b5813f0 100644
+index 1e702dcc59..b5813f0dfc 100644
 --- a/ui/gl/gl_gl_api_implementation.cc
 +++ b/ui/gl/gl_gl_api_implementation.cc
 @@ -272,6 +272,8 @@ constexpr ApostateGlLimit kApostateGlLimits[] = {
@@ -72,3 +60,15 @@ index 1e702dc..b5813f0 100644
  void RealGLApi::glGetInteger64vFn(GLenum pname, GLint64* params) {
    GLApiBase::glGetInteger64vFn(pname, params);
  
+diff --git a/ui/gl/gl_gl_api_implementation.h b/ui/gl/gl_gl_api_implementation.h
+index 4971a0ba7e..5484ef786d 100644
+--- a/ui/gl/gl_gl_api_implementation.h
++++ b/ui/gl/gl_gl_api_implementation.h
+@@ -56,6 +56,7 @@ class GL_EXPORT RealGLApi : public GLApiBase {
+ 
+   void glGetIntegervFn(GLenum pname, GLint* params) override;
+   void glGetInteger64vFn(GLenum pname, GLint64* params) override;
++  void glGetFloatvFn(GLenum pname, GLfloat* params) override;
+   void glGetShaderPrecisionFormatFn(GLenum shadertype,
+                                     GLenum precisiontype,
+                                     GLint* range,

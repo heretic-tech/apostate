@@ -7,10 +7,24 @@ Passthrough shaders are turned off so they cannot skip the clamp, and
 the range is part of the shader cache key. The range never rises above
 what the host supports.
 
+diff --git a/third_party/angle/src/compiler/translator/Compiler.cpp b/third_party/angle/src/compiler/translator/Compiler.cpp
+index 4e5120076a..3e6a3de198 100644
+--- a/third_party/angle/src/compiler/translator/Compiler.cpp
++++ b/third_party/angle/src/compiler/translator/Compiler.cpp
+@@ -1371,6 +1371,8 @@ void TCompiler::setResourceString()
+         << ":ANGLE_clip_cull_distance:" << mResources.ANGLE_clip_cull_distance
+         << ":MinProgramTextureGatherOffset:" << mResources.MinProgramTextureGatherOffset
+         << ":MaxProgramTextureGatherOffset:" << mResources.MaxProgramTextureGatherOffset
++        << ":MinPointSize:" << mResources.MinPointSize
++        << ":MaxPointSize:" << mResources.MaxPointSize
+         << ":MaxImageUnits:" << mResources.MaxImageUnits
+         << ":MaxSamples:" << mResources.MaxSamples
+         << ":MaxVertexImageUniforms:" << mResources.MaxVertexImageUniforms
 diff --git a/third_party/angle/src/libANGLE/Caps.h b/third_party/angle/src/libANGLE/Caps.h
+index bff8ed8ac3..6181274f77 100644
 --- a/third_party/angle/src/libANGLE/Caps.h
 +++ b/third_party/angle/src/libANGLE/Caps.h
-@@ -223,6 +223,7 @@
+@@ -227,6 +227,7 @@ struct Caps
      GLint maxRenderbufferSize     = 0;
      GLfloat minAliasedPointSize   = 1.0f;
      GLfloat maxAliasedPointSize   = 1.0f;
@@ -19,9 +33,10 @@ diff --git a/third_party/angle/src/libANGLE/Caps.h b/third_party/angle/src/libAN
      GLfloat maxAliasedLineWidth   = 0.0f;
  
 diff --git a/third_party/angle/src/libANGLE/Context.cpp b/third_party/angle/src/libANGLE/Context.cpp
+index f893bfb56d..bcd285cd41 100644
 --- a/third_party/angle/src/libANGLE/Context.cpp
 +++ b/third_party/angle/src/libANGLE/Context.cpp
-@@ -79,8 +79,35 @@
+@@ -79,8 +79,35 @@ bool GetProfileIntegerCap(const char *name, int64_t *value)
      return platform->getProfileIntegerCapV1(platform, name, value) && *value > 0;
  }
  
@@ -57,7 +72,7 @@ diff --git a/third_party/angle/src/libANGLE/Context.cpp b/third_party/angle/src/
      int64_t width = 0;
      int64_t height = 0;
      const bool hasWidth = GetProfileIntegerCap("MAX_VIEWPORT_DIMS_WIDTH", &width);
-@@ -459,6 +486,15 @@
+@@ -459,6 +486,15 @@ bool GetProtectedContent(const egl::AttributeMap &attribs)
  
  bool GetPassthroughShaders(egl::Display *display, const egl::AttributeMap &attribs)
  {
@@ -73,12 +88,27 @@ diff --git a/third_party/angle/src/libANGLE/Context.cpp b/third_party/angle/src/
      const angle::FrontendFeatures &frontendFeatures = display->getFrontendFeatures();
      return frontendFeatures.forcePassthroughShaders.enabled ||
             static_cast<bool>(attribs.getAsInt(EGL_CONTEXT_PASSTHROUGH_SHADERS_ANGLE, EGL_FALSE));
+diff --git a/third_party/angle/src/libANGLE/MemoryProgramCache.cpp b/third_party/angle/src/libANGLE/MemoryProgramCache.cpp
+index 77afa1c207..03ece27272 100644
+--- a/third_party/angle/src/libANGLE/MemoryProgramCache.cpp
++++ b/third_party/angle/src/libANGLE/MemoryProgramCache.cpp
+@@ -100,6 +100,9 @@ void MemoryProgramCache::ComputeHash(const Context *context,
+     // from bypassing the current context's validation.
+     const Caps &caps = context->getCaps();
+     angle::UpdateHashWithValue(hasher, caps.maxUniformBlockSize);
++    angle::UpdateHashWithValue(hasher, caps.minAliasedPointSize);
++    angle::UpdateHashWithValue(hasher, caps.maxAliasedPointSize);
++    angle::UpdateHashWithValue(hasher, caps.profilePointSizeClamp);
+     angle::UpdateHashWithValue(hasher, caps.maxVertexUniformVectors);
+     angle::UpdateHashWithValue(hasher, caps.maxShaderUniformComponents[ShaderType::Vertex]);
+ 
 diff --git a/third_party/angle/src/libANGLE/Shader.cpp b/third_party/angle/src/libANGLE/Shader.cpp
+index 24d37a30de..2eeeedd33c 100644
 --- a/third_party/angle/src/libANGLE/Shader.cpp
 +++ b/third_party/angle/src/libANGLE/Shader.cpp
-@@ -672,6 +672,14 @@
-         options.skipAllValidationAndTransforms = true;
-     }
+@@ -667,6 +667,14 @@ void Shader::compile(const Context *context, angle::JobResultExpectancy resultEx
+     options.validateAST = true;
+ #endif
  
 +    // Set this before cache lookup. Shader::setShaderKey hashes the compile
 +    // options and complete built-in resources, including Min/MaxPointSize.
@@ -91,28 +121,3 @@ diff --git a/third_party/angle/src/libANGLE/Shader.cpp b/third_party/angle/src/l
      // Find a shader in Blob Cache
      Compiler *compiler = context->getCompiler();
      setShaderKey(context, options, compiler->getShaderOutputType(),
-diff --git a/third_party/angle/src/libANGLE/MemoryProgramCache.cpp b/third_party/angle/src/libANGLE/MemoryProgramCache.cpp
---- a/third_party/angle/src/libANGLE/MemoryProgramCache.cpp
-+++ b/third_party/angle/src/libANGLE/MemoryProgramCache.cpp
-@@ -100,6 +100,9 @@
-     // from bypassing the current context's validation.
-     const Caps &caps = context->getCaps();
-     angle::UpdateHashWithValue(hasher, caps.maxUniformBlockSize);
-+    angle::UpdateHashWithValue(hasher, caps.minAliasedPointSize);
-+    angle::UpdateHashWithValue(hasher, caps.maxAliasedPointSize);
-+    angle::UpdateHashWithValue(hasher, caps.profilePointSizeClamp);
-     angle::UpdateHashWithValue(hasher, caps.maxVertexUniformVectors);
-     angle::UpdateHashWithValue(hasher, caps.maxShaderUniformComponents[ShaderType::Vertex]);
- 
-diff --git a/third_party/angle/src/compiler/translator/Compiler.cpp b/third_party/angle/src/compiler/translator/Compiler.cpp
---- a/third_party/angle/src/compiler/translator/Compiler.cpp
-+++ b/third_party/angle/src/compiler/translator/Compiler.cpp
-@@ -1372,6 +1372,8 @@
-         << ":ANGLE_clip_cull_distance:" << mResources.ANGLE_clip_cull_distance
-         << ":MinProgramTextureGatherOffset:" << mResources.MinProgramTextureGatherOffset
-         << ":MaxProgramTextureGatherOffset:" << mResources.MaxProgramTextureGatherOffset
-+        << ":MinPointSize:" << mResources.MinPointSize
-+        << ":MaxPointSize:" << mResources.MaxPointSize
-         << ":MaxImageUnits:" << mResources.MaxImageUnits
-         << ":MaxSamples:" << mResources.MaxSamples
-         << ":MaxVertexImageUniforms:" << mResources.MaxVertexImageUniforms

@@ -7,6 +7,7 @@ can pick a different table for the same frequency, which changes output
 samples a page can hash. Other profiles keep plain division.
 
 diff --git a/third_party/blink/renderer/modules/webaudio/periodic_wave.cc b/third_party/blink/renderer/modules/webaudio/periodic_wave.cc
+index 5d5e8fd44b..fee5dd81fe 100644
 --- a/third_party/blink/renderer/modules/webaudio/periodic_wave.cc
 +++ b/third_party/blink/renderer/modules/webaudio/periodic_wave.cc
 @@ -33,6 +33,7 @@
@@ -17,7 +18,7 @@ diff --git a/third_party/blink/renderer/modules/webaudio/periodic_wave.cc b/thir
  #include "base/compiler_specific.h"
  #include "base/containers/span.h"
  #include "build/build_config.h"
-@@ -181,6 +182,9 @@
+@@ -181,6 +182,9 @@ void PeriodicWave::Trace(Visitor* visitor) const {
  
  PeriodicWaveImpl::PeriodicWaveImpl(float sample_rate)
      : sample_rate_(sample_rate), cents_per_range_(kCentsPerRange) {
@@ -27,7 +28,7 @@ diff --git a/third_party/blink/renderer/modules/webaudio/periodic_wave.cc b/thir
    float nyquist = 0.5 * sample_rate_;
    lowest_fundamental_frequency_ = nyquist / MaxNumberOfPartials();
    rate_scale_ = PeriodicWaveSize() / sample_rate_;
-@@ -267,8 +271,16 @@
+@@ -267,8 +271,16 @@ void PeriodicWaveImpl::WaveDataForFundamentalFrequency(
    const __m128 pos = _mm_cmpgt_ps(frequency, _mm_set1_ps(0));
  
    // Calculate the pitch range.
@@ -46,7 +47,7 @@ diff --git a/third_party/blink/renderer/modules/webaudio/periodic_wave.cc b/thir
  
    // Set v_ratio to 0 if freq <= 0; otherwise keep the ratio.
    v_ratio = _mm_and_ps(v_ratio, pos);
-@@ -286,10 +298,12 @@
+@@ -286,10 +298,12 @@ void PeriodicWaveImpl::WaveDataForFundamentalFrequency(
      cents_above_lowest_frequency[k] = log2f(ratio[k]) * 1200;
    }
  
@@ -64,9 +65,10 @@ diff --git a/third_party/blink/renderer/modules/webaudio/periodic_wave.cc b/thir
    v_pitch_range = _mm_min_ps(v_pitch_range, _mm_set1_ps(NumberOfRanges() - 1));
  
 diff --git a/third_party/blink/renderer/modules/webaudio/periodic_wave.h b/third_party/blink/renderer/modules/webaudio/periodic_wave.h
+index c21eb96ba9..626e81372f 100644
 --- a/third_party/blink/renderer/modules/webaudio/periodic_wave.h
 +++ b/third_party/blink/renderer/modules/webaudio/periodic_wave.h
-@@ -142,6 +142,9 @@
+@@ -142,6 +142,9 @@ class MODULES_EXPORT PeriodicWaveImpl final
  
    float rate_scale_;
  

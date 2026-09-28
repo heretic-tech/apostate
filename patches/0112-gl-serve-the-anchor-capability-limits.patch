@@ -10,9 +10,11 @@ a backend that enforces nothing, like SwiftShader. A Direct3D 11
 renderer string beside a 16384 viewport or the host's point size range
 is a contradiction a page finds with one call.
 
+diff --git a/base/apostate/compose.cc b/base/apostate/compose.cc
+index d4cee9aa67..539389464f 100644
 --- a/base/apostate/compose.cc
 +++ b/base/apostate/compose.cc
-@@ -1138,15 +1138,22 @@ std::optional<Composition> Compose(const ComposeRequest& request,
+@@ -1072,15 +1072,22 @@ std::optional<Composition> Compose(const ComposeRequest& request,
      // the object it receives.
      //
      // Note what this does NOT say. It does not say the identity should
@@ -40,7 +42,7 @@ is a contradiction a page finds with one call.
    }
    if (anchor && anchor->members.size() == 1) {
      composition.limitations.push_back(
-@@ -1167,6 +1174,32 @@ std::optional<Composition> Compose(const ComposeRequest& request,
+@@ -1101,6 +1108,32 @@ std::optional<Composition> Compose(const ComposeRequest& request,
      MergeFragment(composition.profile,
                    ParseFragment("anchor", anchor->value_json),
                    request.union_array_paths);
@@ -73,9 +75,11 @@ is a contradiction a page finds with one call.
      composition.surfaces.push_back({
          .surface = "anchor",
          .value = std::string(anchor->id),
+diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
+index 256dc6dd80..2261a40746 100644
 --- a/base/apostate/profile.cc
 +++ b/base/apostate/profile.cc
-@@ -1083,22 +1083,48 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
+@@ -1053,22 +1053,48 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
      for (const auto [name, value] : *gl) {
        // A JSON number past int32 arrives as a double — the same representation
        // gap webgpu.limits already handles — so accept both, and only integral
@@ -130,9 +134,11 @@ is a contradiction a page finds with one call.
        }
      }
    }
+diff --git a/base/apostate/profile.h b/base/apostate/profile.h
+index 6f9088924f..699e8e144c 100644
 --- a/base/apostate/profile.h
 +++ b/base/apostate/profile.h
-@@ -447,6 +447,24 @@ class BASE_EXPORT Profile {
+@@ -428,6 +428,24 @@ class BASE_EXPORT Profile {
      return gl_limits_;
    }
  
@@ -157,7 +163,7 @@ is a contradiction a page finds with one call.
    // WebGL extension names the claimed device exposes, as
    // getSupportedExtensions() spells them.
    //
-@@ -754,6 +772,7 @@ class BASE_EXPORT Profile {
+@@ -735,6 +753,7 @@ class BASE_EXPORT Profile {
    std::vector<MediaDevice> media_devices_;
    std::map<std::string, std::string> keyboard_layout_map_;
    std::map<std::string, int64_t> gl_limits_;
@@ -165,6 +171,8 @@ is a contradiction a page finds with one call.
    std::set<std::string> gl_extensions_;
    std::set<std::string> webgpu_features_;
    std::string webgpu_vendor_;
+diff --git a/ui/gl/gl_gl_api_implementation.cc b/ui/gl/gl_gl_api_implementation.cc
+index 176fea5be2..a4c787e6f8 100644
 --- a/ui/gl/gl_gl_api_implementation.cc
 +++ b/ui/gl/gl_gl_api_implementation.cc
 @@ -10,6 +10,8 @@
@@ -693,6 +701,8 @@ is a contradiction a page finds with one call.
    }
  }
  
+diff --git a/ui/gl/gl_gl_api_implementation.h b/ui/gl/gl_gl_api_implementation.h
+index 5484ef786d..e80b612855 100644
 --- a/ui/gl/gl_gl_api_implementation.h
 +++ b/ui/gl/gl_gl_api_implementation.h
 @@ -57,6 +57,21 @@ class GL_EXPORT RealGLApi : public GLApiBase {

@@ -9,9 +9,10 @@ and Linux report for all six. A Windows build gives a macOS or Linux
 profile the same Arial answer instead of its own shell fonts.
 
 diff --git a/third_party/blink/renderer/core/layout/layout_theme_font_provider_default.cc b/third_party/blink/renderer/core/layout/layout_theme_font_provider_default.cc
+index 493b41d4b2..bbd90e39a9 100644
 --- a/third_party/blink/renderer/core/layout/layout_theme_font_provider_default.cc
 +++ b/third_party/blink/renderer/core/layout/layout_theme_font_provider_default.cc
-@@ -37,7 +37,7 @@
+@@ -37,7 +37,7 @@ namespace blink {
  
  namespace {
  
@@ -20,7 +21,7 @@ diff --git a/third_party/blink/renderer/core/layout/layout_theme_font_provider_d
  //
  // This file is the default provider, compiled on every platform that has no
  // native one — Linux included. It answers every system font keyword with
-@@ -47,14 +47,13 @@
+@@ -47,14 +47,13 @@ namespace {
  //
  // That is a compile-time platform gate, so a Linux build claiming Windows
  // cannot reach the right answer by any runtime path: the code that would have
@@ -41,7 +42,7 @@ diff --git a/third_party/blink/renderer/core/layout/layout_theme_font_provider_d
  
  const char* ApostateFontKey(CSSValueID id) {
    switch (id) {
-@@ -99,6 +98,21 @@
+@@ -99,6 +98,21 @@ const ApostateFontTable& GetApostateFontTable() {
    return table;
  }
  
@@ -63,7 +64,7 @@ diff --git a/third_party/blink/renderer/core/layout/layout_theme_font_provider_d
  }  // namespace
  
  // static
-@@ -110,6 +124,11 @@
+@@ -110,6 +124,11 @@ const AtomicString& LayoutThemeFontProvider::SystemFontFamily(
      if (it != table.family.end()) {
        return it->value;
      }
@@ -75,7 +76,7 @@ diff --git a/third_party/blink/renderer/core/layout/layout_theme_font_provider_d
    }
    return DefaultGUIFont();
  }
-@@ -125,6 +144,9 @@
+@@ -125,6 +144,9 @@ float LayoutThemeFontProvider::SystemFontSize(CSSValueID system_font_id,
          return static_cast<float>(it->second.size_px);
        }
      }
@@ -86,6 +87,7 @@ diff --git a/third_party/blink/renderer/core/layout/layout_theme_font_provider_d
    switch (system_font_id) {
      case CSSValueID::kWebkitMiniControl:
 diff --git a/third_party/blink/renderer/core/layout/layout_theme_font_provider_win.cc b/third_party/blink/renderer/core/layout/layout_theme_font_provider_win.cc
+index 89c4266c4b..94cd87277b 100644
 --- a/third_party/blink/renderer/core/layout/layout_theme_font_provider_win.cc
 +++ b/third_party/blink/renderer/core/layout/layout_theme_font_provider_win.cc
 @@ -25,6 +25,7 @@
@@ -96,7 +98,7 @@ diff --git a/third_party/blink/renderer/core/layout/layout_theme_font_provider_w
  #include "third_party/blink/renderer/core/css_value_keywords.h"
  #include "third_party/blink/renderer/platform/fonts/font_cache.h"
  #include "third_party/blink/renderer/platform/fonts/font_description.h"
-@@ -39,9 +40,22 @@
+@@ -39,9 +40,22 @@ static float PointsToPixels(float points) {
    return points / kPointsPerInch * kPixelsPerInch;
  }
  
@@ -119,7 +121,7 @@ diff --git a/third_party/blink/renderer/core/layout/layout_theme_font_provider_w
    switch (system_font_id) {
      case CSSValueID::kSmallCaption:
        return FontCache::SmallCaptionFontFamily();
-@@ -57,6 +71,12 @@
+@@ -57,6 +71,12 @@ const AtomicString& LayoutThemeFontProvider::SystemFontFamily(
  // static
  float LayoutThemeFontProvider::SystemFontSize(CSSValueID system_font_id,
                                                const Document* document) {

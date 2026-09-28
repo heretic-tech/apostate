@@ -9,9 +9,11 @@ objects are never withdrawn. The browser process checks each message
 against real manifests, so a page learns nothing about what is
 installed.
 
+diff --git a/extensions/renderer/native_extension_bindings_system.cc b/extensions/renderer/native_extension_bindings_system.cc
+index 651e7d7175..cd62c77761 100644
 --- a/extensions/renderer/native_extension_bindings_system.cc
 +++ b/extensions/renderer/native_extension_bindings_system.cc
-@@ -8,6 +8,7 @@
+@@ -9,6 +9,7 @@
  #include <string_view>
  #include <utility>
  
@@ -19,7 +21,7 @@ installed.
  #include "base/command_line.h"
  #include "base/compiler_specific.h"
  #include "base/feature_list.h"
-@@ -384,6 +385,34 @@
+@@ -383,6 +384,34 @@ std::string GetContextOwner(v8::Local<v8::Context> context) {
  // depends on the installed extensions and the active URL (in the case of
  // extensions communicating with external websites).
  bool CanWebpageContextConnectExternally(ScriptContext* context) {

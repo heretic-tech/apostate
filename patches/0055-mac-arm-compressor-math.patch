@@ -8,7 +8,20 @@ output samples, which a page can hash. x86 hosts with AVX and FMA run
 the same arithmetic with hardware fused multiply-add. Other profiles
 keep the default math.
 
+diff --git a/third_party/blink/renderer/platform/BUILD.gn b/third_party/blink/renderer/platform/BUILD.gn
+index 94334c1ce1..05310ef7f7 100644
+--- a/third_party/blink/renderer/platform/BUILD.gn
++++ b/third_party/blink/renderer/platform/BUILD.gn
+@@ -412,6 +412,7 @@ component("platform") {
+     "audio/down_sampler.h",
+     "audio/dynamics_compressor.cc",
+     "audio/dynamics_compressor.h",
++    "audio/mac_arm_audio_math.h",
+     "audio/equal_power_panner.cc",
+     "audio/equal_power_panner.h",
+     "audio/fft_convolver.cc",
 diff --git a/third_party/blink/renderer/platform/audio/dynamics_compressor.cc b/third_party/blink/renderer/platform/audio/dynamics_compressor.cc
+index 8aa8c68156..68e47119fd 100644
 --- a/third_party/blink/renderer/platform/audio/dynamics_compressor.cc
 +++ b/third_party/blink/renderer/platform/audio/dynamics_compressor.cc
 @@ -31,13 +31,17 @@
@@ -29,7 +42,7 @@ diff --git a/third_party/blink/renderer/platform/audio/dynamics_compressor.cc b/
  #include "third_party/blink/renderer/platform/wtf/math_extras.h"
  #include "third_party/fdlibm/ieee754.h"
  
-@@ -109,6 +113,29 @@
+@@ -109,6 +113,29 @@ DynamicsCompressor::DynamicsCompressor(float sample_rate,
        static_cast<float>(audio_utilities::DiscreteTimeConstantForSampleRate(
            kMeteringReleaseTimeConstant, sample_rate));
    InitializeParameters();
@@ -59,7 +72,7 @@ diff --git a/third_party/blink/renderer/platform/audio/dynamics_compressor.cc b/
  }
  
  void DynamicsCompressor::Process(const AudioBus* source_bus,
-@@ -205,7 +232,7 @@
+@@ -203,7 +230,7 @@ void DynamicsCompressor::Process(const AudioBus* source_bus,
      if (scaled_desired_gain == 0) {
        db_compression_diff = is_releasing ? -1 : 1;
      } else {
@@ -68,7 +81,7 @@ diff --git a/third_party/blink/renderer/platform/audio/dynamics_compressor.cc b/
            compressor_gain_ / scaled_desired_gain);
      }
  
-@@ -234,7 +261,7 @@
+@@ -232,7 +259,7 @@ void DynamicsCompressor::Process(const AudioBus* source_bus,
        constexpr float kDbSpacing = 5;
        const float db_per_frame = kDbSpacing / calc_release_frames;
  
@@ -77,7 +90,7 @@ diff --git a/third_party/blink/renderer/platform/audio/dynamics_compressor.cc b/
      } else {
        // Attack mode - db_compression_diff should be positive dB
  
-@@ -299,12 +326,12 @@
+@@ -299,12 +326,12 @@ void DynamicsCompressor::Process(const AudioBus* source_bus,
            abs_input <= 0.0001f ? 1 : shaped_input / abs_input;
  
        const float db_attenuation =
@@ -92,7 +105,7 @@ diff --git a/third_party/blink/renderer/platform/audio/dynamics_compressor.cc b/
  
        const bool is_release = (attenuation > detector_average);
        const float rate = is_release ? sat_release_rate : 1;
-@@ -335,7 +362,7 @@
+@@ -335,7 +362,7 @@ void DynamicsCompressor::Process(const AudioBus* source_bus,
  
        // Calculate metering.
        const float db_real_gain =
@@ -101,7 +114,7 @@ diff --git a/third_party/blink/renderer/platform/audio/dynamics_compressor.cc b/
        if (db_real_gain < metering_gain_) {
          metering_gain_ = db_real_gain;
        } else {
-@@ -485,20 +512,20 @@
+@@ -485,20 +512,20 @@ float DynamicsCompressor::Saturate(float x, float k) const {
      return KneeCurve(x, k);
    }
    // Constant ratio after knee.
@@ -126,7 +139,7 @@ diff --git a/third_party/blink/renderer/platform/audio/dynamics_compressor.cc b/
    }
  
    // Approximate k given initial values.
-@@ -515,8 +542,8 @@
+@@ -515,8 +542,8 @@ float DynamicsCompressor::KAtSlope(float desired_slope) const {
      // This slope is equal to the inverse of the compression "ratio".
      // In other words, a compression ratio of 20 would be a slope of 1/20.
      if (!(x < linear_threshold_)) {
@@ -137,7 +150,7 @@ diff --git a/third_party/blink/renderer/platform/audio/dynamics_compressor.cc b/
        slope = (db_y2 - db_y) / (db_x2 - db_x);
      }
  
-@@ -541,7 +568,7 @@
+@@ -541,7 +568,7 @@ float DynamicsCompressor::UpdateStaticCurveParameters(float db_threshold,
    if (db_threshold != db_threshold_ || db_knee != db_knee_ || ratio != ratio_) {
      // Threshold and knee.
      db_threshold_ = db_threshold;
@@ -146,7 +159,7 @@ diff --git a/third_party/blink/renderer/platform/audio/dynamics_compressor.cc b/
      db_knee_ = db_knee;
  
      // Compute knee parameters.
-@@ -551,10 +578,10 @@
+@@ -551,10 +578,10 @@ float DynamicsCompressor::UpdateStaticCurveParameters(float db_threshold,
      const float k = KAtSlope(1 / ratio_);
  
      db_knee_threshold_ = db_threshold + db_knee;
@@ -160,12 +173,13 @@ diff --git a/third_party/blink/renderer/platform/audio/dynamics_compressor.cc b/
      knee_ = k;
    }
 diff --git a/third_party/blink/renderer/platform/audio/dynamics_compressor.h b/third_party/blink/renderer/platform/audio/dynamics_compressor.h
+index 92fa1f9501..23a3242b92 100644
 --- a/third_party/blink/renderer/platform/audio/dynamics_compressor.h
 +++ b/third_party/blink/renderer/platform/audio/dynamics_compressor.h
-@@ -83,6 +83,15 @@
+@@ -83,6 +83,15 @@ class PLATFORM_EXPORT DynamicsCompressor final {
    bool RequiresTailProcessing() const;
  
-  protected:
+  private:
 +  float LinearToDecibels(float) const;
 +  float DecibelsToLinear(float) const;
 +
@@ -178,19 +192,9 @@ diff --git a/third_party/blink/renderer/platform/audio/dynamics_compressor.h b/t
    void InitializeParameters();
  
    void SetPreDelayTime(float);
-diff --git a/third_party/blink/renderer/platform/BUILD.gn b/third_party/blink/renderer/platform/BUILD.gn
---- a/third_party/blink/renderer/platform/BUILD.gn
-+++ b/third_party/blink/renderer/platform/BUILD.gn
-@@ -424,6 +424,7 @@
-     "audio/down_sampler.h",
-     "audio/dynamics_compressor.cc",
-     "audio/dynamics_compressor.h",
-+    "audio/mac_arm_audio_math.h",
-     "audio/equal_power_panner.cc",
-     "audio/equal_power_panner.h",
-     "audio/fft_convolver.cc",
 diff --git a/third_party/blink/renderer/platform/audio/mac_arm_audio_math.h b/third_party/blink/renderer/platform/audio/mac_arm_audio_math.h
 new file mode 100644
+index 0000000000..8d65aa0ae0
 --- /dev/null
 +++ b/third_party/blink/renderer/platform/audio/mac_arm_audio_math.h
 @@ -0,0 +1,338 @@

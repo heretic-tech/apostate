@@ -9,7 +9,7 @@ profile are CSS pixels and are converted once. Headful windows keep the
 real monitors.
 
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
-index 86238a3..684bc83 100644
+index 834d18e585..269675386c 100644
 --- a/base/apostate/profile.cc
 +++ b/base/apostate/profile.cc
 @@ -4,6 +4,8 @@
@@ -81,7 +81,7 @@ index 86238a3..684bc83 100644
  }  // namespace
  
  Profile::Profile() = default;
-@@ -144,6 +199,34 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
+@@ -147,6 +202,34 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
    }
  
    if (const DictValue* screen = dict->FindDict("screen")) {
@@ -117,7 +117,7 @@ index 86238a3..684bc83 100644
        profile->screen_width_ = *v;
      }
 diff --git a/base/apostate/profile.h b/base/apostate/profile.h
-index 82ecce0..41a18d7 100644
+index 82ecce0f96..41a18d7069 100644
 --- a/base/apostate/profile.h
 +++ b/base/apostate/profile.h
 @@ -118,7 +118,7 @@ class BASE_EXPORT Profile {
@@ -166,10 +166,10 @@ index 82ecce0..41a18d7 100644
    std::optional<int> screen_height_;
    std::optional<int> screen_avail_left_;
 diff --git a/ui/display/display.cc b/ui/display/display.cc
-index ec7fc06..1b99495 100644
+index 43c6b5a975..9d2c4f2e29 100644
 --- a/ui/display/display.cc
 +++ b/ui/display/display.cc
-@@ -335,6 +335,7 @@ bool Display::EqualExceptForHdrHeadroom(const Display& lhs,
+@@ -334,6 +334,7 @@ bool Display::EqualExceptForHdrHeadroom(const Display& lhs,
                lhs.GetColorSpaces(), rhs.GetColorSpaces())) &&
           lhs.color_depth_ == rhs.color_depth_ &&
           lhs.depth_per_component_ == rhs.depth_per_component_ &&
@@ -178,10 +178,10 @@ index ec7fc06..1b99495 100644
           lhs.display_frequency_ == rhs.display_frequency_ &&
           lhs.label_ == rhs.label_;
 diff --git a/ui/display/display.h b/ui/display/display.h
-index c27439b..8fb20af 100644
+index d603784e1f..7d071f9a04 100644
 --- a/ui/display/display.h
 +++ b/ui/display/display.h
-@@ -284,6 +284,11 @@ class DISPLAY_EXPORT Display final {
+@@ -286,6 +286,11 @@ class DISPLAY_EXPORT Display final {
  
    // The number of bits per color component (all color components are assumed to
    // have the same number of bits). Used by media query APIs.
@@ -193,7 +193,7 @@ index c27439b..8fb20af 100644
    int depth_per_component() const { return depth_per_component_; }
    void set_depth_per_component(int depth_per_component) {
      depth_per_component_ = depth_per_component;
-@@ -341,6 +346,7 @@ class DISPLAY_EXPORT Display final {
+@@ -343,6 +348,7 @@ class DISPLAY_EXPORT Display final {
    scoped_refptr<const gfx::DisplayColorSpacesRef> color_spaces_;
    int color_depth_ = kDefaultBitsPerPixel;
    int depth_per_component_ = kDefaultBitsPerComponent;
@@ -202,10 +202,10 @@ index c27439b..8fb20af 100644
    bool detected_ = true;
    float display_frequency_ = 0;
 diff --git a/ui/display/display_util.cc b/ui/display/display_util.cc
-index 63f88a2..0161c05 100644
+index 88aa25d555..0459e08a1c 100644
 --- a/ui/display/display_util.cc
 +++ b/ui/display/display_util.cc
-@@ -67,33 +67,35 @@ void DisplayUtil::DisplayToScreenInfo(ScreenInfo* screen_info,
+@@ -66,33 +66,35 @@ void DisplayUtil::DisplayToScreenInfo(ScreenInfo* screen_info,
    // Chromium uses depth as an HDR flag with only 24 and 30 valid, and a profile
    // that set the two independently could describe a display that cannot exist.
    if (const base::apostate::Profile* profile = base::apostate::Profile::Get()) {
@@ -268,7 +268,7 @@ index 63f88a2..0161c05 100644
      }
  
      // The color-gamut and dynamic-range media features both read
-@@ -169,7 +171,8 @@ void DisplayUtil::DisplayToScreenInfo(ScreenInfo* screen_info,
+@@ -168,7 +170,8 @@ void DisplayUtil::DisplayToScreenInfo(ScreenInfo* screen_info,
    // browser process and sent to every renderer; overriding it at the accessor
    // would leave the browser's own copy saying something else.
    if (const base::apostate::Profile* profile = base::apostate::Profile::Get()) {
@@ -279,7 +279,7 @@ index 63f88a2..0161c05 100644
      }
    }
 diff --git a/ui/ozone/platform/headless/headless_screen.cc b/ui/ozone/platform/headless/headless_screen.cc
-index 8d7bd27..90446c2 100644
+index 8d7bd2782b..90446c2406 100644
 --- a/ui/ozone/platform/headless/headless_screen.cc
 +++ b/ui/ozone/platform/headless/headless_screen.cc
 @@ -5,8 +5,10 @@

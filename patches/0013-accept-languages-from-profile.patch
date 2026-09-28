@@ -8,10 +8,10 @@ is left alone, so the profile's languages never persist into the user's
 data directory.
 
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
-index af28053..245a4b5 100644
+index b792246382..6e0466d3fe 100644
 --- a/base/apostate/profile.cc
 +++ b/base/apostate/profile.cc
-@@ -170,6 +170,12 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
+@@ -173,6 +173,12 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
      }
    }
  
@@ -25,7 +25,7 @@ index af28053..245a4b5 100644
      if (std::optional<bool> v = theme->FindBool("prefers_dark")) {
        profile->prefers_dark_ = *v;
 diff --git a/base/apostate/profile.h b/base/apostate/profile.h
-index 4c856b5..e14ab52 100644
+index 4c856b5978..e14ab5210c 100644
 --- a/base/apostate/profile.h
 +++ b/base/apostate/profile.h
 @@ -153,6 +153,17 @@ class BASE_EXPORT Profile {
@@ -55,7 +55,7 @@ index 4c856b5..e14ab52 100644
    std::optional<uint32_t> css_highlight_text_argb_;
    std::string source_id_;
 diff --git a/chrome/browser/net/profile_network_context_service.cc b/chrome/browser/net/profile_network_context_service.cc
-index c9ae7f5..8d3d928 100644
+index 67be696b30..70d762cae8 100644
 --- a/chrome/browser/net/profile_network_context_service.cc
 +++ b/chrome/browser/net/profile_network_context_service.cc
 @@ -4,6 +4,8 @@
@@ -67,7 +67,7 @@ index c9ae7f5..8d3d928 100644
  #include <memory>
  #include <string>
  #include <string_view>
-@@ -209,8 +211,17 @@ std::vector<std::string> TranslateStringArray(const base::ListValue& list) {
+@@ -211,8 +213,17 @@ std::vector<std::string> TranslateStringArray(const base::ListValue& list) {
  }
  
  std::string ComputeAcceptLanguageFromPref(const std::string& language_pref) {
@@ -88,7 +88,7 @@ index c9ae7f5..8d3d928 100644
  }
  
 diff --git a/chrome/browser/renderer_preferences_util.cc b/chrome/browser/renderer_preferences_util.cc
-index 032b72f..468e600 100644
+index 2b542a4814..f1d68d2945 100644
 --- a/chrome/browser/renderer_preferences_util.cc
 +++ b/chrome/browser/renderer_preferences_util.cc
 @@ -4,6 +4,8 @@
@@ -100,7 +100,7 @@ index 032b72f..468e600 100644
  #include <stdint.h>
  
  #include <string>
-@@ -190,8 +192,19 @@ void UpdateFromSystemSettings(blink::RendererPreferences* prefs,
+@@ -204,8 +206,19 @@ void UpdateFromSystemSettings(blink::RendererPreferences* prefs,
                   &prefs->webrtc_udp_min_port, &prefs->webrtc_udp_max_port);
    prefs->webrtc_local_ips_allowed_urls = GetLocalIpsAllowedUrls(
        pref_service->GetList(prefs::kWebRtcLocalIpsAllowedUrls));

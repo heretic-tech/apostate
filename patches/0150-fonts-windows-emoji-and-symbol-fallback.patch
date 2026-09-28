@@ -11,6 +11,7 @@ against 104.82px on real Windows. The same lists now run first, under
 the enumeration allowlist like the script table.
 
 diff --git a/third_party/blink/renderer/platform/fonts/linux/font_cache_linux.cc b/third_party/blink/renderer/platform/fonts/linux/font_cache_linux.cc
+index 7b12ef1f52..0c4a4dc091 100644
 --- a/third_party/blink/renderer/platform/fonts/linux/font_cache_linux.cc
 +++ b/third_party/blink/renderer/platform/fonts/linux/font_cache_linux.cc
 @@ -24,6 +24,7 @@
@@ -21,7 +22,7 @@ diff --git a/third_party/blink/renderer/platform/fonts/linux/font_cache_linux.cc
  #include <unicode/uscript.h>
  
  #include "base/apostate/profile.h"
-@@ -54,6 +55,53 @@
+@@ -54,6 +55,53 @@ struct ScriptFallbackFamilies {
    base::span<const char* const> families;
  };
  
@@ -75,7 +76,7 @@ diff --git a/third_party/blink/renderer/platform/fonts/linux/font_cache_linux.cc
  constexpr const char* const kArabicFonts[] = {"Tahoma", "Segoe UI"};
  constexpr const char* const kArmenianFonts[] = {"Segoe UI", "Sylfaen"};
  constexpr const char* const kBengaliFonts[] = {"Nirmala UI", "Vrinda"};
-@@ -267,12 +315,24 @@
+@@ -267,12 +315,24 @@ UScriptCode HanScriptForDescription(const FontDescription& description) {
  
  base::span<const char* const> WindowsFallbackFamilies(
      const FontDescription& description,
@@ -101,7 +102,7 @@ diff --git a/third_party/blink/renderer/platform/fonts/linux/font_cache_linux.cc
    UErrorCode error = U_ZERO_ERROR;
    UScriptCode script = uscript_getScript(character, &error);
    if (U_FAILURE(error)) {
-@@ -385,7 +445,8 @@
+@@ -385,7 +445,8 @@ const SimpleFontData* FontCache::PlatformFallbackFontForCharacter(
    // both failed to cover the character, which is the same point at which
    // Windows consults its script table.
    const auto* fallback_profile = base::apostate::Profile::Get();

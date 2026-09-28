@@ -9,6 +9,7 @@ reports Arial Narrow as missing. No synthetic condensing is added, and
 other profiles keep the Linux path.
 
 diff --git a/third_party/blink/renderer/platform/fonts/skia/font_cache_skia.cc b/third_party/blink/renderer/platform/fonts/skia/font_cache_skia.cc
+index 31af2c1f7c..3c8bc3925a 100644
 --- a/third_party/blink/renderer/platform/fonts/skia/font_cache_skia.cc
 +++ b/third_party/blink/renderer/platform/fonts/skia/font_cache_skia.cc
 @@ -33,6 +33,7 @@
@@ -19,7 +20,7 @@ diff --git a/third_party/blink/renderer/platform/fonts/skia/font_cache_skia.cc b
  #include "base/check_op.h"
  #include "base/metrics/histogram_functions.h"
  #include "base/notreached.h"
-@@ -70,6 +71,59 @@
+@@ -72,6 +73,59 @@ AtomicString ToAtomicString(const SkString& str) {
  }
  
  namespace {
@@ -79,7 +80,7 @@ diff --git a/third_party/blink/renderer/platform/fonts/skia/font_cache_skia.cc b
  const FontPlatformData* CreateFontPlatformDataForTypeface(
      sk_sp<SkTypeface> typeface,
      const FontDescription& font_description) {
-@@ -327,6 +381,29 @@
+@@ -341,6 +395,29 @@ const FontPlatformData* FontCache::CreateFontPlatformData(
    typeface = CreateTypeface(font_description, creation_params, name);
  #endif
  

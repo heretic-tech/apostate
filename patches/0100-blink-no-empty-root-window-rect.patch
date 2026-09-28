@@ -8,9 +8,11 @@ values report the screen's available rect, which matches
 screen.availWidth and screen.availHeight. moveTo, moveBy, resizeTo and
 resizeBy keep using the real window rect.
 
+diff --git a/third_party/blink/renderer/core/frame/local_dom_window.cc b/third_party/blink/renderer/core/frame/local_dom_window.cc
+index 0269587971..ee8f7636ad 100644
 --- a/third_party/blink/renderer/core/frame/local_dom_window.cc
 +++ b/third_party/blink/renderer/core/frame/local_dom_window.cc
-@@ -201,6 +201,56 @@
+@@ -200,6 +200,56 @@ int RequestAnimationFrame(Document* document,
                                           FrameCallbackType::kWebExposed);
  }
  
@@ -67,7 +69,7 @@ resizeBy keep using the real window rect.
  }  // namespace
  
  class LocalDOMWindow::NetworkStateObserver final
-@@ -1687,10 +1737,10 @@
+@@ -1688,10 +1738,10 @@ int LocalDOMWindow::outerHeight() const {
    ChromeClient& chrome_client = page->GetChromeClient();
    if (page->GetSettings().GetReportScreenSizeInPhysicalPixelsQuirk()) {
      return static_cast<int>(
@@ -80,7 +82,7 @@ resizeBy keep using the real window rect.
    if (document() && document()->TextScaleMetaTagPresent()) {
      height = static_cast<int>(lroundf(
          height * chrome_client.GetScreenInfo(*frame).text_scale_multiplier));
-@@ -1719,10 +1769,10 @@
+@@ -1720,10 +1770,10 @@ int LocalDOMWindow::outerWidth() const {
    ChromeClient& chrome_client = page->GetChromeClient();
    if (page->GetSettings().GetReportScreenSizeInPhysicalPixelsQuirk()) {
      return static_cast<int>(
@@ -93,7 +95,7 @@ resizeBy keep using the real window rect.
    if (document() && document()->TextScaleMetaTagPresent()) {
      width = static_cast<int>(lroundf(
          width * chrome_client.GetScreenInfo(*frame).text_scale_multiplier));
-@@ -1795,10 +1845,10 @@
+@@ -1796,10 +1846,10 @@ int LocalDOMWindow::screenX() const {
    ChromeClient& chrome_client = page->GetChromeClient();
    if (page->GetSettings().GetReportScreenSizeInPhysicalPixelsQuirk()) {
      return static_cast<int>(
@@ -106,7 +108,7 @@ resizeBy keep using the real window rect.
    if (document() && document()->TextScaleMetaTagPresent()) {
      screenX = static_cast<int>(lroundf(
          screenX * chrome_client.GetScreenInfo(*frame).text_scale_multiplier));
-@@ -1820,10 +1870,10 @@
+@@ -1821,10 +1871,10 @@ int LocalDOMWindow::screenY() const {
    ChromeClient& chrome_client = page->GetChromeClient();
    if (page->GetSettings().GetReportScreenSizeInPhysicalPixelsQuirk()) {
      return static_cast<int>(

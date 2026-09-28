@@ -8,10 +8,10 @@ do. The User-Agent string is taken whole from the profile and feeds the
 header, navigator.userAgent and workers alike.
 
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
-index ff7be12..0a74db4 100644
+index 3c2d1ca4e7..66f29ee390 100644
 --- a/base/apostate/profile.cc
 +++ b/base/apostate/profile.cc
-@@ -132,6 +132,15 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
+@@ -135,6 +135,15 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
      if (std::optional<bool> v = platform->FindBool("mobile")) {
        profile->ua_mobile_ = *v;
      }
@@ -28,7 +28,7 @@ index ff7be12..0a74db4 100644
  
    return profile.release();
 diff --git a/base/apostate/profile.h b/base/apostate/profile.h
-index 575a00e..c84de33 100644
+index 575a00e917..c84de33afe 100644
 --- a/base/apostate/profile.h
 +++ b/base/apostate/profile.h
 @@ -103,6 +103,18 @@ class BASE_EXPORT Profile {
@@ -60,7 +60,7 @@ index 575a00e..c84de33 100644
  };
  
 diff --git a/components/embedder_support/user_agent_utils.cc b/components/embedder_support/user_agent_utils.cc
-index 5071b53..54d6892 100644
+index 92df7464bc..0a45788828 100644
 --- a/components/embedder_support/user_agent_utils.cc
 +++ b/components/embedder_support/user_agent_utils.cc
 @@ -217,6 +217,21 @@ const blink::UserAgentBrandList GetUserAgentBrandFullVersionListInternal(
@@ -86,7 +86,7 @@ index 5071b53..54d6892 100644
    // Apostate: upstream prefixes the product token with "Headless" whenever the
    // --headless switch is present. That token describes how this browser was
 diff --git a/third_party/blink/renderer/core/execution_context/navigator_base.cc b/third_party/blink/renderer/core/execution_context/navigator_base.cc
-index cccfafe..0bbbde5 100644
+index 83f427c5ec..ffe4e7bf3c 100644
 --- a/third_party/blink/renderer/core/execution_context/navigator_base.cc
 +++ b/third_party/blink/renderer/core/execution_context/navigator_base.cc
 @@ -4,6 +4,8 @@
@@ -98,8 +98,8 @@ index cccfafe..0bbbde5 100644
  #include "base/feature_list.h"
  #include "build/build_config.h"
  #include "third_party/blink/public/common/features.h"
-@@ -24,6 +26,19 @@ namespace blink {
- namespace {
+@@ -32,6 +34,19 @@ constexpr char kLinuxX86_64[] = "Linux x86_64";
+ #endif
  
  String GetReducedNavigatorPlatform() {
 +  // Apostate: this constant is what NavigatorBase::platform returns for both
@@ -116,5 +116,5 @@ index cccfafe..0bbbde5 100644
 +  }
 +
  #if BUILDFLAG(IS_ANDROID)
-   return "Linux armv81";
- #elif BUILDFLAG(IS_MAC)
+   if (base::android::device_info::is_desktop() ||
+       base::android::device_info::is_xr()) {

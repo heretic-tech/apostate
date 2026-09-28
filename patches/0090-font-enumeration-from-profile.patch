@@ -8,52 +8,8 @@ agree. The filter only removes fonts, since a family the host lacks
 cannot be made to render. Generic families, character fallback and web
 fonts are left as is, because filtering them would break ordinary pages.
 
---- a/base/apostate/profile.h
-+++ b/base/apostate/profile.h
-@@ -10,6 +10,7 @@
- #include <set>
- #include <optional>
- #include <string>
-+#include <string_view>
- #include <vector>
- 
- #include "base/base_export.h"
-@@ -355,6 +356,27 @@
-     return generic_font_family_map_;
-   }
- 
-+  // Whether fonts.enumeration_allowlist was stated. False means the claimed
-+  // machine's installed set was not described and page-visible font
-+  // enumeration is the host's own.
-+  bool filters_font_enumeration() const {
-+    return !font_enumeration_allowlist_.empty();
-+  }
-+
-+  // Whether a page may observe `family` as an installed family.
-+  //
-+  // The allowlist is subtractive and only subtractive. A family the host does
-+  // not have cannot be made to measure correctly, so the answer for a family
-+  // that is in the list but not on the host is still "absent" — the platform
-+  // simply fails to match it, exactly as it does today. What this predicate
-+  // changes is the other direction: a family the host has and the claimed
-+  // machine does not.
-+  //
-+  // Matching is case-insensitive over ASCII and byte-exact elsewhere, which is
-+  // how Blink already compares family names (EqualIgnoringASCIICase in
-+  // FontFaceCache).
-+  bool FontFamilyEnumerable(std::string_view family) const;
-+
-   struct SpeechVoice {
-     std::string name;
-     std::string lang;
-@@ -536,6 +558,7 @@
-   std::optional<bool> screen_is_extended_;
-   std::set<std::string> hw_decode_codecs_;
-   std::map<std::string, std::string> generic_font_family_map_;
-+  std::set<std::string> font_enumeration_allowlist_;
-   bool has_speech_voice_filter_ = false;
-   std::vector<SpeechVoice> speech_voices_;
-   std::optional<std::string> timezone_;
+diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
+index 2733708491..db0663ce5a 100644
 --- a/base/apostate/profile.cc
 +++ b/base/apostate/profile.cc
 @@ -8,6 +8,7 @@
@@ -64,7 +20,7 @@ fonts are left as is, because filtering them would break ordinary pages.
  #include <utility>
  
  #include "base/apostate/compose.h"
-@@ -17,6 +18,7 @@
+@@ -18,6 +19,7 @@
  #include "base/json/json_reader.h"
  #include "base/logging.h"
  #include "base/no_destructor.h"
@@ -72,7 +28,7 @@ fonts are left as is, because filtering them would break ordinary pages.
  #include "base/values.h"
  
  namespace base::apostate {
-@@ -379,6 +381,30 @@
+@@ -408,6 +410,30 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
          profile->generic_font_family_map_.emplace(generic, *family);
        }
      }
@@ -103,7 +59,7 @@ fonts are left as is, because filtering them would break ordinary pages.
    }
  
    if (const DictValue* speech = dict->FindDict("speech")) {
-@@ -686,4 +712,11 @@
+@@ -715,4 +741,11 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
    return profile.release();
  }
  
@@ -115,85 +71,96 @@ fonts are left as is, because filtering them would break ordinary pages.
 +}
 +
  }  // namespace base::apostate
---- a/third_party/blink/renderer/platform/fonts/font_fallback_list.cc
-+++ b/third_party/blink/renderer/platform/fonts/font_fallback_list.cc
-@@ -28,6 +28,7 @@
+diff --git a/base/apostate/profile.h b/base/apostate/profile.h
+index a4ef2af8bb..0dccb32222 100644
+--- a/base/apostate/profile.h
++++ b/base/apostate/profile.h
+@@ -10,6 +10,7 @@
+ #include <set>
+ #include <optional>
+ #include <string>
++#include <string_view>
+ #include <vector>
  
- #include "third_party/blink/renderer/platform/fonts/font_fallback_list.h"
+ #include "base/base_export.h"
+@@ -355,6 +356,27 @@ class BASE_EXPORT Profile {
+     return generic_font_family_map_;
+   }
+ 
++  // Whether fonts.enumeration_allowlist was stated. False means the claimed
++  // machine's installed set was not described and page-visible font
++  // enumeration is the host's own.
++  bool filters_font_enumeration() const {
++    return !font_enumeration_allowlist_.empty();
++  }
++
++  // Whether a page may observe `family` as an installed family.
++  //
++  // The allowlist is subtractive and only subtractive. A family the host does
++  // not have cannot be made to measure correctly, so the answer for a family
++  // that is in the list but not on the host is still "absent" — the platform
++  // simply fails to match it, exactly as it does today. What this predicate
++  // changes is the other direction: a family the host has and the claimed
++  // machine does not.
++  //
++  // Matching is case-insensitive over ASCII and byte-exact elsewhere, which is
++  // how Blink already compares family names (EqualIgnoringASCIICase in
++  // FontFaceCache).
++  bool FontFamilyEnumerable(std::string_view family) const;
++
+   struct SpeechVoice {
+     std::string name;
+     std::string lang;
+@@ -536,6 +558,7 @@ class BASE_EXPORT Profile {
+   std::optional<bool> screen_is_extended_;
+   std::set<std::string> hw_decode_codecs_;
+   std::map<std::string, std::string> generic_font_family_map_;
++  std::set<std::string> font_enumeration_allowlist_;
+   bool has_speech_voice_filter_ = false;
+   std::vector<SpeechVoice> speech_voices_;
+   std::optional<std::string> timezone_;
+diff --git a/content/browser/font_access/font_enumeration_cache.cc b/content/browser/font_access/font_enumeration_cache.cc
+index 42fd2febe9..ae3f52fbb5 100644
+--- a/content/browser/font_access/font_enumeration_cache.cc
++++ b/content/browser/font_access/font_enumeration_cache.cc
+@@ -10,6 +10,7 @@
+ #include <string>
+ #include <utility>
  
 +#include "base/apostate/profile.h"
- #include "base/timer/elapsed_timer.h"
- #include "third_party/blink/renderer/platform/font_family_names.h"
- #include "third_party/blink/renderer/platform/fonts/alternate_font_family.h"
-@@ -45,6 +46,35 @@
+ #include "base/i18n/rtl.h"
+ #include "base/memory/read_only_shared_memory_region.h"
+ #include "base/memory/scoped_refptr.h"
+@@ -84,6 +85,27 @@ void FontEnumerationCache::BuildEnumerationCache(
+     return;
+   }
  
- namespace blink {
- 
-+namespace {
-+
-+// Whether the profile hides a family the page named from the families a page
-+// is allowed to see.
-+//
-+// The host is the only source of typefaces, so this can only ever remove. It
-+// answers "this machine does not have that family" for a family the host does
-+// have and the claimed machine does not, which is the same answer the platform
-+// already gives for a family nobody has.
-+//
-+// A generic family is deliberately exempt. `serif`, `sans-serif`, `monospace`,
-+// `cursive`, `fantasy`, `system-ui` and `math` are not host families at all:
-+// they are a browser setting, the font selector resolves them through
-+// FamilyNameFromSettings, and the concrete family behind one is frequently not
-+// in a claimed machine's installed set (macOS resolves `cursive` to Apple
-+// Chancery). Filtering them would leave ordinary pages with no font.
-+bool ProfileHidesPageNamedFamily(const FontFamily& family) {
-+  if (family.FamilyIsGeneric()) {
-+    return false;
++  // queryLocalFonts() is the one route that returns the installed set by name
++  // instead of making the page guess it a family at a time, so it is the route
++  // that has to agree with the measurement path rather than the other way
++  // round. The platform data source has already produced the host's real
++  // table; removing the entries the claimed machine does not have is the whole
++  // filter, and it happens here because this is the only place the table is
++  // built, for every platform.
++  //
++  // Subtractive only, and not just by policy: an entry invented here would
++  // carry a postscript name with no typeface behind it, and the very next
++  // thing a page does with a FontData is measure or blob() it.
++  if (const base::apostate::Profile* profile = base::apostate::Profile::Get();
++      profile && profile->filters_font_enumeration()) {
++    auto* fonts = table.mutable_fonts();
++    fonts->erase(std::remove_if(fonts->begin(), fonts->end(),
++                                [profile](const auto& font) {
++                                  return !profile->FontFamilyEnumerable(
++                                      font.family());
++                                }),
++                 fonts->end());
 +  }
-+  const base::apostate::Profile* profile = base::apostate::Profile::Get();
-+  if (!profile || !profile->filters_font_enumeration()) {
-+    return false;
-+  }
-+  return !profile->FontFamilyEnumerable(family.FamilyName().Utf8());
-+}
-+
-+}  // namespace
-+
- FontFallbackList::FontFallbackList(FontSelector* font_selector)
-     : font_selector_(font_selector) {}
- 
-@@ -154,9 +184,15 @@
- 
-   for (; curr_family; curr_family = curr_family->Next()) {
-     family_index_++;
-+    // These two calls are the only place a family name the page wrote is
-+    // handed to the platform font manager, so they are the one chokepoint
-+    // every probe route that measures text goes through: canvas measureText,
-+    // CSS layout, SVG text, workers. A hidden family behaves exactly as an
-+    // absent one -- the loop moves to the next family in the list.
-     if (!font_selector_) {
-       // Don't query system fonts for empty font family name.
--      if (!curr_family->FamilyName().empty()) {
-+      if (!curr_family->FamilyName().empty() &&
-+          !ProfileHidesPageNamedFamily(*curr_family)) {
-         if (auto* result = FontCache::Get().GetFontData(
-                 font_description, curr_family->FamilyName())) {
-           return result;
-@@ -165,10 +201,14 @@
-       continue;
-     }
- 
-+    // The selector answers first, and a page's own @font-face is answered from
-+    // its font face cache before this ever reaches the host, so a web font is
-+    // untouched by the filter.
-     const FontData* result =
-         font_selector_->GetFontData(font_description, *curr_family);
-     // Don't query system fonts for empty font family name.
--    if (!result && !curr_family->FamilyName().empty()) {
-+    if (!result && !curr_family->FamilyName().empty() &&
-+        !ProfileHidesPageNamedFamily(*curr_family)) {
-       result = FontCache::Get().GetFontData(font_description,
-                                             curr_family->FamilyName());
-     }
+   // Postscript names, according to spec, are expected to be encoded in a subset
+   // of ASCII. See:
+   // https://docs.microsoft.com/en-us/typography/opentype/spec/name This is why
+diff --git a/third_party/blink/renderer/core/css/css_font_selector_base.cc b/third_party/blink/renderer/core/css/css_font_selector_base.cc
+index 65b35128ff..d6d2e1c7ac 100644
 --- a/third_party/blink/renderer/core/css/css_font_selector_base.cc
 +++ b/third_party/blink/renderer/core/css/css_font_selector_base.cc
 @@ -4,6 +4,7 @@
@@ -204,7 +171,7 @@ fonts are left as is, because filtering them would break ordinary pages.
  #include "build/build_config.h"
  #include "third_party/blink/renderer/core/css/css_segmented_font_face.h"
  #include "third_party/blink/renderer/core/frame/web_feature.h"
-@@ -26,6 +27,23 @@
+@@ -26,6 +27,23 @@ AtomicString CSSFontSelectorBase::FamilyNameFromSettings(
  bool CSSFontSelectorBase::IsPlatformFamilyMatchAvailable(
      const FontDescription& font_description,
      const FontFamily& passed_family) {
@@ -228,6 +195,8 @@ fonts are left as is, because filtering them would break ordinary pages.
    AtomicString family = FamilyNameFromSettings(font_description, passed_family);
    if (family.empty()) {
      family = passed_family.FamilyName();
+diff --git a/third_party/blink/renderer/core/css/local_font_face_source.cc b/third_party/blink/renderer/core/css/local_font_face_source.cc
+index ab4e6a9bed..f6d8125dd1 100644
 --- a/third_party/blink/renderer/core/css/local_font_face_source.cc
 +++ b/third_party/blink/renderer/core/css/local_font_face_source.cc
 @@ -4,6 +4,9 @@
@@ -281,7 +250,7 @@ fonts are left as is, because filtering them would break ordinary pages.
  LocalFontFaceSource::LocalFontFaceSource(CSSFontFace* css_font_face,
                                           FontSelector* font_selector,
                                           const String& font_name)
-@@ -45,6 +79,18 @@
+@@ -45,6 +79,18 @@ bool LocalFontFaceSource::IsLocalFontAvailable(
    // TODO(crbug.com/1025945): Properly handle Windows prior to 10 and Android.
    bool font_available = FontCache::Get().IsPlatformFontUniqueNameMatchAvailable(
        font_description, font_name_);
@@ -300,7 +269,7 @@ fonts are left as is, because filtering them would break ordinary pages.
    return font_available;
  }
  
-@@ -111,6 +157,15 @@
+@@ -111,6 +157,15 @@ const SimpleFontData* LocalFontFaceSource::CreateFontData(
      return nullptr;
    }
  
@@ -316,41 +285,84 @@ fonts are left as is, because filtering them would break ordinary pages.
    sk_sp<SkTypeface> typeface(unique_lookup_result->PlatformData().TypefaceSp());
  
    // From the SkTypeface, here we're reusing the FontCustomPlatformData code
---- a/content/browser/font_access/font_enumeration_cache.cc
-+++ b/content/browser/font_access/font_enumeration_cache.cc
-@@ -10,6 +10,7 @@
- #include <string>
- #include <utility>
+diff --git a/third_party/blink/renderer/platform/fonts/font_fallback_list.cc b/third_party/blink/renderer/platform/fonts/font_fallback_list.cc
+index a35f4d61b2..af894f2bbd 100644
+--- a/third_party/blink/renderer/platform/fonts/font_fallback_list.cc
++++ b/third_party/blink/renderer/platform/fonts/font_fallback_list.cc
+@@ -28,6 +28,7 @@
+ 
+ #include "third_party/blink/renderer/platform/fonts/font_fallback_list.h"
  
 +#include "base/apostate/profile.h"
- #include "base/i18n/rtl.h"
- #include "base/memory/read_only_shared_memory_region.h"
- #include "base/memory/scoped_refptr.h"
-@@ -84,6 +85,27 @@
-     return;
-   }
+ #include "base/timer/elapsed_timer.h"
+ #include "third_party/blink/renderer/platform/font_family_names.h"
+ #include "third_party/blink/renderer/platform/fonts/alternate_font_family.h"
+@@ -45,6 +46,35 @@
  
-+  // queryLocalFonts() is the one route that returns the installed set by name
-+  // instead of making the page guess it a family at a time, so it is the route
-+  // that has to agree with the measurement path rather than the other way
-+  // round. The platform data source has already produced the host's real
-+  // table; removing the entries the claimed machine does not have is the whole
-+  // filter, and it happens here because this is the only place the table is
-+  // built, for every platform.
-+  //
-+  // Subtractive only, and not just by policy: an entry invented here would
-+  // carry a postscript name with no typeface behind it, and the very next
-+  // thing a page does with a FontData is measure or blob() it.
-+  if (const base::apostate::Profile* profile = base::apostate::Profile::Get();
-+      profile && profile->filters_font_enumeration()) {
-+    auto* fonts = table.mutable_fonts();
-+    fonts->erase(std::remove_if(fonts->begin(), fonts->end(),
-+                                [profile](const auto& font) {
-+                                  return !profile->FontFamilyEnumerable(
-+                                      font.family());
-+                                }),
-+                 fonts->end());
+ namespace blink {
+ 
++namespace {
++
++// Whether the profile hides a family the page named from the families a page
++// is allowed to see.
++//
++// The host is the only source of typefaces, so this can only ever remove. It
++// answers "this machine does not have that family" for a family the host does
++// have and the claimed machine does not, which is the same answer the platform
++// already gives for a family nobody has.
++//
++// A generic family is deliberately exempt. `serif`, `sans-serif`, `monospace`,
++// `cursive`, `fantasy`, `system-ui` and `math` are not host families at all:
++// they are a browser setting, the font selector resolves them through
++// FamilyNameFromSettings, and the concrete family behind one is frequently not
++// in a claimed machine's installed set (macOS resolves `cursive` to Apple
++// Chancery). Filtering them would leave ordinary pages with no font.
++bool ProfileHidesPageNamedFamily(const FontFamily& family) {
++  if (family.FamilyIsGeneric()) {
++    return false;
 +  }
-   // Postscript names, according to spec, are expected to be encoded in a subset
-   // of ASCII. See:
-   // https://docs.microsoft.com/en-us/typography/opentype/spec/name This is why
++  const base::apostate::Profile* profile = base::apostate::Profile::Get();
++  if (!profile || !profile->filters_font_enumeration()) {
++    return false;
++  }
++  return !profile->FontFamilyEnumerable(family.FamilyName().Utf8());
++}
++
++}  // namespace
++
+ FontFallbackList::FontFallbackList(FontSelector* font_selector)
+     : font_selector_(font_selector) {}
+ 
+@@ -154,9 +184,15 @@ const FontData* FontFallbackList::GetFontData(
+ 
+   for (; curr_family; curr_family = curr_family->Next()) {
+     family_index_++;
++    // These two calls are the only place a family name the page wrote is
++    // handed to the platform font manager, so they are the one chokepoint
++    // every probe route that measures text goes through: canvas measureText,
++    // CSS layout, SVG text, workers. A hidden family behaves exactly as an
++    // absent one -- the loop moves to the next family in the list.
+     if (!font_selector_) {
+       // Don't query system fonts for empty font family name.
+-      if (!curr_family->FamilyName().empty()) {
++      if (!curr_family->FamilyName().empty() &&
++          !ProfileHidesPageNamedFamily(*curr_family)) {
+         if (auto* result = FontCache::Get().GetFontData(
+                 font_description, curr_family->FamilyName())) {
+           return result;
+@@ -165,10 +201,14 @@ const FontData* FontFallbackList::GetFontData(
+       continue;
+     }
+ 
++    // The selector answers first, and a page's own @font-face is answered from
++    // its font face cache before this ever reaches the host, so a web font is
++    // untouched by the filter.
+     const FontData* result =
+         font_selector_->GetFontData(font_description, *curr_family);
+     // Don't query system fonts for empty font family name.
+-    if (!result && !curr_family->FamilyName().empty()) {
++    if (!result && !curr_family->FamilyName().empty() &&
++        !ProfileHidesPageNamedFamily(*curr_family)) {
+       result = FontCache::Get().GetFontData(font_description,
+                                             curr_family->FamilyName());
+     }

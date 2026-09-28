@@ -8,9 +8,10 @@ backs the call, so share() rejects, and patch 0094 makes that rejection
 read as a cancelled share.
 
 diff --git a/content/child/runtime_features.cc b/content/child/runtime_features.cc
+index 783556a1ad..5909848bf3 100644
 --- a/content/child/runtime_features.cc
 +++ b/content/child/runtime_features.cc
-@@ -496,6 +496,31 @@ void SetCustomizedRuntimeFeaturesFromCombinedArgs(
+@@ -443,6 +443,31 @@ void SetCustomizedRuntimeFeaturesFromCombinedArgs(
      }
    }
  

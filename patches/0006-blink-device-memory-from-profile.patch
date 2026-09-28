@@ -9,7 +9,7 @@ page can test it by allocating. With no memory field in the profile, the
 host's real value is used.
 
 diff --git a/third_party/blink/common/device_memory/approximated_device_memory.cc b/third_party/blink/common/device_memory/approximated_device_memory.cc
-index 7fd53eb..284ab1d 100644
+index 7fd53ebba0..3b7be3ee8a 100644
 --- a/third_party/blink/common/device_memory/approximated_device_memory.cc
 +++ b/third_party/blink/common/device_memory/approximated_device_memory.cc
 @@ -4,12 +4,16 @@

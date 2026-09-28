@@ -8,10 +8,10 @@ Device-Memory header comes from the browser and navigator.deviceMemory
 from the renderer.
 
 diff --git a/chrome/browser/chrome_content_browser_client.cc b/chrome/browser/chrome_content_browser_client.cc
-index 8436913..5130820 100644
+index 19045777b3..448ed5078e 100644
 --- a/chrome/browser/chrome_content_browser_client.cc
 +++ b/chrome/browser/chrome_content_browser_client.cc
-@@ -2951,6 +2951,15 @@ void ChromeContentBrowserClient::AppendExtraCommandLineSwitches(
+@@ -2933,6 +2933,15 @@ void ChromeContentBrowserClient::AppendExtraCommandLineSwitches(
    static const char* const kCommonSwitchNames[] = {
        embedder_support::kUserAgent,
        switches::kUserDataDir,  // Make logs go to the right file.

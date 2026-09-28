@@ -7,7 +7,7 @@ has. When no bundled or recorded CDM exists, the browser also registers
 <exe dir>/WidevineCdm, where the launcher copies Google's CDM.
 
 diff --git a/chrome/common/media/cdm_registration.cc b/chrome/common/media/cdm_registration.cc
-index 46293c0..f017f93 100644
+index 60a79ace42..3429642a0a 100644
 --- a/chrome/common/media/cdm_registration.cc
 +++ b/chrome/common/media/cdm_registration.cc
 @@ -8,6 +8,7 @@

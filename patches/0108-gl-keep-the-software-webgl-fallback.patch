@@ -8,9 +8,49 @@ context identifies the browser more surely than any renderer string. The
 page console gets no deprecation warning about the fallback, and
 --disable-features=AllowSwiftShaderFallback turns it off.
 
+diff --git a/gpu/command_buffer/service/gles2_cmd_decoder_passthrough.cc b/gpu/command_buffer/service/gles2_cmd_decoder_passthrough.cc
+index 806df82713..3c5d785443 100644
+--- a/gpu/command_buffer/service/gles2_cmd_decoder_passthrough.cc
++++ b/gpu/command_buffer/service/gles2_cmd_decoder_passthrough.cc
+@@ -36,6 +36,7 @@
+ #include "gpu/config/gpu_finch_features.h"
+ #include "gpu/config/gpu_switches.h"
+ #include "third_party/perfetto/include/perfetto/tracing/track.h"
++#include "ui/gl/gl_features.h"
+ #include "ui/gl/gl_implementation.h"
+ #include "ui/gl/gl_utils.h"
+ #include "ui/gl/gl_version_info.h"
+@@ -1191,11 +1192,22 @@ gpu::ContextResult GLES2DecoderPassthroughImpl::Initialize(
+     CheckErrorCallbackState();
+   }
+ 
+-  // Deprecation warning for SwiftShader WebGL fallback
++  // Deprecation warning for SwiftShader WebGL fallback.
++  //
++  // Gated on whether the fallback was allowed at all rather than on the switch
++  // alone. This message goes to the page's console, so with the fallback
++  // re-enabled by feature default it would announce software WebGL on every
++  // GPU-less launch -- a page-visible observable, and the loudest possible one,
++  // since it names the deprecation by hand. It is a nag aimed at a user relying
++  // on the implicit fallback unknowingly; this fork allows it deliberately, so
++  // the condition now asks the same question the allow decision asks.
++  //
++  // It still fires if SwiftShader is somehow reached with the fallback
++  // disallowed, which would be a defect worth seeing.
+   if (feature_info_->IsWebGLContext() &&
+       gl::GetANGLEImplementation() == gl::ANGLEImplementation::kSwiftShader &&
+-      !base::CommandLine::ForCurrentProcess()->HasSwitch(
+-          switches::kEnableUnsafeSwiftShader)) {
++      !features::IsSwiftShaderAllowed(
++          base::CommandLine::ForCurrentProcess())) {
+     constexpr const char* kSwiftShaderFallbackDeprcationMessage =
+         "Automatic fallback to software WebGL has been deprecated. Please use "
+         "the --enable-unsafe-swiftshader "
+diff --git a/ui/gl/gl_features.cc b/ui/gl/gl_features.cc
+index 7cea474aa5..5722e7432b 100644
 --- a/ui/gl/gl_features.cc
 +++ b/ui/gl/gl_features.cc
-@@ -318,9 +318,40 @@
+@@ -316,9 +316,40 @@ bool IsSwiftShaderUsedForWebGLByCommandLine(
  }
  #endif
  
@@ -54,39 +94,3 @@ page console gets no deprecation warning about the fallback, and
  
  bool IsSwiftShaderAllowedByFeature() {
    return base::FeatureList::IsEnabled(kAllowSwiftShaderFallback);
---- a/gpu/command_buffer/service/gles2_cmd_decoder_passthrough.cc
-+++ b/gpu/command_buffer/service/gles2_cmd_decoder_passthrough.cc
-@@ -35,6 +35,7 @@
- #include "gpu/config/gpu_finch_features.h"
- #include "gpu/config/gpu_switches.h"
- #include "third_party/perfetto/include/perfetto/tracing/track.h"
-+#include "ui/gl/gl_features.h"
- #include "ui/gl/gl_implementation.h"
- #include "ui/gl/gl_utils.h"
- #include "ui/gl/gl_version_info.h"
-@@ -1198,11 +1199,22 @@
-     ui::GpuSwitchingManager::GetInstance()->AddObserver(this);
-   }
- 
--  // Deprecation warning for SwiftShader WebGL fallback
-+  // Deprecation warning for SwiftShader WebGL fallback.
-+  //
-+  // Gated on whether the fallback was allowed at all rather than on the switch
-+  // alone. This message goes to the page's console, so with the fallback
-+  // re-enabled by feature default it would announce software WebGL on every
-+  // GPU-less launch -- a page-visible observable, and the loudest possible one,
-+  // since it names the deprecation by hand. It is a nag aimed at a user relying
-+  // on the implicit fallback unknowingly; this fork allows it deliberately, so
-+  // the condition now asks the same question the allow decision asks.
-+  //
-+  // It still fires if SwiftShader is somehow reached with the fallback
-+  // disallowed, which would be a defect worth seeing.
-   if (feature_info_->IsWebGLContext() &&
-       gl::GetANGLEImplementation() == gl::ANGLEImplementation::kSwiftShader &&
--      !base::CommandLine::ForCurrentProcess()->HasSwitch(
--          switches::kEnableUnsafeSwiftShader)) {
-+      !features::IsSwiftShaderAllowed(
-+          base::CommandLine::ForCurrentProcess())) {
-     constexpr const char* kSwiftShaderFallbackDeprcationMessage =
-         "Automatic fallback to software WebGL has been deprecated. Please use "
-         "the --enable-unsafe-swiftshader "

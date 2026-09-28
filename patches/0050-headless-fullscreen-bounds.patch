@@ -8,9 +8,10 @@ without a profile, and adds tests at several scale factors on two
 displays.
 
 diff --git a/ui/ozone/platform/headless/headless_window.cc b/ui/ozone/platform/headless/headless_window.cc
+index a0061fa169..ddef965c7d 100644
 --- a/ui/ozone/platform/headless/headless_window.cc
 +++ b/ui/ozone/platform/headless/headless_window.cc
-@@ -88,7 +88,7 @@
+@@ -88,7 +88,7 @@ void HeadlessWindow::SetFullscreen(bool fullscreen, int64_t target_display_id) {
          window_state_ != PlatformWindowState::kFullScreen) {
        restored_bounds_ = bounds_;
      }
@@ -19,7 +20,7 @@ diff --git a/ui/ozone/platform/headless/headless_window.cc b/ui/ozone/platform/h
      if (!weak_ptr) {
        return;
      }
-@@ -117,7 +117,7 @@
+@@ -117,7 +117,7 @@ void HeadlessWindow::Maximize() {
      auto weak_ptr = GetWeakPtr();
  
      restored_bounds_ = bounds_;
@@ -28,7 +29,7 @@ diff --git a/ui/ozone/platform/headless/headless_window.cc b/ui/ozone/platform/h
      if (!weak_ptr) {
        return;
      }
-@@ -209,11 +209,13 @@
+@@ -209,11 +209,13 @@ void HeadlessWindow::SetWindowIcons(const gfx::ImageSkia& window_icon,
  
  void HeadlessWindow::SizeConstraintsChanged() {}
  
@@ -48,9 +49,10 @@ diff --git a/ui/ozone/platform/headless/headless_window.cc b/ui/ozone/platform/h
  }
  
 diff --git a/ui/ozone/platform/headless/headless_window.h b/ui/ozone/platform/headless/headless_window.h
+index a7dc0249fb..b71f18464a 100644
 --- a/ui/ozone/platform/headless/headless_window.h
 +++ b/ui/ozone/platform/headless/headless_window.h
-@@ -64,7 +64,7 @@
+@@ -64,7 +64,7 @@ class HeadlessWindow : public PlatformWindow {
                        const gfx::ImageSkia& app_icon) override;
    void SizeConstraintsChanged() override;
  
@@ -60,6 +62,7 @@ diff --git a/ui/ozone/platform/headless/headless_window.h b/ui/ozone/platform/he
    void UpdateBounds(const gfx::Rect& bounds);
    void UpdateWindowState(PlatformWindowState new_window_state);
 diff --git a/ui/ozone/platform/headless/headless_window_unittest.cc b/ui/ozone/platform/headless/headless_window_unittest.cc
+index 0881a9841c..a8adbee2c6 100644
 --- a/ui/ozone/platform/headless/headless_window_unittest.cc
 +++ b/ui/ozone/platform/headless/headless_window_unittest.cc
 @@ -8,6 +8,7 @@
@@ -70,7 +73,7 @@ diff --git a/ui/ozone/platform/headless/headless_window_unittest.cc b/ui/ozone/p
  #include "ui/gfx/geometry/rect.h"
  #include "ui/ozone/platform/headless/headless_window_manager.h"
  #include "ui/platform_window/platform_window_delegate.h"
-@@ -139,5 +140,91 @@
+@@ -139,5 +140,91 @@ TEST_F(HeadlessWindowCrashTest, DestroyViaObserverInRestore) {
    headless_window->Restore();
  }
  

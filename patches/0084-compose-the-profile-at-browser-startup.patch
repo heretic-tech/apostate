@@ -9,6 +9,8 @@ navigator.hardwareConcurrency. The fixed point also keeps the browser
 and its renderers in agreement, for example the Device-Memory header and
 navigator.deviceMemory. Nothing is written to disk.
 
+diff --git a/chrome/app/chrome_main_delegate.cc b/chrome/app/chrome_main_delegate.cc
+index c027a43eb3..232a716333 100644
 --- a/chrome/app/chrome_main_delegate.cc
 +++ b/chrome/app/chrome_main_delegate.cc
 @@ -9,6 +9,7 @@
@@ -19,7 +21,7 @@ navigator.deviceMemory. Nothing is written to disk.
  #include "base/base_paths.h"
  #include "base/check.h"
  #include "base/command_line.h"
-@@ -1376,6 +1377,39 @@
+@@ -1491,6 +1492,39 @@ void ChromeMainDelegate::PreSandboxStartup() {
      InitializeUserDataDir(base::CommandLine::ForCurrentProcess());
    }
  

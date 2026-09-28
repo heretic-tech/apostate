@@ -7,25 +7,8 @@ cannot see the host's fonts anyway, since Skia enumerates them later.
 The allowlist filter only hides families, so a family whose files are
 missing still fails to match on a page, as on any other browser.
 
---- a/base/apostate/compose.h
-+++ b/base/apostate/compose.h
-@@ -303,16 +303,6 @@
-                                span<const std::string_view> union_array_paths,
-                                std::string_view path = {});
- 
--// Whether every family in `families` has been provisioned into this profile,
--// i.e. exists under `fonts_directory`.
--//
--// base/ cannot enumerate the host's installed families at composition time --
--// that is Skia's job and Skia starts later -- so "present on the host" is not
--// answerable here, and a launch that provisions nothing has every pack offered
--// with the gap reported. Exposed for tests.
--BASE_EXPORT bool FamiliesProvisioned(const FilePath& fonts_directory,
--                                     span<const std::string_view> families);
--
- // Turns panel geometry plus furniture insets into the avail_* rectangle, and
- // removes the four inset keys either way.
- //
+diff --git a/base/apostate/compose.cc b/base/apostate/compose.cc
+index e32d9a7fa2..033469459a 100644
 --- a/base/apostate/compose.cc
 +++ b/base/apostate/compose.cc
 @@ -22,7 +22,6 @@
@@ -36,7 +19,7 @@ missing still fails to match on a page, as on any other browser.
  #include "base/json/json_reader.h"
  #include "base/json/json_writer.h"
  #include "base/logging.h"
-@@ -55,10 +54,8 @@
+@@ -55,10 +54,8 @@ constexpr char kProcessTypeSwitch[] = "type";
  // switch is present only when the launch passed one explicitly.
  constexpr char kUserDataDirSwitch[] = "user-data-dir";
  
@@ -48,7 +31,7 @@ missing still fails to match on a page, as on any other browser.
  
  constexpr std::string_view kLayerAnchor = "anchor";
  constexpr std::string_view kLayerDispersion = "dispersion";
-@@ -138,8 +135,6 @@
+@@ -138,8 +135,6 @@ std::string ProjectLanguages(const DispersionAxis& axis,
  
  struct FilterOutcome {
    std::vector<const DispersionOption*> options;
@@ -57,7 +40,7 @@ missing still fails to match on a page, as on any other browser.
  };
  
  // Applies the axis's servability clamp to an option set *before* drawing.
-@@ -153,8 +148,7 @@
+@@ -153,8 +148,7 @@ struct FilterOutcome {
  FilterOutcome FilterServable(const DispersionAxis& axis,
                               const DispersionOptionSet& option_set,
                               const HostCapability& host,
@@ -67,7 +50,7 @@ missing still fails to match on a page, as on any other browser.
    FilterOutcome outcome;
  
    for (const DispersionOption& option : option_set.options) {
-@@ -204,37 +198,26 @@
+@@ -204,37 +198,26 @@ FilterOutcome FilterServable(const DispersionAxis& axis,
          break;
  
        case Servability::kFilesPresent:
@@ -125,7 +108,7 @@ missing still fails to match on a page, as on any other browser.
          break;
      }
  
-@@ -761,19 +744,6 @@
+@@ -761,19 +744,6 @@ bool SubsetIncluded(uint64_t value, uint32_t percent) {
    return ScaleToRange(value, 100) < percent;
  }
  
@@ -145,19 +128,19 @@ missing still fails to match on a page, as on any other browser.
  // ---------------------------------------------------------------------------
  // Composition
  // ---------------------------------------------------------------------------
-@@ -818,11 +788,6 @@
-   // these nodes.
+@@ -819,11 +789,6 @@ std::optional<Composition> Compose(const ComposeRequest& request,
    std::map<std::string, std::string> resolved;
    resolved["platform"] = composition.platform;
--
+ 
 -  const FilePath fonts_directory =
 -      request.state_directory.empty()
 -          ? FilePath()
 -          : request.state_directory.AppendASCII(kProvisionedFontsDirectory);
- 
+-
    // ---- the anchor, before any axis that can be conditioned on it ----
    //
-@@ -1126,12 +1091,8 @@
+   // The GPU cluster is selected from anchors the host can actually serve, and
+@@ -1126,12 +1091,8 @@ std::optional<Composition> Compose(const ComposeRequest& request,
                      "compiled catalogue is incomplete";
      }
  
@@ -172,7 +155,7 @@ missing still fails to match on a page, as on any other browser.
  
      if (outcome.options.empty()) {
        if (axis.servability == Servability::kAnchorMember) {
-@@ -1279,16 +1240,6 @@
+@@ -1279,16 +1240,6 @@ std::optional<Composition> Compose(const ComposeRequest& request,
        });
      }
      resolved[std::string(axis.axis)] = included;
@@ -189,3 +172,24 @@ missing still fails to match on a page, as on any other browser.
    }
  
    if (!locale_resolved) {
+diff --git a/base/apostate/compose.h b/base/apostate/compose.h
+index 9a96eff7ec..eb3373fe5b 100644
+--- a/base/apostate/compose.h
++++ b/base/apostate/compose.h
+@@ -303,16 +303,6 @@ BASE_EXPORT void MergeFragment(DictValue& target,
+                                span<const std::string_view> union_array_paths,
+                                std::string_view path = {});
+ 
+-// Whether every family in `families` has been provisioned into this profile,
+-// i.e. exists under `fonts_directory`.
+-//
+-// base/ cannot enumerate the host's installed families at composition time --
+-// that is Skia's job and Skia starts later -- so "present on the host" is not
+-// answerable here, and a launch that provisions nothing has every pack offered
+-// with the gap reported. Exposed for tests.
+-BASE_EXPORT bool FamiliesProvisioned(const FilePath& fonts_directory,
+-                                     span<const std::string_view> families);
+-
+ // Turns panel geometry plus furniture insets into the avail_* rectangle, and
+ // removes the four inset keys either way.
+ //

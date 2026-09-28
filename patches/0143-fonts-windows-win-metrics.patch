@@ -21,7 +21,7 @@ hack. Missing tables fall through to the existing path. Other profiles
 are unchanged.
 
 diff --git a/third_party/blink/renderer/platform/fonts/font_metrics.cc b/third_party/blink/renderer/platform/fonts/font_metrics.cc
-index 11f9a7e..b5e508c 100644
+index 11f9a7e8fc..b5e508c04f 100644
 --- a/third_party/blink/renderer/platform/fonts/font_metrics.cc
 +++ b/third_party/blink/renderer/platform/fonts/font_metrics.cc
 @@ -29,6 +29,10 @@
@@ -173,7 +173,7 @@ index 11f9a7e..b5e508c 100644
  #endif
  }
 diff --git a/third_party/blink/renderer/platform/fonts/font_metrics.h b/third_party/blink/renderer/platform/fonts/font_metrics.h
-index a757532..56ce3b7 100644
+index a757532b1a..56ce3b743e 100644
 --- a/third_party/blink/renderer/platform/fonts/font_metrics.h
 +++ b/third_party/blink/renderer/platform/fonts/font_metrics.h
 @@ -31,6 +31,7 @@

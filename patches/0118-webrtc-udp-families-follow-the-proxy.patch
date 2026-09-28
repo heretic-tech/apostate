@@ -8,55 +8,11 @@ does. In both cases ICE gathering completes, so iceGatheringState
 reaches complete and end-of-candidates fires. A port left gathering
 forever is a state no stock Chrome configuration reaches.
 
---- a/net/socket/socks5_datagram_server_socket.h
-+++ b/net/socket/socks5_datagram_server_socket.h
-@@ -62,7 +62,11 @@
- //  - Listen() binds the datagram socket to the wildcard address of the
- //    requested family on an ephemeral port, whatever address was asked for. A
- //    specific interface address may have no route to the proxy, and the port a
--//    page is told is the relay's, so pinning a local one buys nothing.
-+//    page is told is the relay's, so pinning a local one buys nothing. Once
-+//    the proxy's address is known the socket is rebound to the wildcard of
-+//    *that* family if the two differ, because the relay endpoint is the only
-+//    address this socket ever sends to and a socket cannot address a family it
-+//    is not bound in.
- //  - GetLocalAddress() returns the relay endpoint from the ASSOCIATE reply,
- //    because that is the address this socket's traffic reaches the network
- //    from. It is what becomes the host ICE candidate, and it is a proxy address
-@@ -201,6 +205,11 @@
-   // substitution rules as SOCKS5DatagramClientSocket. Returns a net error.
-   int ResolveRelayEndpoint();
- 
-+  // Rebinds the datagram socket to the wildcard address of `proxy_endpoint_`'s
-+  // family when Listen() bound the other one, re-applying the buffer sizes the
-+  // caller asked for. Returns a net error.
-+  int RebindForProxyFamily();
-+
-   // Starts the single outstanding read that watches the control connection for
-   // closure. It never completes under normal operation.
-   void StartControlWatch();
-@@ -239,9 +248,17 @@
-   bool associated_ = false;
-   int latched_error_ = OK;
- 
--  // The family Listen() bound, which the proxy must be reachable over.
-+  // The family Listen() bound. The proxy's family decides it in the end, and
-+  // the two differ when the caller asked for a family the proxy has no address
-+  // in -- which is not an error, because a relayed socket's traffic never
-+  // leaves in the family the caller named.
-   AddressFamily listen_family_ = ADDRESS_FAMILY_UNSPECIFIED;
- 
-+  // Buffer sizes the caller asked for, replayed after a rebind. A rebind
-+  // closes and reopens the underlying socket, which drops them.
-+  std::optional<int32_t> receive_buffer_size_;
-+  std::optional<int32_t> send_buffer_size_;
-+
-   std::unique_ptr<HostResolver::ResolveHostRequest> resolve_request_;
-   IPEndPoint proxy_endpoint_;
-   IPEndPoint relay_endpoint_;
+diff --git a/net/socket/socks5_datagram_server_socket.cc b/net/socket/socks5_datagram_server_socket.cc
+index e4b2ac410a..ba7446a307 100644
 --- a/net/socket/socks5_datagram_server_socket.cc
 +++ b/net/socket/socks5_datagram_server_socket.cc
-@@ -224,24 +224,75 @@
+@@ -224,24 +224,75 @@ int SOCKS5DatagramServerSocket::DoResolveProxyComplete(int result) {
    if (result != OK) {
      return result;
    }
@@ -138,7 +94,7 @@ forever is a state no stock Chrome configuration reaches.
  int SOCKS5DatagramServerSocket::DoControlConnect() {
    next_state_ = STATE_CONTROL_CONNECT_COMPLETE;
    const NetLogWithSource& net_log = datagram_socket_->NetLog();
-@@ -887,10 +938,13 @@
+@@ -887,10 +938,13 @@ DscpAndEcn SOCKS5DatagramServerSocket::GetLastTos() const {
  }
  
  int SOCKS5DatagramServerSocket::SetReceiveBufferSize(int32_t size) {
@@ -152,114 +108,59 @@ forever is a state no stock Chrome configuration reaches.
    return datagram_socket_->SetSendBufferSize(size);
  }
  
---- a/services/network/public/mojom/p2p.mojom
-+++ b/services/network/public/mojom/p2p.mojom
-@@ -54,9 +54,19 @@
- };
+diff --git a/net/socket/socks5_datagram_server_socket.h b/net/socket/socks5_datagram_server_socket.h
+index b776b78705..20979e2227 100644
+--- a/net/socket/socks5_datagram_server_socket.h
++++ b/net/socket/socks5_datagram_server_socket.h
+@@ -62,7 +62,11 @@ class StreamSocket;
+ //  - Listen() binds the datagram socket to the wildcard address of the
+ //    requested family on an ephemeral port, whatever address was asked for. A
+ //    specific interface address may have no route to the proxy, and the port a
+-//    page is told is the relay's, so pinning a local one buys nothing.
++//    page is told is the relay's, so pinning a local one buys nothing. Once
++//    the proxy's address is known the socket is rebound to the wildcard of
++//    *that* family if the two differ, because the relay endpoint is the only
++//    address this socket ever sends to and a socket cannot address a family it
++//    is not bound in.
+ //  - GetLocalAddress() returns the relay endpoint from the ASSOCIATE reply,
+ //    because that is the address this socket's traffic reaches the network
+ //    from. It is what becomes the host ICE candidate, and it is a proxy address
+@@ -201,6 +205,11 @@ class NET_EXPORT_PRIVATE SOCKS5DatagramServerSocket
+   // substitution rules as SOCKS5DatagramClientSocket. Returns a net error.
+   int ResolveRelayEndpoint();
  
- interface P2PNetworkNotificationClient {
-+  // `udp_egress_ipv4` and `udp_egress_ipv6` say whether a peer connection's
-+  // UDP datagrams can leave this host in that address family at all. Both are
-+  // true for a direct egress. Behind a SOCKS5 proxy only the families the
-+  // proxy can serve an association in are true, because a relayed datagram is
-+  // only ever sent to the relay endpoint and the ICE candidate it produces is
-+  // that endpoint. Both are false when no UDP egress exists. The renderer
-+  // needs this before a port is created, which is why it rides the network
-+  // list rather than being answered per socket.
-   NetworkListChanged(array<NetworkInterface> networks,
-                      IPAddress default_ipv4_local_address,
--                     IPAddress default_ipv6_local_address);
-+                     IPAddress default_ipv6_local_address,
-+                     bool udp_egress_ipv4,
-+                     bool udp_egress_ipv6);
- };
- 
- interface P2PSocketManager {
---- a/services/network/p2p/socket_manager.h
-+++ b/services/network/p2p/socket_manager.h
-@@ -25,10 +25,12 @@
- #include "mojo/public/cpp/bindings/pending_remote.h"
- #include "mojo/public/cpp/bindings/receiver.h"
- #include "mojo/public/cpp/bindings/remote.h"
-+#include "net/base/host_port_pair.h"
- #include "net/base/ip_address.h"
- #include "net/base/ip_endpoint.h"
- #include "net/base/network_anonymization_key.h"
- #include "net/base/network_change_notifier.h"
-+#include "net/dns/host_resolver.h"
- #include "net/socket/client_socket_factory.h"
- #include "net/socket/datagram_client_socket.h"
- #include "services/network/p2p/socket.h"
-@@ -66,6 +68,25 @@
-   using DeleteCallback =
-       base::OnceCallback<void(P2PSocketManager* socket_manager)>;
- 
-+  // Where a peer connection's datagrams are allowed to go. Every UDP socket
-+  // of every peer connection served by one manager shares one egress, and it
-+  // has to be chosen before any destination is known.
-+  enum class UdpEgress {
-+    kDirect,
-+    kRelayThroughSocks5,
-+    kBlocked,
-+  };
++  // Rebinds the datagram socket to the wildcard address of `proxy_endpoint_`'s
++  // family when Listen() bound the other one, re-applying the buffer sizes the
++  // caller asked for. Returns a net error.
++  int RebindForProxyFamily();
 +
-+  // The address families that egress covers. Both false means no UDP egress
-+  // at all. A relayed datagram is only ever sent to the relay endpoint of an
-+  // association, and the ICE candidate it produces is that endpoint, so the
-+  // families a relay covers are the families its proxy can be reached in and
-+  // nothing to do with this host's own interfaces.
-+  struct UdpEgressFamilies {
-+    bool ipv4 = false;
-+    bool ipv6 = false;
-+  };
-+
-   // |delete_callback| tells the P2PSocketManager's owner to destroy the
-   // P2PSocketManager. The P2PSocketManager must be destroyed before the
-   // |url_request_context|.
-@@ -98,6 +119,7 @@
+   // Starts the single outstanding read that watches the control connection for
+   // closure. It never completes under normal operation.
+   void StartControlWatch();
+@@ -239,9 +248,17 @@ class NET_EXPORT_PRIVATE SOCKS5DatagramServerSocket
+   bool associated_ = false;
+   int latched_error_ = OK;
  
-   using GetDefaultCallback = base::OnceCallback<void(net::IPAddress)>;
-   void DoGetDefaultLocalAddresses(net::NetworkInterfaceList list);
-+  void ContinueGetDefaultLocalAddresses(net::NetworkInterfaceList list);
-   void MaybeFinishDoGetDefaultLocalAddresses(
-       DefaultLocalAddresses* default_local_addresses,
-       net::NetworkInterfaceList list,
-@@ -115,6 +137,18 @@
-                        net::IPAddress default_ipv4_local_address,
-                        net::IPAddress default_ipv6_local_address);
+-  // The family Listen() bound, which the proxy must be reachable over.
++  // The family Listen() bound. The proxy's family decides it in the end, and
++  // the two differ when the caller asked for a family the proxy has no address
++  // in -- which is not an error, because a relayed socket's traffic never
++  // leaves in the family the caller named.
+   AddressFamily listen_family_ = ADDRESS_FAMILY_UNSPECIFIED;
  
-+  // The egress this manager's UDP sockets take, read from the static proxy
-+  // configuration on first use and held until the next network list is built.
-+  // The socket a request gets and the families the renderer was told about
-+  // come from one snapshot, so they cannot contradict each other.
-+  UdpEgress GetUdpEgress(net::HostPortPair* proxy);
-+  // Settles `udp_egress_families_` if it is not known yet, then runs `done`.
-+  // Deciding needs the proxy's name resolved, which is asynchronous, so the
-+  // network list waits for it rather than going out without it.
-+  void EnsureUdpEgressFamilies(base::OnceClosure done);
-+  void OnUdpEgressFamiliesResolved(int result);
-+  void FinishUdpEgressFamilies(UdpEgressFamilies families);
++  // Buffer sizes the caller asked for, replayed after a rebind. A rebind
++  // closes and reopens the underlying socket, which drops them.
++  std::optional<int32_t> receive_buffer_size_;
++  std::optional<int32_t> send_buffer_size_;
 +
-   // P2PSocket::Delegate.
-   void DestroySocket(P2PSocket* socket) override;
-   void DumpPacket(base::span<const uint8_t> data, bool incoming) override;
-@@ -169,6 +203,13 @@
-   bool notifications_paused_ = false;
-   bool pending_network_change_notification_ = false;
- 
-+  std::optional<UdpEgress> udp_egress_;
-+  net::HostPortPair udp_egress_proxy_;
-+  std::optional<UdpEgressFamilies> udp_egress_families_;
-+  std::unique_ptr<net::HostResolver::ResolveHostRequest>
-+      udp_egress_family_request_;
-+  std::vector<base::OnceClosure> udp_egress_family_callbacks_;
-+
-   // Used to call DoGetNetworkList, which may briefly block since getting the
-   // default local address involves creating a dummy socket.
-   const scoped_refptr<base::SequencedTaskRunner> network_list_task_runner_;
+   std::unique_ptr<HostResolver::ResolveHostRequest> resolve_request_;
+   IPEndPoint proxy_endpoint_;
+   IPEndPoint relay_endpoint_;
+diff --git a/services/network/p2p/socket_manager.cc b/services/network/p2p/socket_manager.cc
+index 8f0b649770..88387c1eaf 100644
 --- a/services/network/p2p/socket_manager.cc
 +++ b/services/network/p2p/socket_manager.cc
-@@ -79,12 +79,10 @@
+@@ -79,12 +79,10 @@ constexpr char kWebRtcUdpDirectValue[] = "direct";
  // Never create a WebRTC UDP socket, with or without a proxy.
  constexpr char kWebRtcUdpBlockValue[] = "block";
  
@@ -276,7 +177,7 @@ forever is a state no stock Chrome configuration reaches.
  
  // Annotates the SOCKS5 control connection of a relayed WebRTC UDP socket: the
  // greeting, the optional RFC 1929 sub-negotiation and the UDP ASSOCIATE
-@@ -462,6 +460,24 @@
+@@ -462,6 +460,24 @@ net::NetworkInterfaceList P2PSocketManager::DoGetNetworkList() {
  
  void P2PSocketManager::DoGetDefaultLocalAddresses(
      net::NetworkInterfaceList list) {
@@ -301,7 +202,7 @@ forever is a state no stock Chrome configuration reaches.
    DefaultLocalAddresses* default_local_addresses = new DefaultLocalAddresses();
    GetDefaultLocalAddress(
        AF_INET,
-@@ -553,8 +569,95 @@
+@@ -553,8 +569,95 @@ void P2PSocketManager::SendNetworkList(
      const net::NetworkInterfaceList& list,
      net::IPAddress default_ipv4_local_address,
      net::IPAddress default_ipv6_local_address) {
@@ -398,7 +299,7 @@ forever is a state no stock Chrome configuration reaches.
  }
  
  void P2PSocketManager::StartNetworkNotifications(
-@@ -632,7 +735,7 @@
+@@ -632,7 +735,7 @@ void P2PSocketManager::CreateSocket(
        udp_socket_factory;
    if (type == P2P_SOCKET_UDP) {
      net::HostPortPair proxy;
@@ -407,22 +308,95 @@ forever is a state no stock Chrome configuration reaches.
        case UdpEgress::kDirect:
          udp_socket_factory =
              base::BindRepeating(&P2PSocketUdp::CreateDefaultSocket);
---- a/services/network/p2p/socket_test_utils.h
-+++ b/services/network/p2p/socket_test_utils.h
-@@ -155,7 +155,9 @@
-   void NetworkListChanged(
-       const std::vector<::net::NetworkInterface>& networks,
-       const ::net::IPAddress& default_ipv4_local_address,
--      const ::net::IPAddress& default_ipv6_local_address) override;
-+      const ::net::IPAddress& default_ipv6_local_address,
-+      bool udp_egress_ipv4,
-+      bool udp_egress_ipv6) override;
+diff --git a/services/network/p2p/socket_manager.h b/services/network/p2p/socket_manager.h
+index 5505f0bb01..78186d1a0d 100644
+--- a/services/network/p2p/socket_manager.h
++++ b/services/network/p2p/socket_manager.h
+@@ -25,10 +25,12 @@
+ #include "mojo/public/cpp/bindings/pending_remote.h"
+ #include "mojo/public/cpp/bindings/receiver.h"
+ #include "mojo/public/cpp/bindings/remote.h"
++#include "net/base/host_port_pair.h"
+ #include "net/base/ip_address.h"
+ #include "net/base/ip_endpoint.h"
+ #include "net/base/network_anonymization_key.h"
+ #include "net/base/network_change_notifier.h"
++#include "net/dns/host_resolver.h"
+ #include "net/socket/client_socket_factory.h"
+ #include "net/socket/datagram_client_socket.h"
+ #include "services/network/p2p/socket.h"
+@@ -66,6 +68,25 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) P2PSocketManager
+   using DeleteCallback =
+       base::OnceCallback<void(P2PSocketManager* socket_manager)>;
  
-   bool get_network_list_changed() { return network_list_changed_; }
++  // Where a peer connection's datagrams are allowed to go. Every UDP socket
++  // of every peer connection served by one manager shares one egress, and it
++  // has to be chosen before any destination is known.
++  enum class UdpEgress {
++    kDirect,
++    kRelayThroughSocks5,
++    kBlocked,
++  };
++
++  // The address families that egress covers. Both false means no UDP egress
++  // at all. A relayed datagram is only ever sent to the relay endpoint of an
++  // association, and the ICE candidate it produces is that endpoint, so the
++  // families a relay covers are the families its proxy can be reached in and
++  // nothing to do with this host's own interfaces.
++  struct UdpEgressFamilies {
++    bool ipv4 = false;
++    bool ipv6 = false;
++  };
++
+   // |delete_callback| tells the P2PSocketManager's owner to destroy the
+   // P2PSocketManager. The P2PSocketManager must be destroyed before the
+   // |url_request_context|.
+@@ -98,6 +119,7 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) P2PSocketManager
  
+   using GetDefaultCallback = base::OnceCallback<void(net::IPAddress)>;
+   void DoGetDefaultLocalAddresses(net::NetworkInterfaceList list);
++  void ContinueGetDefaultLocalAddresses(net::NetworkInterfaceList list);
+   void MaybeFinishDoGetDefaultLocalAddresses(
+       DefaultLocalAddresses* default_local_addresses,
+       net::NetworkInterfaceList list,
+@@ -115,6 +137,18 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) P2PSocketManager
+                        net::IPAddress default_ipv4_local_address,
+                        net::IPAddress default_ipv6_local_address);
+ 
++  // The egress this manager's UDP sockets take, read from the static proxy
++  // configuration on first use and held until the next network list is built.
++  // The socket a request gets and the families the renderer was told about
++  // come from one snapshot, so they cannot contradict each other.
++  UdpEgress GetUdpEgress(net::HostPortPair* proxy);
++  // Settles `udp_egress_families_` if it is not known yet, then runs `done`.
++  // Deciding needs the proxy's name resolved, which is asynchronous, so the
++  // network list waits for it rather than going out without it.
++  void EnsureUdpEgressFamilies(base::OnceClosure done);
++  void OnUdpEgressFamiliesResolved(int result);
++  void FinishUdpEgressFamilies(UdpEgressFamilies families);
++
+   // P2PSocket::Delegate.
+   void DestroySocket(P2PSocket* socket) override;
+   void DumpPacket(base::span<const uint8_t> data, bool incoming) override;
+@@ -169,6 +203,13 @@ class COMPONENT_EXPORT(NETWORK_SERVICE) P2PSocketManager
+   bool notifications_paused_ = false;
+   bool pending_network_change_notification_ = false;
+ 
++  std::optional<UdpEgress> udp_egress_;
++  net::HostPortPair udp_egress_proxy_;
++  std::optional<UdpEgressFamilies> udp_egress_families_;
++  std::unique_ptr<net::HostResolver::ResolveHostRequest>
++      udp_egress_family_request_;
++  std::vector<base::OnceClosure> udp_egress_family_callbacks_;
++
+   // Used to call DoGetNetworkList, which may briefly block since getting the
+   // default local address involves creating a dummy socket.
+   const scoped_refptr<base::SequencedTaskRunner> network_list_task_runner_;
+diff --git a/services/network/p2p/socket_test_utils.cc b/services/network/p2p/socket_test_utils.cc
+index 5b15b104e6..82f882e991 100644
 --- a/services/network/p2p/socket_test_utils.cc
 +++ b/services/network/p2p/socket_test_utils.cc
-@@ -227,7 +227,9 @@
+@@ -227,7 +227,9 @@ FakeNetworkNotificationClient::~FakeNetworkNotificationClient() = default;
  void FakeNetworkNotificationClient::NetworkListChanged(
      const std::vector<::net::NetworkInterface>& networks,
      const ::net::IPAddress& default_ipv4_local_address,
@@ -433,9 +407,26 @@ forever is a state no stock Chrome configuration reaches.
    network_list_changed_ = true;
    std::move(closure_).Run();
  }
+diff --git a/services/network/p2p/socket_test_utils.h b/services/network/p2p/socket_test_utils.h
+index 7c709d72e4..2d25b3fff2 100644
+--- a/services/network/p2p/socket_test_utils.h
++++ b/services/network/p2p/socket_test_utils.h
+@@ -155,7 +155,9 @@ class FakeNetworkNotificationClient
+   void NetworkListChanged(
+       const std::vector<::net::NetworkInterface>& networks,
+       const ::net::IPAddress& default_ipv4_local_address,
+-      const ::net::IPAddress& default_ipv6_local_address) override;
++      const ::net::IPAddress& default_ipv6_local_address,
++      bool udp_egress_ipv4,
++      bool udp_egress_ipv6) override;
+ 
+   bool get_network_list_changed() { return network_list_changed_; }
+ 
+diff --git a/services/network/p2p/socket_udp.cc b/services/network/p2p/socket_udp.cc
+index 77373a1bfd..e16db90e97 100644
 --- a/services/network/p2p/socket_udp.cc
 +++ b/services/network/p2p/socket_udp.cc
-@@ -287,10 +287,15 @@
+@@ -287,10 +287,15 @@ void P2PSocketUdp::OnEgressReady(net::IPEndPoint remote_address, int result) {
      // candidate from it, rather than a candidate whose packets would have gone
      // out of a real interface.
      // Logged below ERROR on purpose. Refusing the socket is this patch
@@ -455,193 +446,36 @@ forever is a state no stock Chrome configuration reaches.
      LOG(WARNING) << "apostate: refused a WebRTC UDP socket with no proxy "
                      "egress, so no packet leaves outside the proxy (net error "
                   << result << ")";
---- a/third_party/blink/renderer/platform/p2p/network_list_manager.h
-+++ b/third_party/blink/renderer/platform/p2p/network_list_manager.h
-@@ -31,6 +31,17 @@
-   // which the observer was added.
-   virtual void RemoveNetworkListObserver(
-       NetworkListObserver* network_list_observer) = 0;
-+
-+  // Whether a peer connection's UDP datagrams can leave this host in `family`
-+  // (AF_INET or AF_INET6) at all. Both families answer true for a direct
-+  // egress; behind a SOCKS5 proxy only the families the proxy can serve an
-+  // association in do, because a relayed datagram is only ever sent to the
-+  // relay endpoint and the ICE candidate it produces is that endpoint. The
-+  // answer arrives with the network list and is readable from any thread,
-+  // because the packet socket factory needs it on WebRTC's network thread
-+  // while the list is delivered on the main thread. Before the first list
-+  // arrives both are true, which is what an unproxied host answers.
-+  virtual bool HasUdpEgress(int family) const = 0;
+diff --git a/services/network/public/mojom/p2p.mojom b/services/network/public/mojom/p2p.mojom
+index 036f96f2b2..03eda42f82 100644
+--- a/services/network/public/mojom/p2p.mojom
++++ b/services/network/public/mojom/p2p.mojom
+@@ -54,9 +54,19 @@ struct P2PSendPacket {
  };
  
- }  // namespace blink
---- a/third_party/blink/renderer/platform/p2p/socket_dispatcher.h
-+++ b/third_party/blink/renderer/platform/p2p/socket_dispatcher.h
-@@ -23,6 +23,8 @@
+ interface P2PNetworkNotificationClient {
++  // `udp_egress_ipv4` and `udp_egress_ipv6` say whether a peer connection's
++  // UDP datagrams can leave this host in that address family at all. Both are
++  // true for a direct egress. Behind a SOCKS5 proxy only the families the
++  // proxy can serve an association in are true, because a relayed datagram is
++  // only ever sent to the relay endpoint and the ICE candidate it produces is
++  // that endpoint. Both are false when no UDP egress exists. The renderer
++  // needs this before a port is created, which is why it rides the network
++  // list rather than being answered per socket.
+   NetworkListChanged(array<NetworkInterface> networks,
+                      IPAddress default_ipv4_local_address,
+-                     IPAddress default_ipv6_local_address);
++                     IPAddress default_ipv6_local_address,
++                     bool udp_egress_ipv4,
++                     bool udp_egress_ipv6);
+ };
  
- #include <stdint.h>
- 
-+#include <atomic>
-+
- #include "base/compiler_specific.h"
- #include "base/memory/scoped_refptr.h"
- #include "base/observer_list_threadsafe.h"
-@@ -72,6 +74,7 @@
-       blink::NetworkListObserver* network_list_observer) override;
-   void RemoveNetworkListObserver(
-       blink::NetworkListObserver* network_list_observer) override;
-+  bool HasUdpEgress(int family) const override;
- 
-   mojo::SharedRemote<network::mojom::blink::P2PSocketManager>
-   GetP2PSocketManager();
-@@ -83,7 +86,9 @@
-   void NetworkListChanged(
-       const Vector<net::NetworkInterface>& networks,
-       const net::IPAddress& default_ipv4_local_address,
--      const net::IPAddress& default_ipv6_local_address) override;
-+      const net::IPAddress& default_ipv6_local_address,
-+      bool udp_egress_ipv4,
-+      bool udp_egress_ipv6) override;
- 
-   void RequestInterfaceIfNecessary();
-   void RequestNetworkEventsIfNecessary();
-@@ -109,6 +114,16 @@
-   net::IPAddress default_ipv4_local_address_;
-   net::IPAddress default_ipv6_local_address_;
- 
-+  // Whether a peer connection's datagrams have an egress in each family, from
-+  // the last |NetworkListChanged| call. Written on the main thread and read on
-+  // WebRTC's network thread, hence atomic rather than plain bools. They start
-+  // true because that is what a host with no proxy answers, and because a
-+  // false read before the first list arrived would suppress UDP on a direct
-+  // egress; nothing reads them for a decision that outlives one gathering
-+  // pass, and gathering cannot begin before the first list.
-+  std::atomic<bool> udp_egress_ipv4_{true};
-+  std::atomic<bool> udp_egress_ipv6_{true};
-+
-   HeapMojoReceiver<network::mojom::blink::P2PNetworkNotificationClient,
-                    P2PSocketDispatcher>
-       network_notification_client_receiver_;
---- a/third_party/blink/renderer/platform/p2p/socket_dispatcher.cc
-+++ b/third_party/blink/renderer/platform/p2p/socket_dispatcher.cc
-@@ -7,6 +7,7 @@
- #include "base/memory/scoped_refptr.h"
- #include "base/task/single_thread_task_runner.h"
- #include "base/types/pass_key.h"
-+#include "net/base/sys_addrinfo.h"
- #include "services/network/public/cpp/p2p_param_traits.h"
- #include "third_party/blink/public/platform/browser_interface_broker_proxy.h"
- #include "third_party/blink/public/platform/platform.h"
-@@ -59,6 +60,11 @@
-   network_list_observers_->RemoveObserver(network_list_observer);
- }
- 
-+bool P2PSocketDispatcher::HasUdpEgress(int family) const {
-+  return family == AF_INET6 ? udp_egress_ipv6_.load(std::memory_order_relaxed)
-+                            : udp_egress_ipv4_.load(std::memory_order_relaxed);
-+}
-+
- mojo::SharedRemote<network::mojom::blink::P2PSocketManager>
- P2PSocketDispatcher::GetP2PSocketManager() {
-   base::AutoLock lock(p2p_socket_manager_lock_);
-@@ -87,11 +93,18 @@
- void P2PSocketDispatcher::NetworkListChanged(
-     const Vector<net::NetworkInterface>& networks,
-     const net::IPAddress& default_ipv4_local_address,
--    const net::IPAddress& default_ipv6_local_address) {
-+    const net::IPAddress& default_ipv6_local_address,
-+    bool udp_egress_ipv4,
-+    bool udp_egress_ipv6) {
-   DCHECK(main_task_runner_->BelongsToCurrentThread());
-   networks_ = networks;
-   default_ipv4_local_address_ = default_ipv4_local_address;
-   default_ipv6_local_address_ = default_ipv6_local_address;
-+  // Published before the observers are notified, so a network manager that
-+  // reacts to the list synchronously already sees the families that list was
-+  // built with.
-+  udp_egress_ipv4_.store(udp_egress_ipv4, std::memory_order_relaxed);
-+  udp_egress_ipv6_.store(udp_egress_ipv6, std::memory_order_relaxed);
- 
-   // TODO(crbug.com/787254): Remove this helper when network_list_observer.h
-   // gets moved from blink/public to blink/renderer, and operate over
---- a/third_party/blink/renderer/platform/p2p/ipc_network_manager.cc
-+++ b/third_party/blink/renderer/platform/p2p/ipc_network_manager.cc
-@@ -104,6 +104,24 @@
-     network_list_received_ = true;
-   }
- 
-+  // An address family whose datagrams have no egress is not offered to WebRTC
-+  // at all. A relayed socket sends only to its association's relay endpoint
-+  // and the host candidate it produces is that endpoint, so a family the
-+  // configured proxy cannot be reached in cannot produce a candidate however
-+  // many interfaces this host has in it; offering it produces a port whose
-+  // socket is refused, and a port whose socket never binds never reports its
-+  // address and never finishes gathering.
-+  //
-+  // When no family has an egress the list is left alone. "No UDP at all" is a
-+  // decision for the port allocator's flags, which is where stock Chrome makes
-+  // it under the disable_non_proxied_udp policy, and dropping every interface
-+  // here would take TURN over TCP and TLS with it.
-+  const bool udp_egress_ipv4 =
-+      !network_list_manager_ || network_list_manager_->HasUdpEgress(AF_INET);
-+  const bool udp_egress_ipv6 =
-+      !network_list_manager_ || network_list_manager_->HasUdpEgress(AF_INET6);
-+  const bool drop_families_without_egress = udp_egress_ipv4 != udp_egress_ipv6;
-+
-   // Default addresses should be set only when they are in the filtered list of
-   // network addresses.
-   bool use_default_ipv4_address = false;
-@@ -116,6 +134,10 @@
-     webrtc::IPAddress ip_address =
-         webrtc::NetIPAddressToRtcIPAddress(it->address);
-     DCHECK(!ip_address.IsNil());
-+    if (drop_families_without_egress &&
-+        (it->address.IsIPv4() ? !udp_egress_ipv4 : !udp_egress_ipv6)) {
-+      continue;
-+    }
- 
-     webrtc::IPAddress prefix =
-         webrtc::TruncateIP(ip_address, it->prefix_length);
---- a/third_party/blink/renderer/platform/p2p/ipc_network_manager_test.cc
-+++ b/third_party/blink/renderer/platform/p2p/ipc_network_manager_test.cc
-@@ -29,6 +29,8 @@
-   void RemoveNetworkListObserver(
-       blink::NetworkListObserver* network_list_observer) override {}
- 
-+  bool HasUdpEgress(int family) const override { return true; }
-+
-   void Trace(Visitor* visitor) const override {
-     NetworkListManager::Trace(visitor);
-   }
---- a/third_party/blink/renderer/platform/p2p/ipc_socket_factory.cc
-+++ b/third_party/blink/renderer/platform/p2p/ipc_socket_factory.cc
-@@ -809,6 +809,23 @@
-     uint16_t max_port) {
-   auto socket_dispatcher = socket_dispatcher_.Lock();
-   DCHECK(socket_dispatcher);
-+
-+  // A family whose datagrams have no egress gets no socket, and saying so here
-+  // rather than letting the browser refuse the request is what keeps gathering
-+  // finishing. The network service answers a refusal asynchronously, after the
-+  // socket object exists; webrtc::UDPPort subscribes to its socket's sent,
-+  // ready-to-send and address-ready events and to nothing that fires on that
-+  // failure, and PrepareAddress() does nothing unless the socket is already
-+  // bound, so such a port never reports an address, never completes and never
-+  // errors -- the peer connection stays in "gathering" for its whole life and
-+  // the end-of-candidates event never fires. Returning nullptr instead takes
-+  // the path webrtc already handles on every port type: the allocation
-+  // sequence makes no UDP or STUN port, its relay and TCP phases still run, and
-+  // candidate gathering completes.
-+  if (!socket_dispatcher->HasUdpEgress(local_address.family())) {
-+    return nullptr;
-+  }
-+
-   auto socket_client =
-       std::make_unique<P2PSocketClientImpl>(batch_udp_packets_);
-   auto socket = std::make_unique<IpcPacketSocket>();
+ interface P2PSocketManager {
+diff --git a/third_party/blink/renderer/modules/peerconnection/peer_connection_dependency_factory.cc b/third_party/blink/renderer/modules/peerconnection/peer_connection_dependency_factory.cc
+index c3b91715dc..921fac28f0 100644
 --- a/third_party/blink/renderer/modules/peerconnection/peer_connection_dependency_factory.cc
 +++ b/third_party/blink/renderer/modules/peerconnection/peer_connection_dependency_factory.cc
-@@ -1124,6 +1124,25 @@
+@@ -1089,6 +1089,25 @@ PeerConnectionDependencyFactory::CreatePortAllocator(
      }
    }
  
@@ -667,25 +501,207 @@ forever is a state no stock Chrome configuration reaches.
    std::unique_ptr<webrtc::NetworkManager> network_manager;
    if (port_config.enable_multiple_routes) {
      network_manager = std::make_unique<FilteringNetworkManager>(
---- a/third_party/webrtc/p2p/base/stun_port.h
-+++ b/third_party/webrtc/p2p/base/stun_port.h
-@@ -139,6 +139,13 @@
-   void OnLocalAddressReady(AsyncPacketSocket* socket,
-                            const SocketAddress& address);
+diff --git a/third_party/blink/renderer/platform/p2p/ipc_network_manager.cc b/third_party/blink/renderer/platform/p2p/ipc_network_manager.cc
+index ab727b214a..6c8cb358c9 100644
+--- a/third_party/blink/renderer/platform/p2p/ipc_network_manager.cc
++++ b/third_party/blink/renderer/platform/p2p/ipc_network_manager.cc
+@@ -104,6 +104,24 @@ void IpcNetworkManager::OnNetworkListChanged(
+     network_list_received_ = true;
+   }
  
-+  // Called when the port's socket is closed. A socket that dies before it is
-+  // bound would otherwise leave the port pending for ever: PrepareAddress()
-+  // only reports an address for a socket that is already bound, so the port
-+  // never becomes ready, never signals complete or error, and the session
-+  // never finishes gathering candidates.
-+  void OnSocketClosed(AsyncPacketSocket* socket, int error);
++  // An address family whose datagrams have no egress is not offered to WebRTC
++  // at all. A relayed socket sends only to its association's relay endpoint
++  // and the host candidate it produces is that endpoint, so a family the
++  // configured proxy cannot be reached in cannot produce a candidate however
++  // many interfaces this host has in it; offering it produces a port whose
++  // socket is refused, and a port whose socket never binds never reports its
++  // address and never finishes gathering.
++  //
++  // When no family has an egress the list is left alone. "No UDP at all" is a
++  // decision for the port allocator's flags, which is where stock Chrome makes
++  // it under the disable_non_proxied_udp policy, and dropping every interface
++  // here would take TURN over TCP and TLS with it.
++  const bool udp_egress_ipv4 =
++      !network_list_manager_ || network_list_manager_->HasUdpEgress(AF_INET);
++  const bool udp_egress_ipv6 =
++      !network_list_manager_ || network_list_manager_->HasUdpEgress(AF_INET6);
++  const bool drop_families_without_egress = udp_egress_ipv4 != udp_egress_ipv6;
 +
-   void PostAddAddress(bool is_final) override;
+   // Default addresses should be set only when they are in the filtered list of
+   // network addresses.
+   bool use_default_ipv4_address = false;
+@@ -116,6 +134,10 @@ void IpcNetworkManager::OnNetworkListChanged(
+     webrtc::IPAddress ip_address =
+         webrtc::NetIPAddressToRtcIPAddress(it->address);
+     DCHECK(!ip_address.IsNil());
++    if (drop_families_without_egress &&
++        (it->address.IsIPv4() ? !udp_egress_ipv4 : !udp_egress_ipv6)) {
++      continue;
++    }
  
-   void OnReadPacket(AsyncPacketSocket* socket, const ReceivedIpPacket& packet);
+     webrtc::IPAddress prefix =
+         webrtc::TruncateIP(ip_address, it->prefix_length);
+diff --git a/third_party/blink/renderer/platform/p2p/ipc_network_manager_test.cc b/third_party/blink/renderer/platform/p2p/ipc_network_manager_test.cc
+index a04f4f6109..5de4ec1fd2 100644
+--- a/third_party/blink/renderer/platform/p2p/ipc_network_manager_test.cc
++++ b/third_party/blink/renderer/platform/p2p/ipc_network_manager_test.cc
+@@ -29,6 +29,8 @@ class MockP2PSocketDispatcher
+   void RemoveNetworkListObserver(
+       blink::NetworkListObserver* network_list_observer) override {}
+ 
++  bool HasUdpEgress(int family) const override { return true; }
++
+   void Trace(Visitor* visitor) const override {
+     NetworkListManager::Trace(visitor);
+   }
+diff --git a/third_party/blink/renderer/platform/p2p/ipc_socket_factory.cc b/third_party/blink/renderer/platform/p2p/ipc_socket_factory.cc
+index ec7c526f55..bd51beae58 100644
+--- a/third_party/blink/renderer/platform/p2p/ipc_socket_factory.cc
++++ b/third_party/blink/renderer/platform/p2p/ipc_socket_factory.cc
+@@ -809,6 +809,23 @@ IpcPacketSocketFactory::CreateUdpSocket(
+     uint16_t max_port) {
+   auto socket_dispatcher = socket_dispatcher_.Lock();
+   DCHECK(socket_dispatcher);
++
++  // A family whose datagrams have no egress gets no socket, and saying so here
++  // rather than letting the browser refuse the request is what keeps gathering
++  // finishing. The network service answers a refusal asynchronously, after the
++  // socket object exists; webrtc::UDPPort subscribes to its socket's sent,
++  // ready-to-send and address-ready events and to nothing that fires on that
++  // failure, and PrepareAddress() does nothing unless the socket is already
++  // bound, so such a port never reports an address, never completes and never
++  // errors -- the peer connection stays in "gathering" for its whole life and
++  // the end-of-candidates event never fires. Returning nullptr instead takes
++  // the path webrtc already handles on every port type: the allocation
++  // sequence makes no UDP or STUN port, its relay and TCP phases still run, and
++  // candidate gathering completes.
++  if (!socket_dispatcher->HasUdpEgress(local_address.family())) {
++    return nullptr;
++  }
++
+   auto socket_client =
+       std::make_unique<P2PSocketClientImpl>(batch_udp_packets_);
+   auto socket = std::make_unique<IpcPacketSocket>();
+diff --git a/third_party/blink/renderer/platform/p2p/network_list_manager.h b/third_party/blink/renderer/platform/p2p/network_list_manager.h
+index c7b510f8d6..c4baae8cf1 100644
+--- a/third_party/blink/renderer/platform/p2p/network_list_manager.h
++++ b/third_party/blink/renderer/platform/p2p/network_list_manager.h
+@@ -31,6 +31,17 @@ class PLATFORM_EXPORT NetworkListManager : public GarbageCollectedMixin {
+   // which the observer was added.
+   virtual void RemoveNetworkListObserver(
+       NetworkListObserver* network_list_observer) = 0;
++
++  // Whether a peer connection's UDP datagrams can leave this host in `family`
++  // (AF_INET or AF_INET6) at all. Both families answer true for a direct
++  // egress; behind a SOCKS5 proxy only the families the proxy can serve an
++  // association in do, because a relayed datagram is only ever sent to the
++  // relay endpoint and the ICE candidate it produces is that endpoint. The
++  // answer arrives with the network list and is readable from any thread,
++  // because the packet socket factory needs it on WebRTC's network thread
++  // while the list is delivered on the main thread. Before the first list
++  // arrives both are true, which is what an unproxied host answers.
++  virtual bool HasUdpEgress(int family) const = 0;
+ };
+ 
+ }  // namespace blink
+diff --git a/third_party/blink/renderer/platform/p2p/socket_dispatcher.cc b/third_party/blink/renderer/platform/p2p/socket_dispatcher.cc
+index 401575e71d..089b4714aa 100644
+--- a/third_party/blink/renderer/platform/p2p/socket_dispatcher.cc
++++ b/third_party/blink/renderer/platform/p2p/socket_dispatcher.cc
+@@ -7,6 +7,7 @@
+ #include "base/memory/scoped_refptr.h"
+ #include "base/task/single_thread_task_runner.h"
+ #include "base/types/pass_key.h"
++#include "net/base/sys_addrinfo.h"
+ #include "services/network/public/cpp/p2p_param_traits.h"
+ #include "third_party/blink/public/platform/browser_interface_broker_proxy.h"
+ #include "third_party/blink/public/platform/platform.h"
+@@ -59,6 +60,11 @@ void P2PSocketDispatcher::RemoveNetworkListObserver(
+   network_list_observers_->RemoveObserver(network_list_observer);
+ }
+ 
++bool P2PSocketDispatcher::HasUdpEgress(int family) const {
++  return family == AF_INET6 ? udp_egress_ipv6_.load(std::memory_order_relaxed)
++                            : udp_egress_ipv4_.load(std::memory_order_relaxed);
++}
++
+ mojo::SharedRemote<network::mojom::blink::P2PSocketManager>
+ P2PSocketDispatcher::GetP2PSocketManager() {
+   base::AutoLock lock(p2p_socket_manager_lock_);
+@@ -87,11 +93,18 @@ P2PSocketDispatcher::GetP2PSocketManager() {
+ void P2PSocketDispatcher::NetworkListChanged(
+     const Vector<net::NetworkInterface>& networks,
+     const net::IPAddress& default_ipv4_local_address,
+-    const net::IPAddress& default_ipv6_local_address) {
++    const net::IPAddress& default_ipv6_local_address,
++    bool udp_egress_ipv4,
++    bool udp_egress_ipv6) {
+   DCHECK(main_task_runner_->BelongsToCurrentThread());
+   networks_ = networks;
+   default_ipv4_local_address_ = default_ipv4_local_address;
+   default_ipv6_local_address_ = default_ipv6_local_address;
++  // Published before the observers are notified, so a network manager that
++  // reacts to the list synchronously already sees the families that list was
++  // built with.
++  udp_egress_ipv4_.store(udp_egress_ipv4, std::memory_order_relaxed);
++  udp_egress_ipv6_.store(udp_egress_ipv6, std::memory_order_relaxed);
+ 
+   // TODO(crbug.com/787254): Remove this helper when network_list_observer.h
+   // gets moved from blink/public to blink/renderer, and operate over
+diff --git a/third_party/blink/renderer/platform/p2p/socket_dispatcher.h b/third_party/blink/renderer/platform/p2p/socket_dispatcher.h
+index 9ee9a24d24..27b3b3af5f 100644
+--- a/third_party/blink/renderer/platform/p2p/socket_dispatcher.h
++++ b/third_party/blink/renderer/platform/p2p/socket_dispatcher.h
+@@ -23,6 +23,8 @@
+ 
+ #include <stdint.h>
+ 
++#include <atomic>
++
+ #include "base/compiler_specific.h"
+ #include "base/memory/scoped_refptr.h"
+ #include "base/observer_list_threadsafe.h"
+@@ -72,6 +74,7 @@ class PLATFORM_EXPORT P2PSocketDispatcher
+       blink::NetworkListObserver* network_list_observer) override;
+   void RemoveNetworkListObserver(
+       blink::NetworkListObserver* network_list_observer) override;
++  bool HasUdpEgress(int family) const override;
+ 
+   mojo::SharedRemote<network::mojom::blink::P2PSocketManager>
+   GetP2PSocketManager();
+@@ -83,7 +86,9 @@ class PLATFORM_EXPORT P2PSocketDispatcher
+   void NetworkListChanged(
+       const Vector<net::NetworkInterface>& networks,
+       const net::IPAddress& default_ipv4_local_address,
+-      const net::IPAddress& default_ipv6_local_address) override;
++      const net::IPAddress& default_ipv6_local_address,
++      bool udp_egress_ipv4,
++      bool udp_egress_ipv6) override;
+ 
+   void RequestInterfaceIfNecessary();
+   void RequestNetworkEventsIfNecessary();
+@@ -109,6 +114,16 @@ class PLATFORM_EXPORT P2PSocketDispatcher
+   net::IPAddress default_ipv4_local_address_;
+   net::IPAddress default_ipv6_local_address_;
+ 
++  // Whether a peer connection's datagrams have an egress in each family, from
++  // the last |NetworkListChanged| call. Written on the main thread and read on
++  // WebRTC's network thread, hence atomic rather than plain bools. They start
++  // true because that is what a host with no proxy answers, and because a
++  // false read before the first list arrived would suppress UDP on a direct
++  // egress; nothing reads them for a decision that outlives one gathering
++  // pass, and gathering cannot begin before the first list.
++  std::atomic<bool> udp_egress_ipv4_{true};
++  std::atomic<bool> udp_egress_ipv6_{true};
++
+   HeapMojoReceiver<network::mojom::blink::P2PNetworkNotificationClient,
+                    P2PSocketDispatcher>
+       network_notification_client_receiver_;
+diff --git a/third_party/webrtc/p2p/base/stun_port.cc b/third_party/webrtc/p2p/base/stun_port.cc
+index e35c9ca91f..edd1e0daeb 100644
 --- a/third_party/webrtc/p2p/base/stun_port.cc
 +++ b/third_party/webrtc/p2p/base/stun_port.cc
-@@ -240,6 +240,10 @@
+@@ -240,6 +240,10 @@ bool UDPPort::Init() {
        this, [this](AsyncPacketSocket* socket, const SocketAddress& address) {
          OnLocalAddressReady(socket, address);
        });
@@ -696,7 +712,7 @@ forever is a state no stock Chrome configuration reaches.
    return true;
  }
  
-@@ -250,12 +254,19 @@
+@@ -250,12 +254,19 @@ UDPPort::~UDPPort() {
    socket_->UnsubscribeSentPacket(this);
    socket_->UnsubscribeReadyToSend(this);
    socket_->UnsubscribeAddressReady(this);
@@ -716,7 +732,7 @@ forever is a state no stock Chrome configuration reaches.
    }
  }
  
-@@ -397,6 +408,26 @@
+@@ -397,6 +408,26 @@ void UDPPort::OnLocalAddressReady(AsyncPacketSocket* /* socket */,
    MaybePrepareStunCandidate();
  }
  
@@ -743,3 +759,21 @@ forever is a state no stock Chrome configuration reaches.
  void UDPPort::PostAddAddress(bool /* is_final */) {
    MaybeSetPortCompleteOrError();
  }
+diff --git a/third_party/webrtc/p2p/base/stun_port.h b/third_party/webrtc/p2p/base/stun_port.h
+index 3baaf138f7..9bf455f2e6 100644
+--- a/third_party/webrtc/p2p/base/stun_port.h
++++ b/third_party/webrtc/p2p/base/stun_port.h
+@@ -139,6 +139,13 @@ class RTC_EXPORT UDPPort : public Port {
+   void OnLocalAddressReady(AsyncPacketSocket* socket,
+                            const SocketAddress& address);
+ 
++  // Called when the port's socket is closed. A socket that dies before it is
++  // bound would otherwise leave the port pending for ever: PrepareAddress()
++  // only reports an address for a socket that is already bound, so the port
++  // never becomes ready, never signals complete or error, and the session
++  // never finishes gathering candidates.
++  void OnSocketClosed(AsyncPacketSocket* socket, int error);
++
+   void PostAddAddress(bool is_final) override;
+ 
+   void OnReadPacket(AsyncPacketSocket* socket, const ReceivedIpPacket& packet);

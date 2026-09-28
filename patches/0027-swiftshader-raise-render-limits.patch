@@ -10,7 +10,7 @@ rasterizer's span arrays take up to 128 MiB, twice the stock size, which
 costs resident memory on hosts that render in software.
 
 diff --git a/third_party/swiftshader/src/Device/Config.hpp b/third_party/swiftshader/src/Device/Config.hpp
-index d030354..6303467 100644
+index d0303542b8..630346755c 100644
 --- a/third_party/swiftshader/src/Device/Config.hpp
 +++ b/third_party/swiftshader/src/Device/Config.hpp
 @@ -17,7 +17,7 @@

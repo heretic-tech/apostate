@@ -9,10 +9,10 @@ limit usable on any host. A log line records each claim the host cannot
 meet.
 
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
-index d0e6938..709e5bd 100644
+index 3852a64534..999209be24 100644
 --- a/base/apostate/profile.cc
 +++ b/base/apostate/profile.cc
-@@ -216,6 +216,19 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
+@@ -219,6 +219,19 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
      }
    }
  
@@ -33,7 +33,7 @@ index d0e6938..709e5bd 100644
      if (const DictValue* map = keyboard->FindDict("layout_map")) {
        for (const auto [code, value] : *map) {
 diff --git a/base/apostate/profile.h b/base/apostate/profile.h
-index c482e2b..77bd5b3 100644
+index c482e2baa2..77bd5b3bad 100644
 --- a/base/apostate/profile.h
 +++ b/base/apostate/profile.h
 @@ -190,6 +190,18 @@ class BASE_EXPORT Profile {
@@ -64,7 +64,7 @@ index c482e2b..77bd5b3 100644
    std::optional<bool> prefers_dark_;
    std::optional<std::string> accept_languages_;
 diff --git a/ui/gl/gl_gl_api_implementation.cc b/ui/gl/gl_gl_api_implementation.cc
-index 3ebdfb1..5af1eda 100644
+index 3ebdfb1937..5af1edaf9b 100644
 --- a/ui/gl/gl_gl_api_implementation.cc
 +++ b/ui/gl/gl_gl_api_implementation.cc
 @@ -4,6 +4,8 @@

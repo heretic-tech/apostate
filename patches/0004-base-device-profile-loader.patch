@@ -10,10 +10,10 @@ A claim above the host's real core count is clamped to the host, since a
 page can measure it.
 
 diff --git a/base/BUILD.gn b/base/BUILD.gn
-index ddcc03b..87e4cdc 100644
+index 44ffb6ee33..ab7103a8f8 100644
 --- a/base/BUILD.gn
 +++ b/base/BUILD.gn
-@@ -1666,6 +1666,8 @@ component("base") {
+@@ -1684,6 +1684,8 @@ component("base") {
      "process/process_metrics.h",
      "scoped_native_library.cc",
      "scoped_native_library.h",
@@ -24,7 +24,7 @@ index ddcc03b..87e4cdc 100644
      "system/sys_info_internal.h",
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
 new file mode 100644
-index 0000000..2d479a8
+index 0000000000..19f681ee00
 --- /dev/null
 +++ b/base/apostate/profile.cc
 @@ -0,0 +1,113 @@
@@ -143,7 +143,7 @@ index 0000000..2d479a8
 +}  // namespace base::apostate
 diff --git a/base/apostate/profile.h b/base/apostate/profile.h
 new file mode 100644
-index 0000000..ff33d3d
+index 0000000000..ff33d3da54
 --- /dev/null
 +++ b/base/apostate/profile.h
 @@ -0,0 +1,86 @@
@@ -234,7 +234,7 @@ index 0000000..ff33d3d
 +
 +#endif  // BASE_APOSTATE_PROFILE_H_
 diff --git a/base/base_switches.h b/base/base_switches.h
-index 27c457c..eb95c45 100644
+index 389eecbd79..e68bcc944d 100644
 --- a/base/base_switches.h
 +++ b/base/base_switches.h
 @@ -11,6 +11,14 @@
@@ -249,11 +249,11 @@ index 27c457c..eb95c45 100644
 +// readable by web content, so carrying it here discloses nothing to a page.
 +inline constexpr char kApostateProfile[] = "apostate-profile";
 +
- // Delays execution of TaskPriority::BEST_EFFORT tasks until shutdown.
- inline constexpr char kDisableBestEffortTasks[] = "disable-best-effort-tasks";
+ // Disables the crash reporting.
+ inline constexpr char kDisableBreakpad[] = "disable-breakpad";
  
 diff --git a/base/system/sys_info.h b/base/system/sys_info.h
-index 5190e2a..3e8eddb 100644
+index 72eccc012c..c198a7eafa 100644
 --- a/base/system/sys_info.h
 +++ b/base/system/sys_info.h
 @@ -66,6 +66,12 @@ class BASE_EXPORT SysInfo {
@@ -270,7 +270,7 @@ index 5190e2a..3e8eddb 100644
    // application. This is typically e-cores on Intel hybrid architecture, or
    // LITTLE cores on ARM bit.LITTLE architecture.
 diff --git a/base/system/sys_info_posix.cc b/base/system/sys_info_posix.cc
-index 5460a7f..a77c353 100644
+index 5460a7f35e..a77c35334d 100644
 --- a/base/system/sys_info_posix.cc
 +++ b/base/system/sys_info_posix.cc
 @@ -31,6 +31,8 @@
@@ -404,10 +404,10 @@ index 5460a7f..a77c353 100644
  #endif  // !BUILDFLAG(IS_OPENBSD)
  
 diff --git a/base/system/sys_info_win.cc b/base/system/sys_info_win.cc
-index ddfe639..e293067 100644
+index ddfe639f2b..e29306768b 100644
 --- a/base/system/sys_info_win.cc
 +++ b/base/system/sys_info_win.cc
-@@ -15,8 +15,10 @@
+@@ -15,10 +15,12 @@
  #include <type_traits>
  #include <vector>
  
@@ -418,8 +418,9 @@ index ddfe639..e293067 100644
  #include "base/files/file_path.h"
 +#include "base/logging.h"
  #include "base/not_fatal_until.h"
-@@ -127,9 +129,44 @@
- namespace base {
+ #include "base/notreached.h"
+ #include "base/numerics/safe_conversions.h"
+@@ -128,6 +130,41 @@ namespace base {
  
  // static
  int SysInfo::NumberOfProcessors() {
@@ -461,5 +462,3 @@ index ddfe639..e293067 100644
    return win::OSInfo::GetInstance()->processors();
  }
  
- // static
- int SysInfo::NumberOfEfficientProcessorsImpl() {

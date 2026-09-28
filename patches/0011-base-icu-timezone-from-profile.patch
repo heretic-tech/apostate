@@ -7,10 +7,10 @@ zone name ICU does not know is rejected and the host's zone kept, since
 ICU would otherwise fall back to UTC silently.
 
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
-index adce0ad..d2727ce 100644
+index ba4e3d8b18..423665c8e7 100644
 --- a/base/apostate/profile.cc
 +++ b/base/apostate/profile.cc
-@@ -164,6 +164,12 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
+@@ -167,6 +167,12 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
      }
    }
  
@@ -24,7 +24,7 @@ index adce0ad..d2727ce 100644
      if (const std::string* v = browser->FindString("user_agent")) {
        profile->user_agent_ = *v;
 diff --git a/base/apostate/profile.h b/base/apostate/profile.h
-index dc2b9e9..5f924bc 100644
+index dc2b9e9282..5f924bc0e8 100644
 --- a/base/apostate/profile.h
 +++ b/base/apostate/profile.h
 @@ -137,6 +137,14 @@ class BASE_EXPORT Profile {
@@ -51,7 +51,7 @@ index dc2b9e9..5f924bc 100644
  };
  
 diff --git a/base/i18n/icu_util.cc b/base/i18n/icu_util.cc
-index 0261246..b22b735 100644
+index 5fc1cadefa..e66140c994 100644
 --- a/base/i18n/icu_util.cc
 +++ b/base/i18n/icu_util.cc
 @@ -4,6 +4,10 @@
@@ -65,7 +65,7 @@ index 0261246..b22b735 100644
  #include "build/build_config.h"
  
  #if BUILDFLAG(IS_WIN)
-@@ -399,7 +403,39 @@ bool InitializeICUWithFileDescriptor(
+@@ -406,7 +410,39 @@ bool InitializeICUWithFileDescriptor(
      return false;
    }
  
@@ -106,7 +106,7 @@ index 0261246..b22b735 100644
  }
  
  PlatformFile GetIcuDataFileHandle(MemoryMappedFile::Region* out_region) {
-@@ -447,7 +483,39 @@ bool InitializeICU() {
+@@ -454,7 +490,39 @@ bool InitializeICU() {
  #error Unsupported ICU_UTIL_DATA_IMPL value
  #endif  // (ICU_UTIL_DATA_IMPL == ICU_UTIL_DATA_STATIC)
  

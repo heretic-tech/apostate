@@ -10,9 +10,10 @@ the same canvas hash, which lets a site link them. Without the switch or
 a profile id, pixels are stock.
 
 diff --git a/base/base_switches.h b/base/base_switches.h
+index e68bcc944d..cb40c2db49 100644
 --- a/base/base_switches.h
 +++ b/base/base_switches.h
-@@ -19,6 +19,15 @@
+@@ -19,6 +19,15 @@ namespace switches {
  // readable by web content, so carrying it here discloses nothing to a page.
  inline constexpr char kApostateProfile[] = "apostate-profile";
  
@@ -25,13 +26,14 @@ diff --git a/base/base_switches.h b/base/base_switches.h
 +// effect, which is the point.
 +inline constexpr char kFingerprintNoise[] = "fingerprint-noise";
 +
- // Delays execution of TaskPriority::BEST_EFFORT tasks until shutdown.
- inline constexpr char kDisableBestEffortTasks[] = "disable-best-effort-tasks";
+ // Disables the crash reporting.
+ inline constexpr char kDisableBreakpad[] = "disable-breakpad";
  
 diff --git a/content/browser/renderer_host/render_process_host_impl.cc b/content/browser/renderer_host/render_process_host_impl.cc
+index beb9b2bad1..7a975c807d 100644
 --- a/content/browser/renderer_host/render_process_host_impl.cc
 +++ b/content/browser/renderer_host/render_process_host_impl.cc
-@@ -3900,6 +3900,9 @@
+@@ -3922,6 +3922,9 @@ void RenderProcessHostImpl::PropagateBrowserCommandLineToRenderer(
        switches::kEnableWebGLDraftExtensions,
        switches::kEnableWebGPUDeveloperFeatures,
        switches::kFileUrlPathAlias,
@@ -41,168 +43,9 @@ diff --git a/content/browser/renderer_host/render_process_host_impl.cc b/content
        switches::kForceDeviceScaleFactor,
        switches::kForceDisplayColorProfile,
        switches::kForceHighContrast,
-diff --git a/third_party/blink/renderer/core/canvas_interventions/apostate_readback_noise.h b/third_party/blink/renderer/core/canvas_interventions/apostate_readback_noise.h
-new file mode 100644
---- /dev/null
-+++ b/third_party/blink/renderer/core/canvas_interventions/apostate_readback_noise.h
-@@ -0,0 +1,155 @@
-+// Copyright 2026 The Apostate Authors
-+// Use of this source code is governed by a GPL-3.0 license that can be
-+// found in the LICENSE file.
-+
-+#ifndef THIRD_PARTY_BLINK_RENDERER_CORE_CANVAS_INTERVENTIONS_APOSTATE_READBACK_NOISE_H_
-+#define THIRD_PARTY_BLINK_RENDERER_CORE_CANVAS_INTERVENTIONS_APOSTATE_READBACK_NOISE_H_
-+
-+#include <array>
-+#include <cstdint>
-+
-+#include "base/containers/span.h"
-+#include "base/memory/scoped_refptr.h"
-+#include "third_party/blink/renderer/core/core_export.h"
-+
-+class SkPixmap;
-+
-+namespace cc {
-+class PaintImage;
-+}  // namespace cc
-+
-+namespace blink {
-+
-+class StaticBitmapImage;
-+
-+// The opt-in readback policy behind --fingerprint-noise. OFF unless the switch
-+// is present and the profile carries an identity to seed from, in which case
-+// every page-visible canvas and WebGL readback comes back one step away from
-+// the bytes the renderer produced.
-+//
-+// The policy is content-keyed, not call-keyed: the perturbation of a pixel is
-+// a function of the profile seed, the clean pixel, its clean 3x3 neighbourhood
-+// and its position in the returned rectangle, and of nothing else. Two reads
-+// of one surface therefore agree, a 1:1 canvas-to-canvas copy reads back
-+// identically, and every output route returns the same answer for the same
-+// pixels. A pixel whose 3x3 neighbourhood is one value is left alone, so a
-+// solid fill is byte-exact at every route.
-+//
-+// "The same pixels" means the same COLOURS, not the same bytes, and that
-+// distinction is load-bearing. One canvas is read back through several stores:
-+// `getImageData` hands out straight-alpha RGBA8, while a snapshot bound for an
-+// encoder is the resource provider's own form, which on macOS is
-+// premultiplied BGRA8. Keying on raw memory would give those two different
-+// answers for one image -- measured, 749 of 3072 pixels disagreeing -- and
-+// stepping a premultiplied channel by one is not a step of one in what the
-+// page sees: at alpha 2 it is a step of 127. So the key and the step are both
-+// taken in a canonical form, straight alpha in logical R,G,B,A order, and the
-+// result is written back through the store's own premultiplication.
-+//
-+// That is necessary but not sufficient, and the remaining half is a routing
-+// rule rather than arithmetic: the policy is applied to the pixels a canvas
-+// HOLDS, and any straight-alpha copy a page receives is then produced from
-+// those by Skia's own conversion. Reproducing that conversion instead would
-+// mean reproducing its rounding, which on this architecture is the NEON
-+// round-to-nearest-even of a float divide and not something a fork should
-+// pin. Getting it wrong by one is not a rounding error, it is a different
-+// KEY: the two routes then disagree about whether a pixel moves at all.
-+// `ReadPixelsForPage` is where that rule is kept.
-+//
-+// Alpha is never moved, and neither is a backing store: each route perturbs
-+// the copy the caller is about to see and nothing upstream of it.
-+namespace apostate_readback_noise {
-+
-+// How the channels of one pixel are stored.
-+enum class Storage : uint8_t {
-+  kUint8,
-+  kInt8,
-+  kUint16,
-+  kInt16,
-+  kUint32,
-+  kInt32,
-+  kFloat16,
-+  kFloat32,
-+  // One unsigned integer of `packed_bytes` bytes split into `field_bits`
-+  // bitfields, least significant first. GL's packed pixel types and Skia's
-+  // 1010102 family.
-+  kBitFields,
-+};
-+
-+struct Channels {
-+  // A logical channel the surface does not carry.
-+  static constexpr uint8_t kAbsent = 0xFF;
-+
-+  Storage storage = Storage::kUint8;
-+  // Components per pixel, or the number of bitfields for kBitFields.
-+  uint8_t count = 4;
-+  // Where the logical red, green, blue and alpha channels live in storage.
-+  // This is what makes the policy independent of the memory layout: a BGRA
-+  // store and an RGBA store of one image are perturbed identically.
-+  std::array<uint8_t, 4> logical = {{0, 1, 2, 3}};
-+  // kBitFields only: the width in bits of each field, least significant
-+  // first, and the size of the packed integer.
-+  std::array<uint8_t, 4> field_bits = {{0, 0, 0, 0}};
-+  uint8_t packed_bytes = 0;
-+  // The store holds colour already multiplied by alpha. The step is taken on
-+  // the straight value and written back multiplied, so it is a step of one in
-+  // the value a page reads rather than in the value the store holds.
-+  bool premultiplied = false;
-+};
-+
-+// A rectangle of interleaved pixels a page is about to see. `bytes` begins at
-+// pixel (0, 0); rows are `row_stride` bytes apart and pixels `pixel_stride`.
-+// The rectangle is read in memory order, so a bottom-up GL readback keys its
-+// rows from the bottom of the framebuffer. That is the order the caller sees.
-+struct Surface {
-+  base::span<uint8_t> bytes;
-+  int32_t width = 0;
-+  int32_t height = 0;
-+  size_t row_stride = 0;
-+  size_t pixel_stride = 0;
-+  Channels channels;
-+};
-+
-+// Whether the opt-in is in force for this renderer. Constant for the process:
-+// the switch and the profile are both fixed before the first page loads.
-+CORE_EXPORT bool Enabled();
-+
-+// The profile-derived seed. Zero when the policy is off.
-+CORE_EXPORT uint64_t Seed();
-+
-+// Perturbs `surface` in place. A no-op unless Enabled().
-+CORE_EXPORT void Apply(const Surface& surface);
-+
-+// Perturbs a Skia pixmap in place, taking the channel layout from its
-+// SkImageInfo. A no-op unless Enabled(), and a no-op for a colour type the
-+// policy does not describe.
-+CORE_EXPORT void ApplyToPixmap(const SkPixmap& pixmap);
-+
-+// Returns a perturbed CPU copy of a canvas snapshot that is about to be
-+// encoded or copied out, or `snapshot` itself when the policy is off. The
-+// snapshot is never written to, so the canvas keeps a clean backing store and
-+// the result is perturbed exactly once.
-+CORE_EXPORT scoped_refptr<StaticBitmapImage> ApplyToSnapshot(
-+    scoped_refptr<StaticBitmapImage> snapshot);
-+
-+// `image.readPixels(dst)`, with the policy applied to the pixels the image
-+// holds rather than to the converted result. Returns what readPixels returns.
-+//
-+// The difference matters only where the destination is straight alpha and the
-+// image is premultiplied, which is exactly `getImageData`. Perturbing after
-+// the conversion would mean the policy had to reproduce that conversion to
-+// keep an encoded snapshot of the same canvas in step with it, and a
-+// disagreement of one in the reproduced value changes the KEY rather than the
-+// answer -- so one route steps a pixel the other leaves alone. Perturbing
-+// before it leaves the conversion to Skia on both routes, which is exact by
-+// construction and stays exact when Skia's rounding changes.
-+CORE_EXPORT bool ReadPixelsForPage(const cc::PaintImage& image,
-+                                   const SkPixmap& dst,
-+                                   int src_x,
-+                                   int src_y);
-+
-+}  // namespace apostate_readback_noise
-+
-+}  // namespace blink
-+
-+#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_CANVAS_INTERVENTIONS_APOSTATE_READBACK_NOISE_H_
 diff --git a/third_party/blink/renderer/core/canvas_interventions/apostate_readback_noise.cc b/third_party/blink/renderer/core/canvas_interventions/apostate_readback_noise.cc
 new file mode 100644
+index 0000000000..4f1b90c913
 --- /dev/null
 +++ b/third_party/blink/renderer/core/canvas_interventions/apostate_readback_noise.cc
 @@ -0,0 +1,685 @@
@@ -891,7 +734,169 @@ new file mode 100644
 +}
 +
 +}  // namespace apostate_readback_noise
+diff --git a/third_party/blink/renderer/core/canvas_interventions/apostate_readback_noise.h b/third_party/blink/renderer/core/canvas_interventions/apostate_readback_noise.h
+new file mode 100644
+index 0000000000..57f924c3fa
+--- /dev/null
++++ b/third_party/blink/renderer/core/canvas_interventions/apostate_readback_noise.h
+@@ -0,0 +1,155 @@
++// Copyright 2026 The Apostate Authors
++// Use of this source code is governed by a GPL-3.0 license that can be
++// found in the LICENSE file.
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_CORE_CANVAS_INTERVENTIONS_APOSTATE_READBACK_NOISE_H_
++#define THIRD_PARTY_BLINK_RENDERER_CORE_CANVAS_INTERVENTIONS_APOSTATE_READBACK_NOISE_H_
++
++#include <array>
++#include <cstdint>
++
++#include "base/containers/span.h"
++#include "base/memory/scoped_refptr.h"
++#include "third_party/blink/renderer/core/core_export.h"
++
++class SkPixmap;
++
++namespace cc {
++class PaintImage;
++}  // namespace cc
++
++namespace blink {
++
++class StaticBitmapImage;
++
++// The opt-in readback policy behind --fingerprint-noise. OFF unless the switch
++// is present and the profile carries an identity to seed from, in which case
++// every page-visible canvas and WebGL readback comes back one step away from
++// the bytes the renderer produced.
++//
++// The policy is content-keyed, not call-keyed: the perturbation of a pixel is
++// a function of the profile seed, the clean pixel, its clean 3x3 neighbourhood
++// and its position in the returned rectangle, and of nothing else. Two reads
++// of one surface therefore agree, a 1:1 canvas-to-canvas copy reads back
++// identically, and every output route returns the same answer for the same
++// pixels. A pixel whose 3x3 neighbourhood is one value is left alone, so a
++// solid fill is byte-exact at every route.
++//
++// "The same pixels" means the same COLOURS, not the same bytes, and that
++// distinction is load-bearing. One canvas is read back through several stores:
++// `getImageData` hands out straight-alpha RGBA8, while a snapshot bound for an
++// encoder is the resource provider's own form, which on macOS is
++// premultiplied BGRA8. Keying on raw memory would give those two different
++// answers for one image -- measured, 749 of 3072 pixels disagreeing -- and
++// stepping a premultiplied channel by one is not a step of one in what the
++// page sees: at alpha 2 it is a step of 127. So the key and the step are both
++// taken in a canonical form, straight alpha in logical R,G,B,A order, and the
++// result is written back through the store's own premultiplication.
++//
++// That is necessary but not sufficient, and the remaining half is a routing
++// rule rather than arithmetic: the policy is applied to the pixels a canvas
++// HOLDS, and any straight-alpha copy a page receives is then produced from
++// those by Skia's own conversion. Reproducing that conversion instead would
++// mean reproducing its rounding, which on this architecture is the NEON
++// round-to-nearest-even of a float divide and not something a fork should
++// pin. Getting it wrong by one is not a rounding error, it is a different
++// KEY: the two routes then disagree about whether a pixel moves at all.
++// `ReadPixelsForPage` is where that rule is kept.
++//
++// Alpha is never moved, and neither is a backing store: each route perturbs
++// the copy the caller is about to see and nothing upstream of it.
++namespace apostate_readback_noise {
++
++// How the channels of one pixel are stored.
++enum class Storage : uint8_t {
++  kUint8,
++  kInt8,
++  kUint16,
++  kInt16,
++  kUint32,
++  kInt32,
++  kFloat16,
++  kFloat32,
++  // One unsigned integer of `packed_bytes` bytes split into `field_bits`
++  // bitfields, least significant first. GL's packed pixel types and Skia's
++  // 1010102 family.
++  kBitFields,
++};
++
++struct Channels {
++  // A logical channel the surface does not carry.
++  static constexpr uint8_t kAbsent = 0xFF;
++
++  Storage storage = Storage::kUint8;
++  // Components per pixel, or the number of bitfields for kBitFields.
++  uint8_t count = 4;
++  // Where the logical red, green, blue and alpha channels live in storage.
++  // This is what makes the policy independent of the memory layout: a BGRA
++  // store and an RGBA store of one image are perturbed identically.
++  std::array<uint8_t, 4> logical = {{0, 1, 2, 3}};
++  // kBitFields only: the width in bits of each field, least significant
++  // first, and the size of the packed integer.
++  std::array<uint8_t, 4> field_bits = {{0, 0, 0, 0}};
++  uint8_t packed_bytes = 0;
++  // The store holds colour already multiplied by alpha. The step is taken on
++  // the straight value and written back multiplied, so it is a step of one in
++  // the value a page reads rather than in the value the store holds.
++  bool premultiplied = false;
++};
++
++// A rectangle of interleaved pixels a page is about to see. `bytes` begins at
++// pixel (0, 0); rows are `row_stride` bytes apart and pixels `pixel_stride`.
++// The rectangle is read in memory order, so a bottom-up GL readback keys its
++// rows from the bottom of the framebuffer. That is the order the caller sees.
++struct Surface {
++  base::span<uint8_t> bytes;
++  int32_t width = 0;
++  int32_t height = 0;
++  size_t row_stride = 0;
++  size_t pixel_stride = 0;
++  Channels channels;
++};
++
++// Whether the opt-in is in force for this renderer. Constant for the process:
++// the switch and the profile are both fixed before the first page loads.
++CORE_EXPORT bool Enabled();
++
++// The profile-derived seed. Zero when the policy is off.
++CORE_EXPORT uint64_t Seed();
++
++// Perturbs `surface` in place. A no-op unless Enabled().
++CORE_EXPORT void Apply(const Surface& surface);
++
++// Perturbs a Skia pixmap in place, taking the channel layout from its
++// SkImageInfo. A no-op unless Enabled(), and a no-op for a colour type the
++// policy does not describe.
++CORE_EXPORT void ApplyToPixmap(const SkPixmap& pixmap);
++
++// Returns a perturbed CPU copy of a canvas snapshot that is about to be
++// encoded or copied out, or `snapshot` itself when the policy is off. The
++// snapshot is never written to, so the canvas keeps a clean backing store and
++// the result is perturbed exactly once.
++CORE_EXPORT scoped_refptr<StaticBitmapImage> ApplyToSnapshot(
++    scoped_refptr<StaticBitmapImage> snapshot);
++
++// `image.readPixels(dst)`, with the policy applied to the pixels the image
++// holds rather than to the converted result. Returns what readPixels returns.
++//
++// The difference matters only where the destination is straight alpha and the
++// image is premultiplied, which is exactly `getImageData`. Perturbing after
++// the conversion would mean the policy had to reproduce that conversion to
++// keep an encoded snapshot of the same canvas in step with it, and a
++// disagreement of one in the reproduced value changes the KEY rather than the
++// answer -- so one route steps a pixel the other leaves alone. Perturbing
++// before it leaves the conversion to Skia on both routes, which is exact by
++// construction and stays exact when Skia's rounding changes.
++CORE_EXPORT bool ReadPixelsForPage(const cc::PaintImage& image,
++                                   const SkPixmap& dst,
++                                   int src_x,
++                                   int src_y);
++
++}  // namespace apostate_readback_noise
++
++}  // namespace blink
++
++#endif  // THIRD_PARTY_BLINK_RENDERER_CORE_CANVAS_INTERVENTIONS_APOSTATE_READBACK_NOISE_H_
 diff --git a/third_party/blink/renderer/core/canvas_interventions/build.gni b/third_party/blink/renderer/core/canvas_interventions/build.gni
+index 799b6b7135..81cc750690 100644
 --- a/third_party/blink/renderer/core/canvas_interventions/build.gni
 +++ b/third_party/blink/renderer/core/canvas_interventions/build.gni
 @@ -3,6 +3,8 @@
@@ -904,17 +909,18 @@ diff --git a/third_party/blink/renderer/core/canvas_interventions/build.gni b/th
    "noise_hash.h",
    "noise_helper.cc",
 diff --git a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
+index 4a7dbf745e..49a6c2eed3 100644
 --- a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
 +++ b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
-@@ -57,6 +57,7 @@
- #include "third_party/blink/renderer/bindings/core/v8/v8_image_bitmap_options.h"
- #include "third_party/blink/renderer/bindings/core/v8/v8_image_encode_options.h"
- #include "third_party/blink/renderer/bindings/core/v8/v8_union_element_elementimage.h"
+@@ -25,6 +25,7 @@
+  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
 +#include "third_party/blink/renderer/core/canvas_interventions/apostate_readback_noise.h"
- #include "third_party/blink/renderer/core/css/css_font_selector.h"
- #include "third_party/blink/renderer/core/css/style_change_reason.h"
- #include "third_party/blink/renderer/core/css/style_engine.h"
-@@ -1287,6 +1288,12 @@
+ #include "third_party/blink/renderer/core/html/canvas/html_canvas_element.h"
+ 
+ #include <math.h>
+@@ -1422,6 +1423,12 @@ String HTMLCanvasElement::ToDataURLInternal(
  
    scoped_refptr<StaticBitmapImage> image_bitmap = Snapshot(source_buffer);
    if (image_bitmap) {
@@ -927,7 +933,7 @@ diff --git a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc 
      std::unique_ptr<ImageDataBuffer> data_buffer =
          ImageDataBuffer::Create(image_bitmap);
      if (!data_buffer)
-@@ -1392,6 +1399,8 @@
+@@ -1526,6 +1533,8 @@ void HTMLCanvasElement::toBlob(V8BlobCallback* callback,
    CanvasAsyncBlobCreator* async_creator = nullptr;
    scoped_refptr<StaticBitmapImage> image_bitmap = Snapshot(kBackBuffer);
    if (image_bitmap) {
@@ -937,6 +943,7 @@ diff --git a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc 
      options->setType(ImageEncoderUtils::MimeTypeName(encoding_mime_type));
      async_creator = MakeGarbageCollected<CanvasAsyncBlobCreator>(
 diff --git a/third_party/blink/renderer/core/imagebitmap/image_bitmap.cc b/third_party/blink/renderer/core/imagebitmap/image_bitmap.cc
+index 828f244d43..a20642cab3 100644
 --- a/third_party/blink/renderer/core/imagebitmap/image_bitmap.cc
 +++ b/third_party/blink/renderer/core/imagebitmap/image_bitmap.cc
 @@ -22,6 +22,7 @@
@@ -955,7 +962,7 @@ diff --git a/third_party/blink/renderer/core/imagebitmap/image_bitmap.cc b/third
  #include "third_party/skia/include/core/SkSurface.h"
  #include "third_party/skia/include/core/SkSwizzle.h"
  
-@@ -383,6 +385,10 @@
+@@ -383,6 +385,10 @@ ImageBitmap::ImageBitmap(HTMLCanvasElement* canvas,
      return;
  
    image_->SetOriginClean(canvas->OriginClean());
@@ -966,7 +973,7 @@ diff --git a/third_party/blink/renderer/core/imagebitmap/image_bitmap.cc b/third
    UpdateImageBitmapMemoryUsage();
  }
  
-@@ -407,6 +413,7 @@
+@@ -407,6 +413,7 @@ ImageBitmap::ImageBitmap(OffscreenCanvas* offscreen_canvas,
    if (!image_)
      return;
    image_->SetOriginClean(offscreen_canvas->OriginClean());
@@ -974,7 +981,7 @@ diff --git a/third_party/blink/renderer/core/imagebitmap/image_bitmap.cc b/third
    UpdateImageBitmapMemoryUsage();
  }
  
-@@ -463,6 +470,9 @@
+@@ -463,6 +470,9 @@ ImageBitmap::ImageBitmap(ImageBitmap* bitmap,
      return;
  
    image_->SetOriginClean(bitmap->OriginClean());
@@ -984,7 +991,7 @@ diff --git a/third_party/blink/renderer/core/imagebitmap/image_bitmap.cc b/third
    UpdateImageBitmapMemoryUsage();
  }
  
-@@ -685,7 +695,16 @@
+@@ -685,7 +695,16 @@ SkImageInfo ImageBitmap::GetBitmapSkImageInfo() const {
  
  Vector<uint8_t> ImageBitmap::CopyBitmapData(const SkImageInfo& info,
                                              bool apply_orientation) {
@@ -1003,17 +1010,18 @@ diff --git a/third_party/blink/renderer/core/imagebitmap/image_bitmap.cc b/third
  
  unsigned ImageBitmap::width() const {
 diff --git a/third_party/blink/renderer/core/offscreencanvas/offscreen_canvas.cc b/third_party/blink/renderer/core/offscreencanvas/offscreen_canvas.cc
+index fab79aa8c5..36c166399c 100644
 --- a/third_party/blink/renderer/core/offscreencanvas/offscreen_canvas.cc
 +++ b/third_party/blink/renderer/core/offscreencanvas/offscreen_canvas.cc
-@@ -15,6 +15,7 @@
- #include "third_party/blink/public/platform/platform.h"
- #include "third_party/blink/public/platform/scheduler/web_agent_group_scheduler.h"
+@@ -18,6 +18,7 @@
+ #include "third_party/blink/renderer/bindings/core/v8/v8_element_geometry_update_event_init.h"
  #include "third_party/blink/renderer/bindings/core/v8/v8_union_element_elementimage.h"
+ #include "third_party/blink/renderer/bindings/core/v8/v8_update_element_geometry_options.h"
 +#include "third_party/blink/renderer/core/canvas_interventions/apostate_readback_noise.h"
  #include "third_party/blink/renderer/core/css/css_font_selector.h"
  #include "third_party/blink/renderer/core/css/offscreen_font_selector.h"
  #include "third_party/blink/renderer/core/css/style_engine.h"
-@@ -325,6 +326,13 @@
+@@ -383,6 +384,13 @@ ImageBitmap* OffscreenCanvas::transferToImageBitmap(
      // Undocumented exception (not in spec).
      exception_state.ThrowDOMException(DOMExceptionCode::kUnknownError,
                                        "ImageBitmap construction failed");
@@ -1027,7 +1035,7 @@ diff --git a/third_party/blink/renderer/core/offscreencanvas/offscreen_canvas.cc
    }
  
    return image;
-@@ -474,6 +482,10 @@
+@@ -565,6 +573,10 @@ ScriptPromise<Blob> OffscreenCanvas::convertToBlob(
    base::TimeTicks start_time = base::TimeTicks::Now();
    scoped_refptr<StaticBitmapImage> image_bitmap = context_->GetImage();
    if (image_bitmap) {
@@ -1039,17 +1047,18 @@ diff --git a/third_party/blink/renderer/core/offscreencanvas/offscreen_canvas.cc
          script_state, exception_state.GetContext());
      CanvasAsyncBlobCreator::ToBlobFunctionType function_type =
 diff --git a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
+index 89fcf5f32b..67d3c8fd47 100644
 --- a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
 +++ b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
-@@ -40,6 +40,7 @@
- #include "third_party/blink/renderer/bindings/modules/v8/v8_canvas_font_stretch.h"
+@@ -41,6 +41,7 @@
  #include "third_party/blink/renderer/bindings/modules/v8/v8_canvas_font_variant_caps.h"
  #include "third_party/blink/renderer/bindings/modules/v8/v8_canvas_text_rendering.h"
+ #include "third_party/blink/renderer/bindings/modules/v8/v8_draw_element_image_options.h"
 +#include "third_party/blink/renderer/core/canvas_interventions/apostate_readback_noise.h"
  #include "third_party/blink/renderer/core/css/properties/computed_style_utils.h"
  #include "third_party/blink/renderer/core/css/style_change_reason.h"
- #include "third_party/blink/renderer/core/dom/events/event.h"
-@@ -504,11 +505,18 @@
+ #include "third_party/blink/renderer/core/dom/dom_node_ids.h"
+@@ -506,11 +507,18 @@ ImageData* BaseRenderingContext2D::getImageDataInternal(
        return image_data;
      }
  
@@ -1072,9 +1081,10 @@ diff --git a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_c
        SkIRect bounds =
            snapshot->PaintImageForCurrentFrame().GetSkImageInfo().bounds();
 diff --git a/third_party/blink/renderer/modules/webgl/BUILD.gn b/third_party/blink/renderer/modules/webgl/BUILD.gn
+index d611207944..bfaa2224bb 100644
 --- a/third_party/blink/renderer/modules/webgl/BUILD.gn
 +++ b/third_party/blink/renderer/modules/webgl/BUILD.gn
-@@ -146,6 +146,8 @@
+@@ -146,6 +146,8 @@ blink_modules_sources("webgl") {
      "webgl_provoking_vertex.h",
      "webgl_query.cc",
      "webgl_query.h",
@@ -1084,6 +1094,7 @@ diff --git a/third_party/blink/renderer/modules/webgl/BUILD.gn b/third_party/bli
      "webgl_render_shared_exponent.h",
      "webgl_renderbuffer.cc",
 diff --git a/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.cc
+index 17b125e035..cdea811bad 100644
 --- a/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.cc
 +++ b/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_base.cc
 @@ -15,6 +15,7 @@
@@ -1102,11 +1113,10 @@ diff --git a/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_b
  #include "third_party/blink/renderer/modules/webgl/webgl_renderbuffer.h"
  #include "third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.h"
  #include "third_party/blink/renderer/modules/webgl/webgl_sampler.h"
-@@ -112,6 +114,71 @@
- namespace {
+@@ -113,6 +115,71 @@ namespace {
  
  const GLuint64 kMaxClientWaitTimeout = 0u;
-+
+ 
 +// Apostate: applies the opt-in readback policy to the bytes getBufferSubData
 +// is handing back, for whichever recorded readback rectangles the request
 +// covers. The buffer is read a second time so that the whole rectangle is
@@ -1171,10 +1181,11 @@ diff --git a/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_b
 +    }
 +  }
 +}
- 
++
  // TODO(kainino): Change outByteLength to GLuint and change the associated
  // range checking (and all uses) - overflow becomes possible in cases below
-@@ -419,6 +486,10 @@
+ bool ValidateSubSourceAndGetData(DOMArrayBufferView* view,
+@@ -419,6 +486,10 @@ void WebGL2RenderingContextBase::copyBufferSubData(GLenum read_target,
    ContextGL()->CopyBufferSubData(
        read_target, write_target, static_cast<GLintptr>(read_offset),
        static_cast<GLintptr>(write_offset), static_cast<GLsizeiptr>(size));
@@ -1185,7 +1196,7 @@ diff --git a/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_b
  }
  
  void WebGL2RenderingContextBase::getBufferSubData(
-@@ -451,6 +522,14 @@
+@@ -451,6 +522,14 @@ void WebGL2RenderingContextBase::getBufferSubData(
    ContextGL()->GetBufferSubDataCHROMIUM(
        target, static_cast<GLintptr>(src_byte_offset),
        static_cast<GLsizeiptr>(destination_byte_length), destination_data_ptr);
@@ -1200,7 +1211,7 @@ diff --git a/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_b
  }
  
  void WebGL2RenderingContextBase::blitFramebuffer(GLint src_x0,
-@@ -922,6 +1001,25 @@
+@@ -922,6 +1001,25 @@ void WebGL2RenderingContextBase::readPixels(GLint x,
      ContextGL()->ReadPixels(x, y, width, height, format, type,
                              reinterpret_cast<void*>(offset));
    }
@@ -1227,6 +1238,7 @@ diff --git a/third_party/blink/renderer/modules/webgl/webgl2_rendering_context_b
  
  void WebGL2RenderingContextBase::RenderbufferStorageHelper(
 diff --git a/third_party/blink/renderer/modules/webgl/webgl_buffer.cc b/third_party/blink/renderer/modules/webgl/webgl_buffer.cc
+index ef889b10fd..5d51ab675b 100644
 --- a/third_party/blink/renderer/modules/webgl/webgl_buffer.cc
 +++ b/third_party/blink/renderer/modules/webgl/webgl_buffer.cc
 @@ -25,11 +25,22 @@
@@ -1252,7 +1264,7 @@ diff --git a/third_party/blink/renderer/modules/webgl/webgl_buffer.cc b/third_pa
  WebGLBuffer::WebGLBuffer(WebGLContextObjectSupport* ctx)
      : WebGLObject(ctx), initial_target_(0), size_(0) {
    if (!ctx->IsLost()) {
-@@ -52,4 +63,89 @@
+@@ -52,4 +63,89 @@ void WebGLBuffer::SetInitialTarget(GLenum target) {
    initial_target_ = target;
  }
  
@@ -1343,6 +1355,7 @@ diff --git a/third_party/blink/renderer/modules/webgl/webgl_buffer.cc b/third_pa
 +
  }  // namespace blink
 diff --git a/third_party/blink/renderer/modules/webgl/webgl_buffer.h b/third_party/blink/renderer/modules/webgl/webgl_buffer.h
+index 6c2611fc2a..e0bf1e742f 100644
 --- a/third_party/blink/renderer/modules/webgl/webgl_buffer.h
 +++ b/third_party/blink/renderer/modules/webgl/webgl_buffer.h
 @@ -27,6 +27,7 @@
@@ -1353,7 +1366,7 @@ diff --git a/third_party/blink/renderer/modules/webgl/webgl_buffer.h b/third_par
  
  namespace blink {
  
-@@ -45,12 +46,48 @@
+@@ -45,12 +46,48 @@ class WebGLBuffer final : public WebGLObject {
    void SetSize(int64_t size) { size_ = size; }
    int64_t GetSize() const { return size_; }
  
@@ -1402,83 +1415,9 @@ diff --git a/third_party/blink/renderer/modules/webgl/webgl_buffer.h b/third_par
  };
  
  }  // namespace blink
-diff --git a/third_party/blink/renderer/modules/webgl/webgl_readback_noise.h b/third_party/blink/renderer/modules/webgl/webgl_readback_noise.h
-new file mode 100644
---- /dev/null
-+++ b/third_party/blink/renderer/modules/webgl/webgl_readback_noise.h
-@@ -0,0 +1,70 @@
-+// Copyright 2026 The Apostate Authors
-+// Use of this source code is governed by a GPL-3.0 license that can be
-+// found in the LICENSE file.
-+
-+#ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_WEBGL_WEBGL_READBACK_NOISE_H_
-+#define THIRD_PARTY_BLINK_RENDERER_MODULES_WEBGL_WEBGL_READBACK_NOISE_H_
-+
-+#include <cstdint>
-+
-+#include "base/containers/span.h"
-+#include "third_party/blink/renderer/modules/modules_export.h"
-+#include "third_party/blink/renderer/platform/graphics/gpu/webgl_image_conversion.h"
-+#include "third_party/khronos/GLES2/gl2ext.h"
-+
-+namespace blink {
-+
-+// Apostate: the GL half of the --fingerprint-noise readback policy. GL is
-+// where the channel layout of a readback lives -- the (format, type) pair, the
-+// packed pixel types and the pack state -- so the translation belongs here and
-+// the content-keyed kernel stays in
-+// core/canvas_interventions/apostate_readback_noise.h.
-+//
-+// Every (format, type) pair readPixels accepts is covered, including the packed
-+// ones, so no combination is a clean route out. GL never packs premultiplied
-+// pixels, so no colour channel is clamped to alpha here; alpha itself, the
-+// shared exponent of RGB9_E5 and a format that carries nothing but alpha are
-+// never moved.
-+
-+// Where the pixels of a readback rectangle sit in the destination.
-+struct ApostateReadbackGeometry {
-+  size_t skip_bytes = 0;    // bytes before pixel (0, 0)
-+  size_t pixel_stride = 0;  // bytes per pixel
-+  size_t row_stride = 0;    // bytes between the starts of two rows
-+};
-+
-+// Resolves the geometry GL's pack state gives a `width`-wide readback. False
-+// when the pair is not one GL can pack, or when the policy does not describe
-+// it, in which case the caller leaves every byte alone.
-+MODULES_EXPORT bool ApostateReadbackGeometryFor(
-+    GLenum format,
-+    GLenum type,
-+    GLsizei width,
-+    const WebGLImageConversion::PixelStoreParams& pack,
-+    ApostateReadbackGeometry* geometry);
-+
-+// Perturbs the `width` x `height` rectangle that GL just packed into
-+// `destination` under `pack`. A no-op unless the policy is in force.
-+MODULES_EXPORT void ApostateNoiseReadbackPixels(
-+    base::span<uint8_t> destination,
-+    GLsizei width,
-+    GLsizei height,
-+    GLenum format,
-+    GLenum type,
-+    const WebGLImageConversion::PixelStoreParams& pack);
-+
-+// Perturbs a rectangle whose geometry is already known: the pixel-pack buffer
-+// route, which recorded it when readPixels wrote the buffer. `rectangle`
-+// begins at pixel (0, 0).
-+MODULES_EXPORT void ApostateNoiseReadbackRectangle(
-+    base::span<uint8_t> rectangle,
-+    GLsizei width,
-+    GLsizei height,
-+    size_t pixel_stride,
-+    size_t row_stride,
-+    GLenum format,
-+    GLenum type);
-+
-+}  // namespace blink
-+
-+#endif  // THIRD_PARTY_BLINK_RENDERER_MODULES_WEBGL_WEBGL_READBACK_NOISE_H_
 diff --git a/third_party/blink/renderer/modules/webgl/webgl_readback_noise.cc b/third_party/blink/renderer/modules/webgl/webgl_readback_noise.cc
 new file mode 100644
+index 0000000000..02351309dd
 --- /dev/null
 +++ b/third_party/blink/renderer/modules/webgl/webgl_readback_noise.cc
 @@ -0,0 +1,230 @@
@@ -1712,10 +1651,87 @@ new file mode 100644
 +}
 +
 +}  // namespace blink
+diff --git a/third_party/blink/renderer/modules/webgl/webgl_readback_noise.h b/third_party/blink/renderer/modules/webgl/webgl_readback_noise.h
+new file mode 100644
+index 0000000000..2a418b8ca5
+--- /dev/null
++++ b/third_party/blink/renderer/modules/webgl/webgl_readback_noise.h
+@@ -0,0 +1,70 @@
++// Copyright 2026 The Apostate Authors
++// Use of this source code is governed by a GPL-3.0 license that can be
++// found in the LICENSE file.
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_WEBGL_WEBGL_READBACK_NOISE_H_
++#define THIRD_PARTY_BLINK_RENDERER_MODULES_WEBGL_WEBGL_READBACK_NOISE_H_
++
++#include <cstdint>
++
++#include "base/containers/span.h"
++#include "third_party/blink/renderer/modules/modules_export.h"
++#include "third_party/blink/renderer/platform/graphics/gpu/webgl_image_conversion.h"
++#include "third_party/khronos/GLES2/gl2ext.h"
++
++namespace blink {
++
++// Apostate: the GL half of the --fingerprint-noise readback policy. GL is
++// where the channel layout of a readback lives -- the (format, type) pair, the
++// packed pixel types and the pack state -- so the translation belongs here and
++// the content-keyed kernel stays in
++// core/canvas_interventions/apostate_readback_noise.h.
++//
++// Every (format, type) pair readPixels accepts is covered, including the packed
++// ones, so no combination is a clean route out. GL never packs premultiplied
++// pixels, so no colour channel is clamped to alpha here; alpha itself, the
++// shared exponent of RGB9_E5 and a format that carries nothing but alpha are
++// never moved.
++
++// Where the pixels of a readback rectangle sit in the destination.
++struct ApostateReadbackGeometry {
++  size_t skip_bytes = 0;    // bytes before pixel (0, 0)
++  size_t pixel_stride = 0;  // bytes per pixel
++  size_t row_stride = 0;    // bytes between the starts of two rows
++};
++
++// Resolves the geometry GL's pack state gives a `width`-wide readback. False
++// when the pair is not one GL can pack, or when the policy does not describe
++// it, in which case the caller leaves every byte alone.
++MODULES_EXPORT bool ApostateReadbackGeometryFor(
++    GLenum format,
++    GLenum type,
++    GLsizei width,
++    const WebGLImageConversion::PixelStoreParams& pack,
++    ApostateReadbackGeometry* geometry);
++
++// Perturbs the `width` x `height` rectangle that GL just packed into
++// `destination` under `pack`. A no-op unless the policy is in force.
++MODULES_EXPORT void ApostateNoiseReadbackPixels(
++    base::span<uint8_t> destination,
++    GLsizei width,
++    GLsizei height,
++    GLenum format,
++    GLenum type,
++    const WebGLImageConversion::PixelStoreParams& pack);
++
++// Perturbs a rectangle whose geometry is already known: the pixel-pack buffer
++// route, which recorded it when readPixels wrote the buffer. `rectangle`
++// begins at pixel (0, 0).
++MODULES_EXPORT void ApostateNoiseReadbackRectangle(
++    base::span<uint8_t> rectangle,
++    GLsizei width,
++    GLsizei height,
++    size_t pixel_stride,
++    size_t row_stride,
++    GLenum format,
++    GLenum type);
++
++}  // namespace blink
++
++#endif  // THIRD_PARTY_BLINK_RENDERER_MODULES_WEBGL_WEBGL_READBACK_NOISE_H_
 diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+index 766e916ac5..baa2351d14 100644
 --- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
 +++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
-@@ -135,6 +135,7 @@
+@@ -136,6 +136,7 @@
  #include "third_party/blink/renderer/modules/webgl/webgl_framebuffer.h"
  #include "third_party/blink/renderer/modules/webgl/webgl_lose_context.h"
  #include "third_party/blink/renderer/modules/webgl/webgl_program.h"
@@ -1723,7 +1739,7 @@ diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_ba
  #include "third_party/blink/renderer/modules/webgl/webgl_renderbuffer.h"
  #include "third_party/blink/renderer/modules/webgl/webgl_shader.h"
  #include "third_party/blink/renderer/modules/webgl/webgl_shader_precision_format.h"
-@@ -2793,6 +2794,8 @@
+@@ -2807,6 +2808,8 @@ void WebGLRenderingContextBase::BufferDataImpl(GLenum target,
      return;
  
    buffer->SetSize(size);
@@ -1732,7 +1748,7 @@ diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_ba
  
    ContextGL()->BufferData(target, static_cast<GLsizeiptr>(size), data, usage);
  }
-@@ -2847,6 +2850,8 @@
+@@ -2861,6 +2864,8 @@ void WebGLRenderingContextBase::BufferSubDataImpl(GLenum target,
      SynthesizeGLError(GL_INVALID_VALUE, "bufferSubData", "buffer overflow");
      return;
    }
@@ -1741,11 +1757,10 @@ diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_ba
  
    ContextGL()->BufferSubData(target, static_cast<GLintptr>(offset),
                               static_cast<GLintptr>(size), data);
-@@ -5443,6 +5448,17 @@
-       return;
+@@ -5459,6 +5464,17 @@ void WebGLRenderingContextBase::ReadPixelsHelper(GLint x,
      }
      ContextGL()->ReadPixels(x, y, width, height, format, type, data);
-+  }
+   }
 +
 +  // Apostate: the destination view is what the page reads, so the opt-in
 +  // policy is applied to it and the drawing buffer is left exactly as it was
@@ -1756,13 +1771,15 @@ diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_ba
 +    ApostateNoiseReadbackPixels(
 +        pixels->ByteSpanMaybeShared().subspan(offset_in_bytes.ValueOrDie()),
 +        width, height, format, type, GetPackPixelStoreParams());
-   }
++  }
  }
  
+ void WebGLRenderingContextBase::RenderbufferStorageImpl(
 diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_webgpu_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_webgpu_base.cc
+index 214305830a..4bce23499c 100644
 --- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_webgpu_base.cc
 +++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_webgpu_base.cc
-@@ -27,6 +27,7 @@
+@@ -29,6 +29,7 @@
  #include "third_party/blink/renderer/modules/webgl/webgl_object.h"
  #include "third_party/blink/renderer/modules/webgl/webgl_program.h"
  #include "third_party/blink/renderer/modules/webgl/webgl_query.h"
@@ -1770,7 +1787,7 @@ diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_we
  #include "third_party/blink/renderer/modules/webgl/webgl_renderbuffer.h"
  #include "third_party/blink/renderer/modules/webgl/webgl_sampler.h"
  #include "third_party/blink/renderer/modules/webgl/webgl_shader.h"
-@@ -3814,6 +3815,19 @@
+@@ -3834,6 +3835,19 @@ void WebGLRenderingContextWebGPUBase::readPixels(
    driver_gl_.fn.glReadPixelsRobustANGLEFn(x, y, width, height, format, type,
                                            bufSize, nullptr, nullptr, nullptr,
                                            data_at_offset.data());
@@ -1791,9 +1808,10 @@ diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_we
  
  // **************************************************************************
 diff --git a/third_party/blink/renderer/platform/graphics/static_bitmap_image.h b/third_party/blink/renderer/platform/graphics/static_bitmap_image.h
+index 60de4ba88b..e1809a42be 100644
 --- a/third_party/blink/renderer/platform/graphics/static_bitmap_image.h
 +++ b/third_party/blink/renderer/platform/graphics/static_bitmap_image.h
-@@ -109,6 +109,14 @@
+@@ -109,6 +109,14 @@ class PLATFORM_EXPORT StaticBitmapImage : public Image {
    Vector<uint8_t> CopyImageData(const SkImageInfo& info,
                                  bool apply_orientation);
  
@@ -1808,7 +1826,7 @@ diff --git a/third_party/blink/renderer/platform/graphics/static_bitmap_image.h 
    virtual gfx::Size GetSize() const = 0;
    virtual SkAlphaType GetAlphaType() const = 0;
    virtual gfx::ColorSpace GetColorSpace() const = 0;
-@@ -140,6 +148,9 @@
+@@ -140,6 +148,9 @@ class PLATFORM_EXPORT StaticBitmapImage : public Image {
    // AcceleratedStaticBitmapImage. To change this property, the call site would
    // have to call SetOriginClean().
    bool is_origin_clean_ = true;

@@ -8,53 +8,11 @@ credentials go into the auth cache, so later connections authenticate
 without a 407 round trip. The credentials stay out of the profile
 schema, diagnostics and anything written to disk.
 
-diff --git a/base/apostate/profile.h b/base/apostate/profile.h
---- a/base/apostate/profile.h
-+++ b/base/apostate/profile.h
-@@ -15,6 +15,18 @@
- #include "base/base_export.h"
- 
- namespace base::apostate {
-+
-+// Launch-only transport credentials. These are not profile identity.
-+struct ProxyCredentials {
-+  std::string username;
-+  std::string password;
-+};
-+
-+// Upper bound on how many times launch-supplied proxy credentials are fed to
-+// one connect job or transaction. Enough for a full NTLM/Negotiate handshake
-+// or a Digest nonce rotation; bounded so a genuinely rejected credential
-+// still reaches the delegate instead of looping against the proxy.
-+inline constexpr int kMaxProxyAuthRounds = 3;
- 
- // The device profile this process is presenting.
- //
-@@ -411,6 +423,11 @@
-   // Identifier of the capture this profile was derived from, for diagnostics.
-   const std::string& source_id() const { return source_id_; }
- 
-+  // Credentials are consumed only by the native network stack.
-+  const std::optional<ProxyCredentials>& proxy_credentials() const {
-+    return proxy_credentials_;
-+  }
-+
-  private:
-   friend class ProfileTestPeer;
-   static Profile* ParseOrNull(const std::string& encoded);
-@@ -465,6 +482,7 @@
-   std::optional<uint32_t> css_highlight_argb_;
-   std::optional<uint32_t> css_highlight_text_argb_;
-   std::string source_id_;
-+  std::optional<ProxyCredentials> proxy_credentials_;
- };
- 
- }  // namespace base::apostate
-
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
+index d8473af809..09c6157e9c 100644
 --- a/base/apostate/profile.cc
 +++ b/base/apostate/profile.cc
-@@ -74,7 +74,31 @@
+@@ -129,7 +129,31 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
      return nullptr;
    }
  
@@ -86,41 +44,360 @@ diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
  
    if (const std::string* id = dict->FindString("id")) {
      profile->source_id_ = *id;
-diff --git a/net/socket/socks_client_socket.h b/net/socket/socks_client_socket.h
---- a/net/socket/socks_client_socket.h
-+++ b/net/socket/socks_client_socket.h
-@@ -9,6 +9,8 @@
- #include <stdint.h>
+diff --git a/base/apostate/profile.h b/base/apostate/profile.h
+index d2604a9548..8c8c90329b 100644
+--- a/base/apostate/profile.h
++++ b/base/apostate/profile.h
+@@ -16,6 +16,18 @@
  
- #include <memory>
-+#include <optional>
-+#include <string>
+ namespace base::apostate {
+ 
++// Launch-only transport credentials. These are not profile identity.
++struct ProxyCredentials {
++  std::string username;
++  std::string password;
++};
++
++// Upper bound on how many times launch-supplied proxy credentials are fed to
++// one connect job or transaction. Enough for a full NTLM/Negotiate handshake
++// or a Digest nonce rotation; bounded so a genuinely rejected credential
++// still reaches the delegate instead of looping against the proxy.
++inline constexpr int kMaxProxyAuthRounds = 3;
++
+ // The device profile this process is presenting.
+ //
+ // Lives in base/ because the values it carries are consumed by base/ itself —
+@@ -411,6 +423,11 @@ class BASE_EXPORT Profile {
+   // Identifier of the capture this profile was derived from, for diagnostics.
+   const std::string& source_id() const { return source_id_; }
+ 
++  // Credentials are consumed only by the native network stack.
++  const std::optional<ProxyCredentials>& proxy_credentials() const {
++    return proxy_credentials_;
++  }
++
+  private:
+   friend class ProfileTestPeer;
+   static Profile* ParseOrNull(const std::string& encoded);
+@@ -465,6 +482,7 @@ class BASE_EXPORT Profile {
+   std::optional<uint32_t> css_highlight_argb_;
+   std::optional<uint32_t> css_highlight_text_argb_;
+   std::string source_id_;
++  std::optional<ProxyCredentials> proxy_credentials_;
+ };
+ 
+ }  // namespace base::apostate
+diff --git a/net/http/http_network_transaction.cc b/net/http/http_network_transaction.cc
+index 1788baf807..461192ccbd 100644
+--- a/net/http/http_network_transaction.cc
++++ b/net/http/http_network_transaction.cc
+@@ -11,6 +11,8 @@
+ #include <utility>
  #include <vector>
  
- #include "base/gtest_prod_util.h"
-@@ -41,7 +43,8 @@
-                     RequestPriority priority,
-                     HostResolver* host_resolver,
-                     SecureDnsPolicy secure_dns_policy,
--                    const NetworkTrafficAnnotationTag& traffic_annotation);
-+                    const NetworkTrafficAnnotationTag& traffic_annotation,
-+                    std::optional<std::string> user_id = std::nullopt);
++#include "base/apostate/profile.h"
++#include "base/strings/utf_string_conversions.h"
+ #include "base/base64url.h"
+ #include "base/byte_size.h"
+ #include "base/compiler_specific.h"
+@@ -2417,6 +2419,30 @@ int HttpNetworkTransaction::HandleAuthChallenge() {
+   if (auth_controllers_[target]->HaveAuthHandler())
+     pending_auth_target_ = target;
  
-   SOCKSClientSocket(const SOCKSClientSocket&) = delete;
-   SOCKSClientSocket& operator=(const SOCKSClientSocket&) = delete;
-@@ -117,6 +120,8 @@
-   // Stores the underlying socket.
-   std::unique_ptr<StreamSocket> transport_socket_;
- 
-+  std::optional<std::string> user_id_;
++  // See kMaxProxyAuthRounds in base/apostate/profile.h: a single
++  // injected credential cannot finish a multi-round handshake, and giving up
++  // after one round surfaces a prompt on a proxy that is working.
++  if (rv == OK && target == HttpAuth::AUTH_PROXY &&
++      launch_proxy_auth_rounds_ < base::apostate::kMaxProxyAuthRounds &&
++      auth_controllers_[target]->HaveAuthHandler() &&
++      !auth_controllers_[target]->HaveAuth()) {
++    const auto* profile = base::apostate::Profile::Get();
++    if (profile && profile->proxy_credentials()) {
++      ++launch_proxy_auth_rounds_;
++      const auto& credentials = *profile->proxy_credentials();
++      auth_controllers_[target]->ResetAuth(
++          AuthCredentials(base::UTF8ToUTF16(credentials.username),
++                          base::UTF8ToUTF16(credentials.password)));
++      pending_auth_target_ = HttpAuth::AUTH_NONE;
++      // Drive the restart from here rather than returning to the caller.
++      // DoReadHeadersComplete() clears request_ once pending_auth_target_ is
++      // AUTH_NONE, which would destroy the data the restarted request needs,
++      // so the restart has to run before this call unwinds.
++      PrepareForAuthRestart(target);
++      return DoLoop(OK);
++    }
++  }
 +
+   auth_controllers_[target]->TakeAuthInfo(&response_.auth_challenge);
+ 
+   return rv;
+diff --git a/net/http/http_network_transaction.h b/net/http/http_network_transaction.h
+index 831fcf140e..456c1a27c3 100644
+--- a/net/http/http_network_transaction.h
++++ b/net/http/http_network_transaction.h
+@@ -380,6 +380,8 @@ class NET_EXPORT_PRIVATE HttpNetworkTransaction
+   // cleared by RestartWithAuth().
+   HttpAuth::Target pending_auth_target_ = HttpAuth::AUTH_NONE;
+ 
++  int launch_proxy_auth_rounds_ = 0;
++
+   CompletionRepeatingCallback io_callback_;
+   CompletionOnceCallback callback_;
+ 
+diff --git a/net/http/http_proxy_connect_job.cc b/net/http/http_proxy_connect_job.cc
+index e40cf32cb9..12b2fcba11 100644
+--- a/net/http/http_proxy_connect_job.cc
++++ b/net/http/http_proxy_connect_job.cc
+@@ -10,6 +10,8 @@
+ #include <utility>
+ #include <variant>
+ 
++#include "base/apostate/profile.h"
++#include "base/strings/utf_string_conversions.h"
+ #include "base/functional/bind.h"
+ #include "base/functional/callback.h"
+ #include "base/metrics/field_trial.h"
+@@ -157,7 +159,8 @@ HttpProxySocketParams::HttpProxySocketParams(
+     const NetworkTrafficAnnotationTag traffic_annotation,
+     const NetworkAnonymizationKey& network_anonymization_key,
+     SecureDnsPolicy secure_dns_policy,
+-    handles::NetworkHandle target_network)
++    handles::NetworkHandle target_network,
++    std::optional<base::apostate::ProxyCredentials> proxy_credentials)
+     : HttpProxySocketParams(std::move(nested_params),
+                             std::nullopt,
+                             endpoint,
+@@ -167,7 +170,8 @@ HttpProxySocketParams::HttpProxySocketParams(
+                             std::move(traffic_annotation),
+                             network_anonymization_key,
+                             secure_dns_policy,
+-                            target_network) {}
++                            target_network,
++                            std::move(proxy_credentials)) {}
+ 
+ HttpProxySocketParams::HttpProxySocketParams(
+     SSLConfig quic_ssl_config,
+@@ -178,7 +182,8 @@ HttpProxySocketParams::HttpProxySocketParams(
+     const NetworkTrafficAnnotationTag traffic_annotation,
+     const NetworkAnonymizationKey& network_anonymization_key,
+     SecureDnsPolicy secure_dns_policy,
+-    handles::NetworkHandle target_network)
++    handles::NetworkHandle target_network,
++    std::optional<base::apostate::ProxyCredentials> proxy_credentials)
+     : HttpProxySocketParams(std::nullopt,
+                             std::move(quic_ssl_config),
+                             endpoint,
+@@ -188,7 +193,8 @@ HttpProxySocketParams::HttpProxySocketParams(
+                             std::move(traffic_annotation),
+                             network_anonymization_key,
+                             secure_dns_policy,
+-                            target_network) {}
++                            target_network,
++                            std::move(proxy_credentials)) {}
+ 
+ HttpProxySocketParams::HttpProxySocketParams(
+     std::optional<ConnectJobParams> nested_params,
+@@ -200,7 +206,8 @@ HttpProxySocketParams::HttpProxySocketParams(
+     const NetworkTrafficAnnotationTag traffic_annotation,
+     const NetworkAnonymizationKey& network_anonymization_key,
+     SecureDnsPolicy secure_dns_policy,
+-    handles::NetworkHandle target_network)
++    handles::NetworkHandle target_network,
++    std::optional<base::apostate::ProxyCredentials> proxy_credentials)
+     : nested_params_(std::move(nested_params)),
+       quic_ssl_config_(std::move(quic_ssl_config)),
+       endpoint_(endpoint),
+@@ -210,7 +217,8 @@ HttpProxySocketParams::HttpProxySocketParams(
+       network_anonymization_key_(network_anonymization_key),
+       traffic_annotation_(traffic_annotation),
+       secure_dns_policy_(secure_dns_policy),
+-      target_network_(target_network) {
++      target_network_(target_network),
++      proxy_credentials_(std::move(proxy_credentials)) {
+   DCHECK(!proxy_chain_.is_direct());
+   DCHECK(proxy_chain_.IsValid());
+   CHECK(proxy_chain_index_ < proxy_chain_.length());
+@@ -906,6 +914,24 @@ void HttpProxyConnectJob::OnAuthChallenge() {
+   // Stop timer while potentially waiting for user input.
+   ResetTimer(base::TimeDelta());
+ 
++  // Multi-round schemes (NTLM, Negotiate) always re-challenge after the first
++  // credential, and Digest re-challenges on nonce rotation. Answering only
++  // once leaves those handshakes unfinished and surfaces a prompt the user
++  // cannot usefully answer, so allow a bounded number of rounds before
++  // falling back to the delegate.
++  if (launch_proxy_auth_rounds_ < base::apostate::kMaxProxyAuthRounds &&
++      params_->proxy_credentials() && http_auth_controller_ &&
++      http_auth_controller_->HaveAuthHandler() &&
++      !http_auth_controller_->HaveAuth()) {
++    ++launch_proxy_auth_rounds_;
++    const auto& credentials = *params_->proxy_credentials();
++    http_auth_controller_->ResetAuth(
++        AuthCredentials(base::UTF8ToUTF16(credentials.username),
++                        base::UTF8ToUTF16(credentials.password)));
++    RestartWithAuthCredentials();
++    return;
++  }
++
+   NotifyDelegateOfProxyAuth(
+       *transport_socket_->GetConnectResponseInfo(),
+       transport_socket_->GetAuthController().get(),
+diff --git a/net/http/http_proxy_connect_job.h b/net/http/http_proxy_connect_job.h
+index ef8e49c4d2..d47f1d9dcf 100644
+--- a/net/http/http_proxy_connect_job.h
++++ b/net/http/http_proxy_connect_job.h
+@@ -12,6 +12,7 @@
+ #include "base/functional/callback_forward.h"
+ #include "base/memory/ref_counted.h"
+ #include "base/time/time.h"
++#include "base/apostate/profile.h"
+ #include "net/base/host_port_pair.h"
+ #include "net/base/net_error_details.h"
+ #include "net/base/net_export.h"
+@@ -66,7 +67,9 @@ class NET_EXPORT_PRIVATE HttpProxySocketParams
+       const NetworkTrafficAnnotationTag traffic_annotation,
+       const NetworkAnonymizationKey& network_anonymization_key,
+       SecureDnsPolicy secure_dns_policy,
+-      handles::NetworkHandle target_network);
++      handles::NetworkHandle target_network,
++      std::optional<base::apostate::ProxyCredentials> proxy_credentials =
++          std::nullopt);
+ 
+   // Construct an `HttpProxyConnectJob` over a QUIC connection using the given
+   // SSL config.
+@@ -84,7 +87,9 @@ class NET_EXPORT_PRIVATE HttpProxySocketParams
+       const NetworkTrafficAnnotationTag traffic_annotation,
+       const NetworkAnonymizationKey& network_anonymization_key,
+       SecureDnsPolicy secure_dns_policy,
+-      handles::NetworkHandle target_network);
++      handles::NetworkHandle target_network,
++      std::optional<base::apostate::ProxyCredentials> proxy_credentials =
++          std::nullopt);
+ 
+   HttpProxySocketParams(const HttpProxySocketParams&) = delete;
+   HttpProxySocketParams& operator=(const HttpProxySocketParams&) = delete;
+@@ -127,6 +132,10 @@ class NET_EXPORT_PRIVATE HttpProxySocketParams
+   }
+   SecureDnsPolicy secure_dns_policy() { return secure_dns_policy_; }
+   handles::NetworkHandle target_network() const { return target_network_; }
++  const std::optional<base::apostate::ProxyCredentials>&
++  proxy_credentials() const {
++    return proxy_credentials_;
++  }
+ 
+  private:
+   friend class base::RefCounted<HttpProxySocketParams>;
+@@ -140,7 +149,8 @@ class NET_EXPORT_PRIVATE HttpProxySocketParams
+       const NetworkTrafficAnnotationTag traffic_annotation,
+       const NetworkAnonymizationKey& network_anonymization_key,
+       SecureDnsPolicy secure_dns_policy,
+-      handles::NetworkHandle target_network);
++      handles::NetworkHandle target_network,
++      std::optional<base::apostate::ProxyCredentials> proxy_credentials);
+   ~HttpProxySocketParams();
+ 
+   const std::optional<ConnectJobParams> nested_params_;
+@@ -153,6 +163,7 @@ class NET_EXPORT_PRIVATE HttpProxySocketParams
+   const NetworkTrafficAnnotationTag traffic_annotation_;
+   const SecureDnsPolicy secure_dns_policy_;
+   const handles::NetworkHandle target_network_ = handles::kInvalidNetworkHandle;
++  std::optional<base::apostate::ProxyCredentials> proxy_credentials_;
+ };
+ 
+ // HttpProxyConnectJob optionally establishes a tunnel through the proxy
+@@ -311,6 +322,7 @@ class NET_EXPORT_PRIVATE HttpProxyConnectJob : public ConnectJob,
    State next_state_ = STATE_NONE;
  
-   // Stores the callbacks to the layer above, called on completing Connect().
+   bool has_restarted_ = false;
++  int launch_proxy_auth_rounds_ = 0;
+ 
+   // Set to true once a connection has been successfully established. Remains
+   // true even if a new socket is being connected to retry with auth.
+diff --git a/net/socket/connect_job_params_factory.cc b/net/socket/connect_job_params_factory.cc
+index 83ba68d5f9..b5ecbbfe2f 100644
+--- a/net/socket/connect_job_params_factory.cc
++++ b/net/socket/connect_job_params_factory.cc
+@@ -8,6 +8,7 @@
+ #include <variant>
+ #include <vector>
+ 
++#include "base/apostate/profile.h"
+ #include "base/check.h"
+ #include "base/containers/flat_set.h"
+ #include "base/feature_list.h"
+@@ -168,7 +169,8 @@ ConnectJobParams CreateProxyParams(
+     SecureDnsPolicy secure_dns_policy,
+     const CommonConnectJobParams* common_connect_job_params,
+     const NetworkAnonymizationKey& proxy_dns_network_anonymization_key,
+-    handles::NetworkHandle target_network) {
++    handles::NetworkHandle target_network,
++    const std::optional<base::apostate::ProxyCredentials>& proxy_credentials) {
+   const ProxyServer& proxy_server =
+       proxy_chain.GetProxyServer(proxy_chain_index);
+ 
+@@ -224,7 +226,8 @@ ConnectJobParams CreateProxyParams(
+     return ConnectJobParams(base::MakeRefCounted<HttpProxySocketParams>(
+         std::move(proxy_server_ssl_config), host_port_pair, proxy_chain,
+         proxy_chain_index, should_tunnel, *proxy_annotation_tag,
+-        network_anonymization_key, secure_dns_policy, target_network));
++        network_anonymization_key, secure_dns_policy, target_network,
++        proxy_credentials));
+   } else if (proxy_chain_index == 0) {
+     // At the beginning of the chain, create the only TransportSocketParams
+     // object, corresponding to the transport socket we want to create to the
+@@ -242,7 +245,7 @@ ConnectJobParams CreateProxyParams(
+         proxy_chain_index - 1, proxy_annotation_tag, resolution_callback,
+         endpoint_network_anonymization_key, secure_dns_policy,
+         common_connect_job_params, proxy_dns_network_anonymization_key,
+-        target_network);
++        target_network, proxy_credentials);
+   }
+ 
+   // For secure connections, wrap the underlying connection params in SSL
+@@ -260,7 +263,7 @@ ConnectJobParams CreateProxyParams(
+     params = ConnectJobParams(base::MakeRefCounted<HttpProxySocketParams>(
+         std::move(params), host_port_pair, proxy_chain, proxy_chain_index,
+         should_tunnel, *proxy_annotation_tag, network_anonymization_key,
+-        secure_dns_policy, target_network));
++        secure_dns_policy, target_network, proxy_credentials));
+   } else {
+     DCHECK(proxy_server.is_socks());
+     DCHECK_EQ(1u, proxy_chain.length());
+@@ -269,7 +272,7 @@ ConnectJobParams CreateProxyParams(
+     params = ConnectJobParams(base::MakeRefCounted<SOCKSSocketParams>(
+         std::move(params), proxy_server.scheme() == ProxyServer::SCHEME_SOCKS5,
+         ToHostPortPair(endpoint), network_anonymization_key,
+-        *proxy_annotation_tag));
++        *proxy_annotation_tag, proxy_credentials));
+   }
+ 
+   return params;
+@@ -294,6 +297,10 @@ ConnectJobParams ConstructConnectJobParams(
+     handles::NetworkHandle target_network) {
+   DCHECK(proxy_chain.IsValid());
+ 
++  std::optional<base::apostate::ProxyCredentials> proxy_credentials;
++  if (const auto* profile = base::apostate::Profile::Get())
++    proxy_credentials = profile->proxy_credentials();
++
+   // Set up `ssl_config` if using SSL to the endpoint.
+   SSLConfig ssl_config;
+   if (UsingSsl(endpoint)) {
+@@ -334,7 +341,8 @@ ConnectJobParams ConstructConnectJobParams(
+         /*proxy_chain_index=*/proxy_chain.length() - 1, proxy_annotation_tag,
+         resolution_callback, endpoint_network_anonymization_key,
+         secure_dns_policy, common_connect_job_params,
+-        proxy_dns_network_anonymization_key, target_network);
++        proxy_dns_network_anonymization_key, target_network,
++        proxy_credentials);
+   }
+ 
+   if (UsingSsl(endpoint)) {
 diff --git a/net/socket/socks_client_socket.cc b/net/socket/socks_client_socket.cc
+index 1cf53c6b58..1c8e777674 100644
 --- a/net/socket/socks_client_socket.cc
 +++ b/net/socket/socks_client_socket.cc
-@@ -65,8 +65,10 @@
+@@ -65,8 +65,10 @@ SOCKSClientSocket::SOCKSClientSocket(
      RequestPriority priority,
      HostResolver* host_resolver,
      SecureDnsPolicy secure_dns_policy,
@@ -132,7 +409,7 @@ diff --git a/net/socket/socks_client_socket.cc b/net/socket/socks_client_socket.
        host_resolver_(host_resolver),
        secure_dns_policy_(secure_dns_policy),
        destination_(destination),
-@@ -339,7 +341,10 @@
+@@ -339,7 +341,10 @@ std::vector<uint8_t> SOCKSClientSocket::BuildHandshakeWriteBuffer() const {
    handshake_data.reserve(request_as_span.size() + 1u);
    handshake_data.insert(handshake_data.end(), request_as_span.begin(),
                          request_as_span.end());
@@ -144,54 +421,43 @@ diff --git a/net/socket/socks_client_socket.cc b/net/socket/socks_client_socket.
    handshake_data.push_back(0);
  
    return handshake_data;
-
-diff --git a/net/socket/socks_connect_job.h b/net/socket/socks_connect_job.h
---- a/net/socket/socks_connect_job.h
-+++ b/net/socket/socks_connect_job.h
-@@ -6,6 +6,9 @@
- #define NET_SOCKET_SOCKS_CONNECT_JOB_H_
+diff --git a/net/socket/socks_client_socket.h b/net/socket/socks_client_socket.h
+index 6804792ac3..97a0d8bcc4 100644
+--- a/net/socket/socks_client_socket.h
++++ b/net/socket/socks_client_socket.h
+@@ -9,6 +9,8 @@
+ #include <stdint.h>
  
  #include <memory>
 +#include <optional>
-+
-+#include "base/apostate/profile.h"
++#include <string>
+ #include <vector>
  
- #include "base/memory/raw_ptr.h"
- #include "base/memory/ref_counted.h"
-@@ -34,7 +37,9 @@
-                     bool socks_v5,
-                     const HostPortPair& host_port_pair,
-                     const NetworkAnonymizationKey& network_anonymization_key,
+ #include "base/gtest_prod_util.h"
+@@ -41,7 +43,8 @@ class NET_EXPORT_PRIVATE SOCKSClientSocket : public StreamSocket {
+                     RequestPriority priority,
+                     HostResolver* host_resolver,
+                     SecureDnsPolicy secure_dns_policy,
 -                    const NetworkTrafficAnnotationTag& traffic_annotation);
 +                    const NetworkTrafficAnnotationTag& traffic_annotation,
-+                    std::optional<base::apostate::ProxyCredentials>
-+                        proxy_credentials = std::nullopt);
++                    std::optional<std::string> user_id = std::nullopt);
  
-   SOCKSSocketParams(const SOCKSSocketParams&) = delete;
-   SOCKSSocketParams& operator=(const SOCKSSocketParams&) = delete;
-@@ -51,6 +56,10 @@
-   const NetworkTrafficAnnotationTag traffic_annotation() {
-     return traffic_annotation_;
-   }
-+  const std::optional<base::apostate::ProxyCredentials>&
-+  proxy_credentials() const {
-+    return proxy_credentials_;
-+  }
+   SOCKSClientSocket(const SOCKSClientSocket&) = delete;
+   SOCKSClientSocket& operator=(const SOCKSClientSocket&) = delete;
+@@ -117,6 +120,8 @@ class NET_EXPORT_PRIVATE SOCKSClientSocket : public StreamSocket {
+   // Stores the underlying socket.
+   std::unique_ptr<StreamSocket> transport_socket_;
  
-  private:
-   friend class base::RefCounted<SOCKSSocketParams>;
-@@ -64,6 +73,7 @@
-   const NetworkAnonymizationKey network_anonymization_key_;
++  std::optional<std::string> user_id_;
++
+   State next_state_ = STATE_NONE;
  
-   NetworkTrafficAnnotationTag traffic_annotation_;
-+  std::optional<base::apostate::ProxyCredentials> proxy_credentials_;
- };
- 
- // SOCKSConnectJob handles establishing a connection to a SOCKS4 or SOCKS5 proxy
+   // Stores the callbacks to the layer above, called on completing Connect().
 diff --git a/net/socket/socks_connect_job.cc b/net/socket/socks_connect_job.cc
+index a7af8f25be..53910161ab 100644
 --- a/net/socket/socks_connect_job.cc
 +++ b/net/socket/socks_connect_job.cc
-@@ -28,12 +28,14 @@
+@@ -28,12 +28,14 @@ SOCKSSocketParams::SOCKSSocketParams(
      bool socks_v5,
      const HostPortPair& host_port_pair,
      const NetworkAnonymizationKey& network_anonymization_key,
@@ -208,7 +474,7 @@ diff --git a/net/socket/socks_connect_job.cc b/net/socket/socks_connect_job.cc
  
  SOCKSSocketParams::~SOCKSSocketParams() = default;
  
-@@ -176,15 +178,26 @@
+@@ -176,15 +178,26 @@ int SOCKSConnectJob::DoSOCKSConnect() {
  
    // Add a SOCKS connection on top of the tcp socket.
    if (socks_params_->is_socks_v5()) {
@@ -237,306 +503,47 @@ diff --git a/net/socket/socks_connect_job.cc b/net/socket/socks_connect_job.cc
      socks_socket_ptr_ = socks_socket.get();
      socket_ = std::move(socks_socket);
    }
-diff --git a/net/socket/connect_job_params_factory.cc b/net/socket/connect_job_params_factory.cc
---- a/net/socket/connect_job_params_factory.cc
-+++ b/net/socket/connect_job_params_factory.cc
-@@ -8,6 +8,7 @@
- #include <variant>
- #include <vector>
+diff --git a/net/socket/socks_connect_job.h b/net/socket/socks_connect_job.h
+index 3fc7dc02d6..f483e113de 100644
+--- a/net/socket/socks_connect_job.h
++++ b/net/socket/socks_connect_job.h
+@@ -6,6 +6,9 @@
+ #define NET_SOCKET_SOCKS_CONNECT_JOB_H_
  
-+#include "base/apostate/profile.h"
- #include "base/check.h"
- #include "base/containers/flat_set.h"
- #include "base/feature_list.h"
-@@ -168,7 +169,8 @@
-     SecureDnsPolicy secure_dns_policy,
-     const CommonConnectJobParams* common_connect_job_params,
-     const NetworkAnonymizationKey& proxy_dns_network_anonymization_key,
--    handles::NetworkHandle target_network) {
-+    handles::NetworkHandle target_network,
-+    const std::optional<base::apostate::ProxyCredentials>& proxy_credentials) {
-   const ProxyServer& proxy_server =
-       proxy_chain.GetProxyServer(proxy_chain_index);
- 
-@@ -224,7 +226,8 @@
-     return ConnectJobParams(base::MakeRefCounted<HttpProxySocketParams>(
-         std::move(proxy_server_ssl_config), host_port_pair, proxy_chain,
-         proxy_chain_index, should_tunnel, *proxy_annotation_tag,
--        network_anonymization_key, secure_dns_policy, target_network));
-+        network_anonymization_key, secure_dns_policy, target_network,
-+        proxy_credentials));
-   } else if (proxy_chain_index == 0) {
-     // At the beginning of the chain, create the only TransportSocketParams
-     // object, corresponding to the transport socket we want to create to the
-@@ -242,7 +245,7 @@
-         proxy_chain_index - 1, proxy_annotation_tag, resolution_callback,
-         endpoint_network_anonymization_key, secure_dns_policy,
-         common_connect_job_params, proxy_dns_network_anonymization_key,
--        target_network);
-+        target_network, proxy_credentials);
-   }
- 
-   // For secure connections, wrap the underlying connection params in SSL
-@@ -260,7 +263,7 @@
-     params = ConnectJobParams(base::MakeRefCounted<HttpProxySocketParams>(
-         std::move(params), host_port_pair, proxy_chain, proxy_chain_index,
-         should_tunnel, *proxy_annotation_tag, network_anonymization_key,
--        secure_dns_policy, target_network));
-+        secure_dns_policy, target_network, proxy_credentials));
-   } else {
-     DCHECK(proxy_server.is_socks());
-     DCHECK_EQ(1u, proxy_chain.length());
-@@ -269,7 +272,7 @@
-     params = ConnectJobParams(base::MakeRefCounted<SOCKSSocketParams>(
-         std::move(params), proxy_server.scheme() == ProxyServer::SCHEME_SOCKS5,
-         ToHostPortPair(endpoint), network_anonymization_key,
--        *proxy_annotation_tag));
-+        *proxy_annotation_tag, proxy_credentials));
-   }
- 
-   return params;
-@@ -293,6 +296,10 @@
-     const NetworkAnonymizationKey& proxy_dns_network_anonymization_key,
-     handles::NetworkHandle target_network) {
-   DCHECK(proxy_chain.IsValid());
+ #include <memory>
++#include <optional>
 +
-+  std::optional<base::apostate::ProxyCredentials> proxy_credentials;
-+  if (const auto* profile = base::apostate::Profile::Get())
-+    proxy_credentials = profile->proxy_credentials();
- 
-   // Set up `ssl_config` if using SSL to the endpoint.
-   SSLConfig ssl_config;
-@@ -334,7 +341,8 @@
-         /*proxy_chain_index=*/proxy_chain.length() - 1, proxy_annotation_tag,
-         resolution_callback, endpoint_network_anonymization_key,
-         secure_dns_policy, common_connect_job_params,
--        proxy_dns_network_anonymization_key, target_network);
-+        proxy_dns_network_anonymization_key, target_network,
-+        proxy_credentials);
-   }
- 
-   if (UsingSsl(endpoint)) {
-diff --git a/net/http/http_proxy_connect_job.cc b/net/http/http_proxy_connect_job.cc
---- a/net/http/http_proxy_connect_job.cc
-+++ b/net/http/http_proxy_connect_job.cc
-@@ -10,6 +10,8 @@
- #include <utility>
- #include <variant>
- 
 +#include "base/apostate/profile.h"
-+#include "base/strings/utf_string_conversions.h"
- #include "base/functional/bind.h"
- #include "base/functional/callback.h"
- #include "base/metrics/field_trial.h"
-@@ -157,7 +159,8 @@
-     const NetworkTrafficAnnotationTag traffic_annotation,
-     const NetworkAnonymizationKey& network_anonymization_key,
-     SecureDnsPolicy secure_dns_policy,
--    handles::NetworkHandle target_network)
-+    handles::NetworkHandle target_network,
-+    std::optional<base::apostate::ProxyCredentials> proxy_credentials)
-     : HttpProxySocketParams(std::move(nested_params),
-                             std::nullopt,
-                             endpoint,
-@@ -167,7 +170,8 @@
-                             std::move(traffic_annotation),
-                             network_anonymization_key,
-                             secure_dns_policy,
--                            target_network) {}
-+                            target_network,
-+                            std::move(proxy_credentials)) {}
  
- HttpProxySocketParams::HttpProxySocketParams(
-     SSLConfig quic_ssl_config,
-@@ -178,7 +182,8 @@
-     const NetworkTrafficAnnotationTag traffic_annotation,
-     const NetworkAnonymizationKey& network_anonymization_key,
-     SecureDnsPolicy secure_dns_policy,
--    handles::NetworkHandle target_network)
-+    handles::NetworkHandle target_network,
-+    std::optional<base::apostate::ProxyCredentials> proxy_credentials)
-     : HttpProxySocketParams(std::nullopt,
-                             std::move(quic_ssl_config),
-                             endpoint,
-@@ -188,7 +193,8 @@
-                             std::move(traffic_annotation),
-                             network_anonymization_key,
-                             secure_dns_policy,
--                            target_network) {}
-+                            target_network,
-+                            std::move(proxy_credentials)) {}
- 
- HttpProxySocketParams::HttpProxySocketParams(
-     std::optional<ConnectJobParams> nested_params,
-@@ -200,7 +206,8 @@
-     const NetworkTrafficAnnotationTag traffic_annotation,
-     const NetworkAnonymizationKey& network_anonymization_key,
-     SecureDnsPolicy secure_dns_policy,
--    handles::NetworkHandle target_network)
-+    handles::NetworkHandle target_network,
-+    std::optional<base::apostate::ProxyCredentials> proxy_credentials)
-     : nested_params_(std::move(nested_params)),
-       quic_ssl_config_(std::move(quic_ssl_config)),
-       endpoint_(endpoint),
-@@ -210,7 +217,8 @@
-       network_anonymization_key_(network_anonymization_key),
-       traffic_annotation_(traffic_annotation),
-       secure_dns_policy_(secure_dns_policy),
--      target_network_(target_network) {
-+      target_network_(target_network),
-+      proxy_credentials_(std::move(proxy_credentials)) {
-   DCHECK(!proxy_chain_.is_direct());
-   DCHECK(proxy_chain_.IsValid());
-   CHECK(proxy_chain_index_ < proxy_chain_.length());
-@@ -906,6 +914,24 @@
-   // Stop timer while potentially waiting for user input.
-   ResetTimer(base::TimeDelta());
- 
-+  // Multi-round schemes (NTLM, Negotiate) always re-challenge after the first
-+  // credential, and Digest re-challenges on nonce rotation. Answering only
-+  // once leaves those handshakes unfinished and surfaces a prompt the user
-+  // cannot usefully answer, so allow a bounded number of rounds before
-+  // falling back to the delegate.
-+  if (launch_proxy_auth_rounds_ < base::apostate::kMaxProxyAuthRounds &&
-+      params_->proxy_credentials() && http_auth_controller_ &&
-+      http_auth_controller_->HaveAuthHandler() &&
-+      !http_auth_controller_->HaveAuth()) {
-+    ++launch_proxy_auth_rounds_;
-+    const auto& credentials = *params_->proxy_credentials();
-+    http_auth_controller_->ResetAuth(
-+        AuthCredentials(base::UTF8ToUTF16(credentials.username),
-+                        base::UTF8ToUTF16(credentials.password)));
-+    RestartWithAuthCredentials();
-+    return;
-+  }
-+
-   NotifyDelegateOfProxyAuth(
-       *transport_socket_->GetConnectResponseInfo(),
-       transport_socket_->GetAuthController().get(),
-diff --git a/net/http/http_proxy_connect_job.h b/net/http/http_proxy_connect_job.h
---- a/net/http/http_proxy_connect_job.h
-+++ b/net/http/http_proxy_connect_job.h
-@@ -12,6 +12,7 @@
- #include "base/functional/callback_forward.h"
+ #include "base/memory/raw_ptr.h"
  #include "base/memory/ref_counted.h"
- #include "base/time/time.h"
-+#include "base/apostate/profile.h"
- #include "net/base/host_port_pair.h"
- #include "net/base/net_error_details.h"
- #include "net/base/net_export.h"
-@@ -66,7 +67,9 @@
-       const NetworkTrafficAnnotationTag traffic_annotation,
-       const NetworkAnonymizationKey& network_anonymization_key,
-       SecureDnsPolicy secure_dns_policy,
--      handles::NetworkHandle target_network);
-+      handles::NetworkHandle target_network,
-+      std::optional<base::apostate::ProxyCredentials> proxy_credentials =
-+          std::nullopt);
+@@ -34,7 +37,9 @@ class NET_EXPORT_PRIVATE SOCKSSocketParams
+                     bool socks_v5,
+                     const HostPortPair& host_port_pair,
+                     const NetworkAnonymizationKey& network_anonymization_key,
+-                    const NetworkTrafficAnnotationTag& traffic_annotation);
++                    const NetworkTrafficAnnotationTag& traffic_annotation,
++                    std::optional<base::apostate::ProxyCredentials>
++                        proxy_credentials = std::nullopt);
  
-   // Construct an `HttpProxyConnectJob` over a QUIC connection using the given
-   // SSL config.
-@@ -84,7 +87,9 @@
-       const NetworkTrafficAnnotationTag traffic_annotation,
-       const NetworkAnonymizationKey& network_anonymization_key,
-       SecureDnsPolicy secure_dns_policy,
--      handles::NetworkHandle target_network);
-+      handles::NetworkHandle target_network,
-+      std::optional<base::apostate::ProxyCredentials> proxy_credentials =
-+          std::nullopt);
- 
-   HttpProxySocketParams(const HttpProxySocketParams&) = delete;
-   HttpProxySocketParams& operator=(const HttpProxySocketParams&) = delete;
-@@ -127,6 +132,10 @@
+   SOCKSSocketParams(const SOCKSSocketParams&) = delete;
+   SOCKSSocketParams& operator=(const SOCKSSocketParams&) = delete;
+@@ -51,6 +56,10 @@ class NET_EXPORT_PRIVATE SOCKSSocketParams
+   const NetworkTrafficAnnotationTag traffic_annotation() {
+     return traffic_annotation_;
    }
-   SecureDnsPolicy secure_dns_policy() { return secure_dns_policy_; }
-   handles::NetworkHandle target_network() const { return target_network_; }
 +  const std::optional<base::apostate::ProxyCredentials>&
 +  proxy_credentials() const {
 +    return proxy_credentials_;
 +  }
  
   private:
-   friend class base::RefCounted<HttpProxySocketParams>;
-@@ -140,7 +149,8 @@
-       const NetworkTrafficAnnotationTag traffic_annotation,
-       const NetworkAnonymizationKey& network_anonymization_key,
-       SecureDnsPolicy secure_dns_policy,
--      handles::NetworkHandle target_network);
-+      handles::NetworkHandle target_network,
-+      std::optional<base::apostate::ProxyCredentials> proxy_credentials);
-   ~HttpProxySocketParams();
+   friend class base::RefCounted<SOCKSSocketParams>;
+@@ -64,6 +73,7 @@ class NET_EXPORT_PRIVATE SOCKSSocketParams
+   const NetworkAnonymizationKey network_anonymization_key_;
  
-   const std::optional<ConnectJobParams> nested_params_;
-@@ -153,6 +163,7 @@
-   const NetworkTrafficAnnotationTag traffic_annotation_;
-   const SecureDnsPolicy secure_dns_policy_;
-   const handles::NetworkHandle target_network_ = handles::kInvalidNetworkHandle;
+   NetworkTrafficAnnotationTag traffic_annotation_;
 +  std::optional<base::apostate::ProxyCredentials> proxy_credentials_;
  };
  
- // HttpProxyConnectJob optionally establishes a tunnel through the proxy
-@@ -311,6 +322,7 @@
-   State next_state_ = STATE_NONE;
- 
-   bool has_restarted_ = false;
-+  int launch_proxy_auth_rounds_ = 0;
- 
-   // Set to true once a connection has been successfully established. Remains
-   // true even if a new socket is being connected to retry with auth.
-diff --git a/net/http/http_network_transaction.cc b/net/http/http_network_transaction.cc
---- a/net/http/http_network_transaction.cc
-+++ b/net/http/http_network_transaction.cc
-@@ -11,6 +11,8 @@
- #include <utility>
- #include <vector>
- 
-+#include "base/apostate/profile.h"
-+#include "base/strings/utf_string_conversions.h"
- #include "base/base64url.h"
- #include "base/byte_size.h"
- #include "base/compiler_specific.h"
-@@ -2402,8 +2404,32 @@
- 
-   int rv = auth_controllers_[target]->HandleAuthChallenge(
-       headers, response_.ssl_info, !ShouldApplyServerAuth(), false, net_log_);
-   if (auth_controllers_[target]->HaveAuthHandler())
-     pending_auth_target_ = target;
-+
-+  // See kMaxProxyAuthRounds in base/apostate/profile.h: a single
-+  // injected credential cannot finish a multi-round handshake, and giving up
-+  // after one round surfaces a prompt on a proxy that is working.
-+  if (rv == OK && target == HttpAuth::AUTH_PROXY &&
-+      launch_proxy_auth_rounds_ < base::apostate::kMaxProxyAuthRounds &&
-+      auth_controllers_[target]->HaveAuthHandler() &&
-+      !auth_controllers_[target]->HaveAuth()) {
-+    const auto* profile = base::apostate::Profile::Get();
-+    if (profile && profile->proxy_credentials()) {
-+      ++launch_proxy_auth_rounds_;
-+      const auto& credentials = *profile->proxy_credentials();
-+      auth_controllers_[target]->ResetAuth(
-+          AuthCredentials(base::UTF8ToUTF16(credentials.username),
-+                          base::UTF8ToUTF16(credentials.password)));
-+      pending_auth_target_ = HttpAuth::AUTH_NONE;
-+      // Drive the restart from here rather than returning to the caller.
-+      // DoReadHeadersComplete() clears request_ once pending_auth_target_ is
-+      // AUTH_NONE, which would destroy the data the restarted request needs,
-+      // so the restart has to run before this call unwinds.
-+      PrepareForAuthRestart(target);
-+      return DoLoop(OK);
-+    }
-+  }
- 
-   auth_controllers_[target]->TakeAuthInfo(&response_.auth_challenge);
- 
-diff --git a/net/http/http_network_transaction.h b/net/http/http_network_transaction.h
---- a/net/http/http_network_transaction.h
-+++ b/net/http/http_network_transaction.h
-@@ -380,6 +380,8 @@
-   // cleared by RestartWithAuth().
-   HttpAuth::Target pending_auth_target_ = HttpAuth::AUTH_NONE;
- 
-+  int launch_proxy_auth_rounds_ = 0;
-+
-   CompletionRepeatingCallback io_callback_;
-   CompletionOnceCallback callback_;
- 
+ // SOCKSConnectJob handles establishing a connection to a SOCKS4 or SOCKS5 proxy

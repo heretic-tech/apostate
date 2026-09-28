@@ -8,14 +8,11 @@ connection's country, and a drawn language list disagrees with Intl
 formatting a page can read in one call. The speech voice list follows
 the named locale, so a launch without one keeps the host's voices.
 
+diff --git a/base/apostate/compose.cc b/base/apostate/compose.cc
+index 68fb7d1dfc..d4cee9aa67 100644
 --- a/base/apostate/compose.cc
 +++ b/base/apostate/compose.cc
-@@ -391,16 +391,50 @@ std::string OverrideNote(std::string_view field, const std::string& displaced) {
-                      "the catalogue, so its real-world prevalence is unknown "
-                      "and it may be more distinctive than a drawn value";
-   if (!displaced.empty()) {
-     note += "; the seed had chosen " + displaced;
-   }
+@@ -396,6 +396,40 @@ std::string OverrideNote(std::string_view field, const std::string& displaced) {
    return note;
  }
  
@@ -56,17 +53,7 @@ the named locale, so a launch without one keeps the host's voices.
  // Applies the scalar overrides onto the composed profile.
  //
  // Called after the axis loop and before DeriveWorkArea, so that a screen
- // override has its available rectangle derived from the same furniture insets
- // the seed drew rather than from the panel it replaced. Returns false with
- // `rejection` filled when an override cannot be served.
- bool ApplyScalarOverrides(Composition& composition,
-                           const ComposeRequest& request,
-@@ -1071,90 +1105,150 @@ std::optional<Composition> Compose(const ComposeRequest& request,
-         .surface = "anchor",
-         .value = std::string(anchor->id),
-         .layer = std::string(kLayerAnchor),
-         .evidence = std::string(anchor->evidence),
-         .limitation = anchor_limitation,
+@@ -1076,9 +1110,12 @@ std::optional<Composition> Compose(const ComposeRequest& request,
      });
    }
  
@@ -82,7 +69,7 @@ the named locale, so a launch without one keeps the host's voices.
      std::vector<const PolicyOption*> candidates;
      for (const PolicyOption& policy : policies) {
        if (policy.AppliesTo(composition.platform)) {
-         candidates.push_back(&policy);
+@@ -1086,53 +1123,104 @@ std::optional<Composition> Compose(const ComposeRequest& request,
        }
      }
      if (candidates.empty()) {
@@ -217,9 +204,7 @@ the named locale, so a launch without one keeps the host's voices.
      }
    };
  
-   // ---- the dispersion axes, in the §5 resolution order ----
-   bool locale_resolved = false;
-   bool panel_resolved = false;
+@@ -1142,14 +1230,20 @@ std::optional<Composition> Compose(const ComposeRequest& request,
  
    for (const DispersionAxis& axis : request.axes) {
      // The voices table is keyed on the resolved accept-languages list, so the
@@ -243,17 +228,7 @@ the named locale, so a launch without one keeps the host's voices.
        if (const DictValue* locale = composition.profile.FindDict("locale")) {
          if (const std::string* declared =
                  locale->FindString("accept_languages")) {
-           accept_languages = *declared;
-         }
-       }
-       resolved["languages"] = ProjectLanguages(axis, accept_languages);
-     }
-@@ -1371,19 +1465,19 @@ std::optional<Composition> Compose(const ComposeRequest& request,
-           .evidence = std::string(option->evidence),
-           .limitation = std::string(),
-       });
-     }
-     resolved[std::string(axis.axis)] = included;
+@@ -1376,9 +1470,9 @@ std::optional<Composition> Compose(const ComposeRequest& request,
    }
  
    if (!locale_resolved) {
@@ -265,17 +240,7 @@ the named locale, so a launch without one keeps the host's voices.
  
    if (!ApplyScalarOverrides(composition, request, panel_resolved, rejection)) {
      return std::nullopt;
-   }
- 
-   DeriveWorkArea(composition.profile, panel_resolved,
-                  &composition.limitations);
- 
-@@ -1607,24 +1701,22 @@ std::optional<std::string> ComposeProfileForCurrentProcess(
-     return std::nullopt;
-   }
- 
-   ComposeRequest request;
-   request.seed = seed.seed;
+@@ -1612,14 +1706,12 @@ std::optional<std::string> ComposeProfileForCurrentProcess(
    request.host = ProbeHostCapability(command_line);
    request.axes = DispersionAxes();
    request.anchors = Anchors();
@@ -290,19 +255,11 @@ the named locale, so a launch without one keeps the host's voices.
    // Chrome's resolved directory when the caller knows it, the explicit switch
    // otherwise. Only font provisioning reads it; nothing is written.
    const FilePath state_root =
-       user_data_dir.empty()
-           ? command_line.GetSwitchValuePath(kUserDataDirSwitch)
-           : user_data_dir;
-   request.state_directory = state_root.empty()
-                                 ? FilePath()
+diff --git a/base/apostate/compose.h b/base/apostate/compose.h
+index acf03d2b47..39f812d5da 100644
 --- a/base/apostate/compose.h
 +++ b/base/apostate/compose.h
-@@ -259,30 +259,26 @@ struct BASE_EXPORT ComposeRequest {
-   // The catalogue. Passed in rather than read from the generated tables inside
-   // Compose() so that composition is a pure function of its request: that is
-   // what "the deterministic function (seed, tables, host capability, requested
-   // platform) -> profile" means, and it is what lets the resolution order be
-   // tested against a table written in the test instead of against whatever the
+@@ -264,7 +264,6 @@ struct BASE_EXPORT ComposeRequest {
    // shipped catalogue happens to say today.
    span<const DispersionAxis> axes;
    span<const Anchor> anchors;
@@ -310,10 +267,7 @@ the named locale, so a launch without one keeps the host's voices.
    span<const PolicyOption> theme_policies;
    span<const std::string_view> union_array_paths;
  
-   // The three declared identity components of the §5 root.
-   std::string_view profile_schema_version;
-   std::string_view catalogue_version;
-   std::string_view chromium_version;
+@@ -275,9 +274,6 @@ struct BASE_EXPORT ComposeRequest {
    // Reported, not hashed. See Composition::catalogue_digest.
    std::string_view catalogue_digest;
  
@@ -323,19 +277,11 @@ the named locale, so a launch without one keeps the host's voices.
    FieldOverrides overrides;
  };
  
- // Resolves every axis in the §5 dependency order and deep-merges the result.
- //
- // A dependent axis draws from an option set that is a *function* of its
- // parents' resolved values, so there is no rejection sampling and no re-draw:
- // every profile is coherent by construction rather than by validation.
+diff --git a/base/apostate/compose_unittest.cc b/base/apostate/compose_unittest.cc
+index 58500f09d8..081f8dc6e0 100644
 --- a/base/apostate/compose_unittest.cc
 +++ b/base/apostate/compose_unittest.cc
-@@ -241,20 +241,16 @@ constexpr DispersionAxis kGpuIdentityNoAdapterAxis = {
-     "gpu_identity",
-     "gpu_identity",
-     span<const std::string_view>(kAnchorOnly),
-     Selection::kSingle,
-     Servability::kAnchorMember,
+@@ -246,10 +246,6 @@ constexpr DispersionAxis kGpuIdentityNoAdapterAxis = {
      span<const DispersionOptionSet>(kIdentityNoAdapterSets),
  };
  
@@ -346,17 +292,7 @@ the named locale, so a launch without one keeps the host's voices.
  constexpr PolicyOption kThemePolicies[] = {
      {"light", "all", "catalogue-value", R"({"theme":{"prefers_dark":false}})"},
  };
- 
- HostCapability CapableHost() {
-   HostCapability host;
-   host.logical_cores = 32;
-   host.total_memory_bytes = uint64_t{64} * 1024 * 1024 * 1024;
-@@ -272,24 +268,22 @@ ComposeRequest RequestFor(std::string seed,
-   // Stated rather than left to the host-conditional default, so that a change
-   // to DefaultPersonaForHost() cannot silently move every test's anchor. A
-   // windows persona on this macOS host is also the cross-OS case, which is
-   // what most of these tests want to exercise.
-   request.platform = "windows";
+@@ -277,14 +273,12 @@ ComposeRequest RequestFor(std::string seed,
    request.host = host;
    request.axes = axes;
    request.anchors = span<const Anchor>(kAnchors);
@@ -371,17 +307,7 @@ the named locale, so a launch without one keeps the host's voices.
    return request;
  }
  
- std::string ChosenId(const Composition& composition, std::string_view surface) {
-   for (const SurfaceRecord& record : composition.surfaces) {
-     if (record.surface == surface) {
-       return record.value;
-     }
-@@ -505,18 +499,24 @@ TEST(ApostateComposeTest, AddingAnAxisDoesNotShiftAnotherAxisChoice) {
-   const std::optional<Composition> after =
-       Compose(RequestFor("growth-seed", kAfter, host));
-   ASSERT_TRUE(before.has_value());
-   ASSERT_TRUE(after.has_value());
- 
+@@ -510,8 +504,14 @@ TEST(ApostateComposeTest, AddingAnAxisDoesNotShiftAnotherAxisChoice) {
    EXPECT_EQ(ChosenId(*before, "os_release"), ChosenId(*after, "os_release"));
    EXPECT_EQ(ChosenId(*before, "cpu"), ChosenId(*after, "cpu"));
    EXPECT_EQ(ChosenId(*before, "anchor"), ChosenId(*after, "anchor"));
@@ -397,17 +323,7 @@ the named locale, so a launch without one keeps the host's voices.
    // And the new axis did resolve, so this is not passing by doing nothing.
    EXPECT_NE("(absent)", ChosenId(*after, "extra"));
    // Nor is the anchor comparison above two absences. It was exactly that
-   // between patches 0102 and this fixture gaining a windows anchor: the
-   // persona selects the anchor now, so a fixture with no anchor for the
-   // persona makes that line compare "(absent)" with itself and pass.
-   EXPECT_NE("(absent)", ChosenId(*after, "anchor"));
- }
-@@ -843,37 +843,50 @@ TEST(ApostateComposeTest, OptionSetMatchingIsExactAndTotal) {
-   EXPECT_FALSE(kOsReleaseAxis.FindOptionSet(kTooMany));
- }
- 
- // The projection is computed before the draw, so option-set matching stays
- // exact and total and there is never a failed match to recover from.
+@@ -848,27 +848,40 @@ TEST(ApostateComposeTest, OptionSetMatchingIsExactAndTotal) {
  TEST(ApostateComposeTest, AnUnmeasuredLanguageListProjectsOntoTheEmptyKey) {
    constexpr DispersionAxis kAxes[] = {kVoicesAxis};
  
@@ -462,8 +378,3 @@ the named locale, so a launch without one keeps the host's voices.
  }
  
  // ---------------------------------------------------------------------------
- // Work area
- // ---------------------------------------------------------------------------
- 
- TEST(ApostateComposeTest, WorkAreaIsDerivedFromThePanelAndTheInsets) {
-   DictValue profile;

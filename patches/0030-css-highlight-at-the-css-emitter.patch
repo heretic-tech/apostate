@@ -8,7 +8,7 @@ SystemHighlightFromColorProvider, after the blend. The mixer entry from
 patch 0012 stays for the browser's own selection UI.
 
 diff --git a/third_party/blink/renderer/core/layout/layout_theme.cc b/third_party/blink/renderer/core/layout/layout_theme.cc
-index 93f1d66..3b3afae 100644
+index fc101e3aaf..febda48745 100644
 --- a/third_party/blink/renderer/core/layout/layout_theme.cc
 +++ b/third_party/blink/renderer/core/layout/layout_theme.cc
 @@ -21,6 +21,7 @@
@@ -19,7 +19,7 @@ index 93f1d66..3b3afae 100644
  #include "build/build_config.h"
  #include "third_party/blink/public/common/renderer_preferences/renderer_preferences.h"
  #include "third_party/blink/public/resources/grit/blink_resources.h"
-@@ -868,6 +869,26 @@ Color LayoutTheme::SystemColorFromColorProvider(
+@@ -862,6 +863,26 @@ Color LayoutTheme::SystemColorFromColorProvider(
  Color LayoutTheme::SystemHighlightFromColorProvider(
      mojom::blink::ColorScheme color_scheme,
      const ui::ColorProvider* color_provider) const {

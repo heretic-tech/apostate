@@ -6,7 +6,7 @@ too, so navigator.languages in headless mode matches the Accept-Language
 header.
 
 diff --git a/headless/lib/browser/headless_web_contents_impl.cc b/headless/lib/browser/headless_web_contents_impl.cc
-index 6074ce3..4e56c78 100644
+index 5a963a45e9..50f7bc6a99 100644
 --- a/headless/lib/browser/headless_web_contents_impl.cc
 +++ b/headless/lib/browser/headless_web_contents_impl.cc
 @@ -4,6 +4,8 @@
@@ -18,7 +18,7 @@ index 6074ce3..4e56c78 100644
  #include <memory>
  #include <optional>
  #include <string>
-@@ -456,8 +458,21 @@ HeadlessWebContentsImpl::HeadlessWebContentsImpl(
+@@ -476,8 +478,21 @@ HeadlessWebContentsImpl::HeadlessWebContentsImpl(
    HeadlessPrintManager::CreateForWebContents(web_contents_.get());
  #endif
    UpdatePrefsFromSystemSettings(web_contents_->GetMutableRendererPrefs());

@@ -8,9 +8,10 @@ a macOS profile's detector lists no formats and rejects detect(),
 because that host has no barcode service.
 
 diff --git a/content/child/runtime_features.cc b/content/child/runtime_features.cc
+index 5909848bf3..8bf4498910 100644
 --- a/content/child/runtime_features.cc
 +++ b/content/child/runtime_features.cc
-@@ -524,6 +524,17 @@
+@@ -468,6 +468,17 @@ void SetCustomizedRuntimeFeaturesFromCombinedArgs(
      }
    }
  

@@ -8,6 +8,39 @@ a page Apple values such as UNIFORM_BUFFER_OFFSET_ALIGNMENT 16, where
 Direct3D 11 requires 256. The GL_ANGLE_webgl_compatibility extension
 marks which contexts are WebGL.
 
+diff --git a/base/apostate/compose.cc b/base/apostate/compose.cc
+index 053af21966..43720e1e77 100644
+--- a/base/apostate/compose.cc
++++ b/base/apostate/compose.cc
+@@ -1180,6 +1180,13 @@ std::optional<Composition> Compose(const ComposeRequest& request,
+     // build; a count taken from the profile that was actually merged cannot
+     // drift away from the truth the same way, because there is nothing left
+     // to keep in sync.
++    //
++    // One dictionary covers both halves of the table. The loader in
++    // base/apostate/profile.cc splits a non-integral value out into
++    // gl_limits_fractional_ when it reads the profile, which happens after
++    // this point, so the count here already includes the Linux/Vulkan
++    // anchor's fractional point-size maximum and there is no second key to
++    // add to it.
+     const DictValue* gl_limits = composition.profile.FindDict("gl_limits");
+     const int served = gl_limits ? static_cast<int>(gl_limits->size()) : 0;
+     if (served == 0) {
+@@ -1197,8 +1204,10 @@ std::optional<Composition> Compose(const ComposeRequest& request,
+       composition.limitations.push_back(
+           "anchor " + std::string(anchor->id) + " serves " +
+           NumberToString(served) +
+-          " numeric GL capability limits as composed; a limit this host's "
+-          "backend enforces below the claim is served at the host's value");
++          " numeric GL capability limits, composed rather than this host's, "
++          "to every WebGL context on every backend; the backend underneath "
++          "may still clamp or refuse an operation taken to one of them, and "
++          "docs/KNOWN_GAPS.md says which");
+     }
+     composition.surfaces.push_back({
+         .surface = "anchor",
+diff --git a/ui/gl/gl_gl_api_implementation.cc b/ui/gl/gl_gl_api_implementation.cc
+index a4c787e6f8..97f3e65069 100644
 --- a/ui/gl/gl_gl_api_implementation.cc
 +++ b/ui/gl/gl_gl_api_implementation.cc
 @@ -11,12 +11,12 @@
@@ -24,7 +57,7 @@ marks which contexts are WebGL.
  #include "ui/gl/gl_context.h"
  #include "ui/gl/gl_implementation.h"
  #include "ui/gl/gl_state_restorer.h"
-@@ -368,80 +368,14 @@
+@@ -368,80 +368,14 @@ constexpr ApostateGlRange kApostateGlFloatRanges[] = {
       "ALIASED_POINT_SIZE_RANGE_MAX", /*is_interval=*/true},
  };
  
@@ -112,7 +145,7 @@ marks which contexts are WebGL.
      return claimed;
    }
    return is_minimum ? std::max(claimed, real) : std::min(claimed, real);
-@@ -474,7 +408,7 @@
+@@ -474,7 +408,7 @@ std::optional<double> ApostateClaimedLimit(
  template <typename T>
  bool ApostateServeRange(const base::apostate::Profile* profile,
                          const ApostateGlRange& range,
@@ -121,7 +154,7 @@ marks which contexts are WebGL.
                          T* params) {
    const std::optional<double> low = ApostateClaimedLimit(profile, range.low);
    const std::optional<double> high = ApostateClaimedLimit(profile, range.high);
-@@ -493,9 +427,9 @@
+@@ -493,9 +427,9 @@ bool ApostateServeRange(const base::apostate::Profile* profile,
    // Intersecting an interval takes the higher floor and the lower ceiling.
    // A pair of independent ceilings takes the lower of each.
    const std::array<T, 2> served = {
@@ -133,7 +166,7 @@ marks which contexts are WebGL.
                            /*is_minimum=*/false)};
    std::copy_n(served.begin(), served.size(), params);
    return true;
-@@ -530,34 +464,72 @@
+@@ -530,34 +464,72 @@ const base::apostate::Profile* ApostateProfileForLimits() {
  
  // Serve one query in place, whichever entry point asked.
  //
@@ -151,25 +184,11 @@ marks which contexts are WebGL.
 +// which honours everything it reports -- the whole anchor was discarded and a
 +// Windows persona on a Mac served Apple's capability table under an NVIDIA
 +// renderer string, readable in one lookup with no GL work at all.
- //
--// On a backend that enforces nothing the minimum is the wrong rule, and this
--// is not a corner case: the deployment target is a headless server with no
--// GPU. There the reported number is the only thing a page can read, the claim
--// is servable because the rasteriser will accept any size, and clamping
--// leaves a discrete-GPU renderer string beside a software rasteriser's limit
--// table -- which is a lookup, not a probe. BackendEnforcesGlLimits() carries
--// the measurement that decides which.
++//
 +// The axis that matters is who is asking. These six entry points are the GPU
 +// process's only numeric GL query path, and three unrelated consumers come
 +// through them:
- //
--// Serving the claim there is not free, and the cost is recorded rather than
--// softened: a page that allocates at exactly the claimed maximum gets a
--// framebuffer that is not complete and reads back black, where a real device
--// returns what it was cleared to. That residual is the backend's, it is
--// already present at the host's own reported maximum on this fork -- patch
--// 0027 raised MAX_TEXTURE_SIZE from 8192 to 16384 and 16384 already fails
--// completeness under SwiftShader -- and the reference product has it too.
++//
 +//   a WebGL-compatibility context   the numbers reach a page verbatim and
 +//                                   nothing else depends on them
 +//   the compositor and raster       Chromium sizes tiles and resources from
@@ -179,19 +198,33 @@ marks which contexts are WebGL.
 +//                                   through this same function pointer, which
 +//                                   ui/gl/init/create_gr_gl_interface.cc
 +//                                   binds straight to gl::GLApi
- //
++//
 +// Only the first is a fingerprint. Serving a claim to the other two is not a
 +// trade of coherence for unlinkability, it is a straight defect: telling Skia
 +// the device does 8 samples on a 4-sample Metal device breaks canvas2D and
 +// raster multisampling for every page, fingerprinted or not, and no page ever
 +// reads the number that did it.
-+//
+ //
+-// On a backend that enforces nothing the minimum is the wrong rule, and this
+-// is not a corner case: the deployment target is a headless server with no
+-// GPU. There the reported number is the only thing a page can read, the claim
+-// is servable because the rasteriser will accept any size, and clamping
+-// leaves a discrete-GPU renderer string beside a software rasteriser's limit
+-// table -- which is a lookup, not a probe. BackendEnforcesGlLimits() carries
+-// the measurement that decides which.
 +// So the claim goes to WebGL on every backend, and the other two keep the
 +// intersection they have always had -- which on every host measured so far is
 +// the host's own value, because an anchor's limits sit at or above Apple's.
 +// The intersection can only lower a cap below the host's, never raise it, so
 +// Skia cannot be told this machine does more than it does.
-+//
+ //
+-// Serving the claim there is not free, and the cost is recorded rather than
+-// softened: a page that allocates at exactly the claimed maximum gets a
+-// framebuffer that is not complete and reads back black, where a real device
+-// returns what it was cleared to. That residual is the backend's, it is
+-// already present at the host's own reported maximum on this fork -- patch
+-// 0027 raised MAX_TEXTURE_SIZE from 8192 to 16384 and 16384 already fails
+-// completeness under SwiftShader -- and the reference product has it too.
 +// What that buys on a backend that enforces is a per-limit residual a page can
 +// read back without allocating: a point drawn above the real maximum has a
 +// clamped footprint, a viewport set to the claim reads back clamped, a shader
@@ -215,7 +248,7 @@ marks which contexts are WebGL.
 +// renderbufferStorageMultisample at four times MAX_SAMPLES returns glError 0.
 +// So the residual below is real on Metal and empty on a software rasteriser,
 +// which is the opposite way round from where the old gate served the claim.
-+//
+ //
  // `available` is how many elements the caller's buffer holds, or -1 when the
  // entry point does not say and the GL contract guarantees enough. The robust
  // entry points do say, and a range needs two.
@@ -226,7 +259,7 @@ marks which contexts are WebGL.
                            const ApostateGlRange (&ranges)[N],
                            GLenum pname,
                            T* params,
-@@ -572,7 +544,7 @@
+@@ -572,7 +544,7 @@ void ApostateServeNumeric(const base::apostate::Profile* profile,
      if (available >= 0 && available < 2) {
        return;
      }
@@ -235,7 +268,7 @@ marks which contexts are WebGL.
      return;
    }
    if (available == 0) {
-@@ -589,14 +561,24 @@
+@@ -589,14 +561,24 @@ void ApostateServeNumeric(const base::apostate::Profile* profile,
      }
      const T real = *params;
      const T claimed = static_cast<T>(*value);
@@ -268,7 +301,7 @@ marks which contexts are WebGL.
      }
      return;
    }
-@@ -604,15 +586,37 @@
+@@ -604,15 +586,37 @@ void ApostateServeNumeric(const base::apostate::Profile* profile,
  
  }  // namespace
  
@@ -315,7 +348,7 @@ marks which contexts are WebGL.
  }
  
  void RealGLApi::glGetIntegervFn(GLenum pname, GLint* params) {
-@@ -624,8 +628,9 @@
+@@ -624,8 +628,9 @@ void RealGLApi::glGetIntegervFn(GLenum pname, GLint* params) {
  
    GLApiBase::glGetIntegervFn(pname, params);
    if (const base::apostate::Profile* profile = ApostateProfileForLimits()) {
@@ -327,7 +360,7 @@ marks which contexts are WebGL.
    }
  }
  
-@@ -639,8 +644,9 @@
+@@ -639,8 +644,9 @@ void RealGLApi::glGetFloatvFn(GLenum pname, GLfloat* params) {
    // the table is one, and rounding a float claim would invent a value the
    // profile never carried.
    if (const base::apostate::Profile* profile = ApostateProfileForLimits()) {
@@ -339,7 +372,7 @@ marks which contexts are WebGL.
    }
  }
  
-@@ -655,8 +661,9 @@
+@@ -655,8 +661,9 @@ void RealGLApi::glGetInteger64vFn(GLenum pname, GLint64* params) {
    // added to the table and kept reporting the host's value, because nothing
    // consulted the table for them.
    if (const base::apostate::Profile* profile = ApostateProfileForLimits()) {
@@ -351,7 +384,7 @@ marks which contexts are WebGL.
    }
  }
  
-@@ -681,8 +688,8 @@
+@@ -681,8 +688,8 @@ void RealGLApi::glGetIntegervRobustANGLEFn(GLenum pname,
                                             GLint* data) {
    GLApiBase::glGetIntegervRobustANGLEFn(pname, bufSize, length, data);
    if (const base::apostate::Profile* profile = ApostateProfileForLimits()) {
@@ -362,7 +395,7 @@ marks which contexts are WebGL.
    }
  }
  
-@@ -692,8 +699,8 @@
+@@ -692,8 +699,8 @@ void RealGLApi::glGetFloatvRobustANGLEFn(GLenum pname,
                                           GLfloat* data) {
    GLApiBase::glGetFloatvRobustANGLEFn(pname, bufSize, length, data);
    if (const base::apostate::Profile* profile = ApostateProfileForLimits()) {
@@ -373,7 +406,7 @@ marks which contexts are WebGL.
    }
  }
  
-@@ -703,8 +710,8 @@
+@@ -703,8 +710,8 @@ void RealGLApi::glGetInteger64vRobustANGLEFn(GLenum pname,
                                               GLint64* data) {
    GLApiBase::glGetInteger64vRobustANGLEFn(pname, bufSize, length, data);
    if (const base::apostate::Profile* profile = ApostateProfileForLimits()) {
@@ -384,6 +417,8 @@ marks which contexts are WebGL.
    }
  }
  
+diff --git a/ui/gl/gl_gl_api_implementation.h b/ui/gl/gl_gl_api_implementation.h
+index e80b612855..4bcfe1ecd8 100644
 --- a/ui/gl/gl_gl_api_implementation.h
 +++ b/ui/gl/gl_gl_api_implementation.h
 @@ -6,6 +6,7 @@
@@ -394,7 +429,7 @@ marks which contexts are WebGL.
  #include <vector>
  
  #include "base/memory/raw_ptr.h"
-@@ -168,10 +169,12 @@
+@@ -168,10 +169,12 @@ class GL_EXPORT RealGLApi : public GLApiBase {
    // Compute |filtered_exts_| & |filtered_exts_str_| from |disabled_ext_|.
    void InitializeFilteredExtensionsIfNeeded();
  
@@ -411,7 +446,7 @@ marks which contexts are WebGL.
  
    const bool logging_enabled_;
    std::vector<std::string> disabled_exts_;
-@@ -180,6 +183,11 @@
+@@ -180,6 +183,11 @@ class GL_EXPORT RealGLApi : public GLApiBase {
    std::string filtered_exts_str_;
  
    std::unique_ptr<GLVersionInfo> version_;
@@ -423,32 +458,3 @@ marks which contexts are WebGL.
  };
  
  // Inserts a TRACE for every GL call.
---- a/base/apostate/compose.cc
-+++ b/base/apostate/compose.cc
-@@ -1280,6 +1280,13 @@
-     // build; a count taken from the profile that was actually merged cannot
-     // drift away from the truth the same way, because there is nothing left
-     // to keep in sync.
-+    //
-+    // One dictionary covers both halves of the table. The loader in
-+    // base/apostate/profile.cc splits a non-integral value out into
-+    // gl_limits_fractional_ when it reads the profile, which happens after
-+    // this point, so the count here already includes the Linux/Vulkan
-+    // anchor's fractional point-size maximum and there is no second key to
-+    // add to it.
-     const DictValue* gl_limits = composition.profile.FindDict("gl_limits");
-     const int served = gl_limits ? static_cast<int>(gl_limits->size()) : 0;
-     if (served == 0) {
-@@ -1297,8 +1304,10 @@
-       composition.limitations.push_back(
-           "anchor " + std::string(anchor->id) + " serves " +
-           NumberToString(served) +
--          " numeric GL capability limits as composed; a limit this host's "
--          "backend enforces below the claim is served at the host's value");
-+          " numeric GL capability limits, composed rather than this host's, "
-+          "to every WebGL context on every backend; the backend underneath "
-+          "may still clamp or refuse an operation taken to one of them, and "
-+          "docs/KNOWN_GAPS.md says which");
-     }
-     composition.surfaces.push_back({
-         .surface = "anchor",

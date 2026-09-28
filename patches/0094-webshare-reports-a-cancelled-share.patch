@@ -7,6 +7,8 @@ interface, which no Windows or macOS Chrome can produce. The text comes
 from the same function as a real cancel, so the two always match. With
 no profile, or another claimed platform, the upstream text stays.
 
+diff --git a/third_party/blink/renderer/modules/webshare/navigator_share.cc b/third_party/blink/renderer/modules/webshare/navigator_share.cc
+index 85331539e5..a61bc83d21 100644
 --- a/third_party/blink/renderer/modules/webshare/navigator_share.cc
 +++ b/third_party/blink/renderer/modules/webshare/navigator_share.cc
 @@ -6,8 +6,11 @@
@@ -21,7 +23,7 @@ no profile, or another claimed platform, the upstream text stays.
  #include "base/files/safe_base_name.h"
  #include "build/build_config.h"
  #include "services/network/public/mojom/permissions_policy/permissions_policy_feature.mojom-blink.h"
-@@ -173,9 +176,46 @@
+@@ -173,9 +176,46 @@ void NavigatorShare::ShareClientImpl::Callback(mojom::blink::ShareError error) {
  }
  
  void NavigatorShare::ShareClientImpl::OnConnectionError() {

@@ -8,10 +8,10 @@ always describes one real keyboard. An empty map in the profile leaves
 the host's map in place.
 
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
-index 54ca7a3..d0e6938 100644
+index 872746b969..3852a64534 100644
 --- a/base/apostate/profile.cc
 +++ b/base/apostate/profile.cc
-@@ -216,6 +216,19 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
+@@ -219,6 +219,19 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
      }
    }
  
@@ -32,7 +32,7 @@ index 54ca7a3..d0e6938 100644
      if (const std::string* v = locale->FindString("timezone")) {
        profile->timezone_ = *v;
 diff --git a/base/apostate/profile.h b/base/apostate/profile.h
-index 6e71f86..c482e2b 100644
+index 6e71f8612c..c482e2baa2 100644
 --- a/base/apostate/profile.h
 +++ b/base/apostate/profile.h
 @@ -6,6 +6,7 @@
@@ -69,7 +69,7 @@ index 6e71f86..c482e2b 100644
    std::optional<bool> prefers_dark_;
    std::optional<std::string> accept_languages_;
 diff --git a/content/browser/renderer_host/page_impl.cc b/content/browser/renderer_host/page_impl.cc
-index edbcafa..5770ed8 100644
+index c79023439a..a6028edee5 100644
 --- a/content/browser/renderer_host/page_impl.cc
 +++ b/content/browser/renderer_host/page_impl.cc
 @@ -4,6 +4,8 @@
@@ -81,7 +81,7 @@ index edbcafa..5770ed8 100644
  #include "base/barrier_closure.h"
  #include "base/feature_list.h"
  #include "base/i18n/character_encoding.h"
-@@ -361,6 +363,26 @@ void PageImpl::SetVirtualKeyboardMode(ui::mojom::VirtualKeyboardMode mode) {
+@@ -365,6 +367,26 @@ void PageImpl::SetVirtualKeyboardMode(ui::mojom::VirtualKeyboardMode mode) {
  }
  
  base::flat_map<std::string, std::string> PageImpl::GetKeyboardLayoutMap() {

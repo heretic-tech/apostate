@@ -9,15 +9,10 @@ the smaller of the profile claim and the validated backend limit, and
 the test expectation follows the profile limit.
 
 diff --git a/third_party/angle/src/libANGLE/Context.cpp b/third_party/angle/src/libANGLE/Context.cpp
+index 05fbbbe8da..425f87d356 100644
 --- a/third_party/angle/src/libANGLE/Context.cpp
 +++ b/third_party/angle/src/libANGLE/Context.cpp
-@@ -4926,13 +4926,21 @@
-     mBufferAccessValidationEnabled =
-         !mSupportedExtensions.robustBufferAccessBehaviorKHR && mRequiresRobustBehavior;
-
-     if (caps->maxValidatedElementIndex > 0)
-     {
-         // Re-evaluate after robustness/extension changes, before rebuilding the
+@@ -5044,7 +5044,15 @@ void Context::updateCaps()
          // validation cache. Unprofiled and unvalidated contexts retain defaults.
          caps->maxElementIndex = mImplementation->getNativeCaps().maxElementIndex;
          int64_t requested = 0;
@@ -35,9 +30,10 @@ diff --git a/third_party/angle/src/libANGLE/Context.cpp b/third_party/angle/src/
          {
              caps->maxElementIndex =
 diff --git a/third_party/angle/src/tests/gl_tests/ApostateLargeElementIndexTest.cpp b/third_party/angle/src/tests/gl_tests/ApostateLargeElementIndexTest.cpp
+index fa2817242f..bcbd2f63b6 100644
 --- a/third_party/angle/src/tests/gl_tests/ApostateLargeElementIndexTest.cpp
 +++ b/third_party/angle/src/tests/gl_tests/ApostateLargeElementIndexTest.cpp
-@@ -475,5 +475,8 @@ TEST_P(LargeElementIndexNativeTest, DefaultLimitUnchanged)
+@@ -300,7 +300,10 @@ TEST_P(LargeElementIndexNativeTest, DefaultLimitUnchanged)
  }
  TEST_P(LargeElementIndexRobustTest, DefaultLimitUnchanged)
  {
@@ -47,3 +43,5 @@ diff --git a/third_party/angle/src/tests/gl_tests/ApostateLargeElementIndexTest.
 +    // unprofiled contexts still retain the default (see NativeTest above).
 +    EXPECT_EQ(limit(), kProfileLimit);
  }
+ TEST_P(LargeElementIndexNoErrorTest, DefaultLimitUnchanged)
+ {

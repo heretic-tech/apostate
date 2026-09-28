@@ -9,7 +9,66 @@ and the driver value. Vendor and architecture strings come from the
 profile verbatim, and subgroup sizes take the minimum with a
 power-of-two check so a bad profile value cannot trip Dawn's validation.
 
+diff --git a/gpu/command_buffer/service/webgpu_decoder_impl.cc b/gpu/command_buffer/service/webgpu_decoder_impl.cc
+index 255dab2d59..03ca36524f 100644
+--- a/gpu/command_buffer/service/webgpu_decoder_impl.cc
++++ b/gpu/command_buffer/service/webgpu_decoder_impl.cc
+@@ -5,8 +5,10 @@
+ #include "gpu/command_buffer/service/webgpu_decoder_impl.h"
+ 
+ #include <algorithm>
++#include <map>
+ #include <memory>
+ #include <optional>
++#include <set>
+ #include <string_view>
+ #include <vector>
+ 
+@@ -1642,6 +1644,24 @@ bool WebGPUDecoderImpl::use_blocklist() const {
+       safety_level_ == webgpu::SafetyLevel::kUnsafe ||
+       std::ranges::contains(require_disabled_toggles_, "adapter_blocklist"));
+ }
++// Intersect the enumerated adapter with the claimed device before the page
++// can read it. An empty feature set means the profile carries no webgpu
++// section and the adapter is left exactly as the backend built it.
++void ApplyProfileWebGPUAdapterCaps(dawn::native::Adapter& adapter) {
++  const auto* profile = base::apostate::Profile::Get();
++  if (!profile || profile->webgpu_features().empty()) {
++    return;
++  }
++  dawn::native::Adapter::ProfileAdapterCaps caps;
++  caps.features = profile->webgpu_features();
++  caps.vendor = profile->webgpu_vendor();
++  caps.architecture = profile->webgpu_architecture();
++  caps.subgroup_min_size = profile->webgpu_subgroup_min();
++  caps.subgroup_max_size = profile->webgpu_subgroup_max();
++  caps.limits = profile->webgpu_limits();
++  adapter.ApplyProfileAdapterCaps(caps);
++}
++
+ 
+ wgpu::Adapter WebGPUDecoderImpl::CreatePreferredAdapter(
+     wgpu::PowerPreference power_preference,
+@@ -1873,6 +1893,8 @@ wgpu::Adapter WebGPUDecoderImpl::CreatePreferredAdapter(
+         continue;
+       }
+ 
++
++      ApplyProfileWebGPUAdapterCaps(native_adapter);
+       return wgpu::Adapter(native_adapter.Get());
+     }
+   }
+@@ -1892,6 +1914,8 @@ wgpu::Adapter WebGPUDecoderImpl::CreatePreferredAdapter(
+       continue;
+     }
+ 
++
++    ApplyProfileWebGPUAdapterCaps(native_adapter);
+     return wgpu::Adapter(native_adapter.Get());
+   }
+ 
 diff --git a/third_party/dawn/include/dawn/native/DawnNative.h b/third_party/dawn/include/dawn/native/DawnNative.h
+index 27d956632c..4eca7d431f 100644
 --- a/third_party/dawn/include/dawn/native/DawnNative.h
 +++ b/third_party/dawn/include/dawn/native/DawnNative.h
 @@ -31,6 +31,9 @@
@@ -22,7 +81,7 @@ diff --git a/third_party/dawn/include/dawn/native/DawnNative.h b/third_party/daw
  #include <string_view>
  #include <vector>
  
-@@ -90,6 +93,23 @@
+@@ -90,6 +93,23 @@ class DAWN_NATIVE_EXPORT Adapter {
  
      void SetUseTieredLimits(bool useTieredLimits);
  
@@ -46,50 +105,8 @@ diff --git a/third_party/dawn/include/dawn/native/DawnNative.h b/third_party/daw
      // Check that the Adapter is able to support importing external images. This is necessary
      // to implement the swapchain and interop APIs in Chromium.
      bool SupportsExternalImages() const;
-diff --git a/third_party/dawn/src/dawn/native/DawnNative.cpp b/third_party/dawn/src/dawn/native/DawnNative.cpp
---- a/third_party/dawn/src/dawn/native/DawnNative.cpp
-+++ b/third_party/dawn/src/dawn/native/DawnNative.cpp
-@@ -102,6 +102,10 @@
-     mImpl->SetUseTieredLimits(useTieredLimits);
- }
- 
-+void Adapter::ApplyProfileAdapterCaps(const ProfileAdapterCaps& caps) {
-+    mImpl->ApplyProfileAdapterCaps(caps);
-+}
-+
- bool Adapter::SupportsExternalImages() const {
-     return mImpl->GetPhysicalDevice()->SupportsExternalImages();
- }
-diff --git a/third_party/dawn/src/dawn/native/Adapter.h b/third_party/dawn/src/dawn/native/Adapter.h
---- a/third_party/dawn/src/dawn/native/Adapter.h
-+++ b/third_party/dawn/src/dawn/native/Adapter.h
-@@ -76,6 +76,11 @@
-     // Set if the adapter uses tiered limits, may result in a change in the adapter's limits.
-     void SetUseTieredLimits(bool useTieredLimits);
- 
-+    // Intersect features with, relabel from, and clamp limits to the claimed
-+    // device. See Adapter::ApplyProfileAdapterCaps for the serving doctrine.
-+    // A no-op when caps.features is empty.
-+    void ApplyProfileAdapterCaps(const Adapter::ProfileAdapterCaps& caps);
-+
-     // Return the underlying PhysicalDevice.
-     PhysicalDeviceBase* GetPhysicalDevice();
-     const PhysicalDeviceBase* GetPhysicalDevice() const;
-@@ -121,6 +126,13 @@
-     // The adapter becomes "consumed" once it has successfully been used to
-     // create a device.
-     bool mAdapterIsConsumed = false;
-+
-+    // Claimed-device labels served verbatim; empty means inherit the backend.
-+    std::string mProfileVendor;
-+    std::string mProfileArchitecture;
-+    // Claimed subgroup sizes; 0 means inherit the backend.
-+    uint32_t mProfileSubgroupMin = 0;
-+    uint32_t mProfileSubgroupMax = 0;
- };
- 
- std::vector<Ref<AdapterBase>> SortAdapters(std::vector<Ref<AdapterBase>> adapters,
 diff --git a/third_party/dawn/src/dawn/native/Adapter.cpp b/third_party/dawn/src/dawn/native/Adapter.cpp
+index 01019907af..061fc9b727 100644
 --- a/third_party/dawn/src/dawn/native/Adapter.cpp
 +++ b/third_party/dawn/src/dawn/native/Adapter.cpp
 @@ -28,6 +28,7 @@
@@ -108,7 +125,7 @@ diff --git a/third_party/dawn/src/dawn/native/Adapter.cpp b/third_party/dawn/src
  #include "src/dawn/native/Instance.h"
  #include "src/dawn/native/PhysicalDevice.h"
  #include "src/utils/compiler.h"
-@@ -48,6 +50,26 @@
+@@ -49,6 +51,26 @@
  namespace dawn::native {
  namespace {
  static constexpr DeviceDescriptor kDefaultDeviceDesc = {};
@@ -135,7 +152,7 @@ diff --git a/third_party/dawn/src/dawn/native/Adapter.cpp b/third_party/dawn/src
  }  // anonymous namespace
  
  AdapterBase::AdapterBase(InstanceBase* instance,
-@@ -70,6 +92,96 @@
+@@ -71,6 +93,96 @@ AdapterBase::AdapterBase(InstanceBase* instance,
      UpdateLimits();
  }
  
@@ -232,9 +249,9 @@ diff --git a/third_party/dawn/src/dawn/native/Adapter.cpp b/third_party/dawn/src
  AdapterBase::~AdapterBase() = default;
  
  void AdapterBase::SetUseTieredLimits(bool useTieredLimits) {
-@@ -110,6 +222,11 @@
-     if (!GetInstance()->HasFeature(wgpu::WGSLLanguageFeatureName::ImmediateAddressSpace)) {
-         mLimits.v1.maxImmediateSize = 0;
+@@ -104,6 +216,11 @@ void AdapterBase::UpdateLimits() {
+     if (mUseTieredLimits) {
+         ApplyLimitTiers(&mLimits);
      }
 +
 +    // Limits claimed by the profile were intersected at selection time, but
@@ -244,36 +261,21 @@ diff --git a/third_party/dawn/src/dawn/native/Adapter.cpp b/third_party/dawn/src
  }
  
  const CombinedLimits& AdapterBase::GetLimits() const {
-@@ -168,8 +285,15 @@
-     mPhysicalDevice->PopulateBackendProperties(unpacked, mTogglesState);
- 
-     // Allocate space for all strings.
--    size_t allocSize = mPhysicalDevice->GetVendorName().length() +
--                       mPhysicalDevice->GetArchitectureName().length() +
-+    std::string vendor = mPhysicalDevice->GetVendorName();
-+    std::string architecture = mPhysicalDevice->GetArchitectureName();
-+    if (!mProfileVendor.empty()) {
-+        vendor = mProfileVendor;
-+    }
-+    if (!mProfileArchitecture.empty()) {
-+        architecture = mProfileArchitecture;
-+    }
-+    size_t allocSize = vendor.length() + architecture.length() +
-                        mPhysicalDevice->GetName().length() +
-                        mPhysicalDevice->GetDriverDescription().length();
-     absl::Span<char> outBuffer{new char[allocSize], allocSize};
-@@ -181,8 +305,8 @@
-         outBuffer = outBuffer.subspan(in.length());
+@@ -166,8 +283,11 @@ wgpu::Status AdapterBase::APIGetInfo(AdapterInfo* info) const {
+         return {copy.data(), copy.size()};
      };
  
--    AddString(mPhysicalDevice->GetVendorName(), &info->vendor);
--    AddString(mPhysicalDevice->GetArchitectureName(), &info->architecture);
-+    AddString(vendor, &info->vendor);
-+    AddString(architecture, &info->architecture);
-     AddString(mPhysicalDevice->GetName(), &info->device);
-     AddString(mPhysicalDevice->GetDriverDescription(), &info->description);
-     DAWN_CHECK(outBuffer.empty());
-@@ -193,6 +317,18 @@
+-    info->vendor = AllocateStringView(mPhysicalDevice->GetVendorName());
+-    info->architecture = AllocateStringView(mPhysicalDevice->GetArchitectureName());
++    info->vendor = AllocateStringView(mProfileVendor.empty() ? mPhysicalDevice->GetVendorName()
++                                                             : mProfileVendor);
++    info->architecture = AllocateStringView(mProfileArchitecture.empty()
++                                                ? mPhysicalDevice->GetArchitectureName()
++                                                : mProfileArchitecture);
+     info->device = AllocateStringView(mPhysicalDevice->GetName());
+     info->description = AllocateStringView(mPhysicalDevice->GetDriverDescription());
+     info->backendType = mPhysicalDevice->GetBackendType();
+@@ -176,6 +296,18 @@ wgpu::Status AdapterBase::APIGetInfo(AdapterInfo* info) const {
      info->deviceID = mPhysicalDevice->GetDeviceId();
      info->subgroupMinSize = mPhysicalDevice->GetSubgroupMinSize();
      info->subgroupMaxSize = mPhysicalDevice->GetSubgroupMaxSize();
@@ -292,60 +294,48 @@ diff --git a/third_party/dawn/src/dawn/native/Adapter.cpp b/third_party/dawn/src
  
      if (mPhysicalDevice->GetBackendType() == wgpu::BackendType::D3D12 &&
          mTogglesState.IsEnabled(Toggle::D3D12RelaxMinSubgroupSizeTo8)) {
-diff --git a/gpu/command_buffer/service/webgpu_decoder_impl.cc b/gpu/command_buffer/service/webgpu_decoder_impl.cc
---- a/gpu/command_buffer/service/webgpu_decoder_impl.cc
-+++ b/gpu/command_buffer/service/webgpu_decoder_impl.cc
-@@ -5,8 +5,10 @@
- #include "gpu/command_buffer/service/webgpu_decoder_impl.h"
+diff --git a/third_party/dawn/src/dawn/native/Adapter.h b/third_party/dawn/src/dawn/native/Adapter.h
+index 022871dcb2..2267a193fd 100644
+--- a/third_party/dawn/src/dawn/native/Adapter.h
++++ b/third_party/dawn/src/dawn/native/Adapter.h
+@@ -76,6 +76,11 @@ class AdapterBase : public RefCounted, public WeakRefSupport<AdapterBase> {
+     // Set if the adapter uses tiered limits, may result in a change in the adapter's limits.
+     void SetUseTieredLimits(bool useTieredLimits);
  
- #include <algorithm>
-+#include <map>
- #include <memory>
- #include <optional>
-+#include <set>
- #include <string_view>
- #include <vector>
++    // Intersect features with, relabel from, and clamp limits to the claimed
++    // device. See Adapter::ApplyProfileAdapterCaps for the serving doctrine.
++    // A no-op when caps.features is empty.
++    void ApplyProfileAdapterCaps(const Adapter::ProfileAdapterCaps& caps);
++
+     // Return the underlying PhysicalDevice.
+     PhysicalDeviceBase* GetPhysicalDevice();
+     const PhysicalDeviceBase* GetPhysicalDevice() const;
+@@ -121,6 +126,13 @@ class AdapterBase : public RefCounted, public WeakRefSupport<AdapterBase> {
+     // The adapter becomes "consumed" once it has successfully been used to
+     // create a device.
+     bool mAdapterIsConsumed = false;
++
++    // Claimed-device labels served verbatim; empty means inherit the backend.
++    std::string mProfileVendor;
++    std::string mProfileArchitecture;
++    // Claimed subgroup sizes; 0 means inherit the backend.
++    uint32_t mProfileSubgroupMin = 0;
++    uint32_t mProfileSubgroupMax = 0;
+ };
  
-@@ -1648,6 +1650,24 @@
-       safety_level_ == webgpu::SafetyLevel::kUnsafe ||
-       std::ranges::contains(require_disabled_toggles_, "adapter_blocklist"));
+ std::vector<Ref<AdapterBase>> SortAdapters(std::vector<Ref<AdapterBase>> adapters,
+diff --git a/third_party/dawn/src/dawn/native/DawnNative.cpp b/third_party/dawn/src/dawn/native/DawnNative.cpp
+index dcd804fb46..997392a4f3 100644
+--- a/third_party/dawn/src/dawn/native/DawnNative.cpp
++++ b/third_party/dawn/src/dawn/native/DawnNative.cpp
+@@ -102,6 +102,10 @@ void Adapter::SetUseTieredLimits(bool useTieredLimits) {
+     mImpl->SetUseTieredLimits(useTieredLimits);
  }
-+// Intersect the enumerated adapter with the claimed device before the page
-+// can read it. An empty feature set means the profile carries no webgpu
-+// section and the adapter is left exactly as the backend built it.
-+void ApplyProfileWebGPUAdapterCaps(dawn::native::Adapter& adapter) {
-+  const auto* profile = base::apostate::Profile::Get();
-+  if (!profile || profile->webgpu_features().empty()) {
-+    return;
-+  }
-+  dawn::native::Adapter::ProfileAdapterCaps caps;
-+  caps.features = profile->webgpu_features();
-+  caps.vendor = profile->webgpu_vendor();
-+  caps.architecture = profile->webgpu_architecture();
-+  caps.subgroup_min_size = profile->webgpu_subgroup_min();
-+  caps.subgroup_max_size = profile->webgpu_subgroup_max();
-+  caps.limits = profile->webgpu_limits();
-+  adapter.ApplyProfileAdapterCaps(caps);
+ 
++void Adapter::ApplyProfileAdapterCaps(const ProfileAdapterCaps& caps) {
++    mImpl->ApplyProfileAdapterCaps(caps);
 +}
 +
- 
- wgpu::Adapter WebGPUDecoderImpl::CreatePreferredAdapter(
-     wgpu::PowerPreference power_preference,
-@@ -1871,6 +1891,8 @@
-         continue;
-       }
- 
-+
-+      ApplyProfileWebGPUAdapterCaps(native_adapter);
-       return wgpu::Adapter(native_adapter.Get());
-     }
-   }
-@@ -1886,6 +1908,8 @@
-       continue;
-     }
- 
-+
-+    ApplyProfileWebGPUAdapterCaps(native_adapter);
-     return wgpu::Adapter(native_adapter.Get());
-   }
- 
+ bool Adapter::SupportsExternalImages() const {
+     return mImpl->GetPhysicalDevice()->SupportsExternalImages();
+ }

@@ -8,10 +8,10 @@ the host are kept and only the shortfall is filled. This patch parses
 the counts, and patch 0092 creates the devices.
 
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
-index cd466fc..54ca7a3 100644
+index d49a6cd3b1..872746b969 100644
 --- a/base/apostate/profile.cc
 +++ b/base/apostate/profile.cc
-@@ -196,6 +196,26 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
+@@ -199,6 +199,26 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
      }
    }
  
@@ -39,7 +39,7 @@ index cd466fc..54ca7a3 100644
      if (const std::string* v = locale->FindString("timezone")) {
        profile->timezone_ = *v;
 diff --git a/base/apostate/profile.h b/base/apostate/profile.h
-index 546eda3..6e71f86 100644
+index 546eda36a2..6e71f8612c 100644
 --- a/base/apostate/profile.h
 +++ b/base/apostate/profile.h
 @@ -169,6 +169,16 @@ class BASE_EXPORT Profile {

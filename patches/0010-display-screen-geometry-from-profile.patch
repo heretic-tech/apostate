@@ -8,10 +8,10 @@ out-of-process iframes alike. Color depth accepts only 24 or 30, the two
 values Chromium uses.
 
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
-index 0a74db4..adce0ad 100644
+index 66f29ee390..ba4e3d8b18 100644
 --- a/base/apostate/profile.cc
 +++ b/base/apostate/profile.cc
-@@ -137,6 +137,33 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
+@@ -140,6 +140,33 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
      }
    }
  
@@ -46,7 +46,7 @@ index 0a74db4..adce0ad 100644
      if (const std::string* v = browser->FindString("user_agent")) {
        profile->user_agent_ = *v;
 diff --git a/base/apostate/profile.h b/base/apostate/profile.h
-index c84de33..dc2b9e9 100644
+index c84de33afe..dc2b9e9282 100644
 --- a/base/apostate/profile.h
 +++ b/base/apostate/profile.h
 @@ -115,6 +115,28 @@ class BASE_EXPORT Profile {
@@ -92,7 +92,7 @@ index c84de33..dc2b9e9 100644
  };
  
 diff --git a/ui/display/display_util.cc b/ui/display/display_util.cc
-index ed7e6c1..79a8665 100644
+index c546495a7a..a2cc440543 100644
 --- a/ui/display/display_util.cc
 +++ b/ui/display/display_util.cc
 @@ -4,6 +4,8 @@
@@ -104,7 +104,7 @@ index ed7e6c1..79a8665 100644
  #include "base/notreached.h"
  #include "build/build_config.h"
  #include "ui/display/display.h"
-@@ -48,6 +50,44 @@ void DisplayUtil::DisplayToScreenInfo(ScreenInfo* screen_info,
+@@ -47,6 +49,44 @@ void DisplayUtil::DisplayToScreenInfo(ScreenInfo* screen_info,
    screen_info->orientation_type = GetOrientationTypeForDesktop(display);
  #endif
  

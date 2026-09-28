@@ -11,9 +11,11 @@ so a page cannot probe the port while drivers connect as usual. V8's
 heap limit follows the profile's memory, clamped to the host, so
 performance.memory agrees with navigator.deviceMemory.
 
+diff --git a/content/browser/devtools/devtools_http_handler.cc b/content/browser/devtools/devtools_http_handler.cc
+index e63f76cf84..97940856fb 100644
 --- a/content/browser/devtools/devtools_http_handler.cc
 +++ b/content/browser/devtools/devtools_http_handler.cc
-@@ -126,6 +126,65 @@
+@@ -126,6 +126,65 @@ bool RequestIsSafeToServe(const net::HttpServerRequestInfo& info) {
    return url.HostIsIPAddress() || net::IsLocalHostname(url.GetHost());
  }
  
@@ -79,7 +81,7 @@ performance.memory agrees with navigator.deviceMemory.
  // Returns the (incorrectly named, for historical reasons) WebKit version, in
  // the form "major.minor (@chromium_git_revision)".
  std::string GetWebKitVersion() {
-@@ -460,6 +519,16 @@
+@@ -459,6 +518,16 @@ static std::string_view GetMimeType(std::string_view filename) {
  
  void ServerWrapper::OnHttpRequest(int connection_id,
                                    const net::HttpServerRequestInfo& info) {
@@ -96,7 +98,7 @@ performance.memory agrees with navigator.deviceMemory.
    if (!RequestIsSafeToServe(info)) {
      Send500(connection_id,
              "Host header is specified and is not an IP address or localhost.");
-@@ -515,6 +584,14 @@
+@@ -514,6 +583,14 @@ void ServerWrapper::OnHttpRequest(int connection_id,
  void ServerWrapper::OnWebSocketRequest(
      int connection_id,
      const net::HttpServerRequestInfo& request) {
@@ -111,6 +113,8 @@ performance.memory agrees with navigator.deviceMemory.
    if (!RequestIsSafeToServe(request)) {
      Send500(connection_id,
              "Host header is specified and is not an IP address or localhost.");
+diff --git a/gin/isolate_holder.cc b/gin/isolate_holder.cc
+index 9157a6b020..0d5a353592 100644
 --- a/gin/isolate_holder.cc
 +++ b/gin/isolate_holder.cc
 @@ -8,10 +8,12 @@
@@ -126,7 +130,7 @@ performance.memory agrees with navigator.deviceMemory.
  #include "base/byte_size.h"
  #include "base/check_op.h"
  #include "base/system/sys_info.h"
-@@ -189,8 +191,37 @@
+@@ -189,8 +191,37 @@ IsolateHolder::getDefaultIsolateParams() {
    std::unique_ptr<v8::Isolate::CreateParams> params =
        std::make_unique<v8::Isolate::CreateParams>();
    params->code_event_handler = DebugImpl::GetJitCodeEventHandler();
@@ -165,9 +169,11 @@ performance.memory agrees with navigator.deviceMemory.
        base::SysInfo::AmountOfVirtualMemory().InBytes());
    params->array_buffer_allocator = g_array_buffer_allocator;
    params->allow_atomics_wait = true;
+diff --git a/v8/src/inspector/v8-debugger.cc b/v8/src/inspector/v8-debugger.cc
+index 346c6c94a6..46152c888c 100644
 --- a/v8/src/inspector/v8-debugger.cc
 +++ b/v8/src/inspector/v8-debugger.cc
-@@ -111,6 +111,11 @@
+@@ -111,6 +111,11 @@ void V8Debugger::enable() {
  #if V8_ENABLE_WEBASSEMBLY
    v8::debug::EnterDebuggingForIsolate(m_isolate);
  #endif  // V8_ENABLE_WEBASSEMBLY
@@ -179,7 +185,7 @@ performance.memory agrees with navigator.deviceMemory.
  }
  
  void V8Debugger::disable() {
-@@ -147,6 +152,9 @@
+@@ -147,6 +152,9 @@ void V8Debugger::disable() {
    m_isolate->RemoveNearHeapLimitCallback(&V8Debugger::nearHeapLimitCallback,
                                           m_originalHeapLimit);
    m_originalHeapLimit = 0;
@@ -189,7 +195,7 @@ performance.memory agrees with navigator.deviceMemory.
  }
  
  bool V8Debugger::isPausedInContextGroup(int contextGroupId) const {
-@@ -1080,25 +1088,19 @@
+@@ -1082,25 +1090,19 @@ void V8Debugger::setMaxCallStackSizeToCapture(V8RuntimeAgentImpl* agent,
      m_maxCallStackSizeToCaptureMap[agent] = size;
    }
  
@@ -224,7 +230,7 @@ performance.memory agrees with navigator.deviceMemory.
    } else {
      m_maxCallStackSizeToCapture = 0;
      for (auto const& pair : m_maxCallStackSizeToCaptureMap) {
-@@ -1106,11 +1108,41 @@
+@@ -1108,9 +1110,39 @@ void V8Debugger::setMaxCallStackSizeToCapture(V8RuntimeAgentImpl* agent,
          m_maxCallStackSizeToCapture = pair.second;
        }
      }
@@ -236,8 +242,8 @@ performance.memory agrees with navigator.deviceMemory.
 +  // in the isolate pay for a 200-frame capture, which a page can time. The
 +  // request now depends on whether a debug delegate is installed instead.
 +  updateUncaughtExceptionStackCapture();
- }
- 
++}
++
 +void V8Debugger::updateUncaughtExceptionStackCapture() {
 +  // Uncaught-exception stack capture is an isolate-wide switch and its cost is
 +  // paid by page script, not by the front-end: V8 walks the live JS stack on
@@ -263,12 +269,10 @@ performance.memory agrees with navigator.deviceMemory.
 +  }
 +  m_isolate->SetCaptureStackTraceForUncaughtExceptions(
 +      true, m_maxCallStackSizeToCapture);
-+}
-+
+ }
+ 
  void V8Debugger::asyncParentFor(int stackTraceId,
-                                 std::shared_ptr<AsyncStackTrace>* asyncParent,
-                                 V8StackTraceId* externalParent) const {
-@@ -1393,9 +1425,26 @@
+@@ -1395,9 +1427,26 @@ std::unique_ptr<V8StackTraceImpl> V8Debugger::captureStackTrace(
    if (fullStack) {
      stackSize = V8StackTraceImpl::kDefaultMaxCallStackSizeToCapture;
    } else {
@@ -296,9 +300,11 @@ performance.memory agrees with navigator.deviceMemory.
              stackSize = maxCallStackSizeToCapture();
            }
          });
+diff --git a/v8/src/inspector/v8-debugger.h b/v8/src/inspector/v8-debugger.h
+index 0172067e82..70ee0b6a71 100644
 --- a/v8/src/inspector/v8-debugger.h
 +++ b/v8/src/inspector/v8-debugger.h
-@@ -229,6 +229,10 @@
+@@ -229,6 +229,10 @@ class V8Debugger : public v8::debug::DebugDelegate,
  
    int currentContextGroupId();
  
@@ -309,9 +315,11 @@ performance.memory agrees with navigator.deviceMemory.
    bool hasScheduledBreakOnNextFunctionCall() const;
  
    void quitMessageLoopIfAgentsFinishedInstrumentation();
+diff --git a/v8/src/inspector/value-mirror.cc b/v8/src/inspector/value-mirror.cc
+index 357c9a6571..b7f124c3b2 100644
 --- a/v8/src/inspector/value-mirror.cc
 +++ b/v8/src/inspector/value-mirror.cc
-@@ -267,6 +267,27 @@
+@@ -268,6 +268,27 @@ bool isBuiltinGetter(v8::Local<v8::Function> function) {
    return function->ScriptId() == v8::UnboundScript::kNoScriptId;
  }
  
@@ -339,7 +347,7 @@ performance.memory agrees with navigator.deviceMemory.
  v8::MaybeLocal<v8::Value> getErrorProperty(v8::Local<v8::Context> context,
                                             v8::Local<v8::Object> object,
                                             v8::Local<v8::String> name) {
-@@ -277,9 +298,11 @@
+@@ -278,9 +299,11 @@ v8::MaybeLocal<v8::Value> getErrorProperty(v8::Local<v8::Context> context,
    v8::Local<v8::Value> descriptor;
    if (!object->GetOwnPropertyDescriptor(context, name).ToLocal(&descriptor)) {
      tryCatch.Reset();

@@ -8,27 +8,38 @@ in its low bits. NaN results follow the Mac ARM rules too. x86 hosts
 with AVX and FMA run the same arithmetic with hardware fused
 multiply-add, and other profiles keep the existing vector code.
 
+diff --git a/third_party/blink/renderer/platform/BUILD.gn b/third_party/blink/renderer/platform/BUILD.gn
+index 05310ef7f7..d5786ae3f6 100644
+--- a/third_party/blink/renderer/platform/BUILD.gn
++++ b/third_party/blink/renderer/platform/BUILD.gn
+@@ -419,6 +419,7 @@ component("platform") {
+     "audio/fft_convolver.h",
+     "audio/fft_frame.cc",
+     "audio/fft_frame.h",
++    "audio/mac_arm_fft_multiply.h",
+     "audio/hrtf_database.cc",
+     "audio/hrtf_database.h",
+     "audio/hrtf_database_loader.cc",
 diff --git a/third_party/blink/renderer/platform/audio/fft_frame.cc b/third_party/blink/renderer/platform/audio/fft_frame.cc
+index 29964379ea..ce12c87d56 100644
 --- a/third_party/blink/renderer/platform/audio/fft_frame.cc
 +++ b/third_party/blink/renderer/platform/audio/fft_frame.cc
-@@ -33,7 +33,9 @@
- 
+@@ -34,7 +34,9 @@
  #include "base/apostate/profile.h"
  #include "base/check_op.h"
-+#include "base/cpu.h"
  #include "base/compiler_specific.h"
++#include "base/cpu.h"
+ #include "base/memory/ptr_util.h"
 +#include "third_party/blink/renderer/platform/audio/mac_arm_fft_multiply.h"
  #include "third_party/blink/renderer/platform/audio/vector_math.h"
- #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
  #include "third_party/blink/renderer/platform/wtf/math_extras.h"
-@@ -76,6 +78,19 @@
- FFTFrame::FFTFrame(unsigned fft_size)
-     : fft_size_(fft_size),
-       log2fft_size_(static_cast<unsigned>(log2(fft_size))) {
+ #include "third_party/fdlibm/ieee754.h"
+@@ -76,6 +78,17 @@ FFTFrame::FFTFrame(unsigned fft_size, bool allocate_buffers)
+     : fft_size_(CheckedFftSize(fft_size)),
+       rust_fft_(blink::rust_fft::rustfft_new_for_profile(fft_size_,
+                                                          MacArmMode())) {
 +#if !BUILDFLAG(IS_MAC)
-+  const auto* multiply_profile = base::apostate::Profile::Get();
-+  if (multiply_profile && multiply_profile->ua_platform() == "macOS" &&
-+      multiply_profile->ua_architecture() == "arm") {
++  if (MacArmMode()) {
 +    mac_arm_multiply_ = mac_arm_fft_multiply::Portable;
 +#if defined(ARCH_CPU_X86_64)
 +    const auto& cpu = base::CPU::GetInstanceNoAllocation();
@@ -38,10 +49,10 @@ diff --git a/third_party/blink/renderer/platform/audio/fft_frame.cc b/third_part
 +#endif
 +  }
 +#endif
-   CHECK_GE(fft_size_, MinFFTSize());
-   CHECK_LE(fft_size_, MaxFFTSize());
-   if (RuntimeEnabledFeatures::WebAudioRustFftEnabled()) {
-@@ -375,13 +390,22 @@
+   if (allocate_buffers) {
+     CHECK(InitializeBuffers());
+   }
+@@ -368,13 +381,22 @@ void FFTFrame::Multiply(const FFTFrame& frame) {
    DCHECK_GE(real2.size(), packed_size);
    DCHECK_GE(imag2.size(), packed_size);
  
@@ -72,11 +83,12 @@ diff --git a/third_party/blink/renderer/platform/audio/fft_frame.cc b/third_part
  
  }  // namespace blink
 diff --git a/third_party/blink/renderer/platform/audio/fft_frame.h b/third_party/blink/renderer/platform/audio/fft_frame.h
+index 6921c26a8d..4bf7116b53 100644
 --- a/third_party/blink/renderer/platform/audio/fft_frame.h
 +++ b/third_party/blink/renderer/platform/audio/fft_frame.h
-@@ -124,6 +124,15 @@
-   void PlatformDoFFT(base::span<const float> data);
-   void PlatformDoInverseFFT(base::span<float> data);
+@@ -101,6 +101,15 @@ class PLATFORM_EXPORT FFTFrame final {
+                                       const FFTFrame& frame2,
+                                       double x);
  
 +  // Selected once from the existing immutable process profile. Native Mac
 +  // keeps vDSP; all other profiles keep the existing vector backend.
@@ -89,20 +101,10 @@ diff --git a/third_party/blink/renderer/platform/audio/fft_frame.h b/third_party
 +
    unsigned fft_size_ = 0;
  
-   // When using PFFFT, this slot is irrelevant and unused because PFFFT
-diff --git a/third_party/blink/renderer/platform/BUILD.gn b/third_party/blink/renderer/platform/BUILD.gn
---- a/third_party/blink/renderer/platform/BUILD.gn
-+++ b/third_party/blink/renderer/platform/BUILD.gn
-@@ -430,6 +430,7 @@
-     "audio/fft_convolver.h",
-     "audio/fft_frame.cc",
-     "audio/fft_frame.h",
-+    "audio/mac_arm_fft_multiply.h",
-     "audio/hrtf_database.cc",
-     "audio/hrtf_database.h",
-     "audio/hrtf_database_loader.cc",
+   // These two arrays contain the transformed data.  Instead of a single array
 diff --git a/third_party/blink/renderer/platform/audio/mac_arm_fft_multiply.h b/third_party/blink/renderer/platform/audio/mac_arm_fft_multiply.h
 new file mode 100644
+index 0000000000..9a18d4232f
 --- /dev/null
 +++ b/third_party/blink/renderer/platform/audio/mac_arm_fft_multiply.h
 @@ -0,0 +1,235 @@

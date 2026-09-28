@@ -9,8 +9,49 @@ and SwiftShader computes every qualifier at full float precision, so the
 claim is served without a clamp. An entry must carry all three numbers
 or it is ignored.
 
+diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
+index 0d9f050dee..4b6d541f2f 100644
+--- a/base/apostate/profile.cc
++++ b/base/apostate/profile.cc
+@@ -240,6 +240,36 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
+     }
+   }
+ 
++  if (const DictValue* precs = dict->FindDict("gl_precisions")) {
++    for (const auto [name, value] : *precs) {
++      const DictValue* entry = value.GetIfDict();
++      if (!entry) {
++        continue;
++      }
++      std::optional<int> lo = entry->FindInt("rangeMin");
++      std::optional<int> hi = entry->FindInt("rangeMax");
++      std::optional<int> bits = entry->FindInt("precision");
++      // All three or none. A partial entry would mix the claim with the host
++      // on one query, which is the incoherence this whole field exists to
++      // remove.
++      if (!lo || !hi || !bits) {
++        LOG(ERROR) << "apostate: gl_precisions." << name
++                   << " needs rangeMin, rangeMax and precision; ignoring";
++        continue;
++      }
++      // getShaderPrecisionFormat reports log2 of the exponent range and a
++      // mantissa bit count. IEEE binary32 is the largest thing any GL type
++      // describes, so nothing legitimate exceeds these.
++      if (*lo < 0 || *lo > 127 || *hi < 0 || *hi > 127 || *bits < 0 ||
++          *bits > 23) {
++        LOG(ERROR) << "apostate: gl_precisions." << name
++                   << " out of range; ignoring";
++        continue;
++      }
++      profile->gl_precisions_[name] = ShaderPrecision{*lo, *hi, *bits};
++    }
++  }
++
+   if (const DictValue* keyboard = dict->FindDict("keyboard")) {
+     if (const DictValue* map = keyboard->FindDict("layout_map")) {
+       for (const auto [code, value] : *map) {
 diff --git a/base/apostate/profile.h b/base/apostate/profile.h
-index a077b58..35ee265 100644
+index a077b580f5..35ee2658d2 100644
 --- a/base/apostate/profile.h
 +++ b/base/apostate/profile.h
 @@ -214,6 +214,35 @@ class BASE_EXPORT Profile {
@@ -57,64 +98,8 @@ index a077b58..35ee265 100644
    std::optional<std::string> timezone_;
    std::optional<bool> prefers_dark_;
    std::optional<std::string> accept_languages_;
-diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
-index affe606..1be796d 100644
---- a/base/apostate/profile.cc
-+++ b/base/apostate/profile.cc
-@@ -237,6 +237,36 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
-     }
-   }
- 
-+  if (const DictValue* precs = dict->FindDict("gl_precisions")) {
-+    for (const auto [name, value] : *precs) {
-+      const DictValue* entry = value.GetIfDict();
-+      if (!entry) {
-+        continue;
-+      }
-+      std::optional<int> lo = entry->FindInt("rangeMin");
-+      std::optional<int> hi = entry->FindInt("rangeMax");
-+      std::optional<int> bits = entry->FindInt("precision");
-+      // All three or none. A partial entry would mix the claim with the host
-+      // on one query, which is the incoherence this whole field exists to
-+      // remove.
-+      if (!lo || !hi || !bits) {
-+        LOG(ERROR) << "apostate: gl_precisions." << name
-+                   << " needs rangeMin, rangeMax and precision; ignoring";
-+        continue;
-+      }
-+      // getShaderPrecisionFormat reports log2 of the exponent range and a
-+      // mantissa bit count. IEEE binary32 is the largest thing any GL type
-+      // describes, so nothing legitimate exceeds these.
-+      if (*lo < 0 || *lo > 127 || *hi < 0 || *hi > 127 || *bits < 0 ||
-+          *bits > 23) {
-+        LOG(ERROR) << "apostate: gl_precisions." << name
-+                   << " out of range; ignoring";
-+        continue;
-+      }
-+      profile->gl_precisions_[name] = ShaderPrecision{*lo, *hi, *bits};
-+    }
-+  }
-+
-   if (const DictValue* keyboard = dict->FindDict("keyboard")) {
-     if (const DictValue* map = keyboard->FindDict("layout_map")) {
-       for (const auto [code, value] : *map) {
-diff --git a/ui/gl/gl_gl_api_implementation.h b/ui/gl/gl_gl_api_implementation.h
-index 1df38a4..9aa8325 100644
---- a/ui/gl/gl_gl_api_implementation.h
-+++ b/ui/gl/gl_gl_api_implementation.h
-@@ -55,6 +55,10 @@ class GL_EXPORT RealGLApi : public GLApiBase {
-   void SetDisabledExtensions(const std::string& disabled_extensions) override;
- 
-   void glGetIntegervFn(GLenum pname, GLint* params) override;
-+  void glGetShaderPrecisionFormatFn(GLenum shadertype,
-+                                    GLenum precisiontype,
-+                                    GLint* range,
-+                                    GLint* precision) override;
-   const GLubyte* glGetStringFn(GLenum name) override;
-   const GLubyte* glGetStringiFn(GLenum name, GLuint index) override;
- 
 diff --git a/ui/gl/gl_gl_api_implementation.cc b/ui/gl/gl_gl_api_implementation.cc
-index 5af1eda..136e3ea 100644
+index 5af1edaf9b..136e3ea2c4 100644
 --- a/ui/gl/gl_gl_api_implementation.cc
 +++ b/ui/gl/gl_gl_api_implementation.cc
 @@ -317,6 +317,99 @@ void RealGLApi::glGetIntegervFn(GLenum pname, GLint* params) {
@@ -217,3 +202,18 @@ index 5af1eda..136e3ea 100644
  const GLubyte* RealGLApi::glGetStringFn(GLenum name) {
    if (name == GL_EXTENSIONS && disabled_exts_.size()) {
      InitializeFilteredExtensionsIfNeeded();
+diff --git a/ui/gl/gl_gl_api_implementation.h b/ui/gl/gl_gl_api_implementation.h
+index 1df38a4f87..9aa8325abe 100644
+--- a/ui/gl/gl_gl_api_implementation.h
++++ b/ui/gl/gl_gl_api_implementation.h
+@@ -55,6 +55,10 @@ class GL_EXPORT RealGLApi : public GLApiBase {
+   void SetDisabledExtensions(const std::string& disabled_extensions) override;
+ 
+   void glGetIntegervFn(GLenum pname, GLint* params) override;
++  void glGetShaderPrecisionFormatFn(GLenum shadertype,
++                                    GLenum precisiontype,
++                                    GLint* range,
++                                    GLint* precision) override;
+   const GLubyte* glGetStringFn(GLenum name) override;
+   const GLubyte* glGetStringiFn(GLenum name, GLuint index) override;
+ 

@@ -8,44 +8,38 @@ so HTTP/3 through the proxy makes no local DNS query for the
 destination. Nothing uses the socket until patch 0080 wires it into
 QUIC.
 
-diff --git a/net/socket/datagram_client_socket.h b/net/socket/datagram_client_socket.h
---- a/net/socket/datagram_client_socket.h
-+++ b/net/socket/datagram_client_socket.h
-@@ -35,6 +35,19 @@
- };
- 
- using DatagramsMetadata = std::vector<DatagramMetadata>;
-+
-+// An encapsulation a socket applies to every datagram that passes through it,
-+// such as the RFC 1928 §7 header of a SOCKS5 UDP relay. A plain UDP socket
-+// applies none, which is the default this struct describes.
-+//
-+// Callers that size packets or advertise transport capabilities must consult
-+// this rather than assume a bare datagram: `overhead` reduces the usable
-+// packet size, and `preserves_ecn` says whether the ECN bits of a written
-+// payload can reach the far end at all.
-+struct NET_EXPORT_PRIVATE DatagramEncapsulation {
-+  size_t overhead = 0;
-+  bool preserves_ecn = true;
-+};
- 
- class IPEndPoint;
- class SocketTag;
-@@ -148,7 +161,12 @@
-   // Unregister the underlying socket and its associated UDP payload that were
-   // previously registered by RegisterQuicConnectionClosePayload
-   virtual void UnregisterQuicConnectionClosePayload() {}
-+
-+  // Describes any per-datagram encapsulation this socket applies. The default
-+  // reports none, so an implementation that writes the payload unmodified need
-+  // not override it.
-+  virtual DatagramEncapsulation GetEncapsulation() const;
- };
- 
- }  // namespace net
-
+diff --git a/net/BUILD.gn b/net/BUILD.gn
+index 54a40951c0..ada05fea42 100644
+--- a/net/BUILD.gn
++++ b/net/BUILD.gn
+@@ -983,6 +983,7 @@ component("net") {
+     "socket/connect_job_params_factory.cc",
+     "socket/connect_job_params_factory.h",
+     "socket/connection_attempts.h",
++    "socket/datagram_client_socket.cc",
+     "socket/datagram_client_socket.h",
+     "socket/datagram_server_socket.h",
+     "socket/datagram_socket.h",
+@@ -1018,6 +1019,8 @@ component("net") {
+     "socket/socket_tag.h",
+     "socket/socks5_client_socket.cc",
+     "socket/socks5_client_socket.h",
++    "socket/socks5_datagram_client_socket.cc",
++    "socket/socks5_datagram_client_socket.h",
+     "socket/socks_client_socket.cc",
+     "socket/socks_client_socket.h",
+     "socket/socks_connect_job.cc",
+@@ -3147,6 +3150,7 @@ target(_test_target_type, "net_unittests") {
+     "socket/socket_pool_additional_capacity_unittest.cc",
+     "socket/socket_tag_unittest.cc",
+     "socket/socks5_client_socket_unittest.cc",
++    "socket/socks5_datagram_client_socket_unittest.cc",
+     "socket/socks_client_socket_unittest.cc",
+     "socket/socks_connect_job_unittest.cc",
+     "socket/ssl_client_socket_unittest.cc",
 diff --git a/net/socket/datagram_client_socket.cc b/net/socket/datagram_client_socket.cc
 new file mode 100644
+index 0000000000..0491981578
 --- /dev/null
 +++ b/net/socket/datagram_client_socket.cc
 @@ -0,0 +1,16 @@
@@ -65,358 +59,45 @@ new file mode 100644
 +}
 +
 +}  // namespace net
-
-diff --git a/net/socket/socks5_datagram_client_socket.h b/net/socket/socks5_datagram_client_socket.h
-new file mode 100644
---- /dev/null
-+++ b/net/socket/socks5_datagram_client_socket.h
-@@ -0,0 +1,343 @@
-+// Copyright 2026 The Apostate Authors
-+// Use of this source code is governed by a GPL-3.0 license that can be
-+// found in the LICENSE file.
-+
-+#ifndef NET_SOCKET_SOCKS5_DATAGRAM_CLIENT_SOCKET_H_
-+#define NET_SOCKET_SOCKS5_DATAGRAM_CLIENT_SOCKET_H_
-+
-+#include <stddef.h>
-+#include <stdint.h>
-+
-+#include <memory>
-+#include <optional>
-+#include <vector>
-+
-+#include "base/containers/span.h"
-+#include "base/memory/raw_ptr.h"
-+#include "base/memory/scoped_refptr.h"
-+#include "base/memory/weak_ptr.h"
-+#include "base/types/expected.h"
-+#include "net/base/completion_once_callback.h"
-+#include "net/base/host_port_pair.h"
-+#include "net/base/ip_endpoint.h"
-+#include "net/base/net_errors.h"
-+#include "net/base/net_export.h"
-+#include "net/base/network_handle.h"
-+#include "net/socket/datagram_client_socket.h"
-+#include "net/socket/socks5_client_socket.h"
-+#include "net/traffic_annotation/network_traffic_annotation.h"
-+
-+namespace net {
-+
-+class ClientSocketFactory;
-+class DrainableIOBuffer;
-+class GrowableIOBuffer;
-+class IOBuffer;
-+class IOBufferWithSize;
-+class ProxyChain;
-+class StreamSocket;
-+
-+// The largest RFC 1928 §7 datagram header this socket will frame.
+diff --git a/net/socket/datagram_client_socket.h b/net/socket/datagram_client_socket.h
+index edb15050b4..4fdabc16d6 100644
+--- a/net/socket/datagram_client_socket.h
++++ b/net/socket/datagram_client_socket.h
+@@ -36,6 +36,19 @@ struct NET_EXPORT_PRIVATE DatagramMetadata {
+ 
+ using DatagramsMetadata = std::vector<DatagramMetadata>;
+ 
++// An encapsulation a socket applies to every datagram that passes through it,
++// such as the RFC 1928 §7 header of a SOCKS5 UDP relay. A plain UDP socket
++// applies none, which is the default this struct describes.
 +//
-+// A relayed QUIC connection must still be able to put a 1200-byte Initial
-+// packet inside a datagram that fits a 1500-byte path: 1500 - 40 (IPv6) - 8
-+// (UDP) leaves 1452 bytes, so the header may consume at most 252 of them. A
-+// destination whose header would be longer cannot complete a QUIC handshake
-+// through the relay, and a transport that cannot complete a handshake is
-+// declined rather than advertised.
-+inline constexpr size_t kMaxSocks5DatagramHeaderSize = 252;
-+
-+// The largest header this socket will accept on a datagram it receives:
-+// 2 (RSV) + 1 (FRAG) + 1 (ATYP) + 1 (name length) + 255 (name) + 2 (port).
-+inline constexpr size_t kMaxSocks5InboundHeaderSize = 262;
-+
-+// True when `chain` can carry QUIC using RFC 1928 UDP ASSOCIATE: exactly one
-+// proxy, and that proxy is SOCKS5.
-+//
-+// This is the single predicate that decides whether a proxied QUIC attempt is
-+// allowed. HTTP, HTTPS and SOCKS4 proxies cannot relay a datagram at all, and
-+// a multi-proxy chain would need an association per hop with no way to frame
-+// the inner ones, so all of them keep refusing QUIC with
-+// ERR_NO_SUPPORTED_PROXIES. QUIC-over-QUIC remains Chromium's own path and is
-+// not this function's business.
-+NET_EXPORT_PRIVATE bool IsQuicOverSocks5Chain(const ProxyChain& chain);
-+
-+// A DatagramClientSocket that relays its datagrams through a SOCKS5 proxy
-+// using RFC 1928 UDP ASSOCIATE.
-+//
-+// It owns two sockets. The TCP control socket carries the greeting, the
-+// optional RFC 1929 authentication and the UDP ASSOCIATE request; RFC 1928 §7
-+// ties the association's lifetime to that connection, so it is held open for
-+// as long as this socket exists and nothing is ever written on it after the
-+// ASSOCIATE reply. The datagram socket, supplied by the caller and therefore a
-+// stock UDPClientSocket, carries the data and receives every socket option the
-+// caller sets, so its kernel-visible configuration matches a direct QUIC
-+// socket.
-+//
-+// Addresses:
-+//  - ConnectAsync() is given the *proxy's* endpoint, because that is what the
-+//    control connection needs and what the caller resolved.
-+//  - GetPeerAddress() returns that same proxy endpoint, not the relay's. The
-+//    QUIC packet reader reports GetPeerAddress() as every packet's peer
-+//    address and QuicConnection compares it against the address the connection
-+//    was built with, so reporting the relay's port would look like a server
-+//    address change on every packet.
-+//  - The relay endpoint learned from the ASSOCIATE reply stays inside this
-+//    class.
-+//
-+// Credentials are launch-only transport state. They are held by this socket
-+// and nowhere else; no session key, pool key or NetLog parameter sees them,
-+// and this class introduces no NetLog event type of its own.
-+class NET_EXPORT_PRIVATE SOCKS5DatagramClientSocket
-+    : public DatagramClientSocket {
-+ public:
-+  // `datagram_socket` is the unconnected socket that will carry the relayed
-+  // datagrams. `client_socket_factory` creates the TCP control socket.
-+  // `destination` is the QUIC destination and is used only to frame the
-+  // per-datagram header: when it is a host name the header carries ATYP 0x03
-+  // and the proxy resolves it, which is what keeps HTTP/3 from emitting a
-+  // destination DNS query that the stream path through the same proxy never
-+  // makes.
-+  SOCKS5DatagramClientSocket(
-+      std::unique_ptr<DatagramClientSocket> datagram_socket,
-+      ClientSocketFactory* client_socket_factory,
-+      const HostPortPair& destination,
-+      std::optional<SOCKS5Credentials> credentials,
-+      const NetworkTrafficAnnotationTag& traffic_annotation);
-+
-+  SOCKS5DatagramClientSocket(const SOCKS5DatagramClientSocket&) = delete;
-+  SOCKS5DatagramClientSocket& operator=(const SOCKS5DatagramClientSocket&) =
-+      delete;
-+
-+  ~SOCKS5DatagramClientSocket() override;
-+
-+  // Socket implementation.
-+  int Read(IOBuffer* buf,
-+           int buf_len,
-+           CompletionOnceCallback callback) override;
-+  int Write(IOBuffer* buf,
-+            int buf_len,
-+            CompletionOnceCallback callback,
-+            const NetworkTrafficAnnotationTag& traffic_annotation) override;
-+  int SetReceiveBufferSize(int32_t size) override;
-+  int SetSendBufferSize(int32_t size) override;
-+
-+  // DatagramSocket implementation.
-+  void Close() override;
-+  int GetPeerAddress(IPEndPoint* address) const override;
-+  int GetLocalAddress(IPEndPoint* address) const override;
-+  void UseNonBlockingIO() override;
-+  int SetDoNotFragment() override;
-+  int SetRecvTos() override;
-+  int SetTos(DiffServCodePoint dscp, EcnCodePoint ecn) override;
-+  void SetMsgConfirm(bool confirm) override;
-+  const NetLogWithSource& NetLog() const override;
-+  DscpAndEcn GetLastTos() const override;
-+
-+  // DatagramClientSocket implementation.
-+  int Connect(const IPEndPoint& address) override;
-+  int ConnectUsingNetwork(handles::NetworkHandle network,
-+                          const IPEndPoint& address) override;
-+  int ConnectUsingDefaultNetwork(const IPEndPoint& address) override;
-+  int ConnectAsync(const IPEndPoint& address,
-+                   CompletionOnceCallback callback) override;
-+  int ConnectUsingNetworkAsync(handles::NetworkHandle network,
-+                               const IPEndPoint& address,
-+                               CompletionOnceCallback callback) override;
-+  int ConnectUsingDefaultNetworkAsync(
-+      const IPEndPoint& address,
-+      CompletionOnceCallback callback) override;
-+  handles::NetworkHandle GetBoundNetwork() const override;
-+  base::expected<DatagramsMetadata, Error> ReadMultiple(
-+      IOBuffer* buf,
-+      size_t buf_len,
-+      size_t max_message_size,
-+      base::OnceCallback<void(base::expected<DatagramsMetadata, Error>)>
-+          callback) override;
-+  void ApplySocketTag(const SocketTag& tag) override;
-+  void EnableRecvOptimization() override;
-+  int SetMulticastInterface(uint32_t interface_index) override;
-+  void SetIOSNetworkServiceType(int ios_network_service_type) override;
-+  DatagramEncapsulation GetEncapsulation() const override;
-+
-+  // RegisterQuicConnectionClosePayload() and its Unregister counterpart are
-+  // deliberately not overridden. They hand a raw UDP payload to the Android
-+  // system server to be sent after the socket dies; that payload would reach
-+  // the relay with no SOCKS5 header and be discarded, so the base class's
-+  // no-op is the honest behaviour.
-+
-+  // True when the relay address from the ASSOCIATE reply was replaced by the
-+  // proxy's own address. Test-only: nothing logs it.
-+  bool relay_address_was_substituted_for_testing() const {
-+    return relay_address_substituted_;
-+  }
-+  const IPEndPoint& relay_endpoint_for_testing() const {
-+    return relay_endpoint_;
-+  }
-+
-+ private:
-+  enum State {
-+    STATE_NONE,
-+    STATE_CONTROL_CONNECT,
-+    STATE_CONTROL_CONNECT_COMPLETE,
-+    STATE_GREET_WRITE,
-+    STATE_GREET_WRITE_COMPLETE,
-+    STATE_GREET_READ,
-+    STATE_GREET_READ_COMPLETE,
-+    STATE_AUTH_WRITE,
-+    STATE_AUTH_WRITE_COMPLETE,
-+    STATE_AUTH_READ,
-+    STATE_AUTH_READ_COMPLETE,
-+    STATE_ASSOCIATE_WRITE,
-+    STATE_ASSOCIATE_WRITE_COMPLETE,
-+    STATE_ASSOCIATE_READ,
-+    STATE_ASSOCIATE_READ_COMPLETE,
-+    STATE_DATAGRAM_CONNECT,
-+    STATE_DATAGRAM_CONNECT_COMPLETE,
-+  };
-+
-+  // Which Connect* variant the caller used, so the datagram socket is
-+  // connected the same way once the relay endpoint is known.
-+  enum class ConnectMode {
-+    kAny,
-+    kNetwork,
-+    kDefaultNetwork,
-+  };
-+
-+  int ConnectInternal(ConnectMode mode,
-+                      handles::NetworkHandle network,
-+                      const IPEndPoint& proxy_endpoint,
-+                      CompletionOnceCallback callback);
-+
-+  void OnIOComplete(int result);
-+  int DoLoop(int last_io_result);
-+  int DoControlConnect();
-+  int DoControlConnectComplete(int result);
-+  int DoGreetWrite();
-+  int DoGreetWriteComplete(int result);
-+  int DoGreetRead();
-+  int DoGreetReadComplete(int result);
-+  int DoAuthWrite();
-+  int DoAuthWriteComplete(int result);
-+  int DoAuthRead();
-+  int DoAuthReadComplete(int result);
-+  int DoAssociateWrite();
-+  int DoAssociateWriteComplete(int result);
-+  int DoAssociateRead();
-+  int DoAssociateReadComplete(int result);
-+  int DoDatagramConnect();
-+  int DoDatagramConnectComplete(int result);
-+
-+  // Sends `bytes` on the control connection, looping until it is drained.
-+  // `write_complete_state` handles a partial write; `done_state` runs once the
-+  // whole buffer is out.
-+  int StartControlWrite(std::vector<uint8_t> bytes,
-+                        State write_complete_state,
-+                        State done_state);
-+  int ContinueControlWrite(State write_complete_state, State done_state);
-+
-+  // Reads up to `capacity` bytes of a reply, resuming into the same buffer on
-+  // a partial read. Returns a net error or ERR_IO_PENDING.
-+  int StartControlRead(size_t capacity, State complete_state);
-+  int ContinueControlRead(State complete_state);
-+
-+  // Additional bytes the ASSOCIATE reply needs beyond its five-byte prefix, or
-+  // std::nullopt when the prefix is malformed.
-+  std::optional<size_t> AssociateReplyRemainder() const;
-+
-+  // Fills `relay_endpoint_` from a complete ASSOCIATE reply, applying the
-+  // substitution rules. Returns a net error.
-+  int ResolveRelayEndpoint();
-+
-+  // Starts the single outstanding read that watches the control connection for
-+  // closure. It never completes under normal operation.
-+  void StartControlWatch();
-+  void OnControlWatchComplete(int result);
-+
-+  // Records a terminal error and fails any pending datagram read with it. A
-+  // write into a dead association must fail rather than appear to succeed:
-+  // QUIC would otherwise retransmit into a relay that is no longer listening
-+  // and only notice at its idle timeout.
-+  void LatchError(int error);
-+
-+  // Single-datagram read path.
-+  int ReadLoop();
-+  void OnDatagramReadComplete(int result);
-+  // Returns true when `*out_result` is final, false when the datagram was
-+  // dropped and another read must be issued.
-+  bool DeframeSingle(int result, int* out_result);
-+  void ClearReadState();
-+
-+  // Batched read path.
-+  base::expected<DatagramsMetadata, Error> ReadMultipleLoop();
-+  void OnDatagramReadMultipleComplete(
-+      base::expected<DatagramsMetadata, Error> result);
-+  // std::nullopt when every datagram in the batch was dropped.
-+  std::optional<base::expected<DatagramsMetadata, Error>> DeframeMultiple(
-+      base::expected<DatagramsMetadata, Error> result);
-+  void ClearReadMultipleState();
-+
-+  void OnDatagramWriteComplete(int result);
-+  int TranslateWriteResult(int result) const;
-+
-+  // The socket that carries data. Supplied by the caller, never replaced.
-+  std::unique_ptr<DatagramClientSocket> datagram_socket_;
-+  // Creates the TCP control socket. Not owned.
-+  const raw_ptr<ClientSocketFactory> client_socket_factory_;
-+  // Holds the association open. Destroying it ends the association.
-+  std::unique_ptr<StreamSocket> control_socket_;
-+
-+  const std::optional<SOCKS5Credentials> credentials_;
-+  const NetworkTrafficAnnotationTag traffic_annotation_;
-+
-+  // The complete constant prefix of every datagram this socket writes: RSV,
-+  // FRAG, ATYP, DST.ADDR, DST.PORT. Derived once from `destination_`, so the
-+  // overhead GetEncapsulation() reports can never go stale relative to the
-+  // bytes actually written. Empty when `destination_` cannot be framed.
-+  const std::vector<uint8_t> datagram_header_;
-+  // ERR_SOCKS_CONNECTION_FAILED when `datagram_header_` is empty, else OK.
-+  const int header_error_;
-+
-+  State next_state_ = STATE_NONE;
-+  ConnectMode connect_mode_ = ConnectMode::kAny;
-+  handles::NetworkHandle network_ = handles::kInvalidNetworkHandle;
-+  bool connect_started_ = false;
-+  bool associated_ = false;
-+  bool relay_address_substituted_ = false;
-+  int latched_error_ = OK;
-+
-+  IPEndPoint proxy_endpoint_;
-+  IPEndPoint relay_endpoint_;
-+
-+  CompletionOnceCallback connect_callback_;
-+
-+  scoped_refptr<DrainableIOBuffer> control_write_buf_;
-+  scoped_refptr<GrowableIOBuffer> control_read_buf_;
-+  scoped_refptr<IOBufferWithSize> control_watch_buf_;
-+
-+  // Single-read state.
-+  scoped_refptr<IOBuffer> read_user_buffer_;
-+  size_t read_user_buffer_len_ = 0;
-+  CompletionOnceCallback read_user_callback_;
-+  scoped_refptr<IOBufferWithSize> read_frame_buffer_;
-+
-+  // Batched-read state.
-+  scoped_refptr<IOBuffer> read_multiple_user_buffer_;
-+  size_t read_multiple_user_buffer_len_ = 0;
-+  size_t read_multiple_message_size_ = 0;
-+  size_t read_multiple_frame_len_ = 0;
-+  base::OnceCallback<void(base::expected<DatagramsMetadata, Error>)>
-+      read_multiple_user_callback_;
-+  scoped_refptr<IOBufferWithSize> read_multiple_frame_buffer_;
-+
-+  // Write state.
-+  scoped_refptr<IOBufferWithSize> write_frame_buffer_;
-+  size_t write_payload_len_ = 0;
-+  CompletionOnceCallback write_user_callback_;
-+
-+  base::WeakPtrFactory<SOCKS5DatagramClientSocket> weak_factory_{this};
++// Callers that size packets or advertise transport capabilities must consult
++// this rather than assume a bare datagram: `overhead` reduces the usable
++// packet size, and `preserves_ecn` says whether the ECN bits of a written
++// payload can reach the far end at all.
++struct NET_EXPORT_PRIVATE DatagramEncapsulation {
++  size_t overhead = 0;
++  bool preserves_ecn = true;
 +};
 +
-+}  // namespace net
+ class IPEndPoint;
+ class SocketTag;
+ 
+@@ -148,6 +161,11 @@ class NET_EXPORT_PRIVATE DatagramClientSocket : public DatagramSocket,
+   // Unregister the underlying socket and its associated UDP payload that were
+   // previously registered by RegisterQuicConnectionClosePayload
+   virtual void UnregisterQuicConnectionClosePayload() {}
 +
-+#endif  // NET_SOCKET_SOCKS5_DATAGRAM_CLIENT_SOCKET_H_
-
++  // Describes any per-datagram encapsulation this socket applies. The default
++  // reports none, so an implementation that writes the payload unmodified need
++  // not override it.
++  virtual DatagramEncapsulation GetEncapsulation() const;
+ };
+ 
+ }  // namespace net
 diff --git a/net/socket/socks5_datagram_client_socket.cc b/net/socket/socks5_datagram_client_socket.cc
 new file mode 100644
+index 0000000000..065419fe53
 --- /dev/null
 +++ b/net/socket/socks5_datagram_client_socket.cc
 @@ -0,0 +1,1135 @@
@@ -1555,9 +1236,358 @@ new file mode 100644
 +}
 +
 +}  // namespace net
-
+diff --git a/net/socket/socks5_datagram_client_socket.h b/net/socket/socks5_datagram_client_socket.h
+new file mode 100644
+index 0000000000..21e139f5e5
+--- /dev/null
++++ b/net/socket/socks5_datagram_client_socket.h
+@@ -0,0 +1,343 @@
++// Copyright 2026 The Apostate Authors
++// Use of this source code is governed by a GPL-3.0 license that can be
++// found in the LICENSE file.
++
++#ifndef NET_SOCKET_SOCKS5_DATAGRAM_CLIENT_SOCKET_H_
++#define NET_SOCKET_SOCKS5_DATAGRAM_CLIENT_SOCKET_H_
++
++#include <stddef.h>
++#include <stdint.h>
++
++#include <memory>
++#include <optional>
++#include <vector>
++
++#include "base/containers/span.h"
++#include "base/memory/raw_ptr.h"
++#include "base/memory/scoped_refptr.h"
++#include "base/memory/weak_ptr.h"
++#include "base/types/expected.h"
++#include "net/base/completion_once_callback.h"
++#include "net/base/host_port_pair.h"
++#include "net/base/ip_endpoint.h"
++#include "net/base/net_errors.h"
++#include "net/base/net_export.h"
++#include "net/base/network_handle.h"
++#include "net/socket/datagram_client_socket.h"
++#include "net/socket/socks5_client_socket.h"
++#include "net/traffic_annotation/network_traffic_annotation.h"
++
++namespace net {
++
++class ClientSocketFactory;
++class DrainableIOBuffer;
++class GrowableIOBuffer;
++class IOBuffer;
++class IOBufferWithSize;
++class ProxyChain;
++class StreamSocket;
++
++// The largest RFC 1928 §7 datagram header this socket will frame.
++//
++// A relayed QUIC connection must still be able to put a 1200-byte Initial
++// packet inside a datagram that fits a 1500-byte path: 1500 - 40 (IPv6) - 8
++// (UDP) leaves 1452 bytes, so the header may consume at most 252 of them. A
++// destination whose header would be longer cannot complete a QUIC handshake
++// through the relay, and a transport that cannot complete a handshake is
++// declined rather than advertised.
++inline constexpr size_t kMaxSocks5DatagramHeaderSize = 252;
++
++// The largest header this socket will accept on a datagram it receives:
++// 2 (RSV) + 1 (FRAG) + 1 (ATYP) + 1 (name length) + 255 (name) + 2 (port).
++inline constexpr size_t kMaxSocks5InboundHeaderSize = 262;
++
++// True when `chain` can carry QUIC using RFC 1928 UDP ASSOCIATE: exactly one
++// proxy, and that proxy is SOCKS5.
++//
++// This is the single predicate that decides whether a proxied QUIC attempt is
++// allowed. HTTP, HTTPS and SOCKS4 proxies cannot relay a datagram at all, and
++// a multi-proxy chain would need an association per hop with no way to frame
++// the inner ones, so all of them keep refusing QUIC with
++// ERR_NO_SUPPORTED_PROXIES. QUIC-over-QUIC remains Chromium's own path and is
++// not this function's business.
++NET_EXPORT_PRIVATE bool IsQuicOverSocks5Chain(const ProxyChain& chain);
++
++// A DatagramClientSocket that relays its datagrams through a SOCKS5 proxy
++// using RFC 1928 UDP ASSOCIATE.
++//
++// It owns two sockets. The TCP control socket carries the greeting, the
++// optional RFC 1929 authentication and the UDP ASSOCIATE request; RFC 1928 §7
++// ties the association's lifetime to that connection, so it is held open for
++// as long as this socket exists and nothing is ever written on it after the
++// ASSOCIATE reply. The datagram socket, supplied by the caller and therefore a
++// stock UDPClientSocket, carries the data and receives every socket option the
++// caller sets, so its kernel-visible configuration matches a direct QUIC
++// socket.
++//
++// Addresses:
++//  - ConnectAsync() is given the *proxy's* endpoint, because that is what the
++//    control connection needs and what the caller resolved.
++//  - GetPeerAddress() returns that same proxy endpoint, not the relay's. The
++//    QUIC packet reader reports GetPeerAddress() as every packet's peer
++//    address and QuicConnection compares it against the address the connection
++//    was built with, so reporting the relay's port would look like a server
++//    address change on every packet.
++//  - The relay endpoint learned from the ASSOCIATE reply stays inside this
++//    class.
++//
++// Credentials are launch-only transport state. They are held by this socket
++// and nowhere else; no session key, pool key or NetLog parameter sees them,
++// and this class introduces no NetLog event type of its own.
++class NET_EXPORT_PRIVATE SOCKS5DatagramClientSocket
++    : public DatagramClientSocket {
++ public:
++  // `datagram_socket` is the unconnected socket that will carry the relayed
++  // datagrams. `client_socket_factory` creates the TCP control socket.
++  // `destination` is the QUIC destination and is used only to frame the
++  // per-datagram header: when it is a host name the header carries ATYP 0x03
++  // and the proxy resolves it, which is what keeps HTTP/3 from emitting a
++  // destination DNS query that the stream path through the same proxy never
++  // makes.
++  SOCKS5DatagramClientSocket(
++      std::unique_ptr<DatagramClientSocket> datagram_socket,
++      ClientSocketFactory* client_socket_factory,
++      const HostPortPair& destination,
++      std::optional<SOCKS5Credentials> credentials,
++      const NetworkTrafficAnnotationTag& traffic_annotation);
++
++  SOCKS5DatagramClientSocket(const SOCKS5DatagramClientSocket&) = delete;
++  SOCKS5DatagramClientSocket& operator=(const SOCKS5DatagramClientSocket&) =
++      delete;
++
++  ~SOCKS5DatagramClientSocket() override;
++
++  // Socket implementation.
++  int Read(IOBuffer* buf,
++           int buf_len,
++           CompletionOnceCallback callback) override;
++  int Write(IOBuffer* buf,
++            int buf_len,
++            CompletionOnceCallback callback,
++            const NetworkTrafficAnnotationTag& traffic_annotation) override;
++  int SetReceiveBufferSize(int32_t size) override;
++  int SetSendBufferSize(int32_t size) override;
++
++  // DatagramSocket implementation.
++  void Close() override;
++  int GetPeerAddress(IPEndPoint* address) const override;
++  int GetLocalAddress(IPEndPoint* address) const override;
++  void UseNonBlockingIO() override;
++  int SetDoNotFragment() override;
++  int SetRecvTos() override;
++  int SetTos(DiffServCodePoint dscp, EcnCodePoint ecn) override;
++  void SetMsgConfirm(bool confirm) override;
++  const NetLogWithSource& NetLog() const override;
++  DscpAndEcn GetLastTos() const override;
++
++  // DatagramClientSocket implementation.
++  int Connect(const IPEndPoint& address) override;
++  int ConnectUsingNetwork(handles::NetworkHandle network,
++                          const IPEndPoint& address) override;
++  int ConnectUsingDefaultNetwork(const IPEndPoint& address) override;
++  int ConnectAsync(const IPEndPoint& address,
++                   CompletionOnceCallback callback) override;
++  int ConnectUsingNetworkAsync(handles::NetworkHandle network,
++                               const IPEndPoint& address,
++                               CompletionOnceCallback callback) override;
++  int ConnectUsingDefaultNetworkAsync(
++      const IPEndPoint& address,
++      CompletionOnceCallback callback) override;
++  handles::NetworkHandle GetBoundNetwork() const override;
++  base::expected<DatagramsMetadata, Error> ReadMultiple(
++      IOBuffer* buf,
++      size_t buf_len,
++      size_t max_message_size,
++      base::OnceCallback<void(base::expected<DatagramsMetadata, Error>)>
++          callback) override;
++  void ApplySocketTag(const SocketTag& tag) override;
++  void EnableRecvOptimization() override;
++  int SetMulticastInterface(uint32_t interface_index) override;
++  void SetIOSNetworkServiceType(int ios_network_service_type) override;
++  DatagramEncapsulation GetEncapsulation() const override;
++
++  // RegisterQuicConnectionClosePayload() and its Unregister counterpart are
++  // deliberately not overridden. They hand a raw UDP payload to the Android
++  // system server to be sent after the socket dies; that payload would reach
++  // the relay with no SOCKS5 header and be discarded, so the base class's
++  // no-op is the honest behaviour.
++
++  // True when the relay address from the ASSOCIATE reply was replaced by the
++  // proxy's own address. Test-only: nothing logs it.
++  bool relay_address_was_substituted_for_testing() const {
++    return relay_address_substituted_;
++  }
++  const IPEndPoint& relay_endpoint_for_testing() const {
++    return relay_endpoint_;
++  }
++
++ private:
++  enum State {
++    STATE_NONE,
++    STATE_CONTROL_CONNECT,
++    STATE_CONTROL_CONNECT_COMPLETE,
++    STATE_GREET_WRITE,
++    STATE_GREET_WRITE_COMPLETE,
++    STATE_GREET_READ,
++    STATE_GREET_READ_COMPLETE,
++    STATE_AUTH_WRITE,
++    STATE_AUTH_WRITE_COMPLETE,
++    STATE_AUTH_READ,
++    STATE_AUTH_READ_COMPLETE,
++    STATE_ASSOCIATE_WRITE,
++    STATE_ASSOCIATE_WRITE_COMPLETE,
++    STATE_ASSOCIATE_READ,
++    STATE_ASSOCIATE_READ_COMPLETE,
++    STATE_DATAGRAM_CONNECT,
++    STATE_DATAGRAM_CONNECT_COMPLETE,
++  };
++
++  // Which Connect* variant the caller used, so the datagram socket is
++  // connected the same way once the relay endpoint is known.
++  enum class ConnectMode {
++    kAny,
++    kNetwork,
++    kDefaultNetwork,
++  };
++
++  int ConnectInternal(ConnectMode mode,
++                      handles::NetworkHandle network,
++                      const IPEndPoint& proxy_endpoint,
++                      CompletionOnceCallback callback);
++
++  void OnIOComplete(int result);
++  int DoLoop(int last_io_result);
++  int DoControlConnect();
++  int DoControlConnectComplete(int result);
++  int DoGreetWrite();
++  int DoGreetWriteComplete(int result);
++  int DoGreetRead();
++  int DoGreetReadComplete(int result);
++  int DoAuthWrite();
++  int DoAuthWriteComplete(int result);
++  int DoAuthRead();
++  int DoAuthReadComplete(int result);
++  int DoAssociateWrite();
++  int DoAssociateWriteComplete(int result);
++  int DoAssociateRead();
++  int DoAssociateReadComplete(int result);
++  int DoDatagramConnect();
++  int DoDatagramConnectComplete(int result);
++
++  // Sends `bytes` on the control connection, looping until it is drained.
++  // `write_complete_state` handles a partial write; `done_state` runs once the
++  // whole buffer is out.
++  int StartControlWrite(std::vector<uint8_t> bytes,
++                        State write_complete_state,
++                        State done_state);
++  int ContinueControlWrite(State write_complete_state, State done_state);
++
++  // Reads up to `capacity` bytes of a reply, resuming into the same buffer on
++  // a partial read. Returns a net error or ERR_IO_PENDING.
++  int StartControlRead(size_t capacity, State complete_state);
++  int ContinueControlRead(State complete_state);
++
++  // Additional bytes the ASSOCIATE reply needs beyond its five-byte prefix, or
++  // std::nullopt when the prefix is malformed.
++  std::optional<size_t> AssociateReplyRemainder() const;
++
++  // Fills `relay_endpoint_` from a complete ASSOCIATE reply, applying the
++  // substitution rules. Returns a net error.
++  int ResolveRelayEndpoint();
++
++  // Starts the single outstanding read that watches the control connection for
++  // closure. It never completes under normal operation.
++  void StartControlWatch();
++  void OnControlWatchComplete(int result);
++
++  // Records a terminal error and fails any pending datagram read with it. A
++  // write into a dead association must fail rather than appear to succeed:
++  // QUIC would otherwise retransmit into a relay that is no longer listening
++  // and only notice at its idle timeout.
++  void LatchError(int error);
++
++  // Single-datagram read path.
++  int ReadLoop();
++  void OnDatagramReadComplete(int result);
++  // Returns true when `*out_result` is final, false when the datagram was
++  // dropped and another read must be issued.
++  bool DeframeSingle(int result, int* out_result);
++  void ClearReadState();
++
++  // Batched read path.
++  base::expected<DatagramsMetadata, Error> ReadMultipleLoop();
++  void OnDatagramReadMultipleComplete(
++      base::expected<DatagramsMetadata, Error> result);
++  // std::nullopt when every datagram in the batch was dropped.
++  std::optional<base::expected<DatagramsMetadata, Error>> DeframeMultiple(
++      base::expected<DatagramsMetadata, Error> result);
++  void ClearReadMultipleState();
++
++  void OnDatagramWriteComplete(int result);
++  int TranslateWriteResult(int result) const;
++
++  // The socket that carries data. Supplied by the caller, never replaced.
++  std::unique_ptr<DatagramClientSocket> datagram_socket_;
++  // Creates the TCP control socket. Not owned.
++  const raw_ptr<ClientSocketFactory> client_socket_factory_;
++  // Holds the association open. Destroying it ends the association.
++  std::unique_ptr<StreamSocket> control_socket_;
++
++  const std::optional<SOCKS5Credentials> credentials_;
++  const NetworkTrafficAnnotationTag traffic_annotation_;
++
++  // The complete constant prefix of every datagram this socket writes: RSV,
++  // FRAG, ATYP, DST.ADDR, DST.PORT. Derived once from `destination_`, so the
++  // overhead GetEncapsulation() reports can never go stale relative to the
++  // bytes actually written. Empty when `destination_` cannot be framed.
++  const std::vector<uint8_t> datagram_header_;
++  // ERR_SOCKS_CONNECTION_FAILED when `datagram_header_` is empty, else OK.
++  const int header_error_;
++
++  State next_state_ = STATE_NONE;
++  ConnectMode connect_mode_ = ConnectMode::kAny;
++  handles::NetworkHandle network_ = handles::kInvalidNetworkHandle;
++  bool connect_started_ = false;
++  bool associated_ = false;
++  bool relay_address_substituted_ = false;
++  int latched_error_ = OK;
++
++  IPEndPoint proxy_endpoint_;
++  IPEndPoint relay_endpoint_;
++
++  CompletionOnceCallback connect_callback_;
++
++  scoped_refptr<DrainableIOBuffer> control_write_buf_;
++  scoped_refptr<GrowableIOBuffer> control_read_buf_;
++  scoped_refptr<IOBufferWithSize> control_watch_buf_;
++
++  // Single-read state.
++  scoped_refptr<IOBuffer> read_user_buffer_;
++  size_t read_user_buffer_len_ = 0;
++  CompletionOnceCallback read_user_callback_;
++  scoped_refptr<IOBufferWithSize> read_frame_buffer_;
++
++  // Batched-read state.
++  scoped_refptr<IOBuffer> read_multiple_user_buffer_;
++  size_t read_multiple_user_buffer_len_ = 0;
++  size_t read_multiple_message_size_ = 0;
++  size_t read_multiple_frame_len_ = 0;
++  base::OnceCallback<void(base::expected<DatagramsMetadata, Error>)>
++      read_multiple_user_callback_;
++  scoped_refptr<IOBufferWithSize> read_multiple_frame_buffer_;
++
++  // Write state.
++  scoped_refptr<IOBufferWithSize> write_frame_buffer_;
++  size_t write_payload_len_ = 0;
++  CompletionOnceCallback write_user_callback_;
++
++  base::WeakPtrFactory<SOCKS5DatagramClientSocket> weak_factory_{this};
++};
++
++}  // namespace net
++
++#endif  // NET_SOCKET_SOCKS5_DATAGRAM_CLIENT_SOCKET_H_
 diff --git a/net/socket/socks5_datagram_client_socket_unittest.cc b/net/socket/socks5_datagram_client_socket_unittest.cc
 new file mode 100644
+index 0000000000..5f809ab983
 --- /dev/null
 +++ b/net/socket/socks5_datagram_client_socket_unittest.cc
 @@ -0,0 +1,567 @@
@@ -2128,31 +2158,3 @@ new file mode 100644
 +
 +}  // namespace
 +}  // namespace net
-
-diff --git a/net/BUILD.gn b/net/BUILD.gn
---- a/net/BUILD.gn
-+++ b/net/BUILD.gn
-@@ -986,5 +986,6 @@
-     "socket/connect_job_params_factory.h",
-     "socket/connection_attempts.h",
-+    "socket/datagram_client_socket.cc",
-     "socket/datagram_client_socket.h",
-     "socket/datagram_server_socket.h",
-     "socket/datagram_socket.h",
-@@ -1018,6 +1019,8 @@
-     "socket/socket_tag.h",
-     "socket/socks5_client_socket.cc",
-     "socket/socks5_client_socket.h",
-+    "socket/socks5_datagram_client_socket.cc",
-+    "socket/socks5_datagram_client_socket.h",
-     "socket/socks_client_socket.cc",
-     "socket/socks_client_socket.h",
-     "socket/socks_connect_job.cc",
-@@ -3130,6 +3133,7 @@
-     "socket/socket_pool_additional_capacity_unittest.cc",
-     "socket/socket_tag_unittest.cc",
-     "socket/socks5_client_socket_unittest.cc",
-+    "socket/socks5_datagram_client_socket_unittest.cc",
-     "socket/socks_client_socket_unittest.cc",
-     "socket/socks_connect_job_unittest.cc",
-     "socket/ssl_client_socket_unittest.cc",

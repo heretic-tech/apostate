@@ -6,8 +6,25 @@ need the window-management permission, so a two-screen profile that
 reports false here contradicts itself. The value is set where the
 browser builds ScreenInfo, so the browser and every renderer agree.
 
+diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
+index b5155fcefd..2d05c8a790 100644
+--- a/base/apostate/profile.cc
++++ b/base/apostate/profile.cc
+@@ -140,6 +140,12 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
+     }
+   }
+ 
++  if (const DictValue* screen_extra = dict->FindDict("screen")) {
++    if (std::optional<bool> v = screen_extra->FindBool("is_extended")) {
++      profile->screen_is_extended_ = *v;
++    }
++  }
++
+   if (const DictValue* screen = dict->FindDict("screen")) {
+     if (std::optional<int> v = screen->FindInt("width")) {
+       profile->screen_width_ = *v;
 diff --git a/base/apostate/profile.h b/base/apostate/profile.h
-index 7760755..4d594d5 100644
+index 7760755352..4d594d54f4 100644
 --- a/base/apostate/profile.h
 +++ b/base/apostate/profile.h
 @@ -263,6 +263,15 @@ class BASE_EXPORT Profile {
@@ -34,25 +51,8 @@ index 7760755..4d594d5 100644
    std::optional<std::string> timezone_;
    std::optional<bool> prefers_dark_;
    std::optional<std::string> accept_languages_;
-diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
-index cf8f1b1..b8732b3 100644
---- a/base/apostate/profile.cc
-+++ b/base/apostate/profile.cc
-@@ -137,6 +137,12 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
-     }
-   }
- 
-+  if (const DictValue* screen_extra = dict->FindDict("screen")) {
-+    if (std::optional<bool> v = screen_extra->FindBool("is_extended")) {
-+      profile->screen_is_extended_ = *v;
-+    }
-+  }
-+
-   if (const DictValue* screen = dict->FindDict("screen")) {
-     if (std::optional<int> v = screen->FindInt("width")) {
-       profile->screen_width_ = *v;
 diff --git a/ui/display/display_util.cc b/ui/display/display_util.cc
-index c9e5554..63f88a2 100644
+index 7afaf10aad..88aa25d555 100644
 --- a/ui/display/display_util.cc
 +++ b/ui/display/display_util.cc
 @@ -4,6 +4,8 @@
@@ -64,7 +64,7 @@ index c9e5554..63f88a2 100644
  #include "base/apostate/profile.h"
  #include "ui/gfx/color_space.h"
  #include "ui/gfx/display_color_spaces.h"
-@@ -156,6 +158,21 @@ void DisplayUtil::DisplayToScreenInfo(ScreenInfo* screen_info,
+@@ -155,6 +157,21 @@ void DisplayUtil::DisplayToScreenInfo(ScreenInfo* screen_info,
    auto* screen = Screen::Get();
    // Some tests are run with no Screen initialized.
    screen_info->is_extended = screen && screen->GetNumDisplays() > 1;

@@ -7,15 +7,13 @@ runs. The test bodies and expectations are unchanged, no sanitizer is
 turned off, and nothing changes in the browser.
 
 diff --git a/third_party/angle/src/tests/BUILD.gn b/third_party/angle/src/tests/BUILD.gn
+index 79f77bda33..1aa017b79a 100644
 --- a/third_party/angle/src/tests/BUILD.gn
 +++ b/third_party/angle/src/tests/BUILD.gn
-@@ -397,6 +397,33 @@
-       ]
-       defines += [ "ANGLE_ENABLE_WGPU" ]
-     }
-+  }
-+}
-+
+@@ -401,6 +401,33 @@ if (is_win || is_linux || is_chromeos || is_android || is_fuchsia || is_apple) {
+   }
+ }
+ 
 +# Link the existing shader tests and utility callbacks in one CFI link unit.
 +if (is_linux && angle_enable_vulkan && angle_has_rapidjson) {
 +  angle_test("apostate_parallel_shader_tests") {
@@ -40,11 +38,15 @@ diff --git a/third_party/angle/src/tests/BUILD.gn b/third_party/angle/src/tests/
 +    ]
 +    data = [ "angle_end2end_tests_expectations.txt" ]
 +    data_deps = [ "$angle_root/src/common/vulkan:angle_vulkan_icd" ]
-   }
- }
- 
++  }
++}
++
+ if (angle_enable_cl_testing) {
+   copy("opencl_icd") {
+     sources = [ "$angle_root/src/tests/cl_support/ancle.icd" ]
 diff --git a/third_party/angle/src/tests/apostate_parallel_shader_tests_main.cpp b/third_party/angle/src/tests/apostate_parallel_shader_tests_main.cpp
 new file mode 100644
+index 0000000000..a66cc20a65
 --- /dev/null
 +++ b/third_party/angle/src/tests/apostate_parallel_shader_tests_main.cpp
 @@ -0,0 +1,29 @@

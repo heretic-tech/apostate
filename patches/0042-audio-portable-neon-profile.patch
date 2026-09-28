@@ -8,6 +8,7 @@ FFT plans are cached per size and mode. Other profiles keep the native
 planner.
 
 diff --git a/third_party/blink/renderer/platform/audio/fft_frame.cc b/third_party/blink/renderer/platform/audio/fft_frame.cc
+index 645b69682d..29964379ea 100644
 --- a/third_party/blink/renderer/platform/audio/fft_frame.cc
 +++ b/third_party/blink/renderer/platform/audio/fft_frame.cc
 @@ -31,6 +31,7 @@
@@ -17,20 +18,34 @@ diff --git a/third_party/blink/renderer/platform/audio/fft_frame.cc b/third_part
 +#include "base/apostate/profile.h"
  #include "base/check_op.h"
  #include "base/compiler_specific.h"
- #include "third_party/blink/renderer/platform/audio/vector_math.h"
-@@ -81,7 +82,10 @@
-     const unsigned packed_size = (fft_size_ + 1) / 2;
-     real_data_.Allocate(packed_size);
-     imag_data_.Allocate(packed_size);
--    rust_fft_ = blink::rust_fft::rustfft_new(fft_size_);
-+    const auto* profile = base::apostate::Profile::Get();
-+    const bool mac_arm_mode = profile && profile->ua_platform() == "macOS" &&
-+                              profile->ua_architecture() == "arm";
-+    rust_fft_ = blink::rust_fft::rustfft_new_for_profile(fft_size_, mac_arm_mode);
-     return;
+ #include "base/memory/ptr_util.h"
+@@ -52,6 +53,14 @@ unsigned CheckedFftSize(unsigned fft_size) {
+   return fft_size;
+ }
+ 
++// Apostate: a macOS profile claiming Apple silicon computes the FFT the way
++// Chrome on an Apple silicon Mac does, whatever CPU this host has.
++bool MacArmMode() {
++  const auto* profile = base::apostate::Profile::Get();
++  return profile && profile->ua_platform() == "macOS" &&
++         profile->ua_architecture() == "arm";
++}
++
+ }  // namespace
+ 
+ bool FFTFrame::InitializeBuffers() {
+@@ -65,7 +74,8 @@ FFTFrame::FFTFrame(unsigned fft_size)
+ 
+ FFTFrame::FFTFrame(unsigned fft_size, bool allocate_buffers)
+     : fft_size_(CheckedFftSize(fft_size)),
+-      rust_fft_(blink::rust_fft::rustfft_new(fft_size_)) {
++      rust_fft_(blink::rust_fft::rustfft_new_for_profile(fft_size_,
++                                                         MacArmMode())) {
+   if (allocate_buffers) {
+     CHECK(InitializeBuffers());
    }
-   PlatformConstruct();
 diff --git a/third_party/blink/renderer/platform/audio/rustfft_ffi.rs b/third_party/blink/renderer/platform/audio/rustfft_ffi.rs
+index 4c1776f38e..b08478a486 100644
 --- a/third_party/blink/renderer/platform/audio/rustfft_ffi.rs
 +++ b/third_party/blink/renderer/platform/audio/rustfft_ffi.rs
 @@ -8,19 +8,19 @@
@@ -57,7 +72,7 @@ diff --git a/third_party/blink/renderer/platform/audio/rustfft_ffi.rs b/third_pa
      CACHE.get_or_init(|| RwLock::new(HashMap::new()))
  }
  
-@@ -29,20 +29,39 @@
+@@ -29,20 +29,39 @@ fn get_cache() -> &'static RwLock<HashMap<usize, FftPair>> {
  ///
  /// This uses double-checked locking to minimize lock contention. Planning is
  /// done outside the write lock, allowing parallel planning for different sizes.
@@ -104,7 +119,7 @@ diff --git a/third_party/blink/renderer/platform/audio/rustfft_ffi.rs b/third_pa
  }
  
  /// Strategy for computing the FFT based on the input size.
-@@ -80,9 +99,15 @@
+@@ -80,9 +99,15 @@ pub struct RustFft {
  /// For even sizes, it initializes the `Even` strategy which uses a half-size
  /// FFT.
  pub fn rustfft_new(size: usize) -> Box<RustFft> {
@@ -121,7 +136,7 @@ diff --git a/third_party/blink/renderer/platform/audio/rustfft_ffi.rs b/third_pa
          let complex_data = vec![Complex::new(0.0, 0.0); half_size];
          let scratch_len = std::cmp::max(
              fft_forward.get_inplace_scratch_len(),
-@@ -117,7 +142,7 @@
+@@ -117,7 +142,7 @@ pub fn rustfft_new(size: usize) -> Box<RustFft> {
              size,
          })
      } else {
@@ -130,7 +145,7 @@ diff --git a/third_party/blink/renderer/platform/audio/rustfft_ffi.rs b/third_pa
          let complex_data = vec![Complex::new(0.0, 0.0); size];
          let scratch_len = std::cmp::max(
              fft_forward.get_inplace_scratch_len(),
-@@ -430,6 +455,7 @@
+@@ -430,6 +455,7 @@ pub mod ffi {
      extern "Rust" {
          type RustFft;
          fn rustfft_new(size: usize) -> Box<RustFft>;
@@ -138,32 +153,11 @@ diff --git a/third_party/blink/renderer/platform/audio/rustfft_ffi.rs b/third_pa
          fn do_fft(self: &mut RustFft, data: &[f32], real_data: &mut [f32], imag_data: &mut [f32]);
          fn do_inverse_fft(
              self: &mut RustFft,
-diff --git a/third_party/rust/rustfft/v6/BUILD.gn b/third_party/rust/rustfft/v6/BUILD.gn
---- a/third_party/rust/rustfft/v6/BUILD.gn
-+++ b/third_party/rust/rustfft/v6/BUILD.gn
-@@ -15,6 +15,10 @@
-   crate_root =
-       "//third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/lib.rs"
-   sources = [
-+    "//third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/portable_neon/mod.rs",
-+    "//third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/portable_neon/intrinsics.rs",
-+    "//third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/portable_neon/intrinsics_x86.rs",
-+    "//third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/portable_neon_fma/mod.rs",
-     "//third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/algorithm/bluesteins_algorithm.rs",
-     "//third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/algorithm/butterflies.rs",
-     "//third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/algorithm/dft.rs",
-@@ -90,6 +94,7 @@
-     "//third_party/rust/transpose/v0_2:lib",
-   ]
-   features = [
-+    "portable-neon",
-     "avx",
-     "default",
-     "neon",
 diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/Cargo.toml b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/Cargo.toml
+index 1c4274f2b4..52b21b59e7 100644
 --- a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/Cargo.toml
 +++ b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/Cargo.toml
-@@ -44,6 +44,7 @@
+@@ -44,6 +44,7 @@ license = "MIT OR Apache-2.0"
  repository = "https://github.com/ejmahler/RustFFT"
  
  [features]
@@ -172,9 +166,10 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/Cargo.toml b/
  default = [
      "avx",
 diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/lib.rs b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/lib.rs
+index 94b3f16e10..a885fd67d3 100644
 --- a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/lib.rs
 +++ b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/lib.rs
-@@ -597,3 +597,13 @@
+@@ -597,3 +597,13 @@ pub use self::wasm_simd::wasm_simd_planner::FftPlannerWasmSimd;
  
  #[cfg(test)]
  mod test_utils;
@@ -189,6 +184,7 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/lib.rs b/
 +#[cfg(all(feature = "portable-neon", target_arch = "x86_64"))]
 +pub use self::portable_neon_fma::neon_planner::FftPlannerNeon as FftPlannerPortableNeonFma;
 diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/mod.rs b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/mod.rs
+index 709c1c70c1..73692bc7c5 100644
 --- a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/mod.rs
 +++ b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/mod.rs
 @@ -1,3 +1,7 @@
@@ -199,7 +195,7 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/mod.
  #[macro_use]
  mod neon_common;
  #[macro_use]
-@@ -12,7 +16,12 @@
+@@ -12,7 +16,12 @@ mod neon_utils;
  
  pub mod neon_planner;
  
@@ -213,91 +209,8 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/mod.
  
  use crate::FftNum;
  use neon_vector::NeonVector;
-diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_common.rs b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_common.rs
---- a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_common.rs
-+++ b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_common.rs
-@@ -146,7 +146,7 @@
- 
- // A wrapper for the FFT helper functions that make sure the entire thing happens with the benefit of the NEON target feature,
- // so that things like loading twiddle factor registers etc can be lifted out of the loop
--#[target_feature(enable = "neon")]
-+#[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
- pub unsafe fn neon_fft_helper_immut<T>(
-     input: &[T],
-     output: &mut [T],
-@@ -167,7 +167,7 @@
- 
- // A wrapper for the FFT helper functions that make sure the entire thing happens with the benefit of the NEON target feature,
- // so that things like loading twiddle factor registers etc can be lifted out of the loop
--#[target_feature(enable = "neon")]
-+#[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
- pub unsafe fn neon_fft_helper_outofplace<T>(
-     input: &mut [T],
-     output: &mut [T],
-@@ -188,7 +188,7 @@
- 
- // A wrapper for the FFT helper functions that make sure the entire thing happens with the benefit of the NEON target feature,
- // so that things like loading twiddle factor registers etc can be lifted out of the loop
--#[target_feature(enable = "neon")]
-+#[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
- pub unsafe fn neon_fft_helper_inplace<T>(
-     buffer: &mut [T],
-     scratch: &mut [T],
-@@ -201,7 +201,7 @@
- 
- // A wrapper for the FFT helper functions that make sure the entire thing happens with the benefit of the NEON target feature,
- // so that things like loading twiddle factor registers etc can be lifted out of the loop
--#[target_feature(enable = "neon")]
-+#[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
- pub unsafe fn neon_fft_helper_immut_unroll2x<T>(
-     input: &[T],
-     output: &mut [T],
-@@ -214,7 +214,7 @@
- 
- // A wrapper for the FFT helper functions that make sure the entire thing happens with the benefit of the NEON target feature,
- // so that things like loading twiddle factor registers etc can be lifted out of the loop
--#[target_feature(enable = "neon")]
-+#[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
- pub unsafe fn neon_fft_helper_outofplace_unroll2x<T>(
-     input: &mut [T],
-     output: &mut [T],
-@@ -227,7 +227,7 @@
- 
- // A wrapper for the FFT helper functions that make sure the entire thing happens with the benefit of the NEON target feature,
- // so that things like loading twiddle factor registers etc can be lifted out of the loop
--#[target_feature(enable = "neon")]
-+#[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
- pub unsafe fn neon_fft_helper_inplace_unroll2x<T>(
-     buffer: &mut [T],
-     chunk_size: usize,
-diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_utils.rs b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_utils.rs
---- a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_utils.rs
-+++ b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_utils.rs
-@@ -1,4 +1,4 @@
--use core::arch::aarch64::*;
-+use super::intrinsics::*;
- 
- //  __  __       _   _               _________  _     _ _
- // |  \/  | __ _| |_| |__           |___ /___ \| |__ (_) |_
-@@ -249,7 +249,7 @@
- #[cfg(test)]
- mod unit_tests {
-     use super::*;
--    use crate::neon::NeonVector;
-+    use super::NeonVector;
-     use num_complex::Complex;
- 
-     #[test]
-diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_vector.rs b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_vector.rs
---- a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_vector.rs
-+++ b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_vector.rs
-@@ -1,4 +1,4 @@
--use core::arch::aarch64::*;
-+use super::intrinsics::*;
- use num_complex::Complex;
- use num_traits::Zero;
- use std::fmt::Debug;
 diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_butterflies.rs b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_butterflies.rs
+index 5df2dbc819..e98836a27b 100644
 --- a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_butterflies.rs
 +++ b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_butterflies.rs
 @@ -1,4 +1,4 @@
@@ -306,7 +219,7 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
  use num_complex::Complex;
  
  use crate::{common::FftNum, FftDirection};
-@@ -207,19 +207,21 @@
+@@ -207,13 +207,14 @@ impl<T: FftNum> NeonF32Butterfly1<T> {
              _phantom: std::marker::PhantomData,
          }
      }
@@ -316,22 +229,22 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
          let value = buffer.load_partial_lo_complex(0);
          buffer.store_partial_lo_complex(value, 0);
      }
--
--    #[inline(always)]
 +    }
-+
+ 
+-    #[inline(always)]
 +    fft_kernel! {
      pub(crate) unsafe fn perform_parallel_fft_contiguous(
          &self,
          mut buffer: impl NeonArrayMut<f32>,
-     ) {
+@@ -221,6 +222,7 @@ impl<T: FftNum> NeonF32Butterfly1<T> {
          let value = buffer.load_complex(0);
          buffer.store_complex(value, 0);
-+    }
      }
++    }
  }
  
-@@ -246,10 +248,11 @@
+ //   _             __   _  _   _     _ _
+@@ -246,11 +248,12 @@ impl<T: FftNum> NeonF64Butterfly1<T> {
              _phantom: std::marker::PhantomData,
          }
      }
@@ -340,11 +253,12 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
      pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f64>) {
          let value = buffer.load_complex(0);
          buffer.store_complex(value, 0);
-+    }
      }
++    }
  }
  
-@@ -276,7 +279,7 @@
+ //   ____            _________  _     _ _
+@@ -276,7 +279,7 @@ impl<T: FftNum> NeonF32Butterfly2<T> {
              _phantom: std::marker::PhantomData,
          }
      }
@@ -353,19 +267,18 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
      pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
          let values = buffer.load_complex(0);
  
-@@ -284,8 +287,9 @@
+@@ -284,8 +287,9 @@ impl<T: FftNum> NeonF32Butterfly2<T> {
  
          buffer.store_complex(temp, 0);
      }
--
--    #[inline(always)]
 +    }
-+
+ 
+-    #[inline(always)]
 +    fft_kernel! {
      pub(crate) unsafe fn perform_parallel_fft_contiguous(
          &self,
          mut buffer: impl NeonArrayMut<f32>,
-@@ -300,23 +304,26 @@
+@@ -300,17 +304,19 @@ impl<T: FftNum> NeonF32Butterfly2<T> {
          buffer.store_complex(out02, 0);
          buffer.store_complex(out13, 2);
      }
@@ -387,14 +300,15 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
      pub(crate) unsafe fn perform_parallel_fft_direct(
          &self,
          values_x: float32x4_t,
-         values_y: float32x4_t,
+@@ -318,6 +324,7 @@ impl<T: FftNum> NeonF32Butterfly2<T> {
      ) -> [float32x4_t; 2] {
          parallel_fft2_contiguous_f32(values_x, values_y)
-+    }
      }
++    }
  }
  
-@@ -373,7 +380,7 @@
+ // double lenth 2 fft of a and b, given as [x0, y0], [x1, y1]
+@@ -373,7 +380,7 @@ impl<T: FftNum> NeonF64Butterfly2<T> {
          }
      }
  
@@ -403,26 +317,26 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
      pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f64>) {
          let value0 = buffer.load_complex(0);
          let value1 = buffer.load_complex(1);
-@@ -383,14 +390,16 @@
+@@ -383,8 +390,9 @@ impl<T: FftNum> NeonF64Butterfly2<T> {
          buffer.store_complex(out[0], 0);
          buffer.store_complex(out[1], 1);
      }
--
--    #[inline(always)]
 +    }
-+
+ 
+-    #[inline(always)]
 +    fft_kernel! {
      pub(crate) unsafe fn perform_fft_direct(
          &self,
          value0: float64x2_t,
-         value1: float64x2_t,
+@@ -392,6 +400,7 @@ impl<T: FftNum> NeonF64Butterfly2<T> {
      ) -> [float64x2_t; 2] {
          solo_fft2_f64(value0, value1)
-+    }
      }
++    }
  }
  
-@@ -440,7 +449,7 @@
+ #[inline(always)]
+@@ -440,7 +449,7 @@ impl<T: FftNum> NeonF32Butterfly3<T> {
              twiddle2im,
          }
      }
@@ -431,19 +345,18 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
      pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
          let value0x = buffer.load_partial_lo_complex(0);
          let value12 = buffer.load_complex(1);
-@@ -450,8 +459,9 @@
+@@ -450,8 +459,9 @@ impl<T: FftNum> NeonF32Butterfly3<T> {
          buffer.store_partial_lo_complex(out[0], 0);
          buffer.store_complex(out[1], 1);
      }
--
--    #[inline(always)]
 +    }
-+
+ 
+-    #[inline(always)]
 +    fft_kernel! {
      pub(crate) unsafe fn perform_parallel_fft_contiguous(
          &self,
          mut buffer: impl NeonArrayMut<f32>,
-@@ -474,11 +484,12 @@
+@@ -474,11 +484,12 @@ impl<T: FftNum> NeonF32Butterfly3<T> {
          buffer.store_complex(out1, 2);
          buffer.store_complex(out2, 4);
      }
@@ -457,7 +370,7 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
      pub(crate) unsafe fn perform_fft_direct(
          &self,
          value0x: float32x4_t,
-@@ -493,10 +504,11 @@
+@@ -493,10 +504,11 @@ impl<T: FftNum> NeonF32Butterfly3<T> {
          let out0x = vaddq_f32(value0x, temp12pn);
          [out0x, out12]
      }
@@ -470,15 +383,15 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
      pub(crate) unsafe fn perform_parallel_fft_direct(
          &self,
          value0: float32x4_t,
-@@ -514,6 +526,7 @@
-         let x1 = vfmaq_f32(temp, self.twiddle1im, n_rot);
+@@ -515,6 +527,7 @@ impl<T: FftNum> NeonF32Butterfly3<T> {
          let x2 = vfmaq_f32(temp, self.twiddle2im, n_rot);
          [x0, x1, x2]
-+    }
      }
++    }
  }
  
-@@ -555,7 +568,7 @@
+ //   _____             __   _  _   _     _ _
+@@ -555,7 +568,7 @@ impl<T: FftNum> NeonF64Butterfly3<T> {
          }
      }
  
@@ -487,7 +400,7 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
      pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f64>) {
          let value0 = buffer.load_complex(0);
          let value1 = buffer.load_complex(1);
-@@ -567,10 +580,11 @@
+@@ -567,10 +580,11 @@ impl<T: FftNum> NeonF64Butterfly3<T> {
          buffer.store_complex(out[1], 1);
          buffer.store_complex(out[2], 2);
      }
@@ -500,15 +413,15 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
      pub(crate) unsafe fn perform_fft_direct(
          &self,
          value0: float64x2_t,
-@@ -588,6 +602,7 @@
-         let x1 = vfmaq_f64(temp, self.twiddle1im, n_rot);
+@@ -589,6 +603,7 @@ impl<T: FftNum> NeonF64Butterfly3<T> {
          let x2 = vfmaq_f64(temp, self.twiddle2im, n_rot);
          [x0, x1, x2]
-+    }
      }
++    }
  }
  
-@@ -621,7 +636,7 @@
+ //   _  _             _________  _     _ _
+@@ -621,7 +636,7 @@ impl<T: FftNum> NeonF32Butterfly4<T> {
              rotate,
          }
      }
@@ -517,19 +430,18 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
      pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
          let value01 = buffer.load_complex(0);
          let value23 = buffer.load_complex(2);
-@@ -631,8 +646,9 @@
+@@ -631,8 +646,9 @@ impl<T: FftNum> NeonF32Butterfly4<T> {
          buffer.store_complex(out[0], 0);
          buffer.store_complex(out[1], 2);
      }
--
--    #[inline(always)]
 +    }
-+
+ 
+-    #[inline(always)]
 +    fft_kernel! {
      pub(crate) unsafe fn perform_parallel_fft_contiguous(
          &self,
          mut buffer: impl NeonArrayMut<f32>,
-@@ -655,10 +671,11 @@
+@@ -655,10 +671,11 @@ impl<T: FftNum> NeonF32Butterfly4<T> {
          buffer.store_complex(out2, 2);
          buffer.store_complex(out3, 6);
      }
@@ -542,27 +454,26 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
      pub(crate) unsafe fn perform_fft_direct(
          &self,
          value01: float32x4_t,
-@@ -682,8 +699,9 @@
+@@ -682,8 +699,9 @@ impl<T: FftNum> NeonF32Butterfly4<T> {
          // step 6: transpose by swapping index 1 and 2
          parallel_fft2_contiguous_f32(temp[0], temp[1])
      }
--
--    #[inline(always)]
 +    }
-+
+ 
+-    #[inline(always)]
 +    fft_kernel! {
      pub(crate) unsafe fn perform_parallel_fft_direct(
          &self,
          values: [float32x4_t; 4],
-@@ -708,6 +726,7 @@
- 
+@@ -709,6 +727,7 @@ impl<T: FftNum> NeonF32Butterfly4<T> {
          // step 6: transpose by swapping index 1 and 2
          [out0[0], out2[0], out0[1], out2[1]]
-+    }
      }
++    }
  }
  
-@@ -743,7 +762,7 @@
+ //   _  _              __   _  _   _     _ _
+@@ -743,7 +762,7 @@ impl<T: FftNum> NeonF64Butterfly4<T> {
          }
      }
  
@@ -571,27 +482,26 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
      pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f64>) {
          let value0 = buffer.load_complex(0);
          let value1 = buffer.load_complex(1);
-@@ -757,8 +776,9 @@
+@@ -757,8 +776,9 @@ impl<T: FftNum> NeonF64Butterfly4<T> {
          buffer.store_complex(out[2], 2);
          buffer.store_complex(out[3], 3);
      }
--
--    #[inline(always)]
 +    }
-+
+ 
+-    #[inline(always)]
 +    fft_kernel! {
      pub(crate) unsafe fn perform_fft_direct(&self, values: [float64x2_t; 4]) -> [float64x2_t; 4] {
          //we're going to hardcode a step of mixed radix
          //aka we're going to do the six step algorithm
-@@ -780,6 +800,7 @@
- 
+@@ -781,6 +801,7 @@ impl<T: FftNum> NeonF64Butterfly4<T> {
          // step 6: transpose by swapping index 1 and 2
          [out0[0], out2[0], out0[1], out2[1]]
-+    }
      }
++    }
  }
  
-@@ -836,7 +857,7 @@
+ //   ____             _________  _     _ _
+@@ -836,7 +857,7 @@ impl<T: FftNum> NeonF32Butterfly5<T> {
              twiddle2im,
          }
      }
@@ -600,19 +510,18 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
      pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
          let value00 = buffer.load1_complex(0);
          let value12 = buffer.load_complex(1);
-@@ -848,8 +869,9 @@
+@@ -848,8 +869,9 @@ impl<T: FftNum> NeonF32Butterfly5<T> {
          buffer.store_complex(out[1], 1);
          buffer.store_complex(out[2], 3);
      }
--
--    #[inline(always)]
 +    }
-+
+ 
+-    #[inline(always)]
 +    fft_kernel! {
      pub(crate) unsafe fn perform_parallel_fft_contiguous(
          &self,
          mut buffer: impl NeonArrayMut<f32>,
-@@ -874,11 +896,12 @@
+@@ -874,11 +896,12 @@ impl<T: FftNum> NeonF32Butterfly5<T> {
  
          write_complex_to_array_strided!(out_packed, buffer, 2, {0, 1, 2, 3, 4});
      }
@@ -626,7 +535,7 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
      pub(crate) unsafe fn perform_fft_direct(
          &self,
          value00: float32x4_t,
-@@ -910,10 +933,11 @@
+@@ -910,10 +933,11 @@ impl<T: FftNum> NeonF32Butterfly5<T> {
          let x34 = reverse_complex_elements_f32(vsubq_f32(temp_a, b_rot));
          [x00, x12, x34]
      }
@@ -639,7 +548,7 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
      pub(crate) unsafe fn perform_parallel_fft_direct(
          &self,
          value0: float32x4_t,
-@@ -950,6 +974,7 @@
+@@ -950,6 +974,7 @@ impl<T: FftNum> NeonF32Butterfly5<T> {
              vsubq_f32(temp_a1, self.rotate.rotate_both(temp_b1)),
          ]
      }
@@ -647,7 +556,7 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
  }
  
  //   ____              __   _  _   _     _ _
-@@ -994,7 +1019,7 @@
+@@ -994,7 +1019,7 @@ impl<T: FftNum> NeonF64Butterfly5<T> {
          }
      }
  
@@ -656,7 +565,7 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
      pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f64>) {
          let value0 = buffer.load_complex(0);
          let value1 = buffer.load_complex(1);
-@@ -1010,10 +1035,11 @@
+@@ -1010,10 +1035,11 @@ impl<T: FftNum> NeonF64Butterfly5<T> {
          buffer.store_complex(out[3], 3);
          buffer.store_complex(out[4], 4);
      }
@@ -669,7 +578,7 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
      pub(crate) unsafe fn perform_fft_direct(
          &self,
          value0: float64x2_t,
-@@ -1054,6 +1080,7 @@
+@@ -1054,6 +1080,7 @@ impl<T: FftNum> NeonF64Butterfly5<T> {
              vsubq_f64(temp_a1, temp_b1_rot),
          ]
      }
@@ -677,7 +586,7 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
  }
  
  //    __             _________  _     _ _
-@@ -1083,7 +1110,7 @@
+@@ -1083,7 +1110,7 @@ impl<T: FftNum> NeonF32Butterfly6<T> {
          }
      }
  
@@ -686,43 +595,40 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
      pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
          let value01 = buffer.load_complex(0);
          let value23 = buffer.load_complex(2);
-@@ -1095,8 +1122,9 @@
+@@ -1095,8 +1122,9 @@ impl<T: FftNum> NeonF32Butterfly6<T> {
          buffer.store_complex(out[1], 2);
          buffer.store_complex(out[2], 4);
      }
--
--    #[inline(always)]
 +    }
-+
+ 
+-    #[inline(always)]
 +    fft_kernel! {
      pub(crate) unsafe fn perform_parallel_fft_contiguous(
          &self,
          mut buffer: impl NeonArrayMut<f32>,
-@@ -1112,8 +1140,9 @@
+@@ -1112,8 +1140,9 @@ impl<T: FftNum> NeonF32Butterfly6<T> {
          let out_sorted = separate_interleaved_complex_f32!(out, {0, 2, 4});
          write_complex_to_array_strided!(out_sorted, buffer, 2, {0, 1, 2, 3, 4, 5});
      }
--
--    #[inline(always)]
 +    }
-+
+ 
+-    #[inline(always)]
 +    fft_kernel! {
      pub(crate) unsafe fn perform_fft_direct(
          &self,
          value01: float32x4_t,
-@@ -1142,8 +1171,9 @@
+@@ -1142,8 +1171,9 @@ impl<T: FftNum> NeonF32Butterfly6<T> {
              extract_hi_hi_f32(output0, output2),
          ]
      }
--
--    #[inline(always)]
 +    }
-+
+ 
+-    #[inline(always)]
 +    fft_kernel! {
      pub(crate) unsafe fn perform_parallel_fft_direct(
          &self,
          value0: float32x4_t,
-@@ -1169,6 +1199,7 @@
+@@ -1169,6 +1199,7 @@ impl<T: FftNum> NeonF32Butterfly6<T> {
          // Reorder into output
          [output0, output3, output4, output1, output2, output5]
      }
@@ -730,7 +636,7 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
  }
  
  //    __              __   _  _   _     _ _
-@@ -1198,7 +1229,7 @@
+@@ -1198,7 +1229,7 @@ impl<T: FftNum> NeonF64Butterfly6<T> {
          }
      }
  
@@ -739,27 +645,26 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
      pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f64>) {
          let value0 = buffer.load_complex(0);
          let value1 = buffer.load_complex(1);
-@@ -1216,8 +1247,9 @@
+@@ -1216,8 +1247,9 @@ impl<T: FftNum> NeonF64Butterfly6<T> {
          buffer.store_complex(out[4], 4);
          buffer.store_complex(out[5], 5);
      }
--
--    #[inline(always)]
 +    }
-+
+ 
+-    #[inline(always)]
 +    fft_kernel! {
      pub(crate) unsafe fn perform_fft_direct(&self, values: [float64x2_t; 6]) -> [float64x2_t; 6] {
          // Algorithm: 3x2 good-thomas
  
-@@ -1234,6 +1266,7 @@
- 
+@@ -1235,6 +1267,7 @@ impl<T: FftNum> NeonF64Butterfly6<T> {
          // Reorder into output
          [output0, output3, output4, output1, output2, output5]
-+    }
      }
++    }
  }
  
-@@ -1275,7 +1308,7 @@
+ //    ___            _________  _     _ _
+@@ -1275,7 +1308,7 @@ impl<T: FftNum> NeonF32Butterfly8<T> {
          }
      }
  
@@ -768,51 +673,48 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
      unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
          let input_packed = read_complex_to_array!(buffer, {0, 2, 4, 6});
  
-@@ -1283,8 +1316,9 @@
+@@ -1283,8 +1316,9 @@ impl<T: FftNum> NeonF32Butterfly8<T> {
  
          write_complex_to_array_strided!(out, buffer, 2, {0,1,2,3});
      }
--
--    #[inline(always)]
 +    }
-+
+ 
+-    #[inline(always)]
 +    fft_kernel! {
      pub(crate) unsafe fn perform_parallel_fft_contiguous(
          &self,
          mut buffer: impl NeonArrayMut<f32>,
-@@ -1299,8 +1333,9 @@
+@@ -1299,8 +1333,9 @@ impl<T: FftNum> NeonF32Butterfly8<T> {
  
          write_complex_to_array_strided!(out_sorted, buffer, 2, {0,1,2,3,4,5,6,7});
      }
--
--    #[inline(always)]
 +    }
-+
+ 
+-    #[inline(always)]
 +    fft_kernel! {
      unsafe fn perform_fft_direct(&self, values: [float32x4_t; 4]) -> [float32x4_t; 4] {
          // we're going to hardcode a step of mixed radix
          // step 1: copy and reorder the input into the scratch
-@@ -1331,8 +1366,9 @@
+@@ -1331,8 +1366,9 @@ impl<T: FftNum> NeonF32Butterfly8<T> {
          // step 6: rearrange and copy to buffer
          [out0[0], out1[0], out0[1], out1[1]]
      }
--
--    #[inline(always)]
 +    }
-+
+ 
+-    #[inline(always)]
 +    fft_kernel! {
      unsafe fn perform_parallel_fft_direct(&self, values: [float32x4_t; 8]) -> [float32x4_t; 8] {
          // we're going to hardcode a step of mixed radix
          // step 1: copy and reorder the input into the scratch
-@@ -1366,6 +1402,7 @@
-         [
+@@ -1367,6 +1403,7 @@ impl<T: FftNum> NeonF32Butterfly8<T> {
              out0[0], out1[0], out2[0], out3[0], out0[1], out1[1], out2[1], out3[1],
          ]
-+    }
      }
++    }
  }
  
-@@ -1403,7 +1440,7 @@
+ //    ___             __   _  _   _     _ _
+@@ -1403,7 +1440,7 @@ impl<T: FftNum> NeonF64Butterfly8<T> {
          }
      }
  
@@ -821,27 +723,26 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
      unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f64>) {
          let values = read_complex_to_array!(buffer, {0, 1, 2, 3, 4, 5, 6, 7});
  
-@@ -1411,8 +1448,9 @@
+@@ -1411,8 +1448,9 @@ impl<T: FftNum> NeonF64Butterfly8<T> {
  
          write_complex_to_array!(out, buffer, {0, 1, 2, 3, 4, 5, 6, 7});
      }
--
--    #[inline(always)]
 +    }
-+
+ 
+-    #[inline(always)]
 +    fft_kernel! {
      unsafe fn perform_fft_direct(&self, values: [float64x2_t; 8]) -> [float64x2_t; 8] {
          // we're going to hardcode a step of mixed radix
          // step 1: copy and reorder the input into the scratch
-@@ -1446,6 +1484,7 @@
-         [
+@@ -1447,6 +1485,7 @@ impl<T: FftNum> NeonF64Butterfly8<T> {
              out0[0], out1[0], out2[0], out3[0], out0[1], out1[1], out2[1], out3[1],
          ]
-+    }
      }
++    }
  }
  
-@@ -1487,7 +1526,7 @@
+ //    ___            _________  _     _ _
+@@ -1487,7 +1526,7 @@ impl<T: FftNum> NeonF32Butterfly9<T> {
          }
      }
  
@@ -850,39 +751,37 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
      pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
          // A single Neon 9-point will need a lot of shuffling, let's just reuse the dual one
          let values = read_partial1_complex_to_array!(buffer, {0,1,2,3,4,5,6,7,8});
-@@ -1498,8 +1537,9 @@
+@@ -1498,8 +1537,9 @@ impl<T: FftNum> NeonF32Butterfly9<T> {
              buffer.store_partial_lo_complex(out[n], n);
          }
      }
--
--    #[inline(always)]
 +    }
-+
+ 
+-    #[inline(always)]
 +    fft_kernel! {
      pub(crate) unsafe fn perform_parallel_fft_contiguous(
          &self,
          mut buffer: impl NeonArrayMut<f32>,
-@@ -1534,8 +1574,9 @@
+@@ -1534,8 +1574,9 @@ impl<T: FftNum> NeonF32Butterfly9<T> {
  
          write_complex_to_array_strided!(out_packed, buffer, 2, {0,1,2,3,4,5,6,7,8});
      }
--
--    #[inline(always)]
 +    }
-+
+ 
+-    #[inline(always)]
 +    fft_kernel! {
      pub(crate) unsafe fn perform_parallel_fft_direct(
          &self,
          values: [float32x4_t; 9],
-@@ -1572,6 +1613,7 @@
-         [
+@@ -1573,6 +1614,7 @@ impl<T: FftNum> NeonF32Butterfly9<T> {
              output0, output3, output6, output1, output4, output7, output2, output5, output8,
          ]
-+    }
      }
++    }
  }
  
-@@ -1614,7 +1656,7 @@
+ //    ___             __   _  _   _     _ _
+@@ -1614,7 +1656,7 @@ impl<T: FftNum> NeonF64Butterfly9<T> {
          }
      }
  
@@ -891,27 +790,26 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
      pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f64>) {
          let values = read_complex_to_array!(buffer, {0, 1, 2, 3, 4, 5, 6, 7, 8});
  
-@@ -1622,8 +1664,9 @@
+@@ -1622,8 +1664,9 @@ impl<T: FftNum> NeonF64Butterfly9<T> {
  
          write_complex_to_array!(out, buffer, {0, 1, 2, 3, 4, 5, 6, 7, 8});
      }
--
--    #[inline(always)]
 +    }
-+
+ 
+-    #[inline(always)]
 +    fft_kernel! {
      pub(crate) unsafe fn perform_fft_direct(&self, values: [float64x2_t; 9]) -> [float64x2_t; 9] {
          // Algorithm: 3x3 mixed radix
  
-@@ -1645,6 +1688,7 @@
-         [
+@@ -1646,6 +1689,7 @@ impl<T: FftNum> NeonF64Butterfly9<T> {
              output0, output3, output6, output1, output4, output7, output2, output5, output8,
          ]
-+    }
      }
++    }
  }
  
-@@ -1674,7 +1718,7 @@
+ //   _  ___            _________  _     _ _
+@@ -1674,7 +1718,7 @@ impl<T: FftNum> NeonF32Butterfly10<T> {
          }
      }
  
@@ -920,51 +818,48 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
      unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
          let input_packed = read_complex_to_array!(buffer, {0, 2, 4, 6, 8});
  
-@@ -1682,8 +1726,9 @@
+@@ -1682,8 +1726,9 @@ impl<T: FftNum> NeonF32Butterfly10<T> {
  
          write_complex_to_array_strided!(out, buffer, 2, {0,1,2,3,4});
      }
--
--    #[inline(always)]
 +    }
-+
+ 
+-    #[inline(always)]
 +    fft_kernel! {
      pub(crate) unsafe fn perform_parallel_fft_contiguous(
          &self,
          mut buffer: impl NeonArrayMut<f32>,
-@@ -1698,8 +1743,9 @@
+@@ -1698,8 +1743,9 @@ impl<T: FftNum> NeonF32Butterfly10<T> {
  
          write_complex_to_array_strided!(out_sorted, buffer, 2, {0,1,2,3,4,5,6,7,8,9});
      }
--
--    #[inline(always)]
 +    }
-+
+ 
+-    #[inline(always)]
 +    fft_kernel! {
      pub(crate) unsafe fn perform_fft_direct(&self, values: [float32x4_t; 5]) -> [float32x4_t; 5] {
          // Algorithm: 5x2 good-thomas
          // Reorder and pack
-@@ -1730,8 +1776,9 @@
+@@ -1730,8 +1776,9 @@ impl<T: FftNum> NeonF32Butterfly10<T> {
  
          [out01, out23, out45, out67, out89]
      }
--
--    #[inline(always)]
 +    }
-+
+ 
+-    #[inline(always)]
 +    fft_kernel! {
      pub(crate) unsafe fn perform_parallel_fft_direct(
          &self,
          values: [float32x4_t; 10],
-@@ -1760,6 +1807,7 @@
-             output0, output3, output4, output7, output8, output1, output2, output5, output6,
+@@ -1761,6 +1808,7 @@ impl<T: FftNum> NeonF32Butterfly10<T> {
              output9,
          ]
-+    }
      }
++    }
  }
  
-@@ -1792,7 +1840,7 @@
+ //   _  ___             __   _  _   _     _ _
+@@ -1792,7 +1840,7 @@ impl<T: FftNum> NeonF64Butterfly10<T> {
          }
      }
  
@@ -973,27 +868,26 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
      pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f64>) {
          let values = read_complex_to_array!(buffer, {0, 1, 2, 3, 4, 5, 6, 7, 8, 9});
  
-@@ -1800,8 +1848,9 @@
+@@ -1800,8 +1848,9 @@ impl<T: FftNum> NeonF64Butterfly10<T> {
  
          write_complex_to_array!(out, buffer, {0, 1, 2, 3, 4, 5, 6, 7, 8, 9});
      }
--
--    #[inline(always)]
 +    }
-+
+ 
+-    #[inline(always)]
 +    fft_kernel! {
      pub(crate) unsafe fn perform_fft_direct(&self, values: [float64x2_t; 10]) -> [float64x2_t; 10] {
          // Algorithm: 5x2 good-thomas
  
-@@ -1827,6 +1876,7 @@
-             output0, output3, output4, output7, output8, output1, output2, output5, output6,
+@@ -1828,6 +1877,7 @@ impl<T: FftNum> NeonF64Butterfly10<T> {
              output9,
          ]
-+    }
      }
++    }
  }
  
-@@ -1859,7 +1909,7 @@
+ //   _ ____            _________  _     _ _
+@@ -1859,7 +1909,7 @@ impl<T: FftNum> NeonF32Butterfly12<T> {
          }
      }
  
@@ -1002,43 +896,40 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
      unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
          let input_packed = read_complex_to_array!(buffer, {0, 2, 4, 6, 8, 10 });
  
-@@ -1867,8 +1917,9 @@
+@@ -1867,8 +1917,9 @@ impl<T: FftNum> NeonF32Butterfly12<T> {
  
          write_complex_to_array_strided!(out, buffer, 2, {0,1,2,3,4,5});
      }
--
--    #[inline(always)]
 +    }
-+
+ 
+-    #[inline(always)]
 +    fft_kernel! {
      pub(crate) unsafe fn perform_parallel_fft_contiguous(
          &self,
          mut buffer: impl NeonArrayMut<f32>,
-@@ -1884,8 +1935,9 @@
+@@ -1884,8 +1935,9 @@ impl<T: FftNum> NeonF32Butterfly12<T> {
  
          write_complex_to_array_strided!(out_sorted, buffer, 2, {0,1,2,3,4,5,6,7,8,9, 10, 11});
      }
--
--    #[inline(always)]
 +    }
-+
+ 
+-    #[inline(always)]
 +    fft_kernel! {
      pub(crate) unsafe fn perform_fft_direct(&self, values: [float32x4_t; 6]) -> [float32x4_t; 6] {
          // Algorithm: 4x3 good-thomas
  
-@@ -1922,8 +1974,9 @@
+@@ -1922,8 +1974,9 @@ impl<T: FftNum> NeonF32Butterfly12<T> {
              extract_lo_hi_f32(temp710, temp811),
          ]
      }
--
--    #[inline(always)]
 +    }
-+
+ 
+-    #[inline(always)]
 +    fft_kernel! {
      pub(crate) unsafe fn perform_parallel_fft_direct(
          &self,
          values: [float32x4_t; 12],
-@@ -1963,6 +2016,7 @@
+@@ -1963,6 +2016,7 @@ impl<T: FftNum> NeonF32Butterfly12<T> {
              output3, output7, output11,
          ]
      }
@@ -1046,7 +937,7 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
  }
  
  //   _ ____             __   _  _   _     _ _
-@@ -1994,7 +2048,7 @@
+@@ -1994,7 +2048,7 @@ impl<T: FftNum> NeonF64Butterfly12<T> {
          }
      }
  
@@ -1055,27 +946,26 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
      pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f64>) {
          let values = read_complex_to_array!(buffer, {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11});
  
-@@ -2002,8 +2056,9 @@
+@@ -2002,8 +2056,9 @@ impl<T: FftNum> NeonF64Butterfly12<T> {
  
          write_complex_to_array!(out, buffer, {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11});
      }
--
--    #[inline(always)]
 +    }
-+
+ 
+-    #[inline(always)]
 +    fft_kernel! {
      pub(crate) unsafe fn perform_fft_direct(&self, values: [float64x2_t; 12]) -> [float64x2_t; 12] {
          // Algorithm: 4x3 good-thomas
  
-@@ -2030,6 +2085,7 @@
-             output0, output4, output8, output9, output1, output5, output6, output10, output2,
+@@ -2031,6 +2086,7 @@ impl<T: FftNum> NeonF64Butterfly12<T> {
              output3, output7, output11,
          ]
-+    }
      }
++    }
  }
  
-@@ -2061,7 +2117,7 @@
+ //   _ ____            _________  _     _ _
+@@ -2061,7 +2117,7 @@ impl<T: FftNum> NeonF32Butterfly15<T> {
          }
      }
  
@@ -1084,31 +974,29 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
      pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
          // A single Neon 15-point will need a lot of shuffling, let's just reuse the dual one
          let values = read_partial1_complex_to_array!(buffer, {0,1,2,3,4,5,6,7,8,9,10,11,12,13,14});
-@@ -2072,8 +2128,9 @@
+@@ -2072,8 +2128,9 @@ impl<T: FftNum> NeonF32Butterfly15<T> {
              buffer.store_partial_lo_complex(out[n], n);
          }
      }
--
--    #[inline(always)]
 +    }
-+
+ 
+-    #[inline(always)]
 +    fft_kernel! {
      pub(crate) unsafe fn perform_parallel_fft_contiguous(
          &self,
          mut buffer: impl NeonArrayMut<f32>,
-@@ -2121,8 +2178,9 @@
+@@ -2121,8 +2178,9 @@ impl<T: FftNum> NeonF32Butterfly15<T> {
  
          write_complex_to_array_strided!(out_packed, buffer, 2, {0,1,2,3,4,5,6,7,8,9, 10, 11, 12, 13, 14});
      }
--
--    #[inline(always)]
 +    }
-+
+ 
+-    #[inline(always)]
 +    fft_kernel! {
      pub(crate) unsafe fn perform_parallel_fft_direct(
          &self,
          values: [float32x4_t; 15],
-@@ -2164,6 +2222,7 @@
+@@ -2164,6 +2222,7 @@ impl<T: FftNum> NeonF32Butterfly15<T> {
              output12, output1, output5, output6, output10, output14,
          ]
      }
@@ -1116,7 +1004,7 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
  }
  
  //   _ ____             __   _  _   _     _ _
-@@ -2195,7 +2254,7 @@
+@@ -2195,7 +2254,7 @@ impl<T: FftNum> NeonF64Butterfly15<T> {
          }
      }
  
@@ -1125,27 +1013,26 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
      pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f64>) {
          let values =
              read_complex_to_array!(buffer, {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14});
-@@ -2204,8 +2263,9 @@
+@@ -2204,8 +2263,9 @@ impl<T: FftNum> NeonF64Butterfly15<T> {
  
          write_complex_to_array!(out, buffer, {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14});
      }
--
--    #[inline(always)]
 +    }
-+
+ 
+-    #[inline(always)]
 +    fft_kernel! {
      pub(crate) unsafe fn perform_fft_direct(&self, values: [float64x2_t; 15]) -> [float64x2_t; 15] {
          // Algorithm: 5x3 good-thomas
  
-@@ -2233,6 +2293,7 @@
-             output0, output4, output8, output9, output13, output2, output3, output7, output11,
+@@ -2234,6 +2294,7 @@ impl<T: FftNum> NeonF64Butterfly15<T> {
              output12, output1, output5, output6, output10, output14,
          ]
-+    }
      }
++    }
  }
  
-@@ -2283,7 +2344,7 @@
+ //   _  __             _________  _     _ _
+@@ -2283,7 +2344,7 @@ impl<T: FftNum> NeonF32Butterfly16<T> {
          }
      }
  
@@ -1154,18 +1041,17 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
      unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
          // To make the best possible use of registers, we're going to write this algorithm in an unusual way
          // It's 4x4 mixed radix, so we're going to do the usual steps of size-4 FFTs down the columns, apply twiddle factors, then transpose and do size-4 FFTs again
-@@ -2334,7 +2395,9 @@
+@@ -2334,7 +2395,9 @@ impl<T: FftNum> NeonF32Butterfly16<T> {
              .perform_parallel_fft_direct([mid4, mid5, mid6, mid7]);
          store(2, out1);
      }
--
 +    }
-+
+ 
 +    fft_kernel_noinline! {
      pub(crate) unsafe fn perform_parallel_fft_contiguous(
          &self,
          mut buffer: impl NeonArrayMut<f32>,
-@@ -2402,6 +2465,7 @@
+@@ -2402,6 +2465,7 @@ impl<T: FftNum> NeonF32Butterfly16<T> {
              .perform_parallel_fft_direct([tmp0[3], tmp1[3], tmp2[3], tmp3[3]]);
          store(2, out2, out3);
      }
@@ -1173,7 +1059,7 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
  }
  //   _  __              __   _  _   _     _ _
  //  / |/ /_            / /_ | || | | |__ (_) |_
-@@ -2438,7 +2502,7 @@
+@@ -2438,7 +2502,7 @@ impl<T: FftNum> NeonF64Butterfly16<T> {
          }
      }
  
@@ -1182,15 +1068,15 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
      unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f64>) {
          // To make the best possible use of registers, we're going to write this algorithm in an unusual way
          // It's 4x4 mixed radix, so we're going to do the usual steps of size-4 FFTs down the columns, apply twiddle factors, then transpose and do size-4 FFTs again
-@@ -2503,6 +2567,7 @@
-             .bf4
+@@ -2504,6 +2568,7 @@ impl<T: FftNum> NeonF64Butterfly16<T> {
              .perform_fft_direct([tmp0[3], tmp1[3], tmp2[3], tmp3[3]]);
          store(3, out3);
-+    }
      }
++    }
  }
  
-@@ -2569,7 +2634,7 @@
+ //    ___ _  _             _________  _     _ _
+@@ -2569,7 +2634,7 @@ impl<T: FftNum> NeonF32Butterfly24<T> {
          }
      }
  
@@ -1199,19 +1085,18 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
      unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
          // To make the best possible use of registers, we're going to write this algorithm in an unusual way
          // It's 6x4 mixed radix, so we're going to do the usual steps of size-4 FFTs down the columns, apply twiddle factors, then transpose and do size-6 FFTs
-@@ -2630,8 +2695,9 @@
+@@ -2630,8 +2695,9 @@ impl<T: FftNum> NeonF32Butterfly24<T> {
              .perform_parallel_fft_direct(mid6, mid7, mid8, mid9, mid10, mid11);
          store(2, out1);
      }
--
--    #[inline(always)]
 +    }
-+
+ 
+-    #[inline(always)]
 +    fft_kernel! {
      pub(crate) unsafe fn perform_parallel_fft_contiguous(
          &self,
          mut buffer: impl NeonArrayMut<f32>,
-@@ -2709,6 +2775,7 @@
+@@ -2709,6 +2775,7 @@ impl<T: FftNum> NeonF32Butterfly24<T> {
              .perform_parallel_fft_direct(tmp0[3], tmp1[3], tmp2[3], tmp3[3], tmp4[3], tmp5[3]);
          store(2, out2, out3);
      }
@@ -1219,7 +1104,7 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
  }
  
  //    ___ _  _              __   _  _   _     _ _
-@@ -2757,7 +2824,7 @@
+@@ -2757,7 +2824,7 @@ impl<T: FftNum> NeonF64Butterfly24<T> {
          }
      }
  
@@ -1228,15 +1113,15 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
      unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f64>) {
          // To make the best possible use of registers, we're going to write this algorithm in an unusual way
          // It's 6x4 mixed radix, so we're going to do the usual steps of size-4 FFTs down the columns, apply twiddle factors, then transpose and do size-6 FFTs
-@@ -2834,6 +2901,7 @@
-             .bf6
+@@ -2835,6 +2902,7 @@ impl<T: FftNum> NeonF64Butterfly24<T> {
              .perform_fft_direct([tmp0[3], tmp1[3], tmp2[3], tmp3[3], tmp4[3], tmp5[3]]);
          store(3, out3);
-+    }
      }
++    }
  }
  
-@@ -2918,7 +2986,7 @@
+ //   _________            _________  _     _ _
+@@ -2918,7 +2986,7 @@ impl<T: FftNum> NeonF32Butterfly32<T> {
          }
      }
  
@@ -1245,19 +1130,18 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
      unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
          // To make the best possible use of registers, we're going to write this algorithm in an unusual way
          // It's 8x4 mixed radix, so we're going to do the usual steps of size-4 FFTs down the columns, apply twiddle factors, then transpose and do size-8 FFTs
-@@ -2988,8 +3056,9 @@
+@@ -2988,8 +3056,9 @@ impl<T: FftNum> NeonF32Butterfly32<T> {
              .perform_parallel_fft_direct([mid8, mid9, mid10, mid11, mid12, mid13, mid14, mid15]);
          store(2, out1);
      }
--
--    #[inline(always)]
 +    }
-+
+ 
+-    #[inline(always)]
 +    fft_kernel! {
      pub(crate) unsafe fn perform_parallel_fft_contiguous(
          &self,
          mut buffer: impl NeonArrayMut<f32>,
-@@ -3077,6 +3146,7 @@
+@@ -3077,6 +3146,7 @@ impl<T: FftNum> NeonF32Butterfly32<T> {
          ]);
          store(2, out2, out3);
      }
@@ -1265,7 +1149,7 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
  }
  
  //   _________             __   _  _   _     _ _
-@@ -3142,7 +3212,7 @@
+@@ -3142,7 +3212,7 @@ impl<T: FftNum> NeonF64Butterfly32<T> {
          }
      }
  
@@ -1274,7 +1158,7 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
      unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f64>) {
          // To make the best possible use of registers, we're going to write this algorithm in an unusual way
          // It's 8x4 mixed radix, so we're going to do the usual steps of size-4 FFTs down the columns, apply twiddle factors, then transpose and do size-8 FFTs
-@@ -3232,6 +3302,7 @@
+@@ -3232,6 +3302,7 @@ impl<T: FftNum> NeonF64Butterfly32<T> {
          ]);
          store(3, out3);
      }
@@ -1282,750 +1166,69 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
  }
  
  #[cfg(test)]
-diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_prime_butterflies.rs b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_prime_butterflies.rs
---- a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_prime_butterflies.rs
-+++ b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_prime_butterflies.rs
-@@ -1,4 +1,4 @@
--use core::arch::aarch64::{float32x4_t, float64x2_t};
-+use super::intrinsics::{float32x4_t, float64x2_t};
- use std::any::TypeId;
- use std::sync::Arc;
- use num_complex::Complex;
-@@ -34,7 +34,7 @@
- }
+diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_common.rs b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_common.rs
+index b0ae539f60..934a98ff5a 100644
+--- a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_common.rs
++++ b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_common.rs
+@@ -146,7 +146,7 @@ macro_rules! boilerplate_fft_neon_oop {
  
- /// Safety: The current machine must support the neon target feature
+ // A wrapper for the FFT helper functions that make sure the entire thing happens with the benefit of the NEON target feature,
+ // so that things like loading twiddle factor registers etc can be lifted out of the loop
 -#[target_feature(enable = "neon")]
 +#[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
- pub unsafe fn construct_prime_butterfly<T: FftNum>(len: usize, direction: FftDirection) -> Arc<dyn Fft<T>> {
-     let id_f32 = TypeId::of::<f32>();
-     let id_f64 = TypeId::of::<f64>();
-@@ -88,7 +88,7 @@
- boilerplate_fft_neon_f32_butterfly!(NeonF32Butterfly7, 7, |this: &NeonF32Butterfly7<_>| this.direction);
- impl<T: FftNum> NeonF32Butterfly7<T> {
-     /// Safety: The current machine must support the neon instruction set
--    #[target_feature(enable = "neon")]
-+    #[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
-     unsafe fn new(direction: FftDirection) -> Self {
-         assert_f32::<T>();
-         let twiddles = make_twiddles(7, direction);
-@@ -100,7 +100,7 @@
-         }
-     }
- 
--    #[inline(always)]
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
-         let values = read_partial1_complex_to_array!(buffer, { 0,1,2,3,4,5,6 });
- 
-@@ -108,8 +108,9 @@
-         
-         write_partial_lo_complex_to_array!(out, buffer, { 0,1,2,3,4,5,6 } ); 
-     }
--
--    #[inline(always)]
-+    }
-+
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_parallel_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
-         let input_packed = read_complex_to_array!(buffer, { 0,2,4,6,8,10,12 });
- 
-@@ -137,8 +138,9 @@
- 
-         write_complex_to_array_strided!(out_packed, buffer, 2, { 0,1,2,3,4,5,6 });
-     }
--
--    #[inline(always)]
-+    }
-+
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_parallel_fft_direct(&self, values: [float32x4_t; 7]) -> [float32x4_t; 7] {
-         let rotate = NeonVector::make_rotate90(FftDirection::Inverse);
- 
-@@ -180,6 +182,7 @@
- 
-         [y00, y01, y02, y03, y04, y05, y06]
-     }
-+    }
- }
- 
- struct NeonF64Butterfly7<T> {
-@@ -192,7 +195,7 @@
- boilerplate_fft_neon_f64_butterfly!(NeonF64Butterfly7, 7, |this: &NeonF64Butterfly7<_>| this.direction);
- impl<T: FftNum> NeonF64Butterfly7<T> {
-     /// Safety: The current machine must support the neon instruction set
--    #[target_feature(enable = "neon")]
-+    #[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
-     unsafe fn new(direction: FftDirection) -> Self {
-         assert_f64::<T>();
-         let twiddles = make_twiddles(7, direction);
-@@ -204,7 +207,7 @@
-         }}
-     }
- 
--    #[inline(always)]
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f64>) {
-         let values = read_complex_to_array!(buffer, { 0,1,2,3,4,5,6 });
- 
-@@ -212,8 +215,9 @@
- 
-         write_complex_to_array!(out, buffer, { 0,1,2,3,4,5,6 });   
-     }
--
--    #[inline(always)]
-+    }
-+
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_fft_direct(&self, values: [float64x2_t; 7]) -> [float64x2_t; 7] {
-         let rotate = NeonVector::make_rotate90(FftDirection::Inverse);
- 
-@@ -255,6 +259,7 @@
- 
-         [y00, y01, y02, y03, y04, y05, y06]
-     }
-+    }
- }
- 
- struct NeonF32Butterfly11<T> {
-@@ -267,7 +272,7 @@
- boilerplate_fft_neon_f32_butterfly!(NeonF32Butterfly11, 11, |this: &NeonF32Butterfly11<_>| this.direction);
- impl<T: FftNum> NeonF32Butterfly11<T> {
-     /// Safety: The current machine must support the neon instruction set
--    #[target_feature(enable = "neon")]
-+    #[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
-     unsafe fn new(direction: FftDirection) -> Self {
-         assert_f32::<T>();
-         let twiddles = make_twiddles(11, direction);
-@@ -279,7 +284,7 @@
-         }
-     }
- 
--    #[inline(always)]
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
-         let values = read_partial1_complex_to_array!(buffer, { 0,1,2,3,4,5,6,7,8,9,10 });
- 
-@@ -287,8 +292,9 @@
-         
-         write_partial_lo_complex_to_array!(out, buffer, { 0,1,2,3,4,5,6,7,8,9,10 } ); 
-     }
--
--    #[inline(always)]
-+    }
-+
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_parallel_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
-         let input_packed = read_complex_to_array!(buffer, { 0,2,4,6,8,10,12,14,16,18,20 });
- 
-@@ -324,8 +330,9 @@
- 
-         write_complex_to_array_strided!(out_packed, buffer, 2, { 0,1,2,3,4,5,6,7,8,9,10 });
-     }
--
--    #[inline(always)]
-+    }
-+
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_parallel_fft_direct(&self, values: [float32x4_t; 11]) -> [float32x4_t; 11] {
-         let rotate = NeonVector::make_rotate90(FftDirection::Inverse);
- 
-@@ -409,6 +416,7 @@
- 
-         [y00, y01, y02, y03, y04, y05, y06, y07, y08, y09, y10]
-     }
-+    }
- }
- 
- struct NeonF64Butterfly11<T> {
-@@ -421,7 +429,7 @@
- boilerplate_fft_neon_f64_butterfly!(NeonF64Butterfly11, 11, |this: &NeonF64Butterfly11<_>| this.direction);
- impl<T: FftNum> NeonF64Butterfly11<T> {
-     /// Safety: The current machine must support the neon instruction set
--    #[target_feature(enable = "neon")]
-+    #[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
-     unsafe fn new(direction: FftDirection) -> Self {
-         assert_f64::<T>();
-         let twiddles = make_twiddles(11, direction);
-@@ -433,7 +441,7 @@
-         }}
-     }
- 
--    #[inline(always)]
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f64>) {
-         let values = read_complex_to_array!(buffer, { 0,1,2,3,4,5,6,7,8,9,10 });
- 
-@@ -441,8 +449,9 @@
- 
-         write_complex_to_array!(out, buffer, { 0,1,2,3,4,5,6,7,8,9,10 });   
-     }
--
--    #[inline(always)]
-+    }
-+
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_fft_direct(&self, values: [float64x2_t; 11]) -> [float64x2_t; 11] {
-         let rotate = NeonVector::make_rotate90(FftDirection::Inverse);
- 
-@@ -526,6 +535,7 @@
- 
-         [y00, y01, y02, y03, y04, y05, y06, y07, y08, y09, y10]
-     }
-+    }
- }
- 
- struct NeonF32Butterfly13<T> {
-@@ -538,7 +548,7 @@
- boilerplate_fft_neon_f32_butterfly!(NeonF32Butterfly13, 13, |this: &NeonF32Butterfly13<_>| this.direction);
- impl<T: FftNum> NeonF32Butterfly13<T> {
-     /// Safety: The current machine must support the neon instruction set
--    #[target_feature(enable = "neon")]
-+    #[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
-     unsafe fn new(direction: FftDirection) -> Self {
-         assert_f32::<T>();
-         let twiddles = make_twiddles(13, direction);
-@@ -550,7 +560,7 @@
-         }
-     }
- 
--    #[inline(always)]
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
-         let values = read_partial1_complex_to_array!(buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12 });
- 
-@@ -558,8 +568,9 @@
-         
-         write_partial_lo_complex_to_array!(out, buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12 } ); 
-     }
--
--    #[inline(always)]
-+    }
-+
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_parallel_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
-         let input_packed = read_complex_to_array!(buffer, { 0,2,4,6,8,10,12,14,16,18,20,22,24 });
- 
-@@ -599,8 +610,9 @@
- 
-         write_complex_to_array_strided!(out_packed, buffer, 2, { 0,1,2,3,4,5,6,7,8,9,10,11,12 });
-     }
--
--    #[inline(always)]
-+    }
-+
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_parallel_fft_direct(&self, values: [float32x4_t; 13]) -> [float32x4_t; 13] {
-         let rotate = NeonVector::make_rotate90(FftDirection::Inverse);
- 
-@@ -711,6 +723,7 @@
- 
-         [y00, y01, y02, y03, y04, y05, y06, y07, y08, y09, y10, y11, y12]
-     }
-+    }
- }
- 
- struct NeonF64Butterfly13<T> {
-@@ -723,7 +736,7 @@
- boilerplate_fft_neon_f64_butterfly!(NeonF64Butterfly13, 13, |this: &NeonF64Butterfly13<_>| this.direction);
- impl<T: FftNum> NeonF64Butterfly13<T> {
-     /// Safety: The current machine must support the neon instruction set
--    #[target_feature(enable = "neon")]
-+    #[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
-     unsafe fn new(direction: FftDirection) -> Self {
-         assert_f64::<T>();
-         let twiddles = make_twiddles(13, direction);
-@@ -735,7 +748,7 @@
-         }}
-     }
- 
--    #[inline(always)]
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f64>) {
-         let values = read_complex_to_array!(buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12 });
- 
-@@ -743,8 +756,9 @@
- 
-         write_complex_to_array!(out, buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12 });   
-     }
--
--    #[inline(always)]
-+    }
-+
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_fft_direct(&self, values: [float64x2_t; 13]) -> [float64x2_t; 13] {
-         let rotate = NeonVector::make_rotate90(FftDirection::Inverse);
- 
-@@ -855,6 +869,7 @@
- 
-         [y00, y01, y02, y03, y04, y05, y06, y07, y08, y09, y10, y11, y12]
-     }
-+    }
- }
- 
- struct NeonF32Butterfly17<T> {
-@@ -867,7 +882,7 @@
- boilerplate_fft_neon_f32_butterfly!(NeonF32Butterfly17, 17, |this: &NeonF32Butterfly17<_>| this.direction);
- impl<T: FftNum> NeonF32Butterfly17<T> {
-     /// Safety: The current machine must support the neon instruction set
--    #[target_feature(enable = "neon")]
-+    #[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
-     unsafe fn new(direction: FftDirection) -> Self {
-         assert_f32::<T>();
-         let twiddles = make_twiddles(17, direction);
-@@ -879,7 +894,7 @@
-         }
-     }
- 
--    #[inline(always)]
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
-         let values = read_partial1_complex_to_array!(buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16 });
- 
-@@ -887,8 +902,9 @@
-         
-         write_partial_lo_complex_to_array!(out, buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16 } ); 
-     }
--
--    #[inline(always)]
-+    }
-+
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_parallel_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
-         let input_packed = read_complex_to_array!(buffer, { 0,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,32 });
- 
-@@ -936,8 +952,9 @@
- 
-         write_complex_to_array_strided!(out_packed, buffer, 2, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16 });
-     }
--
--    #[inline(always)]
-+    }
-+
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_parallel_fft_direct(&self, values: [float32x4_t; 17]) -> [float32x4_t; 17] {
-         let rotate = NeonVector::make_rotate90(FftDirection::Inverse);
- 
-@@ -1114,6 +1131,7 @@
- 
-         [y00, y01, y02, y03, y04, y05, y06, y07, y08, y09, y10, y11, y12, y13, y14, y15, y16]
-     }
-+    }
- }
- 
- struct NeonF64Butterfly17<T> {
-@@ -1126,7 +1144,7 @@
- boilerplate_fft_neon_f64_butterfly!(NeonF64Butterfly17, 17, |this: &NeonF64Butterfly17<_>| this.direction);
- impl<T: FftNum> NeonF64Butterfly17<T> {
-     /// Safety: The current machine must support the neon instruction set
--    #[target_feature(enable = "neon")]
-+    #[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
-     unsafe fn new(direction: FftDirection) -> Self {
-         assert_f64::<T>();
-         let twiddles = make_twiddles(17, direction);
-@@ -1138,7 +1156,7 @@
-         }}
-     }
- 
--    #[inline(always)]
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f64>) {
-         let values = read_complex_to_array!(buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16 });
- 
-@@ -1146,8 +1164,9 @@
- 
-         write_complex_to_array!(out, buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16 });   
-     }
--
--    #[inline(always)]
-+    }
-+
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_fft_direct(&self, values: [float64x2_t; 17]) -> [float64x2_t; 17] {
-         let rotate = NeonVector::make_rotate90(FftDirection::Inverse);
- 
-@@ -1324,6 +1343,7 @@
- 
-         [y00, y01, y02, y03, y04, y05, y06, y07, y08, y09, y10, y11, y12, y13, y14, y15, y16]
-     }
-+    }
- }
- 
- struct NeonF32Butterfly19<T> {
-@@ -1336,7 +1356,7 @@
- boilerplate_fft_neon_f32_butterfly!(NeonF32Butterfly19, 19, |this: &NeonF32Butterfly19<_>| this.direction);
- impl<T: FftNum> NeonF32Butterfly19<T> {
-     /// Safety: The current machine must support the neon instruction set
--    #[target_feature(enable = "neon")]
-+    #[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
-     unsafe fn new(direction: FftDirection) -> Self {
-         assert_f32::<T>();
-         let twiddles = make_twiddles(19, direction);
-@@ -1348,7 +1368,7 @@
-         }
-     }
- 
--    #[inline(always)]
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
-         let values = read_partial1_complex_to_array!(buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18 });
- 
-@@ -1356,8 +1376,9 @@
-         
-         write_partial_lo_complex_to_array!(out, buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18 } ); 
-     }
--
--    #[inline(always)]
-+    }
-+
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_parallel_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
-         let input_packed = read_complex_to_array!(buffer, { 0,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,32,34,36 });
- 
-@@ -1409,8 +1430,9 @@
- 
-         write_complex_to_array_strided!(out_packed, buffer, 2, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18 });
-     }
--
--    #[inline(always)]
-+    }
-+
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_parallel_fft_direct(&self, values: [float32x4_t; 19]) -> [float32x4_t; 19] {
-         let rotate = NeonVector::make_rotate90(FftDirection::Inverse);
- 
-@@ -1626,6 +1648,7 @@
- 
-         [y00, y01, y02, y03, y04, y05, y06, y07, y08, y09, y10, y11, y12, y13, y14, y15, y16, y17, y18]
-     }
-+    }
- }
- 
- struct NeonF64Butterfly19<T> {
-@@ -1638,7 +1661,7 @@
- boilerplate_fft_neon_f64_butterfly!(NeonF64Butterfly19, 19, |this: &NeonF64Butterfly19<_>| this.direction);
- impl<T: FftNum> NeonF64Butterfly19<T> {
-     /// Safety: The current machine must support the neon instruction set
--    #[target_feature(enable = "neon")]
-+    #[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
-     unsafe fn new(direction: FftDirection) -> Self {
-         assert_f64::<T>();
-         let twiddles = make_twiddles(19, direction);
-@@ -1650,7 +1673,7 @@
-         }}
-     }
- 
--    #[inline(always)]
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f64>) {
-         let values = read_complex_to_array!(buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18 });
- 
-@@ -1658,8 +1681,9 @@
- 
-         write_complex_to_array!(out, buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18 });   
-     }
--
--    #[inline(always)]
-+    }
-+
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_fft_direct(&self, values: [float64x2_t; 19]) -> [float64x2_t; 19] {
-         let rotate = NeonVector::make_rotate90(FftDirection::Inverse);
- 
-@@ -1875,6 +1899,7 @@
- 
-         [y00, y01, y02, y03, y04, y05, y06, y07, y08, y09, y10, y11, y12, y13, y14, y15, y16, y17, y18]
-     }
-+    }
- }
- 
- struct NeonF32Butterfly23<T> {
-@@ -1887,7 +1912,7 @@
- boilerplate_fft_neon_f32_butterfly!(NeonF32Butterfly23, 23, |this: &NeonF32Butterfly23<_>| this.direction);
- impl<T: FftNum> NeonF32Butterfly23<T> {
-     /// Safety: The current machine must support the neon instruction set
--    #[target_feature(enable = "neon")]
-+    #[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
-     unsafe fn new(direction: FftDirection) -> Self {
-         assert_f32::<T>();
-         let twiddles = make_twiddles(23, direction);
-@@ -1899,7 +1924,7 @@
-         }
-     }
- 
--    #[inline(always)]
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
-         let values = read_partial1_complex_to_array!(buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22 });
- 
-@@ -1907,8 +1932,9 @@
-         
-         write_partial_lo_complex_to_array!(out, buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22 } ); 
-     }
--
--    #[inline(always)]
-+    }
-+
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_parallel_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
-         let input_packed = read_complex_to_array!(buffer, { 0,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,32,34,36,38,40,42,44 });
- 
-@@ -1968,8 +1994,9 @@
- 
-         write_complex_to_array_strided!(out_packed, buffer, 2, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22 });
-     }
--
--    #[inline(always)]
-+    }
-+
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_parallel_fft_direct(&self, values: [float32x4_t; 23]) -> [float32x4_t; 23] {
-         let rotate = NeonVector::make_rotate90(FftDirection::Inverse);
- 
-@@ -2275,6 +2302,7 @@
- 
-         [y00, y01, y02, y03, y04, y05, y06, y07, y08, y09, y10, y11, y12, y13, y14, y15, y16, y17, y18, y19, y20, y21, y22]
-     }
-+    }
- }
- 
- struct NeonF64Butterfly23<T> {
-@@ -2287,7 +2315,7 @@
- boilerplate_fft_neon_f64_butterfly!(NeonF64Butterfly23, 23, |this: &NeonF64Butterfly23<_>| this.direction);
- impl<T: FftNum> NeonF64Butterfly23<T> {
-     /// Safety: The current machine must support the neon instruction set
--    #[target_feature(enable = "neon")]
-+    #[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
-     unsafe fn new(direction: FftDirection) -> Self {
-         assert_f64::<T>();
-         let twiddles = make_twiddles(23, direction);
-@@ -2299,7 +2327,7 @@
-         }}
-     }
- 
--    #[inline(always)]
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f64>) {
-         let values = read_complex_to_array!(buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22 });
- 
-@@ -2307,8 +2335,9 @@
- 
-         write_complex_to_array!(out, buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22 });   
-     }
--
--    #[inline(always)]
-+    }
-+
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_fft_direct(&self, values: [float64x2_t; 23]) -> [float64x2_t; 23] {
-         let rotate = NeonVector::make_rotate90(FftDirection::Inverse);
- 
-@@ -2614,6 +2643,7 @@
- 
-         [y00, y01, y02, y03, y04, y05, y06, y07, y08, y09, y10, y11, y12, y13, y14, y15, y16, y17, y18, y19, y20, y21, y22]
-     }
-+    }
- }
- 
- struct NeonF32Butterfly29<T> {
-@@ -2626,7 +2656,7 @@
- boilerplate_fft_neon_f32_butterfly!(NeonF32Butterfly29, 29, |this: &NeonF32Butterfly29<_>| this.direction);
- impl<T: FftNum> NeonF32Butterfly29<T> {
-     /// Safety: The current machine must support the neon instruction set
--    #[target_feature(enable = "neon")]
-+    #[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
-     unsafe fn new(direction: FftDirection) -> Self {
-         assert_f32::<T>();
-         let twiddles = make_twiddles(29, direction);
-@@ -2638,7 +2668,7 @@
-         }
-     }
- 
--    #[inline(always)]
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
-         let values = read_partial1_complex_to_array!(buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28 });
- 
-@@ -2646,8 +2676,9 @@
-         
-         write_partial_lo_complex_to_array!(out, buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28 } ); 
-     }
--
--    #[inline(always)]
-+    }
-+
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_parallel_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
-         let input_packed = read_complex_to_array!(buffer, { 0,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,32,34,36,38,40,42,44,46,48,50,52,54,56 });
- 
-@@ -2719,8 +2750,9 @@
- 
-         write_complex_to_array_strided!(out_packed, buffer, 2, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28 });
-     }
--
--    #[inline(always)]
-+    }
-+
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_parallel_fft_direct(&self, values: [float32x4_t; 29]) -> [float32x4_t; 29] {
-         let rotate = NeonVector::make_rotate90(FftDirection::Inverse);
- 
-@@ -3191,6 +3223,7 @@
- 
-         [y00, y01, y02, y03, y04, y05, y06, y07, y08, y09, y10, y11, y12, y13, y14, y15, y16, y17, y18, y19, y20, y21, y22, y23, y24, y25, y26, y27, y28]
-     }
-+    }
- }
- 
- struct NeonF64Butterfly29<T> {
-@@ -3203,7 +3236,7 @@
- boilerplate_fft_neon_f64_butterfly!(NeonF64Butterfly29, 29, |this: &NeonF64Butterfly29<_>| this.direction);
- impl<T: FftNum> NeonF64Butterfly29<T> {
-     /// Safety: The current machine must support the neon instruction set
--    #[target_feature(enable = "neon")]
-+    #[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
-     unsafe fn new(direction: FftDirection) -> Self {
-         assert_f64::<T>();
-         let twiddles = make_twiddles(29, direction);
-@@ -3215,7 +3248,7 @@
-         }}
-     }
- 
--    #[inline(always)]
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f64>) {
-         let values = read_complex_to_array!(buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28 });
- 
-@@ -3223,8 +3256,9 @@
- 
-         write_complex_to_array!(out, buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28 });   
-     }
--
--    #[inline(always)]
-+    }
-+
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_fft_direct(&self, values: [float64x2_t; 29]) -> [float64x2_t; 29] {
-         let rotate = NeonVector::make_rotate90(FftDirection::Inverse);
- 
-@@ -3695,6 +3729,7 @@
- 
-         [y00, y01, y02, y03, y04, y05, y06, y07, y08, y09, y10, y11, y12, y13, y14, y15, y16, y17, y18, y19, y20, y21, y22, y23, y24, y25, y26, y27, y28]
-     }
-+    }
- }
- 
- struct NeonF32Butterfly31<T> {
-@@ -3707,7 +3742,7 @@
- boilerplate_fft_neon_f32_butterfly!(NeonF32Butterfly31, 31, |this: &NeonF32Butterfly31<_>| this.direction);
- impl<T: FftNum> NeonF32Butterfly31<T> {
-     /// Safety: The current machine must support the neon instruction set
--    #[target_feature(enable = "neon")]
-+    #[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
-     unsafe fn new(direction: FftDirection) -> Self {
-         assert_f32::<T>();
-         let twiddles = make_twiddles(31, direction);
-@@ -3719,7 +3754,7 @@
-         }
-     }
- 
--    #[inline(always)]
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
-         let values = read_partial1_complex_to_array!(buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30 });
- 
-@@ -3727,8 +3762,9 @@
-         
-         write_partial_lo_complex_to_array!(out, buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30 } ); 
-     }
--
--    #[inline(always)]
-+    }
-+
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_parallel_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
-         let input_packed = read_complex_to_array!(buffer, { 0,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,32,34,36,38,40,42,44,46,48,50,52,54,56,58,60 });
- 
-@@ -3804,8 +3840,9 @@
- 
-         write_complex_to_array_strided!(out_packed, buffer, 2, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30 });
-     }
--
--    #[inline(always)]
-+    }
-+
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_parallel_fft_direct(&self, values: [float32x4_t; 31]) -> [float32x4_t; 31] {
-         let rotate = NeonVector::make_rotate90(FftDirection::Inverse);
- 
-@@ -4339,6 +4376,7 @@
- 
-         [y00, y01, y02, y03, y04, y05, y06, y07, y08, y09, y10, y11, y12, y13, y14, y15, y16, y17, y18, y19, y20, y21, y22, y23, y24, y25, y26, y27, y28, y29, y30]
-     }
-+    }
- }
- 
- struct NeonF64Butterfly31<T> {
-@@ -4351,7 +4389,7 @@
- boilerplate_fft_neon_f64_butterfly!(NeonF64Butterfly31, 31, |this: &NeonF64Butterfly31<_>| this.direction);
- impl<T: FftNum> NeonF64Butterfly31<T> {
-     /// Safety: The current machine must support the neon instruction set
--    #[target_feature(enable = "neon")]
-+    #[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
-     unsafe fn new(direction: FftDirection) -> Self {
-         assert_f64::<T>();
-         let twiddles = make_twiddles(31, direction);
-@@ -4363,7 +4401,7 @@
-         }}
-     }
- 
--    #[inline(always)]
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f64>) {
-         let values = read_complex_to_array!(buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30 });
- 
-@@ -4371,8 +4409,9 @@
- 
-         write_complex_to_array!(out, buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30 });   
-     }
--
--    #[inline(always)]
-+    }
-+
-+    fft_kernel! {
-     pub(crate) unsafe fn perform_fft_direct(&self, values: [float64x2_t; 31]) -> [float64x2_t; 31] {
-         let rotate = NeonVector::make_rotate90(FftDirection::Inverse);
- 
-@@ -4906,6 +4945,7 @@
- 
-         [y00, y01, y02, y03, y04, y05, y06, y07, y08, y09, y10, y11, y12, y13, y14, y15, y16, y17, y18, y19, y20, y21, y22, y23, y24, y25, y26, y27, y28, y29, y30]
-     }
-+    }
- }
- 
- 
-@@ -4918,7 +4958,7 @@
-         ($test_name:ident, $struct_name:ident, $size:expr) => {
-             #[test]
-             fn $test_name() {
--                assert!(std::arch::is_aarch64_feature_detected!("neon"));
-+                assert!(super::neon_available());
- 
-                 let fwd = unsafe { $struct_name::new(FftDirection::Forward) };
-                 check_fft_algorithm::<f32>(&fwd, $size, FftDirection::Forward);
-@@ -4932,7 +4972,7 @@
-         ($test_name:ident, $struct_name:ident, $size:expr) => {
-             #[test]
-             fn $test_name() {
--                assert!(std::arch::is_aarch64_feature_detected!("neon"));
-+                assert!(super::neon_available());
- 
-                 let fwd = unsafe { $struct_name::new(FftDirection::Forward) };
-                 check_fft_algorithm::<f64>(&fwd, $size, FftDirection::Forward);
+ pub unsafe fn neon_fft_helper_immut<T>(
+     input: &[T],
+     output: &mut [T],
+@@ -167,7 +167,7 @@ pub unsafe fn neon_fft_helper_immut<T>(
+ 
+ // A wrapper for the FFT helper functions that make sure the entire thing happens with the benefit of the NEON target feature,
+ // so that things like loading twiddle factor registers etc can be lifted out of the loop
+-#[target_feature(enable = "neon")]
++#[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
+ pub unsafe fn neon_fft_helper_outofplace<T>(
+     input: &mut [T],
+     output: &mut [T],
+@@ -188,7 +188,7 @@ pub unsafe fn neon_fft_helper_outofplace<T>(
+ 
+ // A wrapper for the FFT helper functions that make sure the entire thing happens with the benefit of the NEON target feature,
+ // so that things like loading twiddle factor registers etc can be lifted out of the loop
+-#[target_feature(enable = "neon")]
++#[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
+ pub unsafe fn neon_fft_helper_inplace<T>(
+     buffer: &mut [T],
+     scratch: &mut [T],
+@@ -201,7 +201,7 @@ pub unsafe fn neon_fft_helper_inplace<T>(
+ 
+ // A wrapper for the FFT helper functions that make sure the entire thing happens with the benefit of the NEON target feature,
+ // so that things like loading twiddle factor registers etc can be lifted out of the loop
+-#[target_feature(enable = "neon")]
++#[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
+ pub unsafe fn neon_fft_helper_immut_unroll2x<T>(
+     input: &[T],
+     output: &mut [T],
+@@ -214,7 +214,7 @@ pub unsafe fn neon_fft_helper_immut_unroll2x<T>(
+ 
+ // A wrapper for the FFT helper functions that make sure the entire thing happens with the benefit of the NEON target feature,
+ // so that things like loading twiddle factor registers etc can be lifted out of the loop
+-#[target_feature(enable = "neon")]
++#[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
+ pub unsafe fn neon_fft_helper_outofplace_unroll2x<T>(
+     input: &mut [T],
+     output: &mut [T],
+@@ -227,7 +227,7 @@ pub unsafe fn neon_fft_helper_outofplace_unroll2x<T>(
+ 
+ // A wrapper for the FFT helper functions that make sure the entire thing happens with the benefit of the NEON target feature,
+ // so that things like loading twiddle factor registers etc can be lifted out of the loop
+-#[target_feature(enable = "neon")]
++#[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
+ pub unsafe fn neon_fft_helper_inplace_unroll2x<T>(
+     buffer: &mut [T],
+     chunk_size: usize,
 diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_planner.rs b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_planner.rs
+index fa8a240a7e..2b255e62b1 100644
 --- a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_planner.rs
 +++ b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_planner.rs
-@@ -7,9 +7,9 @@
+@@ -7,9 +7,9 @@ use std::sync::Arc;
  use crate::{common::FftNum, fft_cache::FftCache, FftDirection};
  
  use crate::algorithm::*;
@@ -2038,7 +1241,7 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
  use crate::Fft;
  
  use crate::math_utils::{PrimeFactor, PrimeFactors};
-@@ -153,7 +153,7 @@
+@@ -153,7 +153,7 @@ impl<T: FftNum> FftPlannerNeon<T> {
      /// Returns `Ok(planner_instance)` if we're compiling for AArch64 and NEON support was enabled in feature flags.
      /// Returns `Err(())` if NEON support is not available.
      pub fn new() -> Result<Self, ()> {
@@ -2047,10 +1250,728 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
              // Ideally, we would implement the planner with specialization.
              // Specialization won't be on stable rust for a long time though, so in the meantime, we can hack around it.
              //
+diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_prime_butterflies.rs b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_prime_butterflies.rs
+index 06d68e8c01..2bd98d6354 100644
+--- a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_prime_butterflies.rs
++++ b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_prime_butterflies.rs
+@@ -1,4 +1,4 @@
+-use core::arch::aarch64::{float32x4_t, float64x2_t};
++use super::intrinsics::{float32x4_t, float64x2_t};
+ use std::any::TypeId;
+ use std::sync::Arc;
+ use num_complex::Complex;
+@@ -34,7 +34,7 @@ pub const fn prime_butterfly_lens() -> &'static [usize] {
+ }
+ 
+ /// Safety: The current machine must support the neon target feature
+-#[target_feature(enable = "neon")]
++#[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
+ pub unsafe fn construct_prime_butterfly<T: FftNum>(len: usize, direction: FftDirection) -> Arc<dyn Fft<T>> {
+     let id_f32 = TypeId::of::<f32>();
+     let id_f64 = TypeId::of::<f64>();
+@@ -88,7 +88,7 @@ struct NeonF32Butterfly7<T> {
+ boilerplate_fft_neon_f32_butterfly!(NeonF32Butterfly7, 7, |this: &NeonF32Butterfly7<_>| this.direction);
+ impl<T: FftNum> NeonF32Butterfly7<T> {
+     /// Safety: The current machine must support the neon instruction set
+-    #[target_feature(enable = "neon")]
++    #[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
+     unsafe fn new(direction: FftDirection) -> Self {
+         assert_f32::<T>();
+         let twiddles = make_twiddles(7, direction);
+@@ -100,7 +100,7 @@ impl<T: FftNum> NeonF32Butterfly7<T> {
+         }
+     }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
+         let values = read_partial1_complex_to_array!(buffer, { 0,1,2,3,4,5,6 });
+ 
+@@ -108,8 +108,9 @@ impl<T: FftNum> NeonF32Butterfly7<T> {
+         
+         write_partial_lo_complex_to_array!(out, buffer, { 0,1,2,3,4,5,6 } ); 
+     }
++    }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_parallel_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
+         let input_packed = read_complex_to_array!(buffer, { 0,2,4,6,8,10,12 });
+ 
+@@ -137,8 +138,9 @@ impl<T: FftNum> NeonF32Butterfly7<T> {
+ 
+         write_complex_to_array_strided!(out_packed, buffer, 2, { 0,1,2,3,4,5,6 });
+     }
++    }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_parallel_fft_direct(&self, values: [float32x4_t; 7]) -> [float32x4_t; 7] {
+         let rotate = NeonVector::make_rotate90(FftDirection::Inverse);
+ 
+@@ -180,6 +182,7 @@ impl<T: FftNum> NeonF32Butterfly7<T> {
+ 
+         [y00, y01, y02, y03, y04, y05, y06]
+     }
++    }
+ }
+ 
+ struct NeonF64Butterfly7<T> {
+@@ -192,7 +195,7 @@ struct NeonF64Butterfly7<T> {
+ boilerplate_fft_neon_f64_butterfly!(NeonF64Butterfly7, 7, |this: &NeonF64Butterfly7<_>| this.direction);
+ impl<T: FftNum> NeonF64Butterfly7<T> {
+     /// Safety: The current machine must support the neon instruction set
+-    #[target_feature(enable = "neon")]
++    #[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
+     unsafe fn new(direction: FftDirection) -> Self {
+         assert_f64::<T>();
+         let twiddles = make_twiddles(7, direction);
+@@ -204,7 +207,7 @@ impl<T: FftNum> NeonF64Butterfly7<T> {
+         }}
+     }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f64>) {
+         let values = read_complex_to_array!(buffer, { 0,1,2,3,4,5,6 });
+ 
+@@ -212,8 +215,9 @@ impl<T: FftNum> NeonF64Butterfly7<T> {
+ 
+         write_complex_to_array!(out, buffer, { 0,1,2,3,4,5,6 });   
+     }
++    }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_fft_direct(&self, values: [float64x2_t; 7]) -> [float64x2_t; 7] {
+         let rotate = NeonVector::make_rotate90(FftDirection::Inverse);
+ 
+@@ -255,6 +259,7 @@ impl<T: FftNum> NeonF64Butterfly7<T> {
+ 
+         [y00, y01, y02, y03, y04, y05, y06]
+     }
++    }
+ }
+ 
+ struct NeonF32Butterfly11<T> {
+@@ -267,7 +272,7 @@ struct NeonF32Butterfly11<T> {
+ boilerplate_fft_neon_f32_butterfly!(NeonF32Butterfly11, 11, |this: &NeonF32Butterfly11<_>| this.direction);
+ impl<T: FftNum> NeonF32Butterfly11<T> {
+     /// Safety: The current machine must support the neon instruction set
+-    #[target_feature(enable = "neon")]
++    #[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
+     unsafe fn new(direction: FftDirection) -> Self {
+         assert_f32::<T>();
+         let twiddles = make_twiddles(11, direction);
+@@ -279,7 +284,7 @@ impl<T: FftNum> NeonF32Butterfly11<T> {
+         }
+     }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
+         let values = read_partial1_complex_to_array!(buffer, { 0,1,2,3,4,5,6,7,8,9,10 });
+ 
+@@ -287,8 +292,9 @@ impl<T: FftNum> NeonF32Butterfly11<T> {
+         
+         write_partial_lo_complex_to_array!(out, buffer, { 0,1,2,3,4,5,6,7,8,9,10 } ); 
+     }
++    }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_parallel_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
+         let input_packed = read_complex_to_array!(buffer, { 0,2,4,6,8,10,12,14,16,18,20 });
+ 
+@@ -324,8 +330,9 @@ impl<T: FftNum> NeonF32Butterfly11<T> {
+ 
+         write_complex_to_array_strided!(out_packed, buffer, 2, { 0,1,2,3,4,5,6,7,8,9,10 });
+     }
++    }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_parallel_fft_direct(&self, values: [float32x4_t; 11]) -> [float32x4_t; 11] {
+         let rotate = NeonVector::make_rotate90(FftDirection::Inverse);
+ 
+@@ -409,6 +416,7 @@ impl<T: FftNum> NeonF32Butterfly11<T> {
+ 
+         [y00, y01, y02, y03, y04, y05, y06, y07, y08, y09, y10]
+     }
++    }
+ }
+ 
+ struct NeonF64Butterfly11<T> {
+@@ -421,7 +429,7 @@ struct NeonF64Butterfly11<T> {
+ boilerplate_fft_neon_f64_butterfly!(NeonF64Butterfly11, 11, |this: &NeonF64Butterfly11<_>| this.direction);
+ impl<T: FftNum> NeonF64Butterfly11<T> {
+     /// Safety: The current machine must support the neon instruction set
+-    #[target_feature(enable = "neon")]
++    #[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
+     unsafe fn new(direction: FftDirection) -> Self {
+         assert_f64::<T>();
+         let twiddles = make_twiddles(11, direction);
+@@ -433,7 +441,7 @@ impl<T: FftNum> NeonF64Butterfly11<T> {
+         }}
+     }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f64>) {
+         let values = read_complex_to_array!(buffer, { 0,1,2,3,4,5,6,7,8,9,10 });
+ 
+@@ -441,8 +449,9 @@ impl<T: FftNum> NeonF64Butterfly11<T> {
+ 
+         write_complex_to_array!(out, buffer, { 0,1,2,3,4,5,6,7,8,9,10 });   
+     }
++    }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_fft_direct(&self, values: [float64x2_t; 11]) -> [float64x2_t; 11] {
+         let rotate = NeonVector::make_rotate90(FftDirection::Inverse);
+ 
+@@ -526,6 +535,7 @@ impl<T: FftNum> NeonF64Butterfly11<T> {
+ 
+         [y00, y01, y02, y03, y04, y05, y06, y07, y08, y09, y10]
+     }
++    }
+ }
+ 
+ struct NeonF32Butterfly13<T> {
+@@ -538,7 +548,7 @@ struct NeonF32Butterfly13<T> {
+ boilerplate_fft_neon_f32_butterfly!(NeonF32Butterfly13, 13, |this: &NeonF32Butterfly13<_>| this.direction);
+ impl<T: FftNum> NeonF32Butterfly13<T> {
+     /// Safety: The current machine must support the neon instruction set
+-    #[target_feature(enable = "neon")]
++    #[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
+     unsafe fn new(direction: FftDirection) -> Self {
+         assert_f32::<T>();
+         let twiddles = make_twiddles(13, direction);
+@@ -550,7 +560,7 @@ impl<T: FftNum> NeonF32Butterfly13<T> {
+         }
+     }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
+         let values = read_partial1_complex_to_array!(buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12 });
+ 
+@@ -558,8 +568,9 @@ impl<T: FftNum> NeonF32Butterfly13<T> {
+         
+         write_partial_lo_complex_to_array!(out, buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12 } ); 
+     }
++    }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_parallel_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
+         let input_packed = read_complex_to_array!(buffer, { 0,2,4,6,8,10,12,14,16,18,20,22,24 });
+ 
+@@ -599,8 +610,9 @@ impl<T: FftNum> NeonF32Butterfly13<T> {
+ 
+         write_complex_to_array_strided!(out_packed, buffer, 2, { 0,1,2,3,4,5,6,7,8,9,10,11,12 });
+     }
++    }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_parallel_fft_direct(&self, values: [float32x4_t; 13]) -> [float32x4_t; 13] {
+         let rotate = NeonVector::make_rotate90(FftDirection::Inverse);
+ 
+@@ -711,6 +723,7 @@ impl<T: FftNum> NeonF32Butterfly13<T> {
+ 
+         [y00, y01, y02, y03, y04, y05, y06, y07, y08, y09, y10, y11, y12]
+     }
++    }
+ }
+ 
+ struct NeonF64Butterfly13<T> {
+@@ -723,7 +736,7 @@ struct NeonF64Butterfly13<T> {
+ boilerplate_fft_neon_f64_butterfly!(NeonF64Butterfly13, 13, |this: &NeonF64Butterfly13<_>| this.direction);
+ impl<T: FftNum> NeonF64Butterfly13<T> {
+     /// Safety: The current machine must support the neon instruction set
+-    #[target_feature(enable = "neon")]
++    #[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
+     unsafe fn new(direction: FftDirection) -> Self {
+         assert_f64::<T>();
+         let twiddles = make_twiddles(13, direction);
+@@ -735,7 +748,7 @@ impl<T: FftNum> NeonF64Butterfly13<T> {
+         }}
+     }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f64>) {
+         let values = read_complex_to_array!(buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12 });
+ 
+@@ -743,8 +756,9 @@ impl<T: FftNum> NeonF64Butterfly13<T> {
+ 
+         write_complex_to_array!(out, buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12 });   
+     }
++    }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_fft_direct(&self, values: [float64x2_t; 13]) -> [float64x2_t; 13] {
+         let rotate = NeonVector::make_rotate90(FftDirection::Inverse);
+ 
+@@ -855,6 +869,7 @@ impl<T: FftNum> NeonF64Butterfly13<T> {
+ 
+         [y00, y01, y02, y03, y04, y05, y06, y07, y08, y09, y10, y11, y12]
+     }
++    }
+ }
+ 
+ struct NeonF32Butterfly17<T> {
+@@ -867,7 +882,7 @@ struct NeonF32Butterfly17<T> {
+ boilerplate_fft_neon_f32_butterfly!(NeonF32Butterfly17, 17, |this: &NeonF32Butterfly17<_>| this.direction);
+ impl<T: FftNum> NeonF32Butterfly17<T> {
+     /// Safety: The current machine must support the neon instruction set
+-    #[target_feature(enable = "neon")]
++    #[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
+     unsafe fn new(direction: FftDirection) -> Self {
+         assert_f32::<T>();
+         let twiddles = make_twiddles(17, direction);
+@@ -879,7 +894,7 @@ impl<T: FftNum> NeonF32Butterfly17<T> {
+         }
+     }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
+         let values = read_partial1_complex_to_array!(buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16 });
+ 
+@@ -887,8 +902,9 @@ impl<T: FftNum> NeonF32Butterfly17<T> {
+         
+         write_partial_lo_complex_to_array!(out, buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16 } ); 
+     }
++    }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_parallel_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
+         let input_packed = read_complex_to_array!(buffer, { 0,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,32 });
+ 
+@@ -936,8 +952,9 @@ impl<T: FftNum> NeonF32Butterfly17<T> {
+ 
+         write_complex_to_array_strided!(out_packed, buffer, 2, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16 });
+     }
++    }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_parallel_fft_direct(&self, values: [float32x4_t; 17]) -> [float32x4_t; 17] {
+         let rotate = NeonVector::make_rotate90(FftDirection::Inverse);
+ 
+@@ -1114,6 +1131,7 @@ impl<T: FftNum> NeonF32Butterfly17<T> {
+ 
+         [y00, y01, y02, y03, y04, y05, y06, y07, y08, y09, y10, y11, y12, y13, y14, y15, y16]
+     }
++    }
+ }
+ 
+ struct NeonF64Butterfly17<T> {
+@@ -1126,7 +1144,7 @@ struct NeonF64Butterfly17<T> {
+ boilerplate_fft_neon_f64_butterfly!(NeonF64Butterfly17, 17, |this: &NeonF64Butterfly17<_>| this.direction);
+ impl<T: FftNum> NeonF64Butterfly17<T> {
+     /// Safety: The current machine must support the neon instruction set
+-    #[target_feature(enable = "neon")]
++    #[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
+     unsafe fn new(direction: FftDirection) -> Self {
+         assert_f64::<T>();
+         let twiddles = make_twiddles(17, direction);
+@@ -1138,7 +1156,7 @@ impl<T: FftNum> NeonF64Butterfly17<T> {
+         }}
+     }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f64>) {
+         let values = read_complex_to_array!(buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16 });
+ 
+@@ -1146,8 +1164,9 @@ impl<T: FftNum> NeonF64Butterfly17<T> {
+ 
+         write_complex_to_array!(out, buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16 });   
+     }
++    }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_fft_direct(&self, values: [float64x2_t; 17]) -> [float64x2_t; 17] {
+         let rotate = NeonVector::make_rotate90(FftDirection::Inverse);
+ 
+@@ -1324,6 +1343,7 @@ impl<T: FftNum> NeonF64Butterfly17<T> {
+ 
+         [y00, y01, y02, y03, y04, y05, y06, y07, y08, y09, y10, y11, y12, y13, y14, y15, y16]
+     }
++    }
+ }
+ 
+ struct NeonF32Butterfly19<T> {
+@@ -1336,7 +1356,7 @@ struct NeonF32Butterfly19<T> {
+ boilerplate_fft_neon_f32_butterfly!(NeonF32Butterfly19, 19, |this: &NeonF32Butterfly19<_>| this.direction);
+ impl<T: FftNum> NeonF32Butterfly19<T> {
+     /// Safety: The current machine must support the neon instruction set
+-    #[target_feature(enable = "neon")]
++    #[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
+     unsafe fn new(direction: FftDirection) -> Self {
+         assert_f32::<T>();
+         let twiddles = make_twiddles(19, direction);
+@@ -1348,7 +1368,7 @@ impl<T: FftNum> NeonF32Butterfly19<T> {
+         }
+     }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
+         let values = read_partial1_complex_to_array!(buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18 });
+ 
+@@ -1356,8 +1376,9 @@ impl<T: FftNum> NeonF32Butterfly19<T> {
+         
+         write_partial_lo_complex_to_array!(out, buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18 } ); 
+     }
++    }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_parallel_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
+         let input_packed = read_complex_to_array!(buffer, { 0,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,32,34,36 });
+ 
+@@ -1409,8 +1430,9 @@ impl<T: FftNum> NeonF32Butterfly19<T> {
+ 
+         write_complex_to_array_strided!(out_packed, buffer, 2, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18 });
+     }
++    }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_parallel_fft_direct(&self, values: [float32x4_t; 19]) -> [float32x4_t; 19] {
+         let rotate = NeonVector::make_rotate90(FftDirection::Inverse);
+ 
+@@ -1626,6 +1648,7 @@ impl<T: FftNum> NeonF32Butterfly19<T> {
+ 
+         [y00, y01, y02, y03, y04, y05, y06, y07, y08, y09, y10, y11, y12, y13, y14, y15, y16, y17, y18]
+     }
++    }
+ }
+ 
+ struct NeonF64Butterfly19<T> {
+@@ -1638,7 +1661,7 @@ struct NeonF64Butterfly19<T> {
+ boilerplate_fft_neon_f64_butterfly!(NeonF64Butterfly19, 19, |this: &NeonF64Butterfly19<_>| this.direction);
+ impl<T: FftNum> NeonF64Butterfly19<T> {
+     /// Safety: The current machine must support the neon instruction set
+-    #[target_feature(enable = "neon")]
++    #[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
+     unsafe fn new(direction: FftDirection) -> Self {
+         assert_f64::<T>();
+         let twiddles = make_twiddles(19, direction);
+@@ -1650,7 +1673,7 @@ impl<T: FftNum> NeonF64Butterfly19<T> {
+         }}
+     }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f64>) {
+         let values = read_complex_to_array!(buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18 });
+ 
+@@ -1658,8 +1681,9 @@ impl<T: FftNum> NeonF64Butterfly19<T> {
+ 
+         write_complex_to_array!(out, buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18 });   
+     }
++    }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_fft_direct(&self, values: [float64x2_t; 19]) -> [float64x2_t; 19] {
+         let rotate = NeonVector::make_rotate90(FftDirection::Inverse);
+ 
+@@ -1875,6 +1899,7 @@ impl<T: FftNum> NeonF64Butterfly19<T> {
+ 
+         [y00, y01, y02, y03, y04, y05, y06, y07, y08, y09, y10, y11, y12, y13, y14, y15, y16, y17, y18]
+     }
++    }
+ }
+ 
+ struct NeonF32Butterfly23<T> {
+@@ -1887,7 +1912,7 @@ struct NeonF32Butterfly23<T> {
+ boilerplate_fft_neon_f32_butterfly!(NeonF32Butterfly23, 23, |this: &NeonF32Butterfly23<_>| this.direction);
+ impl<T: FftNum> NeonF32Butterfly23<T> {
+     /// Safety: The current machine must support the neon instruction set
+-    #[target_feature(enable = "neon")]
++    #[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
+     unsafe fn new(direction: FftDirection) -> Self {
+         assert_f32::<T>();
+         let twiddles = make_twiddles(23, direction);
+@@ -1899,7 +1924,7 @@ impl<T: FftNum> NeonF32Butterfly23<T> {
+         }
+     }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
+         let values = read_partial1_complex_to_array!(buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22 });
+ 
+@@ -1907,8 +1932,9 @@ impl<T: FftNum> NeonF32Butterfly23<T> {
+         
+         write_partial_lo_complex_to_array!(out, buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22 } ); 
+     }
++    }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_parallel_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
+         let input_packed = read_complex_to_array!(buffer, { 0,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,32,34,36,38,40,42,44 });
+ 
+@@ -1968,8 +1994,9 @@ impl<T: FftNum> NeonF32Butterfly23<T> {
+ 
+         write_complex_to_array_strided!(out_packed, buffer, 2, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22 });
+     }
++    }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_parallel_fft_direct(&self, values: [float32x4_t; 23]) -> [float32x4_t; 23] {
+         let rotate = NeonVector::make_rotate90(FftDirection::Inverse);
+ 
+@@ -2275,6 +2302,7 @@ impl<T: FftNum> NeonF32Butterfly23<T> {
+ 
+         [y00, y01, y02, y03, y04, y05, y06, y07, y08, y09, y10, y11, y12, y13, y14, y15, y16, y17, y18, y19, y20, y21, y22]
+     }
++    }
+ }
+ 
+ struct NeonF64Butterfly23<T> {
+@@ -2287,7 +2315,7 @@ struct NeonF64Butterfly23<T> {
+ boilerplate_fft_neon_f64_butterfly!(NeonF64Butterfly23, 23, |this: &NeonF64Butterfly23<_>| this.direction);
+ impl<T: FftNum> NeonF64Butterfly23<T> {
+     /// Safety: The current machine must support the neon instruction set
+-    #[target_feature(enable = "neon")]
++    #[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
+     unsafe fn new(direction: FftDirection) -> Self {
+         assert_f64::<T>();
+         let twiddles = make_twiddles(23, direction);
+@@ -2299,7 +2327,7 @@ impl<T: FftNum> NeonF64Butterfly23<T> {
+         }}
+     }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f64>) {
+         let values = read_complex_to_array!(buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22 });
+ 
+@@ -2307,8 +2335,9 @@ impl<T: FftNum> NeonF64Butterfly23<T> {
+ 
+         write_complex_to_array!(out, buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22 });   
+     }
++    }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_fft_direct(&self, values: [float64x2_t; 23]) -> [float64x2_t; 23] {
+         let rotate = NeonVector::make_rotate90(FftDirection::Inverse);
+ 
+@@ -2614,6 +2643,7 @@ impl<T: FftNum> NeonF64Butterfly23<T> {
+ 
+         [y00, y01, y02, y03, y04, y05, y06, y07, y08, y09, y10, y11, y12, y13, y14, y15, y16, y17, y18, y19, y20, y21, y22]
+     }
++    }
+ }
+ 
+ struct NeonF32Butterfly29<T> {
+@@ -2626,7 +2656,7 @@ struct NeonF32Butterfly29<T> {
+ boilerplate_fft_neon_f32_butterfly!(NeonF32Butterfly29, 29, |this: &NeonF32Butterfly29<_>| this.direction);
+ impl<T: FftNum> NeonF32Butterfly29<T> {
+     /// Safety: The current machine must support the neon instruction set
+-    #[target_feature(enable = "neon")]
++    #[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
+     unsafe fn new(direction: FftDirection) -> Self {
+         assert_f32::<T>();
+         let twiddles = make_twiddles(29, direction);
+@@ -2638,7 +2668,7 @@ impl<T: FftNum> NeonF32Butterfly29<T> {
+         }
+     }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
+         let values = read_partial1_complex_to_array!(buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28 });
+ 
+@@ -2646,8 +2676,9 @@ impl<T: FftNum> NeonF32Butterfly29<T> {
+         
+         write_partial_lo_complex_to_array!(out, buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28 } ); 
+     }
++    }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_parallel_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
+         let input_packed = read_complex_to_array!(buffer, { 0,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,32,34,36,38,40,42,44,46,48,50,52,54,56 });
+ 
+@@ -2719,8 +2750,9 @@ impl<T: FftNum> NeonF32Butterfly29<T> {
+ 
+         write_complex_to_array_strided!(out_packed, buffer, 2, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28 });
+     }
++    }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_parallel_fft_direct(&self, values: [float32x4_t; 29]) -> [float32x4_t; 29] {
+         let rotate = NeonVector::make_rotate90(FftDirection::Inverse);
+ 
+@@ -3191,6 +3223,7 @@ impl<T: FftNum> NeonF32Butterfly29<T> {
+ 
+         [y00, y01, y02, y03, y04, y05, y06, y07, y08, y09, y10, y11, y12, y13, y14, y15, y16, y17, y18, y19, y20, y21, y22, y23, y24, y25, y26, y27, y28]
+     }
++    }
+ }
+ 
+ struct NeonF64Butterfly29<T> {
+@@ -3203,7 +3236,7 @@ struct NeonF64Butterfly29<T> {
+ boilerplate_fft_neon_f64_butterfly!(NeonF64Butterfly29, 29, |this: &NeonF64Butterfly29<_>| this.direction);
+ impl<T: FftNum> NeonF64Butterfly29<T> {
+     /// Safety: The current machine must support the neon instruction set
+-    #[target_feature(enable = "neon")]
++    #[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
+     unsafe fn new(direction: FftDirection) -> Self {
+         assert_f64::<T>();
+         let twiddles = make_twiddles(29, direction);
+@@ -3215,7 +3248,7 @@ impl<T: FftNum> NeonF64Butterfly29<T> {
+         }}
+     }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f64>) {
+         let values = read_complex_to_array!(buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28 });
+ 
+@@ -3223,8 +3256,9 @@ impl<T: FftNum> NeonF64Butterfly29<T> {
+ 
+         write_complex_to_array!(out, buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28 });   
+     }
++    }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_fft_direct(&self, values: [float64x2_t; 29]) -> [float64x2_t; 29] {
+         let rotate = NeonVector::make_rotate90(FftDirection::Inverse);
+ 
+@@ -3695,6 +3729,7 @@ impl<T: FftNum> NeonF64Butterfly29<T> {
+ 
+         [y00, y01, y02, y03, y04, y05, y06, y07, y08, y09, y10, y11, y12, y13, y14, y15, y16, y17, y18, y19, y20, y21, y22, y23, y24, y25, y26, y27, y28]
+     }
++    }
+ }
+ 
+ struct NeonF32Butterfly31<T> {
+@@ -3707,7 +3742,7 @@ struct NeonF32Butterfly31<T> {
+ boilerplate_fft_neon_f32_butterfly!(NeonF32Butterfly31, 31, |this: &NeonF32Butterfly31<_>| this.direction);
+ impl<T: FftNum> NeonF32Butterfly31<T> {
+     /// Safety: The current machine must support the neon instruction set
+-    #[target_feature(enable = "neon")]
++    #[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
+     unsafe fn new(direction: FftDirection) -> Self {
+         assert_f32::<T>();
+         let twiddles = make_twiddles(31, direction);
+@@ -3719,7 +3754,7 @@ impl<T: FftNum> NeonF32Butterfly31<T> {
+         }
+     }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
+         let values = read_partial1_complex_to_array!(buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30 });
+ 
+@@ -3727,8 +3762,9 @@ impl<T: FftNum> NeonF32Butterfly31<T> {
+         
+         write_partial_lo_complex_to_array!(out, buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30 } ); 
+     }
++    }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_parallel_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f32>) {
+         let input_packed = read_complex_to_array!(buffer, { 0,2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,32,34,36,38,40,42,44,46,48,50,52,54,56,58,60 });
+ 
+@@ -3804,8 +3840,9 @@ impl<T: FftNum> NeonF32Butterfly31<T> {
+ 
+         write_complex_to_array_strided!(out_packed, buffer, 2, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30 });
+     }
++    }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_parallel_fft_direct(&self, values: [float32x4_t; 31]) -> [float32x4_t; 31] {
+         let rotate = NeonVector::make_rotate90(FftDirection::Inverse);
+ 
+@@ -4339,6 +4376,7 @@ impl<T: FftNum> NeonF32Butterfly31<T> {
+ 
+         [y00, y01, y02, y03, y04, y05, y06, y07, y08, y09, y10, y11, y12, y13, y14, y15, y16, y17, y18, y19, y20, y21, y22, y23, y24, y25, y26, y27, y28, y29, y30]
+     }
++    }
+ }
+ 
+ struct NeonF64Butterfly31<T> {
+@@ -4351,7 +4389,7 @@ struct NeonF64Butterfly31<T> {
+ boilerplate_fft_neon_f64_butterfly!(NeonF64Butterfly31, 31, |this: &NeonF64Butterfly31<_>| this.direction);
+ impl<T: FftNum> NeonF64Butterfly31<T> {
+     /// Safety: The current machine must support the neon instruction set
+-    #[target_feature(enable = "neon")]
++    #[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
+     unsafe fn new(direction: FftDirection) -> Self {
+         assert_f64::<T>();
+         let twiddles = make_twiddles(31, direction);
+@@ -4363,7 +4401,7 @@ impl<T: FftNum> NeonF64Butterfly31<T> {
+         }}
+     }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_fft_contiguous(&self, mut buffer: impl NeonArrayMut<f64>) {
+         let values = read_complex_to_array!(buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30 });
+ 
+@@ -4371,8 +4409,9 @@ impl<T: FftNum> NeonF64Butterfly31<T> {
+ 
+         write_complex_to_array!(out, buffer, { 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30 });   
+     }
++    }
+ 
+-    #[inline(always)]
++    fft_kernel! {
+     pub(crate) unsafe fn perform_fft_direct(&self, values: [float64x2_t; 31]) -> [float64x2_t; 31] {
+         let rotate = NeonVector::make_rotate90(FftDirection::Inverse);
+ 
+@@ -4906,6 +4945,7 @@ impl<T: FftNum> NeonF64Butterfly31<T> {
+ 
+         [y00, y01, y02, y03, y04, y05, y06, y07, y08, y09, y10, y11, y12, y13, y14, y15, y16, y17, y18, y19, y20, y21, y22, y23, y24, y25, y26, y27, y28, y29, y30]
+     }
++    }
+ }
+ 
+ 
+@@ -4918,7 +4958,7 @@ mod unit_tests {
+         ($test_name:ident, $struct_name:ident, $size:expr) => {
+             #[test]
+             fn $test_name() {
+-                assert!(std::arch::is_aarch64_feature_detected!("neon"));
++                assert!(super::neon_available());
+ 
+                 let fwd = unsafe { $struct_name::new(FftDirection::Forward) };
+                 check_fft_algorithm::<f32>(&fwd, $size, FftDirection::Forward);
+@@ -4932,7 +4972,7 @@ mod unit_tests {
+         ($test_name:ident, $struct_name:ident, $size:expr) => {
+             #[test]
+             fn $test_name() {
+-                assert!(std::arch::is_aarch64_feature_detected!("neon"));
++                assert!(super::neon_available());
+ 
+                 let fwd = unsafe { $struct_name::new(FftDirection::Forward) };
+                 check_fft_algorithm::<f64>(&fwd, $size, FftDirection::Forward);
 diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_radix4.rs b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_radix4.rs
+index 431b1f3f21..8310b4b85d 100644
 --- a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_radix4.rs
 +++ b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_radix4.rs
-@@ -82,6 +82,7 @@
+@@ -82,6 +82,7 @@ impl<N: NeonNum, T: FftNum> NeonRadix4<N, T> {
          }
      }
  
@@ -2058,20 +1979,19 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
      unsafe fn perform_fft_immut(
          &self,
          input: &[Complex<T>],
-@@ -124,8 +125,10 @@
+@@ -124,8 +125,10 @@ impl<N: NeonNum, T: FftNum> NeonRadix4<N, T> {
              cross_fft_len *= ROW_COUNT;
          }
      }
--
--    //#[target_feature(enable = "neon")]
 +    }
-+
+ 
+-    //#[target_feature(enable = "neon")]
 +    //#[cfg_attr(target_arch = "aarch64", target_feature(enable = "neon"))]
 +    fft_kernel_noinline! {
      unsafe fn perform_fft_out_of_place(
          &self,
          input: &[Complex<T>],
-@@ -134,10 +137,12 @@
+@@ -134,10 +137,12 @@ impl<N: NeonNum, T: FftNum> NeonRadix4<N, T> {
      ) {
          self.perform_fft_immut(input, output, _scratch);
      }
@@ -2085,7 +2005,7 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
  unsafe fn butterfly_4<N: NeonNum, T: FftNum>(
      data: &mut [Complex<T>],
      twiddles: &[N::VectorType],
-@@ -187,6 +192,7 @@
+@@ -187,6 +192,7 @@ unsafe fn butterfly_4<N: NeonNum, T: FftNum>(
          idx += N::VectorType::COMPLEX_PER_VECTOR * 2;
      }
  }
@@ -2093,112 +2013,38 @@ diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon
  
  #[cfg(test)]
  mod unit_tests {
-diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/portable_neon/mod.rs b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/portable_neon/mod.rs
-new file mode 100644
---- /dev/null
-+++ b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/portable_neon/mod.rs
-@@ -0,0 +1,48 @@
-+// Preserve the original inlining policy for native and software kernels.
-+macro_rules! fft_kernel { ($body:item) => { #[inline(always)] $body }; }
-+macro_rules! fft_kernel_noinline { ($body:item) => { $body }; }
-+
-+#[macro_use]
-+#[path = "../neon/neon_common.rs"]
-+mod neon_common;
-+#[macro_use]
-+#[path = "../neon/neon_vector.rs"]
-+mod neon_vector;
-+
-+#[macro_use]
-+#[path = "../neon/neon_butterflies.rs"]
-+pub mod neon_butterflies;
-+#[path = "../neon/neon_prime_butterflies.rs"]
-+pub mod neon_prime_butterflies;
-+#[path = "../neon/neon_radix4.rs"]
-+pub mod neon_radix4;
-+
-+#[path = "../neon/neon_utils.rs"]
-+mod neon_utils;
-+
-+#[path = "../neon/neon_planner.rs"]
-+pub mod neon_planner;
-+
-+#[cfg(not(target_arch = "x86_64"))]
-+mod intrinsics;
-+#[cfg(target_arch = "x86_64")]
-+#[path = "intrinsics_x86.rs"]
-+mod intrinsics;
-+use self::intrinsics::{float32x4_t, float64x2_t};
-+
-+fn neon_available() -> bool { true }
-+const HARDWARE_FMA: bool = false;
-+
-+use crate::FftNum;
-+use neon_vector::NeonVector;
-+
-+pub trait NeonNum: FftNum {
-+    type VectorType: NeonVector<ScalarType = Self>;
-+}
-+
-+impl NeonNum for f32 {
-+    type VectorType = float32x4_t;
-+}
-+impl NeonNum for f64 {
-+    type VectorType = float64x2_t;
-+}
-diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/portable_neon_fma/mod.rs b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/portable_neon_fma/mod.rs
-new file mode 100644
---- /dev/null
-+++ b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/portable_neon_fma/mod.rs
-@@ -0,0 +1,46 @@
-+// The actual arithmetic body, not an outer closure, owns the FMA feature.
-+// Construction is guarded by the runtime FMA capability check below.
-+macro_rules! fft_kernel { ($body:item) => { #[target_feature(enable = "fma")] #[inline] $body }; }
-+macro_rules! fft_kernel_noinline { ($body:item) => { #[target_feature(enable = "fma")] #[inline] $body }; }
-+
-+#[macro_use]
-+#[path = "../neon/neon_common.rs"]
-+mod neon_common;
-+#[macro_use]
-+#[path = "../neon/neon_vector.rs"]
-+mod neon_vector;
-+
-+#[macro_use]
-+#[path = "../neon/neon_butterflies.rs"]
-+pub mod neon_butterflies;
-+#[path = "../neon/neon_prime_butterflies.rs"]
-+pub mod neon_prime_butterflies;
-+#[path = "../neon/neon_radix4.rs"]
-+pub mod neon_radix4;
-+
-+#[path = "../neon/neon_utils.rs"]
-+mod neon_utils;
-+
-+#[path = "../neon/neon_planner.rs"]
-+pub mod neon_planner;
-+
-+#[path = "../portable_neon/intrinsics_x86.rs"]
-+mod intrinsics;
-+use self::intrinsics::{float32x4_t, float64x2_t};
-+
-+fn neon_available() -> bool { std::arch::is_x86_feature_detected!("fma") }
-+const HARDWARE_FMA: bool = true;
-+
-+use crate::FftNum;
-+use neon_vector::NeonVector;
-+
-+pub trait NeonNum: FftNum {
-+    type VectorType: NeonVector<ScalarType = Self>;
-+}
-+
-+impl NeonNum for f32 {
-+    type VectorType = float32x4_t;
-+}
-+impl NeonNum for f64 {
-+    type VectorType = float64x2_t;
-+}
+diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_utils.rs b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_utils.rs
+index 7629686681..7623978a4b 100644
+--- a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_utils.rs
++++ b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_utils.rs
+@@ -1,4 +1,4 @@
+-use core::arch::aarch64::*;
++use super::intrinsics::*;
+ 
+ //  __  __       _   _               _________  _     _ _
+ // |  \/  | __ _| |_| |__           |___ /___ \| |__ (_) |_
+@@ -249,7 +249,7 @@ impl Rotate90F64 {
+ #[cfg(test)]
+ mod unit_tests {
+     use super::*;
+-    use crate::neon::NeonVector;
++    use super::NeonVector;
+     use num_complex::Complex;
+ 
+     #[test]
+diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_vector.rs b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_vector.rs
+index 5341def5cb..3007fb3cba 100644
+--- a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_vector.rs
++++ b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/neon/neon_vector.rs
+@@ -1,4 +1,4 @@
+-use core::arch::aarch64::*;
++use super::intrinsics::*;
+ use num_complex::Complex;
+ use num_traits::Zero;
+ use std::fmt::Debug;
 diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/portable_neon/intrinsics.rs b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/portable_neon/intrinsics.rs
 new file mode 100644
+index 0000000000..34a5f9c186
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/portable_neon/intrinsics.rs
 @@ -0,0 +1,109 @@
@@ -2313,6 +2159,7 @@ new file mode 100644
 +}
 diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/portable_neon/intrinsics_x86.rs b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/portable_neon/intrinsics_x86.rs
 new file mode 100644
+index 0000000000..2726b86b88
 --- /dev/null
 +++ b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/portable_neon/intrinsics_x86.rs
 @@ -0,0 +1,97 @@
@@ -2413,3 +2260,132 @@ new file mode 100644
 +#[inline(always)] pub unsafe fn vst1_f32(p:*mut f32,a:[f32;2]) {p.write_unaligned(a[0]);p.add(1).write_unaligned(a[1]);}
 +#[inline(always)] pub unsafe fn vst1q_f32(p:*mut f32,a:__m128) {_mm_storeu_ps(p,a)}
 +#[inline(always)] pub unsafe fn vst1q_f64(p:*mut f64,a:__m128d) {_mm_storeu_pd(p,a)}
+diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/portable_neon/mod.rs b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/portable_neon/mod.rs
+new file mode 100644
+index 0000000000..9cef4ea03d
+--- /dev/null
++++ b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/portable_neon/mod.rs
+@@ -0,0 +1,48 @@
++// Preserve the original inlining policy for native and software kernels.
++macro_rules! fft_kernel { ($body:item) => { #[inline(always)] $body }; }
++macro_rules! fft_kernel_noinline { ($body:item) => { $body }; }
++
++#[macro_use]
++#[path = "../neon/neon_common.rs"]
++mod neon_common;
++#[macro_use]
++#[path = "../neon/neon_vector.rs"]
++mod neon_vector;
++
++#[macro_use]
++#[path = "../neon/neon_butterflies.rs"]
++pub mod neon_butterflies;
++#[path = "../neon/neon_prime_butterflies.rs"]
++pub mod neon_prime_butterflies;
++#[path = "../neon/neon_radix4.rs"]
++pub mod neon_radix4;
++
++#[path = "../neon/neon_utils.rs"]
++mod neon_utils;
++
++#[path = "../neon/neon_planner.rs"]
++pub mod neon_planner;
++
++#[cfg(not(target_arch = "x86_64"))]
++mod intrinsics;
++#[cfg(target_arch = "x86_64")]
++#[path = "intrinsics_x86.rs"]
++mod intrinsics;
++use self::intrinsics::{float32x4_t, float64x2_t};
++
++fn neon_available() -> bool { true }
++const HARDWARE_FMA: bool = false;
++
++use crate::FftNum;
++use neon_vector::NeonVector;
++
++pub trait NeonNum: FftNum {
++    type VectorType: NeonVector<ScalarType = Self>;
++}
++
++impl NeonNum for f32 {
++    type VectorType = float32x4_t;
++}
++impl NeonNum for f64 {
++    type VectorType = float64x2_t;
++}
+diff --git a/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/portable_neon_fma/mod.rs b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/portable_neon_fma/mod.rs
+new file mode 100644
+index 0000000000..91fcdde9ca
+--- /dev/null
++++ b/third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/portable_neon_fma/mod.rs
+@@ -0,0 +1,46 @@
++// The actual arithmetic body, not an outer closure, owns the FMA feature.
++// Construction is guarded by the runtime FMA capability check below.
++macro_rules! fft_kernel { ($body:item) => { #[target_feature(enable = "fma")] #[inline] $body }; }
++macro_rules! fft_kernel_noinline { ($body:item) => { #[target_feature(enable = "fma")] #[inline] $body }; }
++
++#[macro_use]
++#[path = "../neon/neon_common.rs"]
++mod neon_common;
++#[macro_use]
++#[path = "../neon/neon_vector.rs"]
++mod neon_vector;
++
++#[macro_use]
++#[path = "../neon/neon_butterflies.rs"]
++pub mod neon_butterflies;
++#[path = "../neon/neon_prime_butterflies.rs"]
++pub mod neon_prime_butterflies;
++#[path = "../neon/neon_radix4.rs"]
++pub mod neon_radix4;
++
++#[path = "../neon/neon_utils.rs"]
++mod neon_utils;
++
++#[path = "../neon/neon_planner.rs"]
++pub mod neon_planner;
++
++#[path = "../portable_neon/intrinsics_x86.rs"]
++mod intrinsics;
++use self::intrinsics::{float32x4_t, float64x2_t};
++
++fn neon_available() -> bool { std::arch::is_x86_feature_detected!("fma") }
++const HARDWARE_FMA: bool = true;
++
++use crate::FftNum;
++use neon_vector::NeonVector;
++
++pub trait NeonNum: FftNum {
++    type VectorType: NeonVector<ScalarType = Self>;
++}
++
++impl NeonNum for f32 {
++    type VectorType = float32x4_t;
++}
++impl NeonNum for f64 {
++    type VectorType = float64x2_t;
++}
+diff --git a/third_party/rust/rustfft/v6/BUILD.gn b/third_party/rust/rustfft/v6/BUILD.gn
+index a6dd6c8496..9a5d2821d3 100644
+--- a/third_party/rust/rustfft/v6/BUILD.gn
++++ b/third_party/rust/rustfft/v6/BUILD.gn
+@@ -15,6 +15,10 @@ cargo_crate("lib") {
+   crate_root =
+       "//third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/lib.rs"
+   sources = [
++    "//third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/portable_neon/mod.rs",
++    "//third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/portable_neon/intrinsics.rs",
++    "//third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/portable_neon/intrinsics_x86.rs",
++    "//third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/portable_neon_fma/mod.rs",
+     "//third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/algorithm/bluesteins_algorithm.rs",
+     "//third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/algorithm/butterflies.rs",
+     "//third_party/rust/chromium_crates_io/vendor/rustfft-v6/src/algorithm/dft.rs",
+@@ -90,6 +94,7 @@ cargo_crate("lib") {
+     "//third_party/rust/transpose/v0_2:lib",
+   ]
+   features = [
++    "portable-neon",
+     "avx",
+     "default",
+     "neon",

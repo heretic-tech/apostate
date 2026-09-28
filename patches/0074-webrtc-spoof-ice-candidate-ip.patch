@@ -8,10 +8,10 @@ so all frames of one launch write the same candidate address. Like patch
 address alone.
 
 diff --git a/content/browser/renderer_host/render_process_host_impl.cc b/content/browser/renderer_host/render_process_host_impl.cc
-index c905e5535e..b9e3a809fe 100644
+index b8d41ae535..beb9b2bad1 100644
 --- a/content/browser/renderer_host/render_process_host_impl.cc
 +++ b/content/browser/renderer_host/render_process_host_impl.cc
-@@ -3746,6 +3746,14 @@ void RenderProcessHostImpl::AppendRendererCommandLine(
+@@ -3766,6 +3766,14 @@ void RenderProcessHostImpl::AppendRendererCommandLine(
          switches::kGpuClientId, base::NumberToString(gpu_client_->client_id()));
    }
  

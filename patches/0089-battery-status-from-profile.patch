@@ -9,62 +9,11 @@ arrives once, on a posted task like a real IPC reply, and no change
 events fire. A profile without a battery section leaves the host's
 battery in place.
 
---- a/base/apostate/profile.h
-+++ b/base/apostate/profile.h
-@@ -428,6 +428,38 @@
-   // sets it true is claiming something desktop Chrome cannot produce.
-   std::optional<bool> network_save_data() const { return network_save_data_; }
- 
-+  // The battery the claimed device has, as the Battery Status API reports it.
-+  //
-+  // battery_present() is the gate, and false is not the same thing as hiding
-+  // the API. Desktop Chrome still resolves getBattery(); it answers charging
-+  // true, level 1.0, chargingTime 0 and dischargingTime Infinity, which is
-+  // BatteryStatus's own default and what every platform's manager produces for
-+  // a machine with no battery. So false means emit that tuple, and it is only
-+  // coherent for a chassis that has no battery. A profile claiming a laptop
-+  // and omitting this section inherits the host instead, which is how a laptop
-+  // profile ends up reporting the tuple a server reports.
-+  //
-+  // level is a fraction in [0, 1]. Blink rounds it to two decimals in
-+  // BatteryStatus::EnsureTwoSignificantDigits on every platform, so detail
-+  // finer than a whole percent is discarded rather than served.
-+  //
-+  // The two times are seconds, and an absent one means Infinity, which is what
-+  // the spec requires for the direction the charge is not moving in. macOS can
-+  // only report whole minutes, since battery_status_manager_mac.cc multiplies
-+  // the IOPM minute count by 60; Windows and UPower report seconds, where a
-+  // whole minute is one of the values they can produce. The emitter rounds to
-+  // the nearest minute so a figure no platform could have produced cannot
-+  // reach a page.
-+  std::optional<bool> battery_present() const { return battery_present_; }
-+  std::optional<bool> battery_charging() const { return battery_charging_; }
-+  std::optional<double> battery_level() const { return battery_level_; }
-+  std::optional<int> battery_charging_time_seconds() const {
-+    return battery_charging_time_seconds_;
-+  }
-+  std::optional<int> battery_discharging_time_seconds() const {
-+    return battery_discharging_time_seconds_;
-+  }
-+
-   // Pointing device capability: "fine", "coarse" or "none".
-   //
-   // Headless has no input device at all, so it reports none — and a desktop
-@@ -513,6 +545,11 @@
-   std::optional<int> network_http_rtt_ms_;
-   std::optional<double> network_downlink_mbps_;
-   std::optional<bool> network_save_data_;
-+  std::optional<bool> battery_present_;
-+  std::optional<bool> battery_charging_;
-+  std::optional<double> battery_level_;
-+  std::optional<int> battery_charging_time_seconds_;
-+  std::optional<int> battery_discharging_time_seconds_;
-   std::optional<std::string> pointer_type_;
-   std::optional<bool> has_hover_;
-   std::optional<uint32_t> css_highlight_argb_;
+diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
+index c3a12cd5a3..2733708491 100644
 --- a/base/apostate/profile.cc
 +++ b/base/apostate/profile.cc
-@@ -647,6 +647,42 @@
+@@ -676,6 +676,42 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
      }
    }
  
@@ -107,34 +56,63 @@ battery in place.
    return profile.release();
  }
  
---- a/third_party/blink/renderer/modules/battery/battery_dispatcher.h
-+++ b/third_party/blink/renderer/modules/battery/battery_dispatcher.h
-@@ -5,6 +5,8 @@
- #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_BATTERY_BATTERY_DISPATCHER_H_
- #define THIRD_PARTY_BLINK_RENDERER_MODULES_BATTERY_BATTERY_DISPATCHER_H_
+diff --git a/base/apostate/profile.h b/base/apostate/profile.h
+index 47798bddcc..a4ef2af8bb 100644
+--- a/base/apostate/profile.h
++++ b/base/apostate/profile.h
+@@ -428,6 +428,38 @@ class BASE_EXPORT Profile {
+   // sets it true is claiming something desktop Chrome cannot produce.
+   std::optional<bool> network_save_data() const { return network_save_data_; }
  
-+#include <optional>
++  // The battery the claimed device has, as the Battery Status API reports it.
++  //
++  // battery_present() is the gate, and false is not the same thing as hiding
++  // the API. Desktop Chrome still resolves getBattery(); it answers charging
++  // true, level 1.0, chargingTime 0 and dischargingTime Infinity, which is
++  // BatteryStatus's own default and what every platform's manager produces for
++  // a machine with no battery. So false means emit that tuple, and it is only
++  // coherent for a chassis that has no battery. A profile claiming a laptop
++  // and omitting this section inherits the host instead, which is how a laptop
++  // profile ends up reporting the tuple a server reports.
++  //
++  // level is a fraction in [0, 1]. Blink rounds it to two decimals in
++  // BatteryStatus::EnsureTwoSignificantDigits on every platform, so detail
++  // finer than a whole percent is discarded rather than served.
++  //
++  // The two times are seconds, and an absent one means Infinity, which is what
++  // the spec requires for the direction the charge is not moving in. macOS can
++  // only report whole minutes, since battery_status_manager_mac.cc multiplies
++  // the IOPM minute count by 60; Windows and UPower report seconds, where a
++  // whole minute is one of the values they can produce. The emitter rounds to
++  // the nearest minute so a figure no platform could have produced cannot
++  // reach a page.
++  std::optional<bool> battery_present() const { return battery_present_; }
++  std::optional<bool> battery_charging() const { return battery_charging_; }
++  std::optional<double> battery_level() const { return battery_level_; }
++  std::optional<int> battery_charging_time_seconds() const {
++    return battery_charging_time_seconds_;
++  }
++  std::optional<int> battery_discharging_time_seconds() const {
++    return battery_discharging_time_seconds_;
++  }
 +
- #include "services/device/public/mojom/battery_monitor.mojom-blink.h"
- #include "third_party/blink/renderer/core/execution_context/execution_context.h"
- #include "third_party/blink/renderer/core/frame/platform_event_dispatcher.h"
-@@ -34,6 +36,16 @@
-   void OnDidChange(device::mojom::blink::BatteryStatusPtr);
-   void UpdateBatteryStatus(const BatteryStatus&);
- 
-+  // The status the device profile describes, or nullopt when this process has
-+  // no profile or the profile carries no battery section. Deterministic: the
-+  // same profile always produces the same status, which is what keeps two
-+  // reads in one launch equal.
-+  static std::optional<BatteryStatus> ProfileBatteryStatus();
-+
-+  // Hands the profile's status to the controllers. Posted from StartListening
-+  // rather than called inline.
-+  void DeliverProfileBatteryStatus();
-+
-   // Inherited from PlatformEventDispatcher.
-   void StartListening(LocalDOMWindow*) override;
-   void StopListening() override;
+   // Pointing device capability: "fine", "coarse" or "none".
+   //
+   // Headless has no input device at all, so it reports none — and a desktop
+@@ -513,6 +545,11 @@ class BASE_EXPORT Profile {
+   std::optional<int> network_http_rtt_ms_;
+   std::optional<double> network_downlink_mbps_;
+   std::optional<bool> network_save_data_;
++  std::optional<bool> battery_present_;
++  std::optional<bool> battery_charging_;
++  std::optional<double> battery_level_;
++  std::optional<int> battery_charging_time_seconds_;
++  std::optional<int> battery_discharging_time_seconds_;
+   std::optional<std::string> pointer_type_;
+   std::optional<bool> has_hover_;
+   std::optional<uint32_t> css_highlight_argb_;
+diff --git a/third_party/blink/renderer/modules/battery/battery_dispatcher.cc b/third_party/blink/renderer/modules/battery/battery_dispatcher.cc
+index 86be964c01..c921aa8880 100644
 --- a/third_party/blink/renderer/modules/battery/battery_dispatcher.cc
 +++ b/third_party/blink/renderer/modules/battery/battery_dispatcher.cc
 @@ -4,6 +4,12 @@
@@ -150,7 +128,7 @@ battery in place.
  #include "services/device/public/mojom/battery_status.mojom-blink.h"
  #include "third_party/blink/public/platform/browser_interface_broker_proxy.h"
  #include "third_party/blink/public/platform/platform.h"
-@@ -42,8 +48,83 @@
+@@ -42,8 +48,83 @@ void BatteryDispatcher::UpdateBatteryStatus(
    NotifyControllers();
  }
  
@@ -234,3 +212,33 @@ battery in place.
    // See https://bit.ly/2S0zRAS for task types.
    window->GetBrowserInterfaceBroker().GetInterface(
        monitor_.BindNewPipeAndPassReceiver(
+diff --git a/third_party/blink/renderer/modules/battery/battery_dispatcher.h b/third_party/blink/renderer/modules/battery/battery_dispatcher.h
+index 192f2d602e..57d77f4a16 100644
+--- a/third_party/blink/renderer/modules/battery/battery_dispatcher.h
++++ b/third_party/blink/renderer/modules/battery/battery_dispatcher.h
+@@ -5,6 +5,8 @@
+ #ifndef THIRD_PARTY_BLINK_RENDERER_MODULES_BATTERY_BATTERY_DISPATCHER_H_
+ #define THIRD_PARTY_BLINK_RENDERER_MODULES_BATTERY_BATTERY_DISPATCHER_H_
+ 
++#include <optional>
++
+ #include "services/device/public/mojom/battery_monitor.mojom-blink.h"
+ #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+ #include "third_party/blink/renderer/core/frame/platform_event_dispatcher.h"
+@@ -34,6 +36,16 @@ class MODULES_EXPORT BatteryDispatcher final
+   void OnDidChange(device::mojom::blink::BatteryStatusPtr);
+   void UpdateBatteryStatus(const BatteryStatus&);
+ 
++  // The status the device profile describes, or nullopt when this process has
++  // no profile or the profile carries no battery section. Deterministic: the
++  // same profile always produces the same status, which is what keeps two
++  // reads in one launch equal.
++  static std::optional<BatteryStatus> ProfileBatteryStatus();
++
++  // Hands the profile's status to the controllers. Posted from StartListening
++  // rather than called inline.
++  void DeliverProfileBatteryStatus();
++
+   // Inherited from PlatformEventDispatcher.
+   void StartListening(LocalDOMWindow*) override;
+   void StopListening() override;

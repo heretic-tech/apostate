@@ -9,6 +9,7 @@ claimed limits fails with the real device's message, and asking for a
 fallback adapter returns none.
 
 diff --git a/gpu/command_buffer/service/webgpu_decoder_impl.cc b/gpu/command_buffer/service/webgpu_decoder_impl.cc
+index 09fbf4eb58..4f731728e7 100644
 --- a/gpu/command_buffer/service/webgpu_decoder_impl.cc
 +++ b/gpu/command_buffer/service/webgpu_decoder_impl.cc
 @@ -5,6 +5,8 @@
@@ -29,7 +30,7 @@ diff --git a/gpu/command_buffer/service/webgpu_decoder_impl.cc b/gpu/command_buf
  #include "base/strings/string_split.h"
  #include "base/task/bind_post_task.h"
  #include "base/task/single_thread_task_runner.h"
-@@ -119,6 +123,189 @@
+@@ -119,6 +123,189 @@ WGPUStringView MakeStringView() {
    return {nullptr, 0};
  }
  
@@ -219,7 +220,7 @@ diff --git a/gpu/command_buffer/service/webgpu_decoder_impl.cc b/gpu/command_buf
  // This variable is set to DawnWireServer's parent decoder during execution of
  // HandleCommands. It is cleared to nullptr after. This enables some of the
  // overridden procs to be overridden with a WebGPUDecoderImpl member function.
-@@ -368,6 +555,11 @@
+@@ -359,6 +546,11 @@ class WebGPUDecoderImpl final : public WebGPUDecoder {
    WGPUBool AdapterHasFeatureImpl(WGPUAdapter adapter, WGPUFeatureName feature);
    void AdapterGetFeaturesImpl(WGPUAdapter adapter,
                                WGPUSupportedFeatures* features_out);
@@ -231,7 +232,7 @@ diff --git a/gpu/command_buffer/service/webgpu_decoder_impl.cc b/gpu/command_buf
    template <typename CallbackInfo>
    WGPUFuture RequestDeviceImpl(WGPUAdapter adapter,
                                 const WGPUDeviceDescriptor* descriptor,
-@@ -414,6 +606,10 @@
+@@ -405,6 +597,10 @@ class WebGPUDecoderImpl final : public WebGPUDecoder {
  
    bool use_blocklist() const;
  
@@ -242,7 +243,7 @@ diff --git a/gpu/command_buffer/service/webgpu_decoder_impl.cc b/gpu/command_buf
    bool ClearSharedImageWithSkia(const Mailbox& mailbox);
  
    scoped_refptr<SharedContextState> shared_context_state_;
-@@ -432,6 +628,20 @@
+@@ -423,6 +619,20 @@ class WebGPUDecoderImpl final : public WebGPUDecoder {
    bool force_fallback_adapter_ = false;
    bool webgpu_on_vk_gl_interop_ = false;
    bool profile_software_webgpu_ = false;
@@ -263,12 +264,10 @@ diff --git a/gpu/command_buffer/service/webgpu_decoder_impl.cc b/gpu/command_buf
    bool force_webgpu_compat_ = false;
    std::vector<std::string> require_enabled_toggles_;
    std::vector<std::string> require_disabled_toggles_;
-@@ -1190,8 +1400,28 @@
-   wire_procs.adapterGetFeatures = [](auto... args) {
-     DCHECK(parent_decoder);
+@@ -1186,6 +1396,26 @@ WebGPUDecoderImpl::WebGPUDecoderImpl(
      return parent_decoder->AdapterGetFeaturesImpl(
-+        std::forward<decltype(args)>(args)...);
-+  };
+         std::forward<decltype(args)>(args)...);
+   };
 +  wire_procs.adapterGetInfo = [](auto... args) {
 +    DCHECK(parent_decoder);
 +    return parent_decoder->AdapterGetInfoImpl(
@@ -282,8 +281,8 @@ diff --git a/gpu/command_buffer/service/webgpu_decoder_impl.cc b/gpu/command_buf
 +  wire_procs.deviceGetFeatures = [](auto... args) {
 +    DCHECK(parent_decoder);
 +    return parent_decoder->DeviceGetFeaturesImpl(
-         std::forward<decltype(args)>(args)...);
-   };
++        std::forward<decltype(args)>(args)...);
++  };
 +  wire_procs.deviceGetLimits = [](auto... args) {
 +    DCHECK(parent_decoder);
 +    return parent_decoder->DeviceGetLimitsImpl(
@@ -292,7 +291,7 @@ diff --git a/gpu/command_buffer/service/webgpu_decoder_impl.cc b/gpu/command_buf
    wire_procs.supportedFeaturesFreeMembers =
        [](WGPUSupportedFeatures supported_features) -> void {
      // We don't need any state so we don't need the parent decoder and can free
-@@ -1356,6 +1586,15 @@
+@@ -1350,6 +1580,15 @@ WGPUFuture WebGPUDecoderImpl::RequestAdapterImpl(
      options = &default_options;
    }
  
@@ -308,7 +307,7 @@ diff --git a/gpu/command_buffer/service/webgpu_decoder_impl.cc b/gpu/command_buf
    bool force_fallback_adapter = force_fallback_adapter_;
    if (use_webgpu_adapter_ == WebGPUAdapterName::kSwiftShader) {
      force_fallback_adapter = true;
-@@ -1423,6 +1662,9 @@
+@@ -1417,6 +1656,9 @@ WGPUBool WebGPUDecoderImpl::AdapterHasFeatureImpl(WGPUAdapter adapter,
    if (!IsFeatureExposed(static_cast<wgpu::FeatureName>(feature))) {
      return false;
    }
@@ -318,7 +317,7 @@ diff --git a/gpu/command_buffer/service/webgpu_decoder_impl.cc b/gpu/command_buf
    wgpu::Adapter adapter_obj(adapter);
    return adapter_obj.HasFeature(static_cast<wgpu::FeatureName>(feature));
  }
-@@ -1430,16 +1672,23 @@
+@@ -1424,16 +1666,23 @@ WGPUBool WebGPUDecoderImpl::AdapterHasFeatureImpl(WGPUAdapter adapter,
  void WebGPUDecoderImpl::AdapterGetFeaturesImpl(
      WGPUAdapter adapter,
      WGPUSupportedFeatures* features_out) {
@@ -351,7 +350,7 @@ diff --git a/gpu/command_buffer/service/webgpu_decoder_impl.cc b/gpu/command_buf
    }
    const size_t count = exposed_features.size();
    WGPUFeatureName* features = new WGPUFeatureName[count];
-@@ -1451,6 +1700,90 @@
+@@ -1445,6 +1694,90 @@ void WebGPUDecoderImpl::AdapterGetFeaturesImpl(
    features_out->features = features;
  }
  
@@ -442,17 +441,10 @@ diff --git a/gpu/command_buffer/service/webgpu_decoder_impl.cc b/gpu/command_buf
  template <typename CallbackInfo>
  WGPUFuture WebGPUDecoderImpl::RequestDeviceImpl(
      WGPUAdapter adapter,
-@@ -1494,10 +1827,61 @@
-       if (!IsFeatureExposed(feature)) {
-         callback_info.callback(WGPURequestDeviceStatus_Error, nullptr,
-                                MakeStringView("Disallowed feature requested."),
-+                               callback_info.userdata1,
-+                               callback_info.userdata2);
-+        return {};
-+      }
-+    }
-+  }
-+
+@@ -1495,6 +1828,57 @@ WGPUFuture WebGPUDecoderImpl::RequestDeviceImpl(
+     }
+   }
+ 
 +  // The stand-in advertises the claimed device, so a page may require a
 +  // feature or a limit SwiftShader cannot run. A request within the claim
 +  // creates the real device within what the backend has and reports what the
@@ -491,20 +483,23 @@ diff --git a/gpu/command_buffer/service/webgpu_decoder_impl.cc b/gpu/command_buf
 +        claimed_device_request_.reset();
 +        callback_info.callback(WGPURequestDeviceStatus_Error, nullptr,
 +                               MakeStringView(error->c_str()),
-                                callback_info.userdata1,
-                                callback_info.userdata2);
-         return {};
-       }
++                               callback_info.userdata1,
++                               callback_info.userdata2);
++        return {};
++      }
 +      wgpu::Limits supported;
 +      wgpu::CompatibilityModeLimits supported_compat;
 +      supported.nextInChain = &supported_compat;
 +      adapter_obj.GetLimits(&supported);
 +      FitLimits(supported, fitted_limits);
 +      desc.requiredLimits = &fitted_limits;
-     }
-   }
- 
-@@ -1640,6 +2024,7 @@
++    }
++  }
++
+   // We need to request internal usage to be able to do operations with internal
+   // SharedImage / interop methods that would need specific usages.
+   required_features.push_back(wgpu::FeatureName::DawnInternalUsages);
+@@ -1634,6 +2018,7 @@ WGPUFuture WebGPUDecoderImpl::RequestDeviceImpl(
    // The callback must have been called synchronously. We could allow async
    // here, but it would require careful handling of the decoder lifetime.
    CHECK(called);
@@ -512,7 +507,7 @@ diff --git a/gpu/command_buffer/service/webgpu_decoder_impl.cc b/gpu/command_buf
    return f;
  }
  
-@@ -1650,6 +2035,16 @@
+@@ -1644,6 +2029,16 @@ bool WebGPUDecoderImpl::use_blocklist() const {
        safety_level_ == webgpu::SafetyLevel::kUnsafe ||
        std::ranges::contains(require_disabled_toggles_, "adapter_blocklist"));
  }

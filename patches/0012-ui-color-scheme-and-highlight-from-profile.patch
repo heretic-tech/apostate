@@ -8,10 +8,10 @@ macOS would show the Linux value in getComputedStyle. An explicit
 --force-dark-mode still wins over the profile.
 
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
-index d2727ce..af28053 100644
+index 423665c8e7..b792246382 100644
 --- a/base/apostate/profile.cc
 +++ b/base/apostate/profile.cc
-@@ -170,6 +170,18 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
+@@ -173,6 +173,18 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
      }
    }
  
@@ -31,7 +31,7 @@ index d2727ce..af28053 100644
      if (const std::string* v = browser->FindString("user_agent")) {
        profile->user_agent_ = *v;
 diff --git a/base/apostate/profile.h b/base/apostate/profile.h
-index 5f924bc..4c856b5 100644
+index 5f924bc0e8..4c856b5978 100644
 --- a/base/apostate/profile.h
 +++ b/base/apostate/profile.h
 @@ -145,6 +145,27 @@ class BASE_EXPORT Profile {
@@ -73,7 +73,7 @@ index 5f924bc..4c856b5 100644
  };
  
 diff --git a/ui/color/css_system_color_mixer.cc b/ui/color/css_system_color_mixer.cc
-index 2e51a25..3ddbe85 100644
+index 2e51a2527f..3ddbe856a8 100644
 --- a/ui/color/css_system_color_mixer.cc
 +++ b/ui/color/css_system_color_mixer.cc
 @@ -4,6 +4,8 @@
@@ -108,7 +108,7 @@ index 2e51a25..3ddbe85 100644
  #endif
  
 diff --git a/ui/native_theme/native_theme.cc b/ui/native_theme/native_theme.cc
-index 478080b..8b06781 100644
+index 412c163a23..bc65fbd3a1 100644
 --- a/ui/native_theme/native_theme.cc
 +++ b/ui/native_theme/native_theme.cc
 @@ -4,6 +4,8 @@
@@ -120,22 +120,28 @@ index 478080b..8b06781 100644
  #include <stddef.h>
  
  #include <algorithm>
-@@ -588,6 +590,18 @@ ColorProviderKey::ForcedColors NativeTheme::CalculateForcedColors() const {
+@@ -622,8 +624,22 @@ ColorProviderKey::ForcedColors NativeTheme::CalculateForcedColors() const {
  
  NativeTheme::PreferredColorScheme NativeTheme::CalculatePreferredColorScheme()
      const {
+-  return PreferredColorSchemeOverride().value_or(
+-      OsSettingsProvider::Get().PreferredColorScheme());
 +  // Apostate: the profile wins over the host's setting but not over an
-+  // explicit --force-dark-mode, which is a deliberate instruction from whoever
-+  // launched the browser rather than a property of the claimed device.
-+  if (!IsForcedDarkMode()) {
-+    if (const base::apostate::Profile* profile =
-+            base::apostate::Profile::Get()) {
-+      if (profile->prefers_dark().has_value()) {
-+        return *profile->prefers_dark() ? PreferredColorScheme::kDark
-+                                        : PreferredColorScheme::kLight;
-+      }
++  // explicit override, such as --force-dark-mode, which is a deliberate
++  // instruction from whoever launched the browser rather than a property of
++  // the claimed device.
++  if (const std::optional<PreferredColorScheme> forced =
++          PreferredColorSchemeOverride()) {
++    return *forced;
++  }
++  if (const base::apostate::Profile* profile =
++          base::apostate::Profile::Get()) {
++    if (profile->prefers_dark().has_value()) {
++      return *profile->prefers_dark() ? PreferredColorScheme::kDark
++                                      : PreferredColorScheme::kLight;
 +    }
 +  }
-   return IsForcedDarkMode() ? PreferredColorScheme::kDark
-                             : OsSettingsProvider::Get().PreferredColorScheme();
++  return OsSettingsProvider::Get().PreferredColorScheme();
  }
+ 
+ NativeTheme::PreferredContrast NativeTheme::CalculatePreferredContrast() const {

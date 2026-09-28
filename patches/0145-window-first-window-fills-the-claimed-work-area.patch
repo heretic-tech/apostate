@@ -12,7 +12,7 @@ platform's default placement on it. Explicit bounds, --window-size,
 --window-position, --start-maximized and saved placement stay upstream.
 
 diff --git a/chrome/browser/ui/window_sizer/window_sizer.cc b/chrome/browser/ui/window_sizer/window_sizer.cc
-index 68d73fb..8152bb5 100644
+index 54369c7b79..3d4423e0d6 100644
 --- a/chrome/browser/ui/window_sizer/window_sizer.cc
 +++ b/chrome/browser/ui/window_sizer/window_sizer.cc
 @@ -5,8 +5,11 @@
@@ -27,8 +27,8 @@ index 68d73fb..8152bb5 100644
  #include "base/command_line.h"
  #include "base/functional/function_ref.h"
  #include "base/memory/raw_ptr.h"
-@@ -205,6 +208,97 @@ class DefaultStateProvider : public WindowSizer::StateProvider {
-   const raw_ptr<Browser> browser_;
+@@ -206,6 +209,97 @@ class DefaultStateProvider : public WindowSizer::StateProvider {
+   const raw_ptr<BrowserWindowInterface> browser_;
  };
  
 +// Apostate: where a new tabbed window goes on the screen the profile claims,
@@ -125,7 +125,7 @@ index 68d73fb..8152bb5 100644
  }  // namespace
  
  WindowSizer::WindowSizer(std::unique_ptr<StateProvider> state_provider,
-@@ -252,8 +346,18 @@ void WindowSizer::DetermineWindowBoundsAndShowState(
+@@ -253,8 +347,18 @@ void WindowSizer::DetermineWindowBoundsAndShowState(
      gfx::Rect* bounds,
      ui::mojom::WindowShowState* show_state) {
    if (bounds->IsEmpty()) {
@@ -144,7 +144,7 @@ index 68d73fb..8152bb5 100644
        return;
      }
      // See if there's saved placement information.
-@@ -263,7 +367,7 @@ void WindowSizer::DetermineWindowBoundsAndShowState(
+@@ -264,7 +368,7 @@ void WindowSizer::DetermineWindowBoundsAndShowState(
  
      // No saved placement, figure out some sensible default size based on
      // the user's screen size.
@@ -154,7 +154,7 @@ index 68d73fb..8152bb5 100644
    }
  
 diff --git a/chrome/browser/ui/window_sizer/window_sizer_common_unittest.cc b/chrome/browser/ui/window_sizer/window_sizer_common_unittest.cc
-index 1ccd8db..ecf4605 100644
+index befac6502d..ea4d7d4530 100644
 --- a/chrome/browser/ui/window_sizer/window_sizer_common_unittest.cc
 +++ b/chrome/browser/ui/window_sizer/window_sizer_common_unittest.cc
 @@ -6,8 +6,12 @@
@@ -170,7 +170,7 @@ index 1ccd8db..ecf4605 100644
  #include "base/compiler_specific.h"
  #include "base/memory/raw_ptr.h"
  #include "build/build_config.h"
-@@ -24,6 +28,16 @@
+@@ -23,6 +27,16 @@
  #include "ui/aura/window.h"
  #endif
  
@@ -187,7 +187,7 @@ index 1ccd8db..ecf4605 100644
  namespace {
  
  class TestScreen : public display::ScreenBase {
-@@ -100,6 +114,10 @@ bool TestStateProvider::GetLastActiveWindowState(
+@@ -99,6 +113,10 @@ bool TestStateProvider::GetLastActiveWindowState(
    return has_last_active_data_;
  }
  
@@ -198,7 +198,7 @@ index 1ccd8db..ecf4605 100644
  WindowSizerTestUtil& WindowSizerTestUtil::WithMonitorBounds(
      const gfx::Rect& monitor1_bounds,
      const gfx::Rect& monitor2_bounds) {
-@@ -138,6 +156,11 @@ WindowSizerTestUtil& WindowSizerTestUtil::WithSpecifiedBounds(
+@@ -137,6 +155,11 @@ WindowSizerTestUtil& WindowSizerTestUtil::WithSpecifiedBounds(
    return *this;
  }
  
@@ -210,7 +210,7 @@ index 1ccd8db..ecf4605 100644
  gfx::Rect WindowSizerTestUtil::GetWindowBounds() {
    DCHECK(!monitor1_bounds_.IsEmpty());
    TestScreen test_screen;
-@@ -158,11 +181,17 @@ gfx::Rect WindowSizerTestUtil::GetWindowBounds() {
+@@ -157,11 +180,17 @@ gfx::Rect WindowSizerTestUtil::GetWindowBounds() {
                                   ui::mojom::WindowShowState::kDefault);
    }
  
@@ -229,7 +229,7 @@ index 1ccd8db..ecf4605 100644
  }
  
 diff --git a/chrome/browser/ui/window_sizer/window_sizer_common_unittest.h b/chrome/browser/ui/window_sizer/window_sizer_common_unittest.h
-index a35193f..d43baec 100644
+index 91757f1735..89781ba8b1 100644
 --- a/chrome/browser/ui/window_sizer/window_sizer_common_unittest.h
 +++ b/chrome/browser/ui/window_sizer/window_sizer_common_unittest.h
 @@ -5,6 +5,9 @@
@@ -240,9 +240,9 @@ index a35193f..d43baec 100644
 +#include <string_view>
 +
  #include "chrome/browser/ui/window_sizer/window_sizer.h"
- #include "chrome/test/base/test_browser_window.h"
  #include "ui/base/mojom/window_show_state.mojom-forward.h"
-@@ -84,9 +87,10 @@ class TestStateProvider : public WindowSizer::StateProvider {
+ #include "ui/gfx/geometry/rect.h"
+@@ -83,9 +86,10 @@ class TestStateProvider : public WindowSizer::StateProvider {
  // Builder class for setting up window sizer test state with a single statement.
  class WindowSizerTestUtil {
   public:
@@ -254,7 +254,7 @@ index a35193f..d43baec 100644
  
    // Set up monitor bounds. Tests have to always call this method with bounds
    // for at least one monitor.
-@@ -103,6 +107,11 @@ class WindowSizerTestUtil {
+@@ -102,6 +106,11 @@ class WindowSizerTestUtil {
  
    WindowSizerTestUtil& WithSpecifiedBounds(const gfx::Rect& bounds);
  
@@ -266,7 +266,7 @@ index a35193f..d43baec 100644
    gfx::Rect GetWindowBounds();
  
   private:
-@@ -113,6 +122,7 @@ class WindowSizerTestUtil {
+@@ -112,6 +121,7 @@ class WindowSizerTestUtil {
    gfx::Rect persisted_bounds_;
    gfx::Rect persisted_work_area_;
    gfx::Rect specified_bounds_;
@@ -275,7 +275,7 @@ index a35193f..d43baec 100644
  
  #endif  // CHROME_BROWSER_UI_WINDOW_SIZER_WINDOW_SIZER_COMMON_UNITTEST_H_
 diff --git a/chrome/browser/ui/window_sizer/window_sizer_unittest.cc b/chrome/browser/ui/window_sizer/window_sizer_unittest.cc
-index 5fae75f..9329875 100644
+index 5fae75f880..932987568a 100644
 --- a/chrome/browser/ui/window_sizer/window_sizer_unittest.cc
 +++ b/chrome/browser/ui/window_sizer/window_sizer_unittest.cc
 @@ -188,6 +188,42 @@ TEST(WindowSizerTest, LastWindowBoundsCase) {

@@ -7,7 +7,7 @@ Chrome. The build-time change that makes WebBluetooth available on Linux
 stays, and this decides at startup whether a page sees it.
 
 diff --git a/content/child/runtime_features.cc b/content/child/runtime_features.cc
-index 98a7971..f039ab1 100644
+index 2247f15f1a..783556a1ad 100644
 --- a/content/child/runtime_features.cc
 +++ b/content/child/runtime_features.cc
 @@ -4,6 +4,8 @@
@@ -19,7 +19,7 @@ index 98a7971..f039ab1 100644
  #include <string>
  #include <vector>
  
-@@ -458,6 +460,45 @@ void SetCustomizedRuntimeFeaturesFromCombinedArgs(
+@@ -402,6 +404,45 @@ void SetCustomizedRuntimeFeaturesFromCombinedArgs(
    // CAUTION: Only add custom enabling logic here if it cannot
    // be covered by the other functions.
  

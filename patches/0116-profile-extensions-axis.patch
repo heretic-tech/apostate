@@ -8,82 +8,14 @@ by --fingerprint-explain but has no reader in the renderer, so no page
 sees a difference from this patch. It names no extension id, since a
 fixed id would link every launch that carries it.
 
---- a/base/apostate/profile.h
-+++ b/base/apostate/profile.h
-@@ -725,6 +725,31 @@
-   }
-   std::optional<uint32_t> css_highlight_text_argb() const {
-     return css_highlight_text_argb_;
-+  }
-+
-+  // Whether some installed extension's `externally_connectable` manifest key
-+  // matches an ordinary http/https page.
-+  //
-+  // That one boolean is the entire gate on `chrome.runtime` and
-+  // `window.browser` existing on a web page:
-+  // CanWebpageContextConnectExternally walks the renderer's extension set and
-+  // returns true on the first manifest whose matches cover the context URL,
-+  // and UpdateBindingsForContext installs the `runtime` accessor and the
-+  // `browser` object from that answer alone.
-+  //
-+  // nullopt is not false. False is a claim -- fresh Chrome, measured: window
-+  // .chrome is exactly loadTimes/csi/app and chrome.runtime is undefined --
-+  // and it is what a composed profile carries when the axis drew absent.
-+  // nullopt means no profile described the surface at all, so the host's own
-+  // extension set decides it, which is the only correct answer for
-+  // --fingerprint=host.
-+  //
-+  // What this must never become is an extension list. A fixed extension id is
-+  // a cross-instance correlator that survives every other axis, so nothing
-+  // here names or installs one; the true state reproduces the observable
-+  // consequence through the real binding path and nothing else.
-+  std::optional<bool> extensions_externally_connectable() const {
-+    return extensions_externally_connectable_;
-   }
- 
-   // Identifier of the capture this profile was derived from, for diagnostics.
-@@ -804,6 +829,7 @@
-   std::optional<bool> has_hover_;
-   std::optional<uint32_t> css_highlight_argb_;
-   std::optional<uint32_t> css_highlight_text_argb_;
-+  std::optional<bool> extensions_externally_connectable_;
-   std::string source_id_;
-   std::optional<ProxyCredentials> proxy_credentials_;
- };
---- a/base/apostate/profile.cc
-+++ b/base/apostate/profile.cc
-@@ -1050,6 +1050,23 @@
-         }
-         profile->font_enumeration_allowlist_.insert(ToLowerASCII(*family));
-       }
-+    }
-+  }
-+
-+  if (const DictValue* extensions = dict->FindDict("extensions")) {
-+    // Presence-only, and deliberately not a list of extensions. The renderer
-+    // gate this feeds -- CanWebpageContextConnectExternally -- asks one
-+    // question of the whole installed set, so one boolean reproduces its
-+    // answer exactly, while a list would have to name ids, and a fixed
-+    // extension id is a cross-instance correlator no other axis can undo.
-+    if (const Value* raw = extensions->Find("externally_connectable")) {
-+      const std::optional<bool> connectable = raw->GetIfBool();
-+      if (!connectable) {
-+        LOG(ERROR) << "apostate: extensions.externally_connectable must be "
-+                      "boolean";
-+        return nullptr;
-+      }
-+      profile->extensions_externally_connectable_ = *connectable;
-     }
-   }
- 
+diff --git a/base/apostate/compose_unittest.cc b/base/apostate/compose_unittest.cc
+index bd80331476..5135a3b878 100644
 --- a/base/apostate/compose_unittest.cc
 +++ b/base/apostate/compose_unittest.cc
-@@ -145,6 +145,26 @@
- constexpr DispersionAxis kExtraAxis = {
-     "extra", "extra", {}, Selection::kSingle, Servability::kNone,
+@@ -147,6 +147,26 @@ constexpr DispersionAxis kExtraAxis = {
      span<const DispersionOptionSet>(kExtraSets),
-+};
-+
+ };
+ 
 +// ---- extensions: single / none, unconditioned, boolean-valued ----
 +//
 +// The only axis whose whole value is one boolean, which is why it is written
@@ -102,10 +34,12 @@ fixed id would link every launch that carries it.
 +constexpr DispersionAxis kExtensionsAxis = {
 +    "extensions", "extensions", {}, Selection::kSingle, Servability::kNone,
 +    span<const DispersionOptionSet>(kExtensionsSets),
- };
- 
++};
++
  // ---- voices: single / none, conditioned on languages ----
-@@ -535,6 +555,65 @@
+ constexpr ConditionKey kVoicesEnUsKey[] = {{"languages", "en-US,en"}};
+ constexpr ConditionKey kVoicesAnyKey[] = {{"languages", ""}};
+@@ -535,6 +555,65 @@ TEST(ApostateComposeTest, AddingAnAxisDoesNotShiftAnotherAxisChoice) {
    // persona selects the anchor now, so a fixture with no anchor for the
    // persona makes that line compare "(absent)" with itself and pass.
    EXPECT_NE("(absent)", ChosenId(*after, "anchor"));
@@ -171,3 +105,75 @@ fixed id would link every launch that carries it.
  }
  
  // ---------------------------------------------------------------------------
+diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
+index 4c7c94265c..2393eb99ab 100644
+--- a/base/apostate/profile.cc
++++ b/base/apostate/profile.cc
+@@ -1053,6 +1053,23 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
+     }
+   }
+ 
++  if (const DictValue* extensions = dict->FindDict("extensions")) {
++    // Presence-only, and deliberately not a list of extensions. The renderer
++    // gate this feeds -- CanWebpageContextConnectExternally -- asks one
++    // question of the whole installed set, so one boolean reproduces its
++    // answer exactly, while a list would have to name ids, and a fixed
++    // extension id is a cross-instance correlator no other axis can undo.
++    if (const Value* raw = extensions->Find("externally_connectable")) {
++      const std::optional<bool> connectable = raw->GetIfBool();
++      if (!connectable) {
++        LOG(ERROR) << "apostate: extensions.externally_connectable must be "
++                      "boolean";
++        return nullptr;
++      }
++      profile->extensions_externally_connectable_ = *connectable;
++    }
++  }
++
+   if (const DictValue* speech = dict->FindDict("speech")) {
+     if (const ListValue* voices = speech->FindList("voices")) {
+       profile->has_speech_voice_filter_ = true;
+diff --git a/base/apostate/profile.h b/base/apostate/profile.h
+index 045f9ee880..a634531649 100644
+--- a/base/apostate/profile.h
++++ b/base/apostate/profile.h
+@@ -727,6 +727,31 @@ class BASE_EXPORT Profile {
+     return css_highlight_text_argb_;
+   }
+ 
++  // Whether some installed extension's `externally_connectable` manifest key
++  // matches an ordinary http/https page.
++  //
++  // That one boolean is the entire gate on `chrome.runtime` and
++  // `window.browser` existing on a web page:
++  // CanWebpageContextConnectExternally walks the renderer's extension set and
++  // returns true on the first manifest whose matches cover the context URL,
++  // and UpdateBindingsForContext installs the `runtime` accessor and the
++  // `browser` object from that answer alone.
++  //
++  // nullopt is not false. False is a claim -- fresh Chrome, measured: window
++  // .chrome is exactly loadTimes/csi/app and chrome.runtime is undefined --
++  // and it is what a composed profile carries when the axis drew absent.
++  // nullopt means no profile described the surface at all, so the host's own
++  // extension set decides it, which is the only correct answer for
++  // --fingerprint=host.
++  //
++  // What this must never become is an extension list. A fixed extension id is
++  // a cross-instance correlator that survives every other axis, so nothing
++  // here names or installs one; the true state reproduces the observable
++  // consequence through the real binding path and nothing else.
++  std::optional<bool> extensions_externally_connectable() const {
++    return extensions_externally_connectable_;
++  }
++
+   // Identifier of the capture this profile was derived from, for diagnostics.
+   const std::string& source_id() const { return source_id_; }
+ 
+@@ -804,6 +829,7 @@ class BASE_EXPORT Profile {
+   std::optional<bool> has_hover_;
+   std::optional<uint32_t> css_highlight_argb_;
+   std::optional<uint32_t> css_highlight_text_argb_;
++  std::optional<bool> extensions_externally_connectable_;
+   std::string source_id_;
+   std::optional<ProxyCredentials> proxy_credentials_;
+ };

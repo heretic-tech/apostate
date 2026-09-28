@@ -14,7 +14,7 @@ candidate list on x86 hosts is unchanged, so no seed moves there. A
 pinned anchor is still served on any host.
 
 diff --git a/base/apostate/compose.cc b/base/apostate/compose.cc
-index edebc11..8ba4c7f 100644
+index edebc1123c..8ba4c7f461 100644
 --- a/base/apostate/compose.cc
 +++ b/base/apostate/compose.cc
 @@ -70,6 +70,14 @@ constexpr char kStateDirectoryName[] = "apostate";
@@ -48,7 +48,7 @@ index edebc11..8ba4c7f 100644
          servable.push_back(&candidate);
        }
 diff --git a/base/apostate/compose_unittest.cc b/base/apostate/compose_unittest.cc
-index dd8f108..63a2c81 100644
+index dd8f108553..63a2c812f8 100644
 --- a/base/apostate/compose_unittest.cc
 +++ b/base/apostate/compose_unittest.cc
 @@ -806,6 +806,52 @@ TEST(ApostateComposeTest, TheSoftwareAnchorIsNeverDrawn) {
@@ -105,7 +105,7 @@ index dd8f108..63a2c81 100644
  // `capability_cluster.webgpu.uniform` is false for the Linux/Vulkan anchor: two
  // members report nvidia/lovelace and two returned no adapter at all. Handing
 diff --git a/base/apostate/dispersion_table.h b/base/apostate/dispersion_table.h
-index 36266b5..2a94af6 100644
+index 36266b5eb6..2a94af6627 100644
 --- a/base/apostate/dispersion_table.h
 +++ b/base/apostate/dispersion_table.h
 @@ -155,6 +155,12 @@ struct Anchor {

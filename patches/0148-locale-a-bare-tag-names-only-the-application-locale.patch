@@ -10,7 +10,7 @@ The voices table is keyed on the locale tag, so a bare en-US gets its
 measured voices. Also closes a test body 0116 left open in compose_unittest.cc.
 
 diff --git a/base/apostate/compose.cc b/base/apostate/compose.cc
-index 3f481be..4f74ecd 100644
+index 1bb5f38329..aa0d6f7278 100644
 --- a/base/apostate/compose.cc
 +++ b/base/apostate/compose.cc
 @@ -168,20 +168,24 @@ ClaimedIdentity IdentityFromProfile(const DictValue& profile) {
@@ -203,7 +203,7 @@ index 3f481be..4f74ecd 100644
      }
  
      // An axis that hangs off the anchor has nothing to hang off when the GPU
-@@ -1984,9 +1999,8 @@ std::optional<std::string> ComposeProfileForCurrentProcess(
+@@ -1981,9 +1996,8 @@ std::optional<std::string> ComposeProfileForCurrentProcess(
    return Base64EncodeEarlyStartup(as_byte_span(*json));
  }
  
@@ -215,7 +215,7 @@ index 3f481be..4f74ecd 100644
    const std::string_view tag = TrimWhitespaceASCII(first, TRIM_ALL);
    return tag.empty() ? std::string(kComposedDefaultLocale) : std::string(tag);
  }
-@@ -2073,16 +2087,18 @@ std::string ComposedApplicationLocale() {
+@@ -2070,16 +2084,18 @@ std::string ComposedApplicationLocale() {
      return std::string();
    }
  
@@ -242,7 +242,7 @@ index 3f481be..4f74ecd 100644
    return ComposedLocaleTag(named);
  }
 diff --git a/base/apostate/compose.h b/base/apostate/compose.h
-index 059d54f..9b64a47 100644
+index 059d54fcfd..9b64a47063 100644
 --- a/base/apostate/compose.h
 +++ b/base/apostate/compose.h
 @@ -241,10 +241,12 @@ struct BASE_EXPORT FieldOverrides {
@@ -301,7 +301,7 @@ index 059d54f..9b64a47 100644
  //   kComposedDefaultLocale, because absence of a resolved locale has to mean a
  //   defined value or the served locale becomes a property of the operator's
 diff --git a/base/apostate/compose_unittest.cc b/base/apostate/compose_unittest.cc
-index 5135a3b..2fcabf1 100644
+index 5135a3b878..2fcabf1be6 100644
 --- a/base/apostate/compose_unittest.cc
 +++ b/base/apostate/compose_unittest.cc
 @@ -167,8 +167,8 @@ constexpr DispersionAxis kExtensionsAxis = {
@@ -505,7 +505,7 @@ index 5135a3b..2fcabf1 100644
    // disagree, which is the only arrangement that tells them apart.
    {
 diff --git a/base/apostate/explain.cc b/base/apostate/explain.cc
-index 3f8f5fa..00bedef 100644
+index 3f8f5faf81..00bedef068 100644
 --- a/base/apostate/explain.cc
 +++ b/base/apostate/explain.cc
 @@ -203,11 +203,12 @@ std::string FormatAuthoredProfileReport(span<const std::string> inert,
@@ -527,7 +527,7 @@ index 3f8f5fa..00bedef 100644
    std::vector<std::string> limitations;
    for (const std::string& name : inert) {
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
-index 4e4ed48..0350166 100644
+index 4e4ed48fd1..0350166374 100644
 --- a/base/apostate/profile.cc
 +++ b/base/apostate/profile.cc
 @@ -328,7 +328,7 @@ bool Profile::PayloadDescribesDevice(const std::string& encoded) {
@@ -550,7 +550,7 @@ index 4e4ed48..0350166 100644
        return *list;
      }
 diff --git a/base/apostate/profile.h b/base/apostate/profile.h
-index 28abd28..670a07c 100644
+index 28abd28d06..670a07ce03 100644
 --- a/base/apostate/profile.h
 +++ b/base/apostate/profile.h
 @@ -103,8 +103,15 @@ class BASE_EXPORT Profile {

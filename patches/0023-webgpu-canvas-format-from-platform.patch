@@ -7,7 +7,7 @@ macOS or Windows returns bgra8unorm like the real thing. With no
 profile, the build-time choice stands.
 
 diff --git a/third_party/blink/renderer/modules/webgpu/gpu.cc b/third_party/blink/renderer/modules/webgpu/gpu.cc
-index 2052ca5..8051e2b 100644
+index 74daeb175a..9419b46cf6 100644
 --- a/third_party/blink/renderer/modules/webgpu/gpu.cc
 +++ b/third_party/blink/renderer/modules/webgpu/gpu.cc
 @@ -4,6 +4,8 @@
@@ -19,7 +19,7 @@ index 2052ca5..8051e2b 100644
  #include <utility>
  
  #include "base/feature_list.h"
-@@ -417,6 +419,33 @@ V8GPUTextureFormat GPU::getPreferredCanvasFormat() {
+@@ -401,6 +403,33 @@ V8GPUTextureFormat GPU::getPreferredCanvasFormat() {
  }
  
  wgpu::TextureFormat GPU::GetPreferredCanvasFormat() {

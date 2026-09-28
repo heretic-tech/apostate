@@ -8,9 +8,96 @@ macOS machine lists one. A page without permission sees one entry per
 kind with empty ids and labels, as in stock Chrome. Sound sent to a
 claimed speaker goes to Chrome's own silent output.
 
+diff --git a/base/apostate/media_devices.cc b/base/apostate/media_devices.cc
+index 79a28001fb..d9faa29f55 100644
+--- a/base/apostate/media_devices.cc
++++ b/base/apostate/media_devices.cc
+@@ -16,6 +16,7 @@ namespace base::apostate {
+ namespace {
+ 
+ constexpr char kAudioInputPrefix[] = "apostate-audioinput-";
++constexpr char kAudioOutputPrefix[] = "apostate-audiooutput-";
+ constexpr char kVideoInputPrefix[] = "apostate-videoinput-";
+ 
+ // A device the profile claims but does not name gets no label, and a device it
+@@ -94,6 +95,16 @@ std::vector<SyntheticMediaDevice> SyntheticAudioInputDevices(
+                kAudioInputPrefix, host_device_count);
+ }
+ 
++std::vector<SyntheticMediaDevice> SyntheticAudioOutputDevices(
++    size_t host_device_count) {
++  const Profile* profile = Profile::Get();
++  if (!profile) {
++    return {};
++  }
++  return Build(*profile, profile->media_audiooutput_count(), "audiooutput",
++               kAudioOutputPrefix, host_device_count);
++}
++
+ std::vector<SyntheticMediaDevice> SyntheticVideoInputDevices(
+     size_t host_device_count) {
+   const Profile* profile = Profile::Get();
+@@ -108,6 +119,10 @@ bool IsSyntheticAudioInputId(std::string_view id) {
+   return id.starts_with(kAudioInputPrefix);
+ }
+ 
++bool IsSyntheticAudioOutputId(std::string_view id) {
++  return id.starts_with(kAudioOutputPrefix);
++}
++
+ bool IsSyntheticVideoInputId(std::string_view id) {
+   return id.starts_with(kVideoInputPrefix);
+ }
+diff --git a/base/apostate/media_devices.h b/base/apostate/media_devices.h
+index 2b3a039e3c..708d6da342 100644
+--- a/base/apostate/media_devices.h
++++ b/base/apostate/media_devices.h
+@@ -16,7 +16,7 @@
+ 
+ namespace base::apostate {
+ 
+-// A capture device the profile claims and the host does not have.
++// A device the profile claims and the host does not have.
+ //
+ // The identifiers are raw: MediaDevicesDispatcherHost replaces both with a
+ // per-origin HMAC before either reaches a renderer, so neither string is
+@@ -40,13 +40,16 @@ struct BASE_EXPORT SyntheticMediaDevice {
+ // capture on a machine that can actually capture.
+ BASE_EXPORT std::vector<SyntheticMediaDevice> SyntheticAudioInputDevices(
+     size_t host_device_count);
++BASE_EXPORT std::vector<SyntheticMediaDevice> SyntheticAudioOutputDevices(
++    size_t host_device_count);
+ BASE_EXPORT std::vector<SyntheticMediaDevice> SyntheticVideoInputDevices(
+     size_t host_device_count);
+ 
+-// Whether an identifier names one of the devices above. Both prefixes are
+-// namespaced so they cannot collide with a platform identifier, and neither is
++// Whether an identifier names one of the devices above. The prefixes are
++// namespaced so they cannot collide with a platform identifier, and none is
+ // "default" or "communications", which are special-cased downstream.
+ BASE_EXPORT bool IsSyntheticAudioInputId(std::string_view id);
++BASE_EXPORT bool IsSyntheticAudioOutputId(std::string_view id);
+ BASE_EXPORT bool IsSyntheticVideoInputId(std::string_view id);
+ 
+ // The format a synthetic microphone reports and delivers.
+diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
+index 2393eb99ab..4e4ed48fd1 100644
+--- a/base/apostate/profile.cc
++++ b/base/apostate/profile.cc
+@@ -948,6 +948,8 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
+     for (const auto& [key, sink] :
+          {std::pair<const char*, std::optional<int>*>{
+               "audioinput_count", &profile->media_audioinput_count_},
++          std::pair<const char*, std::optional<int>*>{
++              "audiooutput_count", &profile->media_audiooutput_count_},
+           std::pair<const char*, std::optional<int>*>{
+               "videoinput_count", &profile->media_videoinput_count_}}) {
+       if (std::optional<int> v = media->FindInt(key)) {
+diff --git a/base/apostate/profile.h b/base/apostate/profile.h
+index a634531649..319d60145f 100644
 --- a/base/apostate/profile.h
 +++ b/base/apostate/profile.h
-@@ -390,12 +390,16 @@
+@@ -390,12 +390,16 @@ class BASE_EXPORT Profile {
      return audio_hardware_buffer_frames_;
    }
  
@@ -30,7 +117,7 @@ claimed speaker goes to Chrome's own silent output.
    std::optional<int> media_videoinput_count() const {
      return media_videoinput_count_;
    }
-@@ -793,6 +797,7 @@
+@@ -793,6 +797,7 @@ class BASE_EXPORT Profile {
    std::optional<bool> screen_hdr_;
    std::optional<int> audio_hardware_buffer_frames_;
    std::optional<int> media_audioinput_count_;
@@ -38,85 +125,8 @@ claimed speaker goes to Chrome's own silent output.
    std::optional<int> media_videoinput_count_;
    std::vector<MediaDevice> media_devices_;
    std::map<std::string, std::string> keyboard_layout_map_;
---- a/base/apostate/profile.cc
-+++ b/base/apostate/profile.cc
-@@ -949,6 +949,8 @@
-          {std::pair<const char*, std::optional<int>*>{
-               "audioinput_count", &profile->media_audioinput_count_},
-           std::pair<const char*, std::optional<int>*>{
-+              "audiooutput_count", &profile->media_audiooutput_count_},
-+          std::pair<const char*, std::optional<int>*>{
-               "videoinput_count", &profile->media_videoinput_count_}}) {
-       if (std::optional<int> v = media->FindInt(key)) {
-         if (*v >= 0 && *v <= 16) {
---- a/base/apostate/media_devices.h
-+++ b/base/apostate/media_devices.h
-@@ -16,7 +16,7 @@
- 
- namespace base::apostate {
- 
--// A capture device the profile claims and the host does not have.
-+// A device the profile claims and the host does not have.
- //
- // The identifiers are raw: MediaDevicesDispatcherHost replaces both with a
- // per-origin HMAC before either reaches a renderer, so neither string is
-@@ -40,13 +40,16 @@
- // capture on a machine that can actually capture.
- BASE_EXPORT std::vector<SyntheticMediaDevice> SyntheticAudioInputDevices(
-     size_t host_device_count);
-+BASE_EXPORT std::vector<SyntheticMediaDevice> SyntheticAudioOutputDevices(
-+    size_t host_device_count);
- BASE_EXPORT std::vector<SyntheticMediaDevice> SyntheticVideoInputDevices(
-     size_t host_device_count);
- 
--// Whether an identifier names one of the devices above. Both prefixes are
--// namespaced so they cannot collide with a platform identifier, and neither is
-+// Whether an identifier names one of the devices above. The prefixes are
-+// namespaced so they cannot collide with a platform identifier, and none is
- // "default" or "communications", which are special-cased downstream.
- BASE_EXPORT bool IsSyntheticAudioInputId(std::string_view id);
-+BASE_EXPORT bool IsSyntheticAudioOutputId(std::string_view id);
- BASE_EXPORT bool IsSyntheticVideoInputId(std::string_view id);
- 
- // The format a synthetic microphone reports and delivers.
---- a/base/apostate/media_devices.cc
-+++ b/base/apostate/media_devices.cc
-@@ -16,6 +16,7 @@
- namespace {
- 
- constexpr char kAudioInputPrefix[] = "apostate-audioinput-";
-+constexpr char kAudioOutputPrefix[] = "apostate-audiooutput-";
- constexpr char kVideoInputPrefix[] = "apostate-videoinput-";
- 
- // A device the profile claims but does not name gets no label, and a device it
-@@ -94,6 +95,16 @@
-                kAudioInputPrefix, host_device_count);
- }
- 
-+std::vector<SyntheticMediaDevice> SyntheticAudioOutputDevices(
-+    size_t host_device_count) {
-+  const Profile* profile = Profile::Get();
-+  if (!profile) {
-+    return {};
-+  }
-+  return Build(*profile, profile->media_audiooutput_count(), "audiooutput",
-+               kAudioOutputPrefix, host_device_count);
-+}
-+
- std::vector<SyntheticMediaDevice> SyntheticVideoInputDevices(
-     size_t host_device_count) {
-   const Profile* profile = Profile::Get();
-@@ -108,6 +119,10 @@
-   return id.starts_with(kAudioInputPrefix);
- }
- 
-+bool IsSyntheticAudioOutputId(std::string_view id) {
-+  return id.starts_with(kAudioOutputPrefix);
-+}
-+
- bool IsSyntheticVideoInputId(std::string_view id) {
-   return id.starts_with(kVideoInputPrefix);
- }
+diff --git a/media/audio/audio_manager_base.cc b/media/audio/audio_manager_base.cc
+index cc91ad55c5..cfacaca7a6 100644
 --- a/media/audio/audio_manager_base.cc
 +++ b/media/audio/audio_manager_base.cc
 @@ -9,6 +9,7 @@
@@ -127,7 +137,7 @@ claimed speaker goes to Chrome's own silent output.
  #include "base/command_line.h"
  #include "base/functional/bind.h"
  #include "base/functional/callback_helpers.h"
-@@ -313,7 +314,8 @@
+@@ -292,7 +293,8 @@ void AudioManagerBase::LogAudioManagerStartup() {
  
  namespace {
  
@@ -137,7 +147,7 @@ claimed speaker goes to Chrome's own silent output.
  //
  // Here, rather than where enumerateDevices() answers, because this is the list
  // the audio service itself works from: the same descriptions feed the
-@@ -321,7 +323,9 @@
+@@ -300,7 +302,9 @@ namespace {
  // lookup that runs before a stream is opened. A device added above this layer
  // is a device the audio service has never heard of, which is how a device can
  // enumerate and then fail to open.
@@ -148,7 +158,7 @@ claimed speaker goes to Chrome's own silent output.
    // The virtual "default" and "communications" entries are not hardware, so
    // they do not count towards what the host really has.
    size_t host_devices = 0;
-@@ -333,29 +337,44 @@
+@@ -312,29 +316,44 @@ void AppendProfileInputDevices(AudioDeviceDescriptions* descriptions) {
    }
  
    const std::vector<base::apostate::SyntheticMediaDevice> synthetic =
@@ -202,7 +212,7 @@ claimed speaker goes to Chrome's own silent output.
      first = false;
    }
  }
-@@ -370,7 +389,8 @@
+@@ -349,7 +368,8 @@ void AudioManagerBase::GetAudioInputDeviceDescriptions(
        &AudioManagerBase::GetDefaultInputDeviceID,
        &AudioManagerBase::GetCommunicationsInputDeviceID,
        &AudioManagerBase::GetGroupIDInput);
@@ -211,8 +221,8 @@ claimed speaker goes to Chrome's own silent output.
 +                       &base::apostate::SyntheticAudioInputDevices);
    base::UmaHistogramEnumeration(
        "Media.Audio.InputDeviceEnumerationOutcome",
-       GetAudioEnumerationOutcome(
-@@ -386,6 +406,8 @@
+       GetDeviceEnumerationOutcome(
+@@ -365,6 +385,8 @@ void AudioManagerBase::GetAudioOutputDeviceDescriptions(
        &AudioManagerBase::GetDefaultOutputDeviceID,
        &AudioManagerBase::GetCommunicationsOutputDeviceID,
        &AudioManagerBase::GetGroupIDOutput);
@@ -220,8 +230,8 @@ claimed speaker goes to Chrome's own silent output.
 +                       &base::apostate::SyntheticAudioOutputDevices);
    base::UmaHistogramEnumeration(
        "Media.Audio.OutputDeviceEnumerationOutcome",
-       GetAudioEnumerationOutcome(
-@@ -679,6 +701,14 @@
+       GetDeviceEnumerationOutcome(
+@@ -658,6 +680,14 @@ AudioOutputStream* AudioManagerBase::MakeAudioOutputStreamProxy(
      output_params.set_format(AudioParameters::AUDIO_FAKE);
    }
  

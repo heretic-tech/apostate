@@ -12,7 +12,7 @@ profile says so, on any host. Members that measured an adapter are
 unchanged.
 
 diff --git a/base/apostate/compose.cc b/base/apostate/compose.cc
-index 8ba4c7f..86b66b3 100644
+index 8ba4c7f461..86b66b3ad9 100644
 --- a/base/apostate/compose.cc
 +++ b/base/apostate/compose.cc
 @@ -1573,10 +1573,11 @@ std::optional<Composition> Compose(const ComposeRequest& request,
@@ -58,7 +58,7 @@ index 8ba4c7f..86b66b3 100644
        }
        continue;
 diff --git a/base/apostate/compose_unittest.cc b/base/apostate/compose_unittest.cc
-index 63a2c81..42160c2 100644
+index 63a2c812f8..42160c240b 100644
 --- a/base/apostate/compose_unittest.cc
 +++ b/base/apostate/compose_unittest.cc
 @@ -855,8 +855,8 @@ TEST(ApostateComposeTest, TheAnchorFollowsTheHostCpuFamily) {
@@ -96,7 +96,7 @@ index 63a2c81..42160c2 100644
  
  // ---------------------------------------------------------------------------
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
-index 0350166..a2fc1c6 100644
+index 0350166374..a2fc1c604e 100644
 --- a/base/apostate/profile.cc
 +++ b/base/apostate/profile.cc
 @@ -1160,6 +1160,9 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
@@ -110,7 +110,7 @@ index 0350166..a2fc1c6 100644
        for (const auto& v : *features) {
          if (const std::string* s = v.GetIfString()) {
 diff --git a/base/apostate/profile.h b/base/apostate/profile.h
-index 863ddde..fa36c44 100644
+index 863ddde92e..fa36c44407 100644
 --- a/base/apostate/profile.h
 +++ b/base/apostate/profile.h
 @@ -503,6 +503,9 @@ class BASE_EXPORT Profile {
@@ -132,10 +132,10 @@ index 863ddde..fa36c44 100644
    uint32_t webgpu_subgroup_min_ = 0;
    uint32_t webgpu_subgroup_max_ = 0;
 diff --git a/gpu/command_buffer/service/webgpu_decoder_impl.cc b/gpu/command_buffer/service/webgpu_decoder_impl.cc
-index 0ebb417..27c4d9f 100644
+index b39d2a5c39..45c1e18e18 100644
 --- a/gpu/command_buffer/service/webgpu_decoder_impl.cc
 +++ b/gpu/command_buffer/service/webgpu_decoder_impl.cc
-@@ -1607,6 +1607,16 @@ WGPUFuture WebGPUDecoderImpl::RequestAdapterImpl(
+@@ -1601,6 +1601,16 @@ WGPUFuture WebGPUDecoderImpl::RequestAdapterImpl(
      return {};
    }
  

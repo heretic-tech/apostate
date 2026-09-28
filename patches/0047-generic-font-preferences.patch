@@ -8,32 +8,11 @@ maps them to Times New Roman, Arial, Consolas, Comic Sans MS and Impact,
 as on a real Windows machine. Named families and per-script maps the
 profile does not set keep their defaults.
 
-diff --git a/base/apostate/profile.h b/base/apostate/profile.h
---- a/base/apostate/profile.h
-+++ b/base/apostate/profile.h
-@@ -311,6 +311,10 @@
-   }
- 
-   // One speech-synthesis voice as speechSynthesis.getVoices() reports it.
-+  const std::map<std::string, std::string>& generic_font_family_map() const {
-+    return generic_font_family_map_;
-+  }
-+
-   struct SpeechVoice {
-     std::string name;
-     std::string lang;
-@@ -416,6 +420,7 @@
-   std::map<std::string, SystemFont> css_system_fonts_;
-   std::optional<bool> screen_is_extended_;
-   std::set<std::string> hw_decode_codecs_;
-+  std::map<std::string, std::string> generic_font_family_map_;
-   bool has_speech_voice_filter_ = false;
-   std::vector<SpeechVoice> speech_voices_;
-   std::optional<std::string> timezone_;
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
+index 5d18a93a94..571e5f6933 100644
 --- a/base/apostate/profile.cc
 +++ b/base/apostate/profile.cc
-@@ -315,6 +315,28 @@
+@@ -318,6 +318,28 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
      }
    }
  
@@ -62,7 +41,31 @@ diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
    if (const DictValue* speech = dict->FindDict("speech")) {
      if (const ListValue* voices = speech->FindList("voices")) {
        profile->has_speech_voice_filter_ = true;
+diff --git a/base/apostate/profile.h b/base/apostate/profile.h
+index 0d2f2244a9..082931e1a3 100644
+--- a/base/apostate/profile.h
++++ b/base/apostate/profile.h
+@@ -311,6 +311,10 @@ class BASE_EXPORT Profile {
+   }
+ 
+   // One speech-synthesis voice as speechSynthesis.getVoices() reports it.
++  const std::map<std::string, std::string>& generic_font_family_map() const {
++    return generic_font_family_map_;
++  }
++
+   struct SpeechVoice {
+     std::string name;
+     std::string lang;
+@@ -416,6 +420,7 @@ class BASE_EXPORT Profile {
+   std::map<std::string, SystemFont> css_system_fonts_;
+   std::optional<bool> screen_is_extended_;
+   std::set<std::string> hw_decode_codecs_;
++  std::map<std::string, std::string> generic_font_family_map_;
+   bool has_speech_voice_filter_ = false;
+   std::vector<SpeechVoice> speech_voices_;
+   std::optional<std::string> timezone_;
 diff --git a/chrome/browser/chrome_content_browser_client.cc b/chrome/browser/chrome_content_browser_client.cc
+index 448ed5078e..11e9ad76cd 100644
 --- a/chrome/browser/chrome_content_browser_client.cc
 +++ b/chrome/browser/chrome_content_browser_client.cc
 @@ -15,6 +15,7 @@
@@ -73,7 +76,7 @@ diff --git a/chrome/browser/chrome_content_browser_client.cc b/chrome/browser/ch
  #include "base/base_switches.h"
  #include "base/byte_size.h"
  #include "base/check_deref.h"
-@@ -4678,6 +4679,26 @@
+@@ -4594,6 +4595,26 @@ void ChromeContentBrowserClient::OverrideWebPreferences(
                                         &web_prefs->math_font_family_map);
    }
  

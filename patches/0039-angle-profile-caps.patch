@@ -10,21 +10,21 @@ limits never rise above the native ones, and the effective limits are
 part of the program cache key.
 
 diff --git a/ui/gl/angle_platform_impl.cc b/ui/gl/angle_platform_impl.cc
+index ca173c9cfc..a2f81b036d 100644
 --- a/ui/gl/angle_platform_impl.cc
 +++ b/ui/gl/angle_platform_impl.cc
-@@ -7,6 +7,7 @@
- #include <atomic>
- #include <string>
+@@ -4,6 +4,7 @@
+ 
+ #include "ui/gl/angle_platform_impl.h"
  
 +#include "base/apostate/profile.h"
- #include "base/base64.h"
  #include "base/compiler_specific.h"
  #include "base/functional/bind.h"
-@@ -27,6 +28,24 @@
+ #include "base/functional/callback.h"
+@@ -20,6 +21,24 @@ namespace angle {
+ 
  namespace {
  
- std::atomic<bool> g_post_task_failed_for_testing{false};
-+
 +bool ANGLEPlatformImpl_getProfileIntegerCapV1(PlatformMethods* platform,
 +                                             const char* name,
 +                                             int64_t* value) {
@@ -42,22 +42,24 @@ diff --git a/ui/gl/angle_platform_impl.cc b/ui/gl/angle_platform_impl.cc
 +  *value = it->second;
 +  return true;
 +}
- 
++
  double ANGLEPlatformImpl_currentTime(PlatformMethods* platform) {
    return base::Time::Now().InSecondsFSinceUnixEpoch();
-@@ -195,6 +214,8 @@
+ }
+@@ -119,6 +138,8 @@ bool InitializePlatform(EGLDisplay display,
                            g_PlatformMethodNames, g_NumPlatformMethods, nullptr,
                            &platformMethods))
      return false;
 +  platformMethods->getProfileIntegerCapV1 =
 +      ANGLEPlatformImpl_getProfileIntegerCapV1;
    platformMethods->currentTime = ANGLEPlatformImpl_currentTime;
-   platformMethods->addTraceEvent = ANGLEPlatformImpl_addTraceEvent;
-   platformMethods->getTraceCategoryEnabledFlag =
+   platformMethods->histogramBoolean = ANGLEPlatformImpl_histogramBoolean;
+   platformMethods->histogramCustomCounts =
 diff --git a/third_party/angle/include/platform/PlatformMethods.h b/third_party/angle/include/platform/PlatformMethods.h
+index 808826bb54..f231fcd9f2 100644
 --- a/third_party/angle/include/platform/PlatformMethods.h
 +++ b/third_party/angle/include/platform/PlatformMethods.h
-@@ -251,6 +251,18 @@
+@@ -251,6 +251,18 @@ inline void DefaultPlaceholderCallback(...) {}
  using RecordShaderCacheUseFunc = void (*)(bool);
  inline void DefaultRecordShaderCacheUse(bool) {}
  
@@ -76,7 +78,7 @@ diff --git a/third_party/angle/include/platform/PlatformMethods.h b/third_party/
  // Platform methods are enumerated here once.
  #define ANGLE_PLATFORM_OP(OP)                                    \
      OP(currentTime, CurrentTime)                                 \
-@@ -270,7 +282,8 @@
+@@ -270,7 +282,8 @@ inline void DefaultRecordShaderCacheUse(bool) {}
      OP(cacheProgram, CacheProgram)                               \
      OP(placeholder3, PlaceholderCallback)                        \
      OP(postWorkerTask, PostWorkerTask)                           \
@@ -86,7 +88,7 @@ diff --git a/third_party/angle/include/platform/PlatformMethods.h b/third_party/
  
  #define ANGLE_PLATFORM_METHOD_DEF(Name, CapsName) CapsName##Func Name = Default##CapsName;
  
-@@ -293,10 +306,10 @@
+@@ -293,10 +306,10 @@ inline PlatformMethods::PlatformMethods() = default;
  // Subtract one to account for the context pointer.
  constexpr unsigned int g_NumPlatformMethods = (sizeof(PlatformMethods) / sizeof(uintptr_t)) - 1;
  
@@ -102,6 +104,7 @@ diff --git a/third_party/angle/include/platform/PlatformMethods.h b/third_party/
  #define ANGLE_PLATFORM_METHOD_STRING(Name) #Name
  #define ANGLE_PLATFORM_METHOD_STRING2(Name, CapsName) ANGLE_PLATFORM_METHOD_STRING(Name),
 diff --git a/third_party/angle/src/libANGLE/Context.cpp b/third_party/angle/src/libANGLE/Context.cpp
+index 554cd5b0ea..f893bfb56d 100644
 --- a/third_party/angle/src/libANGLE/Context.cpp
 +++ b/third_party/angle/src/libANGLE/Context.cpp
 @@ -62,6 +62,7 @@
@@ -112,7 +115,7 @@ diff --git a/third_party/angle/src/libANGLE/Context.cpp b/third_party/angle/src/
  
  #if defined(ANGLE_PLATFORM_APPLE)
  #    include <dispatch/dispatch.h>
-@@ -72,6 +73,75 @@
+@@ -72,6 +73,75 @@ namespace gl
  {
  namespace
  {
@@ -188,7 +191,7 @@ diff --git a/third_party/angle/src/libANGLE/Context.cpp b/third_party/angle/src/
  constexpr state::DirtyObjects kDrawDirtyObjectsBase{
      state::DIRTY_OBJECT_ACTIVE_TEXTURES,
      state::DIRTY_OBJECT_DRAW_FRAMEBUFFER,
-@@ -4596,6 +4666,11 @@
+@@ -4723,6 +4793,11 @@ void Context::initCaps()
          mMemoryProgramCache = nullptr;
      }
  
@@ -201,9 +204,10 @@ diff --git a/third_party/angle/src/libANGLE/Context.cpp b/third_party/angle/src/
      //
      // The backend may have already initialized these caps with its own custom values, in which case
 diff --git a/third_party/angle/src/libANGLE/MemoryProgramCache.cpp b/third_party/angle/src/libANGLE/MemoryProgramCache.cpp
+index c951d69625..77afa1c207 100644
 --- a/third_party/angle/src/libANGLE/MemoryProgramCache.cpp
 +++ b/third_party/angle/src/libANGLE/MemoryProgramCache.cpp
-@@ -95,6 +95,14 @@
+@@ -95,6 +95,14 @@ void MemoryProgramCache::ComputeHash(const Context *context,
      ASSERT(rendererString != nullptr);
      hasher.Update(rendererString, strlen(rendererString));
  

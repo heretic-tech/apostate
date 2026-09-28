@@ -11,6 +11,7 @@ Chrome rates a common Intel or AMD part. A macOS persona on a Mac keeps
 the host model, because Apple silicon is part of that claim.
 
 diff --git a/content/browser/cpu_performance/cpu_performance.cc b/content/browser/cpu_performance/cpu_performance.cc
+index 4706bbbead..340b30d6a4 100644
 --- a/content/browser/cpu_performance/cpu_performance.cc
 +++ b/content/browser/cpu_performance/cpu_performance.cc
 @@ -6,12 +6,14 @@
@@ -28,7 +29,7 @@ diff --git a/content/browser/cpu_performance/cpu_performance.cc b/content/browse
  #include "third_party/blink/public/common/features.h"
  #include "third_party/re2/src/re2/re2.h"
  
-@@ -177,6 +179,24 @@ void InitializeFromCores() {
+@@ -179,6 +181,24 @@ void InitializeFromCores() {
  
  void InitializeFromCpuInfo() {
    std::string model = base::SysInfo::CPUModelName();

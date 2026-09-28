@@ -8,50 +8,11 @@ builds. A Windows profile reports Segoe UI at 12px for menu,
 small-caption and status-bar, as a real Windows machine does. A keyword
 changes only when the profile gives both its family and its size.
 
-diff --git a/base/apostate/profile.h b/base/apostate/profile.h
-index 35ee265..7760755 100644
---- a/base/apostate/profile.h
-+++ b/base/apostate/profile.h
-@@ -243,6 +243,26 @@ class BASE_EXPORT Profile {
-     return gl_precisions_;
-   }
- 
-+  // One CSS system font: the family and size a system font keyword resolves to.
-+  struct SystemFont {
-+    std::string family;
-+    double size_px = 0;
-+  };
-+
-+  // CSS system fonts, keyed by the keyword as CSS spells it — "menu",
-+  // "small-caption", "status-bar", "caption", "icon", "message-box".
-+  //
-+  // Which keywords diverge is a platform fact and a narrow one. Chromium's
-+  // Windows provider routes only small-caption, menu and status-bar to the
-+  // shell's non-client metrics and lets the other three fall through to the
-+  // same Arial/16px default our Linux build uses, so a Windows profile differs
-+  // from a Linux host on exactly three of the six. The values behind them come
-+  // from SPI_GETNONCLIENTMETRICS, which is the user's Windows theme rather than
-+  // anything derivable, so they are replayed from the capture.
-+  const std::map<std::string, SystemFont>& css_system_fonts() const {
-+    return css_system_fonts_;
-+  }
-+
-   // IANA timezone name, e.g. "Europe/Warsaw".
-   //
-   // Only the zone *name* is a host fact. ICU's data is compiled into the binary
-@@ -329,6 +349,7 @@ class BASE_EXPORT Profile {
-   std::map<std::string, int> gl_limits_;
-   std::set<std::string> gl_extensions_;
-   std::map<std::string, ShaderPrecision> gl_precisions_;
-+  std::map<std::string, SystemFont> css_system_fonts_;
-   std::optional<std::string> timezone_;
-   std::optional<bool> prefers_dark_;
-   std::optional<std::string> accept_languages_;
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
-index 1be796d..cf8f1b1 100644
+index 4b6d541f2f..b5155fcefd 100644
 --- a/base/apostate/profile.cc
 +++ b/base/apostate/profile.cc
-@@ -267,6 +267,37 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
+@@ -270,6 +270,37 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
      }
    }
  
@@ -89,8 +50,47 @@ index 1be796d..cf8f1b1 100644
    if (const DictValue* keyboard = dict->FindDict("keyboard")) {
      if (const DictValue* map = keyboard->FindDict("layout_map")) {
        for (const auto [code, value] : *map) {
+diff --git a/base/apostate/profile.h b/base/apostate/profile.h
+index 35ee2658d2..7760755352 100644
+--- a/base/apostate/profile.h
++++ b/base/apostate/profile.h
+@@ -243,6 +243,26 @@ class BASE_EXPORT Profile {
+     return gl_precisions_;
+   }
+ 
++  // One CSS system font: the family and size a system font keyword resolves to.
++  struct SystemFont {
++    std::string family;
++    double size_px = 0;
++  };
++
++  // CSS system fonts, keyed by the keyword as CSS spells it — "menu",
++  // "small-caption", "status-bar", "caption", "icon", "message-box".
++  //
++  // Which keywords diverge is a platform fact and a narrow one. Chromium's
++  // Windows provider routes only small-caption, menu and status-bar to the
++  // shell's non-client metrics and lets the other three fall through to the
++  // same Arial/16px default our Linux build uses, so a Windows profile differs
++  // from a Linux host on exactly three of the six. The values behind them come
++  // from SPI_GETNONCLIENTMETRICS, which is the user's Windows theme rather than
++  // anything derivable, so they are replayed from the capture.
++  const std::map<std::string, SystemFont>& css_system_fonts() const {
++    return css_system_fonts_;
++  }
++
+   // IANA timezone name, e.g. "Europe/Warsaw".
+   //
+   // Only the zone *name* is a host fact. ICU's data is compiled into the binary
+@@ -329,6 +349,7 @@ class BASE_EXPORT Profile {
+   std::map<std::string, int> gl_limits_;
+   std::set<std::string> gl_extensions_;
+   std::map<std::string, ShaderPrecision> gl_precisions_;
++  std::map<std::string, SystemFont> css_system_fonts_;
+   std::optional<std::string> timezone_;
+   std::optional<bool> prefers_dark_;
+   std::optional<std::string> accept_languages_;
 diff --git a/third_party/blink/renderer/core/layout/layout_theme_font_provider_default.cc b/third_party/blink/renderer/core/layout/layout_theme_font_provider_default.cc
-index 383ae4e..493b41d 100644
+index 383ae4ec2d..493b41d4b2 100644
 --- a/third_party/blink/renderer/core/layout/layout_theme_font_provider_default.cc
 +++ b/third_party/blink/renderer/core/layout/layout_theme_font_provider_default.cc
 @@ -25,23 +25,107 @@

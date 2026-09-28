@@ -8,6 +8,8 @@ that cannot be decoded stops the launch with an error naming the
 expected encoding. A child process, --fingerprint=off and a catalogue
 that cannot serve the host all leave the host's values in place.
 
+diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
+index 09c6157e9c..df1ad45dac 100644
 --- a/base/apostate/profile.cc
 +++ b/base/apostate/profile.cc
 @@ -7,8 +7,11 @@
@@ -22,7 +24,7 @@ that cannot serve the host all leave the host's values in place.
  #include "base/base64.h"
  #include "base/base_switches.h"
  #include "base/command_line.h"
-@@ -87,23 +90,66 @@
+@@ -87,23 +90,66 @@ const Profile* Profile::Get() {
      return g_profile_for_testing;
    }
  

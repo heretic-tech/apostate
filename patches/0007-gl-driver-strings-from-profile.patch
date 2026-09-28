@@ -7,10 +7,10 @@ makes its driver-bug blocklist decisions for that same GPU. The masked
 renderer string stays "WebKit WebGL", as in stock Chrome.
 
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
-index 2d479a8..8a64885 100644
+index 19f681ee00..ada6cd1340 100644
 --- a/base/apostate/profile.cc
 +++ b/base/apostate/profile.cc
-@@ -104,6 +104,15 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
+@@ -107,6 +107,15 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
      }
    }
  
@@ -27,7 +27,7 @@ index 2d479a8..8a64885 100644
  }
  
 diff --git a/base/apostate/profile.h b/base/apostate/profile.h
-index ff33d3d..0776033 100644
+index ff33d3da54..0776033183 100644
 --- a/base/apostate/profile.h
 +++ b/base/apostate/profile.h
 @@ -70,6 +70,22 @@ class BASE_EXPORT Profile {
@@ -63,7 +63,7 @@ index ff33d3d..0776033 100644
  };
  
 diff --git a/ui/gl/gl_gl_api_implementation.cc b/ui/gl/gl_gl_api_implementation.cc
-index 6e785fa..3ebdfb1 100644
+index 6e785fafa2..3ebdfb1937 100644
 --- a/ui/gl/gl_gl_api_implementation.cc
 +++ b/ui/gl/gl_gl_api_implementation.cc
 @@ -4,6 +4,9 @@

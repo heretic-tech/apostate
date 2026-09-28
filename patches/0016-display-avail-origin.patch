@@ -7,10 +7,10 @@ and dock, or a Windows taskbar docked top or left, split the inset in
 different ways.
 
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
-index 0c28f3c..2fd4f6f 100644
+index 17ceb16232..dc3aaa086d 100644
 --- a/base/apostate/profile.cc
 +++ b/base/apostate/profile.cc
-@@ -144,6 +144,12 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
+@@ -147,6 +147,12 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
      if (std::optional<int> v = screen->FindInt("height")) {
        profile->screen_height_ = *v;
      }
@@ -24,7 +24,7 @@ index 0c28f3c..2fd4f6f 100644
        profile->screen_avail_width_ = *v;
      }
 diff --git a/base/apostate/profile.h b/base/apostate/profile.h
-index 0fad4c3..2141d8c 100644
+index 0fad4c3c4b..2141d8ce60 100644
 --- a/base/apostate/profile.h
 +++ b/base/apostate/profile.h
 @@ -126,6 +126,14 @@ class BASE_EXPORT Profile {
@@ -52,10 +52,10 @@ index 0fad4c3..2141d8c 100644
    std::optional<int> screen_avail_height_;
    std::optional<float> device_scale_factor_;
 diff --git a/ui/display/display_util.cc b/ui/display/display_util.cc
-index 79a8665..7bacfd4 100644
+index a2cc440543..2e2d9c48dd 100644
 --- a/ui/display/display_util.cc
 +++ b/ui/display/display_util.cc
-@@ -74,9 +74,14 @@ void DisplayUtil::DisplayToScreenInfo(ScreenInfo* screen_info,
+@@ -73,9 +73,14 @@ void DisplayUtil::DisplayToScreenInfo(ScreenInfo* screen_info,
      }
      if (profile->screen_avail_width().has_value() &&
          profile->screen_avail_height().has_value()) {

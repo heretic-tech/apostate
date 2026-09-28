@@ -7,10 +7,10 @@ hover. The primary and available values come from the same two fields,
 so pointer agrees with any-pointer and hover with any-hover.
 
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
-index 245a4b5..0c28f3c 100644
+index 6e0466d3fe..17ceb16232 100644
 --- a/base/apostate/profile.cc
 +++ b/base/apostate/profile.cc
-@@ -176,6 +176,20 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
+@@ -179,6 +179,20 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
      }
    }
  
@@ -32,7 +32,7 @@ index 245a4b5..0c28f3c 100644
      if (std::optional<bool> v = theme->FindBool("prefers_dark")) {
        profile->prefers_dark_ = *v;
 diff --git a/base/apostate/profile.h b/base/apostate/profile.h
-index e14ab52..0fad4c3 100644
+index e14ab5210c..0fad4c3c4b 100644
 --- a/base/apostate/profile.h
 +++ b/base/apostate/profile.h
 @@ -164,6 +164,17 @@ class BASE_EXPORT Profile {
@@ -63,7 +63,7 @@ index e14ab52..0fad4c3 100644
    std::optional<uint32_t> css_highlight_text_argb_;
    std::string source_id_;
 diff --git a/content/browser/web_contents/slow_web_preference_cache.cc b/content/browser/web_contents/slow_web_preference_cache.cc
-index ff82883..40ad7f6 100644
+index e8fc8addb3..9f2b8e981c 100644
 --- a/content/browser/web_contents/slow_web_preference_cache.cc
 +++ b/content/browser/web_contents/slow_web_preference_cache.cc
 @@ -4,6 +4,8 @@
@@ -75,7 +75,7 @@ index ff82883..40ad7f6 100644
  #include "base/command_line.h"
  #include "base/metrics/histogram_functions.h"
  #include "base/no_destructor.h"
-@@ -183,6 +185,36 @@ bool SlowWebPreferenceCache::Update() {
+@@ -173,6 +175,36 @@ bool SlowWebPreferenceCache::Update() {
    primary_hover_type_ =
        static_cast<blink::mojom::HoverType>(ui::GetPrimaryHoverType());
  

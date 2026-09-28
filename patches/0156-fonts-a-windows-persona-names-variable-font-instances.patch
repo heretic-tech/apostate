@@ -19,7 +19,7 @@ base family. The filter still decides by the name the page wrote, and
 the persona's font list names the instances rather than the bases.
 
 diff --git a/third_party/blink/renderer/platform/fonts/font_cache.cc b/third_party/blink/renderer/platform/fonts/font_cache.cc
-index b533111..93f6d2c 100644
+index b68ee5713c..631753efa8 100644
 --- a/third_party/blink/renderer/platform/fonts/font_cache.cc
 +++ b/third_party/blink/renderer/platform/fonts/font_cache.cc
 @@ -154,6 +154,48 @@ const AtomicString& PersonaSystemUiFamily() {

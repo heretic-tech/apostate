@@ -8,6 +8,7 @@ Mesa's llvmpipe. A profile that claims an adapter gets one on any
 platform, and one that claims none gets none.
 
 diff --git a/gpu/command_buffer/service/profile_software_webgpu_policy.h b/gpu/command_buffer/service/profile_software_webgpu_policy.h
+index 98d9fa9900..c580088802 100644
 --- a/gpu/command_buffer/service/profile_software_webgpu_policy.h
 +++ b/gpu/command_buffer/service/profile_software_webgpu_policy.h
 @@ -3,7 +3,6 @@
@@ -27,7 +28,7 @@ diff --git a/gpu/command_buffer/service/profile_software_webgpu_policy.h b/gpu/c
    bool shared_context_is_gl = false;
    bool safe = false;
    bool has_dawn_overrides = false;
-@@ -30,6 +27,14 @@
+@@ -30,6 +27,14 @@ struct ProfileSoftwareWebGPUContext {
    // Defaults false so that a caller which does not consider the question gets
    // stock behaviour rather than an adapter by omission.
    bool profile_declares_webgpu_adapter = false;
@@ -42,7 +43,7 @@ diff --git a/gpu/command_buffer/service/profile_software_webgpu_policy.h b/gpu/c
  };
  
  // True when `profile` describes a WebGPU adapter.
-@@ -46,10 +51,12 @@
+@@ -46,10 +51,12 @@ inline bool ProfileDeclaresWebGPUAdapter(const base::apostate::Profile& profile)
           !profile.webgpu_features().empty() || !profile.webgpu_limits().empty();
  }
  
@@ -58,33 +59,11 @@ diff --git a/gpu/command_buffer/service/profile_software_webgpu_policy.h b/gpu/c
           !context.force_compat &&
           (context.requested_adapter == WebGPUAdapterName::kDefault ||
            context.requested_adapter == WebGPUAdapterName::kSwiftShader);
-diff --git a/gpu/command_buffer/service/webgpu_decoder_impl.cc b/gpu/command_buffer/service/webgpu_decoder_impl.cc
---- a/gpu/command_buffer/service/webgpu_decoder_impl.cc
-+++ b/gpu/command_buffer/service/webgpu_decoder_impl.cc
-@@ -1152,10 +1152,8 @@
- 
-   dawn::native::DawnInstanceDescriptor provider_descriptor;
- #if BUILDFLAG(IS_LINUX)
--  if (const auto* profile = base::apostate::Profile::Get(); profile && profile->ua_platform()) {
-+  if (const auto* profile = base::apostate::Profile::Get()) {
-     profile_software_webgpu_ = CanUseProfileSoftwareWebGPU({
--        .platform = *profile->ua_platform(),
--        .angle_is_swiftshader = gl::GetANGLEImplementation() == gl::ANGLEImplementation::kSwiftShader,
-         .shared_context_is_gl = shared_context_state_ && shared_context_state_->GrContextIsGL(),
-         .safe = safety_level_ == SafetyLevel::kSafe,
-         .has_dawn_overrides = !require_enabled_toggles_.empty() ||
-@@ -1163,6 +1161,7 @@
-         .force_compat = force_webgpu_compat_,
-         .requested_adapter = use_webgpu_adapter_,
-         .profile_declares_webgpu_adapter = ProfileDeclaresWebGPUAdapter(*profile),
-+        .hardware_webgpu_path = webgpu_on_vk_gl_interop_,
-     });
-   }
- #endif
 diff --git a/gpu/command_buffer/service/shared_image/gl_texture_image_backing_factory.cc b/gpu/command_buffer/service/shared_image/gl_texture_image_backing_factory.cc
+index 91b15d3396..2231f3cff6 100644
 --- a/gpu/command_buffer/service/shared_image/gl_texture_image_backing_factory.cc
 +++ b/gpu/command_buffer/service/shared_image/gl_texture_image_backing_factory.cc
-@@ -58,14 +58,10 @@
+@@ -64,14 +64,10 @@ GLTextureImageBackingFactory::GLTextureImageBackingFactory(
          (void)gpu_preferences;
  #if BUILDFLAG(IS_LINUX) && BUILDFLAG(USE_DAWN)
          const auto* profile = base::apostate::Profile::Get();
@@ -100,7 +79,7 @@ diff --git a/gpu/command_buffer/service/shared_image/gl_texture_image_backing_fa
              // IsSupported checks the actual requesting Skia context below.
              .shared_context_is_gl = true,
              .safe = !gpu_preferences.enable_unsafe_webgpu &&
-@@ -80,6 +76,8 @@
+@@ -86,6 +82,8 @@ GLTextureImageBackingFactory::GLTextureImageBackingFactory(
              .requested_adapter = gpu_preferences.use_webgpu_adapter,
              .profile_declares_webgpu_adapter =
                  webgpu::ProfileDeclaresWebGPUAdapter(*profile),
@@ -109,10 +88,35 @@ diff --git a/gpu/command_buffer/service/shared_image/gl_texture_image_backing_fa
          });
  #else
          return false;
+diff --git a/gpu/command_buffer/service/webgpu_decoder_impl.cc b/gpu/command_buffer/service/webgpu_decoder_impl.cc
+index 5094386246..09fbf4eb58 100644
+--- a/gpu/command_buffer/service/webgpu_decoder_impl.cc
++++ b/gpu/command_buffer/service/webgpu_decoder_impl.cc
+@@ -1146,10 +1146,8 @@ WebGPUDecoderImpl::WebGPUDecoderImpl(
+ 
+   dawn::native::DawnInstanceDescriptor provider_descriptor;
+ #if BUILDFLAG(IS_LINUX)
+-  if (const auto* profile = base::apostate::Profile::Get(); profile && profile->ua_platform()) {
++  if (const auto* profile = base::apostate::Profile::Get()) {
+     profile_software_webgpu_ = CanUseProfileSoftwareWebGPU({
+-        .platform = *profile->ua_platform(),
+-        .angle_is_swiftshader = gl::GetANGLEImplementation() == gl::ANGLEImplementation::kSwiftShader,
+         .shared_context_is_gl = shared_context_state_ && shared_context_state_->GrContextIsGL(),
+         .safe = safety_level_ == SafetyLevel::kSafe,
+         .has_dawn_overrides = !require_enabled_toggles_.empty() ||
+@@ -1157,6 +1155,7 @@ WebGPUDecoderImpl::WebGPUDecoderImpl(
+         .force_compat = force_webgpu_compat_,
+         .requested_adapter = use_webgpu_adapter_,
+         .profile_declares_webgpu_adapter = ProfileDeclaresWebGPUAdapter(*profile),
++        .hardware_webgpu_path = webgpu_on_vk_gl_interop_,
+     });
+   }
+ #endif
 diff --git a/gpu/config/webgpu_blocklist_unittest.cc b/gpu/config/webgpu_blocklist_unittest.cc
+index f22bff03bb..86eae0a40d 100644
 --- a/gpu/config/webgpu_blocklist_unittest.cc
 +++ b/gpu/config/webgpu_blocklist_unittest.cc
-@@ -207,32 +207,25 @@
+@@ -207,32 +207,25 @@ TEST_F(WebGPUBlocklistTest, BlockDriverDescription) {
  #endif  // BUILDFLAG(IS_ANDROID) else
  
  #if BUILDFLAG(IS_LINUX)
@@ -127,9 +131,7 @@ diff --git a/gpu/config/webgpu_blocklist_unittest.cc b/gpu/config/webgpu_blockli
    context.shared_context_is_gl = true;
    context.safe = true;
    context.profile_declares_webgpu_adapter = true;
-+  EXPECT_FALSE(webgpu::CanUseProfileSoftwareWebGPU(context));
-+  context.hardware_webgpu_path = false;
-   EXPECT_TRUE(webgpu::CanUseProfileSoftwareWebGPU(context));
+-  EXPECT_TRUE(webgpu::CanUseProfileSoftwareWebGPU(context));
 -  context.platform = "macOS";
 -  EXPECT_TRUE(webgpu::CanUseProfileSoftwareWebGPU(context));
 -  for (const char* platform : {"", "Linux", "Android"}) {
@@ -138,8 +140,10 @@ diff --git a/gpu/config/webgpu_blocklist_unittest.cc b/gpu/config/webgpu_blockli
 -  }
 -  context.platform = "Windows";
 -  context.angle_is_swiftshader = false;
--  EXPECT_FALSE(webgpu::CanUseProfileSoftwareWebGPU(context));
+   EXPECT_FALSE(webgpu::CanUseProfileSoftwareWebGPU(context));
 -  context.angle_is_swiftshader = true;
++  context.hardware_webgpu_path = false;
++  EXPECT_TRUE(webgpu::CanUseProfileSoftwareWebGPU(context));
    context.shared_context_is_gl = false;
    EXPECT_FALSE(webgpu::CanUseProfileSoftwareWebGPU(context));
  }
@@ -153,7 +157,7 @@ diff --git a/gpu/config/webgpu_blocklist_unittest.cc b/gpu/config/webgpu_blockli
    context.profile_declares_webgpu_adapter = true;
    context.safe = false;
    EXPECT_FALSE(webgpu::CanUseProfileSoftwareWebGPU(context));
-@@ -258,8 +251,8 @@
+@@ -258,8 +251,8 @@ TEST(ProfileSoftwareWebGPUPolicyTest, RetainsSafetyAndExplicitAdapterChoices) {
  // adapter. Two of linux-vulkan-nvidia-adf287b8f0ee's members are in this state.
  TEST(ProfileSoftwareWebGPUPolicyTest, RefusesWhenTheProfileDeclaresNoAdapter) {
    webgpu::ProfileSoftwareWebGPUContext context;

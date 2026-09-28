@@ -10,7 +10,98 @@ platform blends it, so a light Windows profile reads rgb(0, 120, 215).
 The profile fields theme.highlight_argb and theme.highlight_text_argb
 are parsed and ignored.
 
+diff --git a/third_party/blink/renderer/core/layout/layout_theme.cc b/third_party/blink/renderer/core/layout/layout_theme.cc
+index febda48745..4411fc11cf 100644
+--- a/third_party/blink/renderer/core/layout/layout_theme.cc
++++ b/third_party/blink/renderer/core/layout/layout_theme.cc
+@@ -21,6 +21,9 @@
+ 
+ #include "third_party/blink/renderer/core/layout/layout_theme.h"
+ 
++#include <optional>
++#include <string>
++
+ #include "base/apostate/profile.h"
+ #include "build/build_config.h"
+ #include "third_party/blink/public/common/renderer_preferences/renderer_preferences.h"
+@@ -164,6 +167,37 @@ bool SystemAccentColorAllowed() {
+          RuntimeEnabledFeatures::CSSAccentColorKeywordEnabled();
+ }
+ 
++// Apostate: Highlight is the one CSS system colour each platform's theme
++// adjusts after reading it from the colour provider. Adjust it the way the
++// platform the profile claims does, not the way this build's platform does:
++// Windows serves it as it is, macOS gives it 80% alpha in dark mode and
++// blends it with white in light mode, Linux always blends it with white.
++// Returns nullopt when no platform is claimed, which keeps the build's own.
++std::optional<Color> PersonaSystemHighlight(
++    mojom::blink::ColorScheme color_scheme,
++    const ui::ColorProvider* color_provider) {
++  const base::apostate::Profile* profile = base::apostate::Profile::Get();
++  if (!profile || !profile->ua_platform()) {
++    return std::nullopt;
++  }
++  const std::string& platform = *profile->ua_platform();
++  const Color color = Color::FromSkColor(
++      color_provider->GetColor(ui::kColorCssSystemHighlight));
++  if (platform == "Windows") {
++    return color;
++  }
++  if (platform == "macOS") {
++    if (color_scheme == mojom::blink::ColorScheme::kDark) {
++      return Color(color.Red(), color.Green(), color.Blue(), 204);
++    }
++    return color.BlendWithWhite();
++  }
++  if (platform == "Linux") {
++    return color.BlendWithWhite();
++  }
++  return std::nullopt;
++}
++
+ }  // namespace
+ 
+ LayoutTheme& LayoutTheme::GetTheme() {
+@@ -813,6 +847,10 @@ Color LayoutTheme::SystemColorFromColorProvider(
+           color_provider->GetColor(ui::kColorCssSystemGrayText);
+       break;
+     case CSSValueID::kHighlight:
++      if (std::optional<Color> highlight =
++              PersonaSystemHighlight(color_scheme, color_provider)) {
++        return *highlight;
++      }
+       return SystemHighlightFromColorProvider(color_scheme, color_provider);
+     case CSSValueID::kHighlighttext:
+       system_theme_color =
+@@ -863,26 +901,6 @@ Color LayoutTheme::SystemColorFromColorProvider(
+ Color LayoutTheme::SystemHighlightFromColorProvider(
+     mojom::blink::ColorScheme color_scheme,
+     const ui::ColorProvider* color_provider) const {
+-  // Apostate: serve the profile's CSS Highlight here rather than relying on
+-  // the ColorProvider entry patch 0012 sets.
+-  //
+-  // 0012 writes kColorCssSystemHighlight in the mixer, which is right for the
+-  // browser's own UI and wrong for this value, because BlendWithWhite() runs
+-  // afterwards. The profile field is derived from the *observed* CSS Highlight,
+-  // so injecting it before the blend applies the transform a second time:
+-  // measured, a profile carrying 0xFF1967D2 produced rgba(0, 65, 198, 0.8),
+-  // which is exactly BlendWithWhite(rgb(25, 103, 210)).
+-  //
+-  // No pre-blend value can fix that. BlendWithWhite walks alpha from
+-  // kCStartAlpha to kCEndAlpha, and kCEndAlpha is 204, so for an opaque input
+-  // it can only ever return something at 80% alpha or less. The reference
+-  // device reports an opaque rgb(25, 103, 210); that is not in the range of
+-  // this function, and the value has to be served after it rather than before.
+-  if (const base::apostate::Profile* profile = base::apostate::Profile::Get()) {
+-    if (profile->css_highlight_argb().has_value()) {
+-      return Color::FromRGBA32(*profile->css_highlight_argb());
+-    }
+-  }
+   SkColor system_highlight_color =
+       color_provider->GetColor(ui::kColorCssSystemHighlight);
+   return Color::FromSkColor(system_highlight_color).BlendWithWhite();
 diff --git a/ui/color/css_system_color_mixer.cc b/ui/color/css_system_color_mixer.cc
+index 3ddbe856a8..631c52d9be 100644
 --- a/ui/color/css_system_color_mixer.cc
 +++ b/ui/color/css_system_color_mixer.cc
 @@ -4,6 +4,8 @@
@@ -22,7 +113,7 @@ diff --git a/ui/color/css_system_color_mixer.cc b/ui/color/css_system_color_mixe
  #include "base/apostate/profile.h"
  
  #include "build/build_config.h"
-@@ -18,24 +20,50 @@
+@@ -18,23 +20,49 @@ namespace ui {
  
  #if !BUILDFLAG(IS_WIN) && !BUILDFLAG(IS_MAC)
  void MapNativeColorsToCssSystemColors(ColorMixer& mixer, ColorProviderKey key) {
@@ -35,6 +126,10 @@ diff --git a/ui/color/css_system_color_mixer.cc b/ui/color/css_system_color_mixe
 -    if (profile->css_highlight_argb().has_value()) {
 -      mixer[kColorCssSystemHighlight] = {
 -          static_cast<SkColor>(*profile->css_highlight_argb())};
+-    }
+-    if (profile->css_highlight_text_argb().has_value()) {
+-      mixer[kColorCssSystemHighlightText] = {
+-          static_cast<SkColor>(*profile->css_highlight_text_argb())};
 +}
 +#endif
 +
@@ -67,27 +162,22 @@ diff --git a/ui/color/css_system_color_mixer.cc b/ui/color/css_system_color_mixe
 +      mixer[kColorCssSystemLinkText] = {kColorCssSystemHotlight};
 +      mixer[kColorCssSystemVisitedText] = {kColorCssSystemHotlight};
      }
--    if (profile->css_highlight_text_argb().has_value()) {
--      mixer[kColorCssSystemHighlightText] = {
--          static_cast<SkColor>(*profile->css_highlight_text_argb())};
--    }
 +    return true;
-   }
++  }
 +  if (platform == "macOS") {
 +    mixer[kColorCssSystemHighlight] = {SkColorSetRGB(0xB3, 0xD7, 0xFF)};
 +    mixer[kColorCssSystemHighlightText] = {SK_ColorBLACK};
 +    return true;
-+  }
+   }
 +  return platform == "Linux";
  }
 -#endif
- 
-+}  // namespace
 +
++}  // namespace
+ 
  void AddDuskPageColorsToMixer(ColorMixer& mixer) {
    mixer[kColorCssSystemBtnFace] = {SkColorSetRGB(0x2D, 0x32, 0x36)};
-   mixer[kColorCssSystemBtnText] = {SkColorSetRGB(0xB6, 0xF6, 0xF0)};
-@@ -136,7 +164,12 @@
+@@ -136,7 +164,12 @@ void AddCssSystemColorMixer(ColorProvider* provider,
      case ColorProviderKey::ForcedColors::kSystem:
        CompleteDefaultCssSystemColorDefinition(
            mixer, key.color_mode == ColorProviderKey::ColorMode::kDark);
@@ -101,92 +191,3 @@ diff --git a/ui/color/css_system_color_mixer.cc b/ui/color/css_system_color_mixe
        break;
      case ColorProviderKey::ForcedColors::kDusk:
        AddDuskPageColorsToMixer(mixer);
-diff --git a/third_party/blink/renderer/core/layout/layout_theme.cc b/third_party/blink/renderer/core/layout/layout_theme.cc
---- a/third_party/blink/renderer/core/layout/layout_theme.cc
-+++ b/third_party/blink/renderer/core/layout/layout_theme.cc
-@@ -21,6 +21,9 @@
- 
- #include "third_party/blink/renderer/core/layout/layout_theme.h"
- 
-+#include <optional>
-+#include <string>
-+
- #include "base/apostate/profile.h"
- #include "build/build_config.h"
- #include "third_party/blink/public/common/renderer_preferences/renderer_preferences.h"
-@@ -162,6 +165,37 @@
- bool SystemAccentColorAllowed() {
-   return RuntimeEnabledFeatures::CSSSystemAccentColorEnabled() ||
-          RuntimeEnabledFeatures::CSSAccentColorKeywordEnabled();
-+}
-+
-+// Apostate: Highlight is the one CSS system colour each platform's theme
-+// adjusts after reading it from the colour provider. Adjust it the way the
-+// platform the profile claims does, not the way this build's platform does:
-+// Windows serves it as it is, macOS gives it 80% alpha in dark mode and
-+// blends it with white in light mode, Linux always blends it with white.
-+// Returns nullopt when no platform is claimed, which keeps the build's own.
-+std::optional<Color> PersonaSystemHighlight(
-+    mojom::blink::ColorScheme color_scheme,
-+    const ui::ColorProvider* color_provider) {
-+  const base::apostate::Profile* profile = base::apostate::Profile::Get();
-+  if (!profile || !profile->ua_platform()) {
-+    return std::nullopt;
-+  }
-+  const std::string& platform = *profile->ua_platform();
-+  const Color color = Color::FromSkColor(
-+      color_provider->GetColor(ui::kColorCssSystemHighlight));
-+  if (platform == "Windows") {
-+    return color;
-+  }
-+  if (platform == "macOS") {
-+    if (color_scheme == mojom::blink::ColorScheme::kDark) {
-+      return Color(color.Red(), color.Green(), color.Blue(), 204);
-+    }
-+    return color.BlendWithWhite();
-+  }
-+  if (platform == "Linux") {
-+    return color.BlendWithWhite();
-+  }
-+  return std::nullopt;
- }
- 
- }  // namespace
-@@ -819,6 +853,10 @@
-           color_provider->GetColor(ui::kColorCssSystemGrayText);
-       break;
-     case CSSValueID::kHighlight:
-+      if (std::optional<Color> highlight =
-+              PersonaSystemHighlight(color_scheme, color_provider)) {
-+        return *highlight;
-+      }
-       return SystemHighlightFromColorProvider(color_scheme, color_provider);
-     case CSSValueID::kHighlighttext:
-       system_theme_color =
-@@ -869,26 +907,6 @@
- Color LayoutTheme::SystemHighlightFromColorProvider(
-     mojom::blink::ColorScheme color_scheme,
-     const ui::ColorProvider* color_provider) const {
--  // Apostate: serve the profile's CSS Highlight here rather than relying on
--  // the ColorProvider entry patch 0012 sets.
--  //
--  // 0012 writes kColorCssSystemHighlight in the mixer, which is right for the
--  // browser's own UI and wrong for this value, because BlendWithWhite() runs
--  // afterwards. The profile field is derived from the *observed* CSS Highlight,
--  // so injecting it before the blend applies the transform a second time:
--  // measured, a profile carrying 0xFF1967D2 produced rgba(0, 65, 198, 0.8),
--  // which is exactly BlendWithWhite(rgb(25, 103, 210)).
--  //
--  // No pre-blend value can fix that. BlendWithWhite walks alpha from
--  // kCStartAlpha to kCEndAlpha, and kCEndAlpha is 204, so for an opaque input
--  // it can only ever return something at 80% alpha or less. The reference
--  // device reports an opaque rgb(25, 103, 210); that is not in the range of
--  // this function, and the value has to be served after it rather than before.
--  if (const base::apostate::Profile* profile = base::apostate::Profile::Get()) {
--    if (profile->css_highlight_argb().has_value()) {
--      return Color::FromRGBA32(*profile->css_highlight_argb());
--    }
--  }
-   SkColor system_highlight_color =
-       color_provider->GetColor(ui::kColorCssSystemHighlight);
-   return Color::FromSkColor(system_highlight_color).BlendWithWhite();

@@ -9,10 +9,10 @@ the "Google Chrome" entry, which real Chrome sends and a stock Chromium
 build leaves out.
 
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
-index 8a64885..ff7be12 100644
+index ada6cd1340..3c2d1ca4e7 100644
 --- a/base/apostate/profile.cc
 +++ b/base/apostate/profile.cc
-@@ -113,6 +113,27 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
+@@ -116,6 +116,27 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
      }
    }
  
@@ -41,7 +41,7 @@ index 8a64885..ff7be12 100644
  }
  
 diff --git a/base/apostate/profile.h b/base/apostate/profile.h
-index 0776033..575a00e 100644
+index 0776033183..575a00e917 100644
 --- a/base/apostate/profile.h
 +++ b/base/apostate/profile.h
 @@ -86,6 +86,23 @@ class BASE_EXPORT Profile {
@@ -82,7 +82,7 @@ index 0776033..575a00e 100644
  };
  
 diff --git a/components/embedder_support/user_agent_utils.cc b/components/embedder_support/user_agent_utils.cc
-index 53e9d4d..5071b53 100644
+index 4a54b67dcf..92df7464bc 100644
 --- a/components/embedder_support/user_agent_utils.cc
 +++ b/components/embedder_support/user_agent_utils.cc
 @@ -13,6 +13,7 @@
@@ -110,7 +110,7 @@ index 53e9d4d..5071b53 100644
  
    std::string brand_version =
        output_version_type == blink::UserAgentBrandVersionType::kFullVersion
-@@ -657,6 +660,27 @@ blink::UserAgentMetadata GetUserAgentMetadata(bool only_low_entropy_ch) {
+@@ -673,6 +676,27 @@ blink::UserAgentMetadata GetUserAgentMetadata(bool only_low_entropy_ch) {
    metadata.mobile = GetMobileBitForUAMetadata();
    metadata.platform = GetPlatformForUAMetadata();
  
@@ -138,7 +138,7 @@ index 53e9d4d..5071b53 100644
    // For users providing a valid user-agent override via the command line:
    // If kUACHOverrideBlank is enabled, set user-agent metadata with the
    // default blank values, otherwise return the default UserAgentMetadata values
-@@ -684,6 +708,27 @@ blink::UserAgentMetadata GetUserAgentMetadata(bool only_low_entropy_ch) {
+@@ -700,6 +724,27 @@ blink::UserAgentMetadata GetUserAgentMetadata(bool only_low_entropy_ch) {
    metadata.bitness = GetCpuBitness();
    metadata.wow64 = IsWoW64();
    metadata.platform_version = GetPlatformVersion();

@@ -9,7 +9,7 @@ not touched: Chrome reports "Linux x86_64" on every Linux CPU, so ARM
 Linux shows only in the architecture. macOS profiles keep arm.
 
 diff --git a/base/apostate/compose.cc b/base/apostate/compose.cc
-index 406d4df..cbd34a6 100644
+index 43720e1e77..1bb5f38329 100644
 --- a/base/apostate/compose.cc
 +++ b/base/apostate/compose.cc
 @@ -1637,6 +1637,23 @@ std::optional<Composition> Compose(const ComposeRequest& request,

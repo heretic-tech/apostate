@@ -7,13 +7,14 @@ across 24 seeds that the SwiftShader GPU is never drawn, and that
 Linux GPUs so each platform has one to draw. A test that sets
 screen.left is removed, because the profile schema rejects that key.
 
+diff --git a/base/apostate/compose_unittest.cc b/base/apostate/compose_unittest.cc
+index 1887a8fe42..58500f09d8 100644
 --- a/base/apostate/compose_unittest.cc
 +++ b/base/apostate/compose_unittest.cc
-@@ -171,11 +171,33 @@
-      R"({"webgpu":{"info":{"architecture":"test-3","vendor":"test"}}})"},
+@@ -172,10 +172,32 @@ constexpr AnchorMember kAnchorMembers[] = {
      {"no-adapter", "Google Inc. (Test)", "ANGLE (Test, Renderer No Adapter)",
       ""},
-+};
+ };
 +// Three anchors, because the persona is what selects among them: one per
 +// platform the personas use, plus a software one that must never be drawn.
 +//
@@ -26,7 +27,7 @@ screen.left is removed, because the profile schema rejects that key.
 +constexpr AnchorMember kSoftwareMembers[] = {
 +    {"software-only", "Google Inc. (Google)",
 +     "ANGLE (Google, SwiftShader Device)", ""},
- };
++};
  constexpr Anchor kAnchors[] = {
      {"test-metal", "macos", "metal", "Test", "physical-ground-truth", "aa",
       "bb", "cc", 1, span<const AnchorMember>(kAnchorMembers),
@@ -43,7 +44,7 @@ screen.left is removed, because the profile schema rejects that key.
  };
  
  // ---- gpu_identity: single / anchor-member, conditioned on anchor ----
-@@ -247,6 +269,10 @@
+@@ -247,6 +269,10 @@ ComposeRequest RequestFor(std::string seed,
                            const HostCapability& host) {
    ComposeRequest request;
    request.seed = std::move(seed);
@@ -54,7 +55,7 @@ screen.left is removed, because the profile schema rejects that key.
    request.platform = "windows";
    request.host = host;
    request.axes = axes;
-@@ -488,6 +514,11 @@
+@@ -488,6 +514,11 @@ TEST(ApostateComposeTest, AddingAnAxisDoesNotShiftAnotherAxisChoice) {
    EXPECT_EQ(ChosenId(*before, "theme"), ChosenId(*after, "theme"));
    // And the new axis did resolve, so this is not passing by doing nothing.
    EXPECT_NE("(absent)", ChosenId(*after, "extra"));
@@ -66,7 +67,7 @@ screen.left is removed, because the profile schema rejects that key.
  }
  
  // ---------------------------------------------------------------------------
-@@ -557,33 +588,102 @@
+@@ -557,33 +588,102 @@ TEST(ApostateComposeTest, ClampsNeverRaiseAClaim) {
    EXPECT_EQ(4096u, ClampMemoryBytes(4096, 0));
  }
  
@@ -183,7 +184,7 @@ screen.left is removed, because the profile schema rejects that key.
  }
  
  // WebGPU is the one part of a capability cluster that is not anchor-wide.
-@@ -592,9 +692,20 @@
+@@ -592,9 +692,20 @@ TEST(ApostateComposeTest, AnAnchorIsRequiredToBeServableByTheHostBackend) {
  // the adapter-less members a sibling's adapter would be an unmeasured
  // assertion, so it stays host-inherited.
  TEST(ApostateComposeTest, WebGpuComesFromTheResolvedMemberNotTheAnchor) {
@@ -205,7 +206,7 @@ screen.left is removed, because the profile schema rejects that key.
    ASSERT_TRUE(present.has_value());
    const DictValue* webgpu = present->profile.FindDict("webgpu");
    ASSERT_TRUE(webgpu);
-@@ -605,7 +716,7 @@
+@@ -605,7 +716,7 @@ TEST(ApostateComposeTest, WebGpuComesFromTheResolvedMemberNotTheAnchor) {
  
    constexpr DispersionAxis kNoAdapter[] = {kGpuIdentityNoAdapterAxis};
    const std::optional<Composition> absent =
@@ -214,12 +215,10 @@ screen.left is removed, because the profile schema rejects that key.
    ASSERT_TRUE(absent.has_value());
    EXPECT_FALSE(absent->profile.contains("webgpu"));
    // The same anchor, so the same GL cluster: it is the WebGPU section alone
-@@ -787,29 +898,6 @@
-   // The insets are an input to the derivation, not a profile field.
-   EXPECT_FALSE(result->contains("avail_inset_left"));
+@@ -789,29 +900,6 @@ TEST(ApostateComposeTest, WorkAreaIsDerivedFromThePanelAndTheInsets) {
    EXPECT_FALSE(result->contains("avail_inset_bottom"));
--}
--
+ }
+ 
 -// availLeft is panel-relative: the Windows reference capture ran on a second
 -// monitor at x=1920 and reported availLeft 1920 with a zero inset.
 -TEST(ApostateComposeTest, WorkAreaOriginFollowsThePanelOrigin) {
@@ -241,12 +240,16 @@ screen.left is removed, because the profile schema rejects that key.
 -  ASSERT_TRUE(result);
 -  EXPECT_EQ(1920, result->FindInt("avail_left"));
 -  EXPECT_EQ(1032, result->FindInt("avail_height"));
- }
- 
+-}
+-
  TEST(ApostateComposeTest, AnInheritedPanelDropsTheEmptyScreenSection) {
+   DictValue profile;
+   DictValue screen;
+diff --git a/base/apostate/dispersion_table.h b/base/apostate/dispersion_table.h
+index c49a16cb95..36266b5eb6 100644
 --- a/base/apostate/dispersion_table.h
 +++ b/base/apostate/dispersion_table.h
-@@ -136,8 +136,16 @@
+@@ -136,8 +136,16 @@ struct Anchor {
    std::string_view id;
    std::string_view platform;
    // Normalised graphics backend: "metal", "d3d11", "d3d9", "vulkan", "gl" or

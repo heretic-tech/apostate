@@ -7,9 +7,11 @@ and voices. The explain report records the gap. A GPU cluster pinned
 with --fingerprint-anchor on a different backend is honored, and the
 report notes that its extension list shrinks to what the host supports.
 
+diff --git a/base/apostate/compose.cc b/base/apostate/compose.cc
+index 428b4f7c5b..42768d77e4 100644
 --- a/base/apostate/compose.cc
 +++ b/base/apostate/compose.cc
-@@ -485,28 +485,59 @@
+@@ -500,28 +500,59 @@ std::optional<Composition> Compose(const ComposeRequest& request) {
      }
  
      if (servable.empty()) {
@@ -86,7 +88,7 @@ report notes that its extension list shrinks to what the host supports.
      // The §4 case, stated rather than hidden: on a macOS host a Windows
      // persona keeps an Apple GPU cluster. A coherent Windows fingerprint wants
      // a Windows or Linux host with the corresponding silicon, which is a
-@@ -521,7 +552,28 @@
+@@ -536,7 +567,28 @@ std::optional<Composition> Compose(const ComposeRequest& request) {
                          "hidden";
      composition.limitations.push_back(anchor_limitation);
    }
@@ -116,7 +118,7 @@ report notes that its extension list shrinks to what the host supports.
      composition.limitations.push_back(
          "anchor " + std::string(anchor->id) +
          " has one measured member, so no identity rotation is offered on its "
-@@ -536,16 +588,18 @@
+@@ -551,16 +603,18 @@ std::optional<Composition> Compose(const ComposeRequest& request) {
          "pass --use-angle to state it");
    }
  
@@ -145,7 +147,7 @@ report notes that its extension list shrinks to what the host supports.
  
    // ---- the catalogue policies ----
    auto resolve_policy = [&](std::string_view kind,
-@@ -605,6 +659,46 @@
+@@ -620,6 +674,46 @@ std::optional<Composition> Compose(const ComposeRequest& request) {
        resolved["languages"] = ProjectLanguages(axis, accept_languages);
      }
  

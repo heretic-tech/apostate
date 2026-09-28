@@ -10,6 +10,7 @@ describe the device. The GPU-less path takes them from the same place,
 and a profile without them keeps the host's values.
 
 diff --git a/base/apostate/profile.h b/base/apostate/profile.h
+index 670a07ce03..863ddde92e 100644
 --- a/base/apostate/profile.h
 +++ b/base/apostate/profile.h
 @@ -496,9 +496,9 @@ class BASE_EXPORT Profile {
@@ -26,9 +27,10 @@ diff --git a/base/apostate/profile.h b/base/apostate/profile.h
      return webgpu_features_;
    }
 diff --git a/gpu/command_buffer/service/webgpu_decoder_impl.cc b/gpu/command_buffer/service/webgpu_decoder_impl.cc
+index 3f3d11cc77..b39d2a5c39 100644
 --- a/gpu/command_buffer/service/webgpu_decoder_impl.cc
 +++ b/gpu/command_buffer/service/webgpu_decoder_impl.cc
-@@ -1727,12 +1727,6 @@ WGPUStatus WebGPUDecoderImpl::AdapterGetInfoImpl(WGPUAdapter adapter,
+@@ -1721,12 +1721,6 @@ WGPUStatus WebGPUDecoderImpl::AdapterGetInfoImpl(WGPUAdapter adapter,
    info->adapterType = vendor == "nvidia" || vendor == "amd"
                            ? WGPUAdapterType_DiscreteGPU
                            : WGPUAdapterType_IntegratedGPU;
@@ -42,6 +44,7 @@ diff --git a/gpu/command_buffer/service/webgpu_decoder_impl.cc b/gpu/command_buf
  }
  
 diff --git a/third_party/dawn/include/dawn/native/DawnNative.h b/third_party/dawn/include/dawn/native/DawnNative.h
+index 4eca7d431f..e1d324bc6a 100644
 --- a/third_party/dawn/include/dawn/native/DawnNative.h
 +++ b/third_party/dawn/include/dawn/native/DawnNative.h
 @@ -96,10 +96,10 @@ class DAWN_NATIVE_EXPORT Adapter {
@@ -60,9 +63,10 @@ diff --git a/third_party/dawn/include/dawn/native/DawnNative.h b/third_party/daw
          std::set<std::string> features;
          std::string vendor;
 diff --git a/third_party/dawn/src/dawn/native/Adapter.cpp b/third_party/dawn/src/dawn/native/Adapter.cpp
+index 061fc9b727..c26785edc4 100644
 --- a/third_party/dawn/src/dawn/native/Adapter.cpp
 +++ b/third_party/dawn/src/dawn/native/Adapter.cpp
-@@ -317,24 +317,25 @@ wgpu::Status AdapterBase::APIGetInfo(AdapterInfo* info) const {
+@@ -296,24 +296,25 @@ wgpu::Status AdapterBase::APIGetInfo(AdapterInfo* info) const {
      info->deviceID = mPhysicalDevice->GetDeviceId();
      info->subgroupMinSize = mPhysicalDevice->GetSubgroupMinSize();
      info->subgroupMaxSize = mPhysicalDevice->GetSubgroupMaxSize();

@@ -8,6 +8,34 @@ peer can read the real source off an arriving packet. Patch 0086 hides
 the host address by relaying WebRTC UDP through SOCKS5, and this switch
 pins the candidate text to a chosen value across launches.
 
+diff --git a/chrome/browser/chrome_content_browser_client.cc b/chrome/browser/chrome_content_browser_client.cc
+index 11e9ad76cd..2f41e6c54f 100644
+--- a/chrome/browser/chrome_content_browser_client.cc
++++ b/chrome/browser/chrome_content_browser_client.cc
+@@ -2943,6 +2943,7 @@ void ChromeContentBrowserClient::AppendExtraCommandLineSwitches(
+       // child, which is why the switch belongs here rather than in a
+       // per-process-type list.
+       ::switches::kApostateProfile,
++      "fingerprint-webrtc-ip",
+   };
+   command_line->CopySwitchesFrom(browser_command_line, kCommonSwitchNames);
+ 
+diff --git a/third_party/webrtc/api/BUILD.gn b/third_party/webrtc/api/BUILD.gn
+index ee042f2734..2317f822a9 100644
+--- a/third_party/webrtc/api/BUILD.gn
++++ b/third_party/webrtc/api/BUILD.gn
+@@ -205,6 +205,9 @@ rtc_library("candidate") {
+     "//third_party/abseil-cpp/absl/strings",
+     "//third_party/abseil-cpp/absl/strings:string_view",
+   ]
++  if (build_with_chromium) {
++    deps += [ "//base" ]
++  }
+ }
+ 
+ rtc_source_set("turn_customizer") {
+diff --git a/third_party/webrtc/api/candidate.cc b/third_party/webrtc/api/candidate.cc
+index 5075b898dc..2398b96f8a 100644
 --- a/third_party/webrtc/api/candidate.cc
 +++ b/third_party/webrtc/api/candidate.cc
 @@ -9,6 +9,9 @@
@@ -20,7 +48,7 @@ pins the candidate text to a chosen value across launches.
  
  #include <algorithm>  // IWYU pragma: keep
  #include <cstddef>
-@@ -81,19 +84,38 @@
+@@ -81,19 +84,38 @@ std::string BuildCandidate(const Candidate& candidate, bool include_ufrag) {
    os << kAttributeCandidate;
  
    absl::string_view type = candidate.type_name();
@@ -63,28 +91,3 @@ pins the candidate text to a chosen value across launches.
         << kAttributeCandidateRport << " "
         << candidate.related_address().PortAsString() << " ";
    }
-
---- a/chrome/browser/chrome_content_browser_client.cc
-+++ b/chrome/browser/chrome_content_browser_client.cc
-@@ -2960,6 +2960,7 @@
-       // child, which is why the switch belongs here rather than in a
-       // per-process-type list.
-       ::switches::kApostateProfile,
-+      "fingerprint-webrtc-ip",
-   };
-   command_line->CopySwitchesFrom(browser_command_line, kCommonSwitchNames);
- 
-
---- a/third_party/webrtc/api/BUILD.gn
-+++ b/third_party/webrtc/api/BUILD.gn
-@@ -205,6 +205,9 @@
-     "//third_party/abseil-cpp/absl/strings",
-     "//third_party/abseil-cpp/absl/strings:string_view",
-   ]
-+  if (build_with_chromium) {
-+    deps += [ "//base" ]
-+  }
- }
- 
- rtc_source_set("turn_customizer") {
-

@@ -8,10 +8,10 @@ extended sRGB space macOS reports for HDR displays, and an SDR claim
 pins the HDR headroom to 1.0 so the host monitor never shows through.
 
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
-index 2fd4f6f..0f66556 100644
+index dc3aaa086d..7dc9803d94 100644
 --- a/base/apostate/profile.cc
 +++ b/base/apostate/profile.cc
-@@ -168,6 +168,17 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
+@@ -171,6 +171,17 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
          LOG(ERROR) << "apostate: screen.color_depth must be 24 or 30; ignoring";
        }
      }
@@ -30,7 +30,7 @@ index 2fd4f6f..0f66556 100644
  
    if (const DictValue* locale = dict->FindDict("locale")) {
 diff --git a/base/apostate/profile.h b/base/apostate/profile.h
-index 2141d8c..38a189d 100644
+index 2141d8ce60..38a189d1bd 100644
 --- a/base/apostate/profile.h
 +++ b/base/apostate/profile.h
 @@ -142,9 +142,24 @@ class BASE_EXPORT Profile {
@@ -69,7 +69,7 @@ index 2141d8c..38a189d 100644
    std::optional<bool> prefers_dark_;
    std::optional<std::string> accept_languages_;
 diff --git a/ui/display/display_util.cc b/ui/display/display_util.cc
-index 7bacfd4..c9e5554 100644
+index 2e2d9c48dd..7afaf10aad 100644
 --- a/ui/display/display_util.cc
 +++ b/ui/display/display_util.cc
 @@ -5,6 +5,8 @@
@@ -81,7 +81,7 @@ index 7bacfd4..c9e5554 100644
  
  #include "base/notreached.h"
  #include "build/build_config.h"
-@@ -91,6 +93,62 @@ void DisplayUtil::DisplayToScreenInfo(ScreenInfo* screen_info,
+@@ -90,6 +92,62 @@ void DisplayUtil::DisplayToScreenInfo(ScreenInfo* screen_info,
        screen_info->depth = *profile->screen_color_depth();
        screen_info->depth_per_component = *profile->screen_color_depth() / 3;
      }

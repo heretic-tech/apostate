@@ -7,7 +7,7 @@ headless mode, and every header and JavaScript value built from the
 User-Agent follows.
 
 diff --git a/components/embedder_support/user_agent_utils.cc b/components/embedder_support/user_agent_utils.cc
-index 3f87ec8..53e9d4d 100644
+index 5d96c60405..4a54b67dcf 100644
 --- a/components/embedder_support/user_agent_utils.cc
 +++ b/components/embedder_support/user_agent_utils.cc
 @@ -215,9 +215,12 @@ const blink::UserAgentBrandList GetUserAgentBrandFullVersionListInternal(

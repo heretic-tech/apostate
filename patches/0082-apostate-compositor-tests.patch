@@ -8,10 +8,10 @@ selection, array merging and option-set matching. A failure in the
 golden vectors means every existing seed produces a different device.
 
 diff --git a/base/BUILD.gn b/base/BUILD.gn
-index f29dfe9..9f09235 100644
+index 7b7f024743..b5fa8ff870 100644
 --- a/base/BUILD.gn
 +++ b/base/BUILD.gn
-@@ -3674,6 +3674,8 @@ test("base_unittests") {
+@@ -3782,6 +3782,8 @@ test("base_unittests") {
      "allocator/dispatcher/testing/observer_mock.h",
      "allocator/dispatcher/testing/tools.h",
      "allocator/dispatcher/tls_unittest.cc",
@@ -22,6 +22,7 @@ index f29dfe9..9f09235 100644
      "auto_reset_unittest.cc",
 diff --git a/base/apostate/compose_unittest.cc b/base/apostate/compose_unittest.cc
 new file mode 100644
+index 0000000000..722cb71245
 --- /dev/null
 +++ b/base/apostate/compose_unittest.cc
 @@ -0,0 +1,832 @@
@@ -857,10 +858,9 @@ new file mode 100644
 +
 +}  // namespace
 +}  // namespace base::apostate
-
 diff --git a/base/apostate/host_capability_unittest.cc b/base/apostate/host_capability_unittest.cc
 new file mode 100644
-index 0000000..d563f4c
+index 0000000000..d563f4cef5
 --- /dev/null
 +++ b/base/apostate/host_capability_unittest.cc
 @@ -0,0 +1,116 @@

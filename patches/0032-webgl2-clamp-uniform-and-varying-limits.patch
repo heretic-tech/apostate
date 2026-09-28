@@ -9,7 +9,7 @@ the smaller of the profile and the driver, so a claim above what the GPU
 supports stays at the driver's value.
 
 diff --git a/ui/gl/gl_gl_api_implementation.cc b/ui/gl/gl_gl_api_implementation.cc
-index 136e3ea..9b07c93 100644
+index 136e3ea2c4..9b07c93979 100644
 --- a/ui/gl/gl_gl_api_implementation.cc
 +++ b/ui/gl/gl_gl_api_implementation.cc
 @@ -267,6 +267,26 @@ constexpr ApostateGlLimit kApostateGlLimits[] = {

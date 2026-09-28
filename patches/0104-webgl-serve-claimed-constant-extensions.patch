@@ -10,6 +10,8 @@ Extensions with methods stay off unless the driver supports them, since
 calling one would fail. Extensions the profile does not claim are
 removed.
 
+diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+index 13b994417a..766e916ac5 100644
 --- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
 +++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
 @@ -25,7 +25,9 @@
@@ -22,7 +24,7 @@ removed.
  
  #include "base/apostate/profile.h"
  
-@@ -3839,8 +3841,74 @@
+@@ -3854,8 +3856,74 @@ bool WebGLRenderingContextBase::ExtensionSupportedAndAllowed(
    if (tracker->Developer() &&
        !RuntimeEnabledFeatures::WebGLDeveloperExtensionsEnabled())
      return false;
@@ -99,7 +101,7 @@ removed.
    if (disabled_extensions_.Contains(String(tracker->ExtensionName())))
      return false;
  
-@@ -3851,18 +3919,12 @@
+@@ -3866,18 +3934,12 @@ bool WebGLRenderingContextBase::ExtensionSupportedAndAllowed(
    // D3D11 machine never exposes. The extension list is hashed by fingerprinting
    // scripts, so three extra entries make the hash match no real Windows Chrome.
    //

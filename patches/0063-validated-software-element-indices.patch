@@ -9,9 +9,10 @@ vertex range scan, so a large index is not truncated. Adds a test
 program for large indexed draws.
 
 diff --git a/third_party/angle/src/libANGLE/Caps.h b/third_party/angle/src/libANGLE/Caps.h
+index 6181274f77..05617ed92d 100644
 --- a/third_party/angle/src/libANGLE/Caps.h
 +++ b/third_party/angle/src/libANGLE/Caps.h
-@@ -214,6 +214,9 @@
+@@ -218,6 +218,9 @@ struct Caps
  
      // ES 3.1 (April 29, 2015) 20.39: implementation dependent values
      GLint64 maxElementIndex       = 0;
@@ -22,9 +23,10 @@ diff --git a/third_party/angle/src/libANGLE/Caps.h b/third_party/angle/src/libAN
      GLint max2DTextureSize        = 0;
      GLint maxRectangleTextureSize = 0;
 diff --git a/third_party/angle/src/libANGLE/Context.cpp b/third_party/angle/src/libANGLE/Context.cpp
+index bcd285cd41..05fbbbe8da 100644
 --- a/third_party/angle/src/libANGLE/Context.cpp
 +++ b/third_party/angle/src/libANGLE/Context.cpp
-@@ -4926,6 +4926,20 @@
+@@ -5038,6 +5038,20 @@ void Context::updateCaps()
      mBufferAccessValidationEnabled =
          !mSupportedExtensions.robustBufferAccessBehaviorKHR && mRequiresRobustBehavior;
  
@@ -46,11 +48,12 @@ diff --git a/third_party/angle/src/libANGLE/Context.cpp b/third_party/angle/src/
      // Note: vertex array objects are private to context and so the map doesn't need locking
      for (auto vaoIter : UnsafeResourceMapIter(getPrivateState().getVertexArrayMap()))
 diff --git a/third_party/angle/src/libANGLE/renderer/vulkan/VertexArrayVk.cpp b/third_party/angle/src/libANGLE/renderer/vulkan/VertexArrayVk.cpp
+index 1a238ebcdc..722dd05504 100644
 --- a/third_party/angle/src/libANGLE/renderer/vulkan/VertexArrayVk.cpp
 +++ b/third_party/angle/src/libANGLE/renderer/vulkan/VertexArrayVk.cpp
-@@ -1443,14 +1443,33 @@
-         return angle::Result::Continue;
-     }
+@@ -1445,14 +1445,33 @@ angle::Result VertexArrayVk::updateStreamedAttribs(
+     ContextVk *contextVk   = vk::GetImpl(context);
+     vk::Renderer *renderer = contextVk->getRenderer();
  
 -    GLint startVertex;
 -    size_t vertexCount;
@@ -68,7 +71,7 @@ diff --git a/third_party/angle/src/libANGLE/renderer/vulkan/VertexArrayVk.cpp b/
 +        // Emulated instance divisors consume instance-indexed data only. Do not
 +        // truncate or reject an unrelated uint32 vertex index while streaming it.
 +        needsVertexRange = false;
-+        for (size_t attribIndex : activeStreamedAttribs)
++        for (size_t attribIndex : activeStreamingAttribsMask)
 +        {
 +            if (bindings[attribs[attribIndex].bindingIndex].getDivisor() == 0)
 +            {
@@ -89,9 +92,10 @@ diff --git a/third_party/angle/src/libANGLE/renderer/vulkan/VertexArrayVk.cpp b/
      std::array<size_t, gl::MAX_VERTEX_ATTRIBS> mergedIndexes;
      std::array<AttributeRange, gl::MAX_VERTEX_ATTRIBS> mergedRanges;
 diff --git a/third_party/angle/src/libANGLE/renderer/vulkan/vk_caps_utils.cpp b/third_party/angle/src/libANGLE/renderer/vulkan/vk_caps_utils.cpp
+index 0d4ec1392f..110043fbcf 100644
 --- a/third_party/angle/src/libANGLE/renderer/vulkan/vk_caps_utils.cpp
 +++ b/third_party/angle/src/libANGLE/renderer/vulkan/vk_caps_utils.cpp
-@@ -647,6 +647,18 @@
+@@ -645,6 +645,18 @@ void Renderer::ensureCapsInitialized() const
      // 2^30-1 is chosen as an arbitrary value larger than the minimum requirement, but
      // avoiding integer limits and overflows in math.
      mNativeCaps.maxElementIndex = (1 << 30) - 1;
@@ -111,9 +115,10 @@ diff --git a/third_party/angle/src/libANGLE/renderer/vulkan/vk_caps_utils.cpp b/
      mNativeCaps.max3DTextureSize = rx::LimitToInt(limitsVk.maxImageDimension3D);
      mNativeCaps.max2DTextureSize =
 diff --git a/third_party/angle/src/tests/BUILD.gn b/third_party/angle/src/tests/BUILD.gn
+index 1aa017b79a..07a402312e 100644
 --- a/third_party/angle/src/tests/BUILD.gn
 +++ b/third_party/angle/src/tests/BUILD.gn
-@@ -2255,3 +2255,30 @@
+@@ -2270,3 +2270,30 @@ group("angle_tests") {
      }
    }
  }
@@ -146,6 +151,7 @@ diff --git a/third_party/angle/src/tests/BUILD.gn b/third_party/angle/src/tests/
 +}
 diff --git a/third_party/angle/src/tests/apostate_large_index_tests_main.cpp b/third_party/angle/src/tests/apostate_large_index_tests_main.cpp
 new file mode 100644
+index 0000000000..8a9bff6c56
 --- /dev/null
 +++ b/third_party/angle/src/tests/apostate_large_index_tests_main.cpp
 @@ -0,0 +1,29 @@
@@ -180,6 +186,7 @@ new file mode 100644
 +}
 diff --git a/third_party/angle/src/tests/gl_tests/ApostateLargeElementIndexTest.cpp b/third_party/angle/src/tests/gl_tests/ApostateLargeElementIndexTest.cpp
 new file mode 100644
+index 0000000000..fa2817242f
 --- /dev/null
 +++ b/third_party/angle/src/tests/gl_tests/ApostateLargeElementIndexTest.cpp
 @@ -0,0 +1,314 @@

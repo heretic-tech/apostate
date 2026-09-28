@@ -7,20 +7,8 @@ hook a page sees the host's values for them. The served value is the
 smaller of the profile and the driver, so the wider type cannot report
 more than the GPU supports.
 
-diff --git a/ui/gl/gl_gl_api_implementation.h b/ui/gl/gl_gl_api_implementation.h
-index 9aa8325..4971a0b 100644
---- a/ui/gl/gl_gl_api_implementation.h
-+++ b/ui/gl/gl_gl_api_implementation.h
-@@ -55,6 +55,7 @@ class GL_EXPORT RealGLApi : public GLApiBase {
-   void SetDisabledExtensions(const std::string& disabled_extensions) override;
- 
-   void glGetIntegervFn(GLenum pname, GLint* params) override;
-+  void glGetInteger64vFn(GLenum pname, GLint64* params) override;
-   void glGetShaderPrecisionFormatFn(GLenum shadertype,
-                                     GLenum precisiontype,
-                                     GLint* range,
 diff --git a/ui/gl/gl_gl_api_implementation.cc b/ui/gl/gl_gl_api_implementation.cc
-index 9b07c93..1e702dc 100644
+index 9b07c93979..1e702dcc59 100644
 --- a/ui/gl/gl_gl_api_implementation.cc
 +++ b/ui/gl/gl_gl_api_implementation.cc
 @@ -267,6 +267,11 @@ constexpr ApostateGlLimit kApostateGlLimits[] = {
@@ -82,3 +70,15 @@ index 9b07c93..1e702dc 100644
  void RealGLApi::glGetShaderPrecisionFormatFn(GLenum shadertype,
                                               GLenum precisiontype,
                                               GLint* range,
+diff --git a/ui/gl/gl_gl_api_implementation.h b/ui/gl/gl_gl_api_implementation.h
+index 9aa8325abe..4971a0ba7e 100644
+--- a/ui/gl/gl_gl_api_implementation.h
++++ b/ui/gl/gl_gl_api_implementation.h
+@@ -55,6 +55,7 @@ class GL_EXPORT RealGLApi : public GLApiBase {
+   void SetDisabledExtensions(const std::string& disabled_extensions) override;
+ 
+   void glGetIntegervFn(GLenum pname, GLint* params) override;
++  void glGetInteger64vFn(GLenum pname, GLint64* params) override;
+   void glGetShaderPrecisionFormatFn(GLenum shadertype,
+                                     GLenum precisiontype,
+                                     GLint* range,

@@ -7,17 +7,13 @@ Dawn patch that follows serves these values, intersecting features with
 the backend's and taking the smaller of each limit.
 
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
+index 571e5f6933..236594dab1 100644
 --- a/base/apostate/profile.cc
 +++ b/base/apostate/profile.cc
-@@ -378,11 +378,73 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
-   if (const ListValue* exts = dict->FindList("gl_extensions")) {
-     for (const auto& v : *exts) {
-       if (const std::string* s = v.GetIfString()) {
-         profile->gl_extensions_.insert(*s);
-       }
+@@ -387,6 +387,68 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
      }
    }
-
+ 
 +  if (const DictValue* wgpu = dict->FindDict("webgpu")) {
 +    if (const ListValue* features = wgpu->FindList("features")) {
 +      for (const auto& v : *features) {
@@ -84,13 +80,13 @@ diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
      for (const auto [name, value] : *precs) {
        const DictValue* entry = value.GetIfDict();
 diff --git a/base/apostate/profile.h b/base/apostate/profile.h
+index 082931e1a3..92596b71b0 100644
 --- a/base/apostate/profile.h
 +++ b/base/apostate/profile.h
-@@ -237,7 +237,29 @@ class BASE_EXPORT Profile {
-   // has no such failure mode — the page is simply told no, exactly as it would
+@@ -236,6 +236,28 @@ class BASE_EXPORT Profile {
    // be on the real device.
    const std::set<std::string>& gl_extensions() const { return gl_extensions_; }
-+
+ 
 +  // WebGPU adapter identity the claimed device reports: feature names as the
 +  // JS API spells them, vendor and architecture strings, subgroup sizes, and
 +  // numeric limits keyed as the IDL spells them.
@@ -112,11 +108,11 @@ diff --git a/base/apostate/profile.h b/base/apostate/profile.h
 +  const std::map<std::string, uint64_t>& webgpu_limits() const {
 +    return webgpu_limits_;
 +  }
-
++
    // One getShaderPrecisionFormat() answer: the exponent range and mantissa
    // bits a shader type reports for a precision qualifier.
    struct ShaderPrecision {
-@@ -418,6 +440,12 @@ class BASE_EXPORT Profile {
+@@ -416,6 +438,12 @@ class BASE_EXPORT Profile {
    std::map<std::string, std::string> keyboard_layout_map_;
    std::map<std::string, int> gl_limits_;
    std::set<std::string> gl_extensions_;

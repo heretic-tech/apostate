@@ -8,8 +8,29 @@ generation. An Intel UHD 630 profile, for example, reports true for
 H.264, VP9 and HEVC and false for AV1. The supported field is left
 alone, because a page can check support by playing a file.
 
+diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
+index 2d05c8a790..fb3da74ab4 100644
+--- a/base/apostate/profile.cc
++++ b/base/apostate/profile.cc
+@@ -225,6 +225,16 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
+     }
+   }
+ 
++  if (const DictValue* media_hw = dict->FindDict("media")) {
++    if (const ListValue* codecs = media_hw->FindList("hw_decode_codecs")) {
++      for (const auto& v : *codecs) {
++        if (const std::string* s = v.GetIfString()) {
++          profile->hw_decode_codecs_.insert(*s);
++        }
++      }
++    }
++  }
++
+   if (const DictValue* gl = dict->FindDict("gl_limits")) {
+     for (const auto [name, value] : *gl) {
+       if (std::optional<int> v = value.GetIfInt()) {
 diff --git a/base/apostate/profile.h b/base/apostate/profile.h
-index 4d594d5..52bd72f 100644
+index 4d594d54f4..52bd72fd33 100644
 --- a/base/apostate/profile.h
 +++ b/base/apostate/profile.h
 @@ -272,6 +272,22 @@ class BASE_EXPORT Profile {
@@ -43,29 +64,8 @@ index 4d594d5..52bd72f 100644
    std::optional<std::string> timezone_;
    std::optional<bool> prefers_dark_;
    std::optional<std::string> accept_languages_;
-diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
-index b8732b3..cd58a4a 100644
---- a/base/apostate/profile.cc
-+++ b/base/apostate/profile.cc
-@@ -222,6 +222,16 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
-     }
-   }
- 
-+  if (const DictValue* media_hw = dict->FindDict("media")) {
-+    if (const ListValue* codecs = media_hw->FindList("hw_decode_codecs")) {
-+      for (const auto& v : *codecs) {
-+        if (const std::string* s = v.GetIfString()) {
-+          profile->hw_decode_codecs_.insert(*s);
-+        }
-+      }
-+    }
-+  }
-+
-   if (const DictValue* gl = dict->FindDict("gl_limits")) {
-     for (const auto [name, value] : *gl) {
-       if (std::optional<int> v = value.GetIfInt()) {
 diff --git a/third_party/blink/renderer/modules/media_capabilities/media_capabilities.cc b/third_party/blink/renderer/modules/media_capabilities/media_capabilities.cc
-index 8d900f2..14ce76b 100644
+index 1dea63eee6..436fe3cb1b 100644
 --- a/third_party/blink/renderer/modules/media_capabilities/media_capabilities.cc
 +++ b/third_party/blink/renderer/modules/media_capabilities/media_capabilities.cc
 @@ -4,6 +4,8 @@
@@ -77,8 +77,8 @@ index 8d900f2..14ce76b 100644
  #include <memory>
  #include <optional>
  #include <sstream>
-@@ -1550,6 +1552,49 @@ void MediaCapabilities::OnGpuFactoriesSupport(int callback_id,
-   DCHECK(pending_cb_map_.Contains(callback_id));
+@@ -1585,6 +1587,49 @@ void MediaCapabilities::OnGpuFactoriesSupport(int callback_id,
+   }
    PendingCallbackState* pending_cb = pending_cb_map_.at(callback_id);
  
 +  // Apostate: powerEfficient follows the claimed GPU's fixed-function decoder
@@ -125,5 +125,5 @@ index 8d900f2..14ce76b 100644
 +  }
 +
    pending_cb->is_gpu_factories_supported = is_supported;
-   pending_cb->is_builtin_video_codec =
-       media::IsDecoderBuiltInVideoCodec(video_codec);
+   ResolveCallbackIfReady(callback_id);
+ }

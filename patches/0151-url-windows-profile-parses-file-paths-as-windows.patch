@@ -22,17 +22,18 @@ first, so ordinary URLs never read the flag. Windows builds keep
 upstream behaviour.
 
 diff --git a/chrome/app/chrome_main_delegate.cc b/chrome/app/chrome_main_delegate.cc
+index 9e1e86f265..79263ea11c 100644
 --- a/chrome/app/chrome_main_delegate.cc
 +++ b/chrome/app/chrome_main_delegate.cc
-@@ -103,6 +103,7 @@
+@@ -92,6 +92,7 @@
  #include "ui/base/resource/resource_bundle.h"
  #include "ui/base/resource/scoped_startup_resource_bundle.h"
  #include "ui/base/ui_base_switches.h"
 +#include "url/url_file_semantics.h"
  
+ 
  #if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || \
-     BUILDFLAG(IS_MAC)
-@@ -1444,6 +1445,16 @@
+@@ -1559,6 +1560,16 @@ void ChromeMainDelegate::PreSandboxStartup() {
      base::apostate::InstallComposedProfile(user_data_dir);
    }
  
@@ -50,9 +51,10 @@ diff --git a/chrome/app/chrome_main_delegate.cc b/chrome/app/chrome_main_delegat
    // command line flags. Maybe move the chrome PathProvider down here also?
    component_updater::RegisterPathProvider(chrome::DIR_COMPONENTS,
 diff --git a/url/BUILD.gn b/url/BUILD.gn
+index f39d8aaa3d..1fb11bbd62 100644
 --- a/url/BUILD.gn
 +++ b/url/BUILD.gn
-@@ -56,6 +56,7 @@
+@@ -56,6 +56,7 @@ component("url") {
      "url_features.cc",
      "url_features.h",
      "url_file.h",
@@ -278,6 +280,39 @@ index 232590280d..2fefaac725 100644
  }  // namespace url
  
  #endif  // URL_URL_FILE_H_
+diff --git a/url/url_file_semantics.h b/url/url_file_semantics.h
+new file mode 100644
+index 0000000000..68d7f2a557
+--- /dev/null
++++ b/url/url_file_semantics.h
+@@ -0,0 +1,27 @@
++// Copyright 2026 The Chromium Authors
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#ifndef URL_URL_FILE_SEMANTICS_H_
++#define URL_URL_FILE_SEMANTICS_H_
++
++#include "base/component_export.h"
++
++namespace url {
++
++// Apostate: whether this process parses URLs the way Chrome on Windows does,
++// turning "c:\foo" and "\\server\share" into file: URLs. A page reads the
++// difference through `new URL("c:/x").protocol`, so a Windows persona that
++// parsed like Linux would contradict its own user agent.
++//
++// Always true on Windows. Elsewhere it is false until the embedder calls the
++// setter, once per process, after that process's device profile is installed
++// (chrome_main_delegate.cc, PreSandboxStartup). So unit tests, host mode and
++// anything that runs before the profile is known keep the host's rules, and
++// this component never asks the profile loader anything itself.
++COMPONENT_EXPORT(URL) bool UsesWindowsFileSemantics();
++COMPONENT_EXPORT(URL) void SetUsesWindowsFileSemantics(bool enabled);
++
++}  // namespace url
++
++#endif  // URL_URL_FILE_SEMANTICS_H_
 diff --git a/url/url_parse_file.cc b/url/url_parse_file.cc
 index 9b00bc9e72..7001ce728b 100644
 --- a/url/url_parse_file.cc
@@ -405,35 +440,3 @@ index cedfbaf417..348983e2ca 100644
  void ClearSchemesForTests() {
    DCHECK(!g_scheme_registries_used.load())
        << "Schemes already used "
-diff --git a/url/url_file_semantics.h b/url/url_file_semantics.h
-new file mode 100644
---- /dev/null
-+++ b/url/url_file_semantics.h
-@@ -0,0 +1,27 @@
-+// Copyright 2026 The Chromium Authors
-+// Use of this source code is governed by a BSD-style license that can be
-+// found in the LICENSE file.
-+
-+#ifndef URL_URL_FILE_SEMANTICS_H_
-+#define URL_URL_FILE_SEMANTICS_H_
-+
-+#include "base/component_export.h"
-+
-+namespace url {
-+
-+// Apostate: whether this process parses URLs the way Chrome on Windows does,
-+// turning "c:\foo" and "\\server\share" into file: URLs. A page reads the
-+// difference through `new URL("c:/x").protocol`, so a Windows persona that
-+// parsed like Linux would contradict its own user agent.
-+//
-+// Always true on Windows. Elsewhere it is false until the embedder calls the
-+// setter, once per process, after that process's device profile is installed
-+// (chrome_main_delegate.cc, PreSandboxStartup). So unit tests, host mode and
-+// anything that runs before the profile is known keep the host's rules, and
-+// this component never asks the profile loader anything itself.
-+COMPONENT_EXPORT(URL) bool UsesWindowsFileSemantics();
-+COMPONENT_EXPORT(URL) void SetUsesWindowsFileSemantics(bool enabled);
-+
-+}  // namespace url
-+
-+#endif  // URL_URL_FILE_SEMANTICS_H_

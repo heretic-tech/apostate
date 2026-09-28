@@ -10,9 +10,50 @@ with a 2G latency. DevTools network emulation overrides the profile as
 usual, and a profile without a network section leaves the host's link in
 place.
 
+diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
+index df1ad45dac..c3a12cd5a3 100644
+--- a/base/apostate/profile.cc
++++ b/base/apostate/profile.cc
+@@ -648,6 +648,34 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
+     }
+   }
+ 
++  if (const DictValue* network = dict->FindDict("network")) {
++    if (const std::string* v = network->FindString("effective_type")) {
++      if (*v == "slow-2g" || *v == "2g" || *v == "3g" || *v == "4g") {
++        profile->network_effective_type_ = *v;
++      } else {
++        LOG(ERROR) << "apostate: network.effective_type must be slow-2g, 2g, "
++                      "3g or 4g; ignoring";
++      }
++    }
++    if (std::optional<int> v = network->FindInt("http_rtt_ms")) {
++      if (*v >= 0 && *v <= 3000) {
++        profile->network_http_rtt_ms_ = *v;
++      } else {
++        LOG(ERROR) << "apostate: network.http_rtt_ms must be 0-3000; ignoring";
++      }
++    }
++    if (std::optional<double> v = network->FindDouble("downlink_mbps")) {
++      if (std::isfinite(*v) && *v >= 0 && *v <= 10) {
++        profile->network_downlink_mbps_ = *v;
++      } else {
++        LOG(ERROR) << "apostate: network.downlink_mbps must be 0-10; ignoring";
++      }
++    }
++    if (std::optional<bool> v = network->FindBool("save_data")) {
++      profile->network_save_data_ = *v;
++    }
++  }
++
+   return profile.release();
+ }
+ 
+diff --git a/base/apostate/profile.h b/base/apostate/profile.h
+index 8c8c90329b..47798bddcc 100644
 --- a/base/apostate/profile.h
 +++ b/base/apostate/profile.h
-@@ -396,6 +396,38 @@
+@@ -396,6 +396,38 @@ class BASE_EXPORT Profile {
      return accept_languages_;
    }
  
@@ -51,7 +92,7 @@ place.
    // Pointing device capability: "fine", "coarse" or "none".
    //
    // Headless has no input device at all, so it reports none — and a desktop
-@@ -477,6 +509,10 @@
+@@ -477,6 +509,10 @@ class BASE_EXPORT Profile {
    std::optional<std::string> timezone_;
    std::optional<bool> prefers_dark_;
    std::optional<std::string> accept_languages_;
@@ -62,75 +103,8 @@ place.
    std::optional<std::string> pointer_type_;
    std::optional<bool> has_hover_;
    std::optional<uint32_t> css_highlight_argb_;
---- a/base/apostate/profile.cc
-+++ b/base/apostate/profile.cc
-@@ -619,6 +619,34 @@
-     }
-   }
- 
-+  if (const DictValue* network = dict->FindDict("network")) {
-+    if (const std::string* v = network->FindString("effective_type")) {
-+      if (*v == "slow-2g" || *v == "2g" || *v == "3g" || *v == "4g") {
-+        profile->network_effective_type_ = *v;
-+      } else {
-+        LOG(ERROR) << "apostate: network.effective_type must be slow-2g, 2g, "
-+                      "3g or 4g; ignoring";
-+      }
-+    }
-+    if (std::optional<int> v = network->FindInt("http_rtt_ms")) {
-+      if (*v >= 0 && *v <= 3000) {
-+        profile->network_http_rtt_ms_ = *v;
-+      } else {
-+        LOG(ERROR) << "apostate: network.http_rtt_ms must be 0-3000; ignoring";
-+      }
-+    }
-+    if (std::optional<double> v = network->FindDouble("downlink_mbps")) {
-+      if (std::isfinite(*v) && *v >= 0 && *v <= 10) {
-+        profile->network_downlink_mbps_ = *v;
-+      } else {
-+        LOG(ERROR) << "apostate: network.downlink_mbps must be 0-10; ignoring";
-+      }
-+    }
-+    if (std::optional<bool> v = network->FindBool("save_data")) {
-+      profile->network_save_data_ = *v;
-+    }
-+  }
-+
-   return profile.release();
- }
- 
---- a/third_party/blink/renderer/platform/network/network_state_notifier.h
-+++ b/third_party/blink/renderer/platform/network/network_state_notifier.h
-@@ -121,7 +121,9 @@
-     scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
-   };
- 
--  NetworkStateNotifier() : has_override_(false) {}
-+  NetworkStateNotifier() : has_override_(false) {
-+    ApplyProfileNetworkQuality(state_);
-+  }
-   NetworkStateNotifier(const NetworkStateNotifier&) = delete;
-   NetworkStateNotifier& operator=(const NetworkStateNotifier&) = delete;
- 
-@@ -352,6 +354,18 @@
-   // Adding this noise reduces the chances of cross-origin fingerprinting.
-   double GetRandomMultiplier(const String& host) const;
- 
-+  // Rewrites the network-quality fields of |state| from the device profile.
-+  // Does nothing when this process has no profile or the profile carries no
-+  // network section, which leaves the host's own estimate in place.
-+  //
-+  // Applied to the stored state at construction and after each setter that
-+  // touches those fields, rather than inside the accessors, because the
-+  // observer notification path reads the same struct: a page that installs a
-+  // change listener takes its values from ConnectionChange, and a page that
-+  // does not takes them from the accessors. Overriding one and not the other
-+  // would make the two disagree.
-+  static void ApplyProfileNetworkQuality(NetworkState& state);
-+
-   mutable base::Lock lock_;
-   NetworkState state_ GUARDED_BY(lock_);
-   bool has_override_ GUARDED_BY(lock_);
+diff --git a/third_party/blink/renderer/platform/network/network_state_notifier.cc b/third_party/blink/renderer/platform/network/network_state_notifier.cc
+index f1e2d12922..ee85681f17 100644
 --- a/third_party/blink/renderer/platform/network/network_state_notifier.cc
 +++ b/third_party/blink/renderer/platform/network/network_state_notifier.cc
 @@ -25,9 +25,13 @@
@@ -147,7 +121,7 @@ place.
  #include "base/synchronization/lock.h"
  #include "base/task/single_thread_task_runner.h"
  #include "net/nqe/effective_connection_type.h"
-@@ -69,6 +73,82 @@
+@@ -69,6 +73,82 @@ constexpr std::array<double, kNumEffectiveConnectionTypes>
      kTypicalDownlinkMbpsEffectiveConnectionType = {0,     0,     0.040,
                                                     0.075, 0.400, 1.600};
  
@@ -230,7 +204,7 @@ place.
  }  // namespace
  
  NetworkStateNotifier& GetNetworkStateNotifier() {
-@@ -166,6 +246,8 @@
+@@ -166,6 +246,8 @@ void NetworkStateNotifier::SetNetworkQuality(WebEffectiveConnectionType type,
        state_.downlink_throughput_mbps =
            static_cast<double>(downlink_throughput_kbps) / 1000;
      }
@@ -239,7 +213,7 @@ place.
    }
  }
  
-@@ -197,6 +279,7 @@
+@@ -197,6 +279,7 @@ void NetworkStateNotifier::SetSaveDataEnabled(bool enabled) {
    {
      base::AutoLock locker(lock_);
      state_.save_data = enabled;
@@ -247,7 +221,7 @@ place.
    }
  }
  
-@@ -367,6 +450,76 @@
+@@ -367,6 +450,76 @@ String NetworkStateNotifier::EffectiveConnectionTypeToString(
        static_cast<size_t>(type));
  }
  
@@ -324,3 +298,37 @@ place.
  double NetworkStateNotifier::GetRandomMultiplier(const String& host) const {
    // The random number should be a function of the hostname to reduce
    // cross-origin fingerprinting. The random number should also be a function
+diff --git a/third_party/blink/renderer/platform/network/network_state_notifier.h b/third_party/blink/renderer/platform/network/network_state_notifier.h
+index 9e3d26edb5..db99a5e9e1 100644
+--- a/third_party/blink/renderer/platform/network/network_state_notifier.h
++++ b/third_party/blink/renderer/platform/network/network_state_notifier.h
+@@ -121,7 +121,9 @@ class PLATFORM_EXPORT NetworkStateNotifier {
+     scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
+   };
+ 
+-  NetworkStateNotifier() : has_override_(false) {}
++  NetworkStateNotifier() : has_override_(false) {
++    ApplyProfileNetworkQuality(state_);
++  }
+   NetworkStateNotifier(const NetworkStateNotifier&) = delete;
+   NetworkStateNotifier& operator=(const NetworkStateNotifier&) = delete;
+ 
+@@ -352,6 +354,18 @@ class PLATFORM_EXPORT NetworkStateNotifier {
+   // Adding this noise reduces the chances of cross-origin fingerprinting.
+   double GetRandomMultiplier(const String& host) const;
+ 
++  // Rewrites the network-quality fields of |state| from the device profile.
++  // Does nothing when this process has no profile or the profile carries no
++  // network section, which leaves the host's own estimate in place.
++  //
++  // Applied to the stored state at construction and after each setter that
++  // touches those fields, rather than inside the accessors, because the
++  // observer notification path reads the same struct: a page that installs a
++  // change listener takes its values from ConnectionChange, and a page that
++  // does not takes them from the accessors. Overriding one and not the other
++  // would make the two disagree.
++  static void ApplyProfileNetworkQuality(NetworkState& state);
++
+   mutable base::Lock lock_;
+   NetworkState state_ GUARDED_BY(lock_);
+   bool has_override_ GUARDED_BY(lock_);

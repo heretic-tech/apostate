@@ -7,10 +7,10 @@ a Linux host without a sound card. Other builds now return the English
 Windows name.
 
 diff --git a/media/audio/audio_device_description.cc b/media/audio/audio_device_description.cc
-index d9d394b..1846523 100644
+index 27b6475b97..bd594d48e0 100644
 --- a/media/audio/audio_device_description.cc
 +++ b/media/audio/audio_device_description.cc
-@@ -157,7 +157,9 @@ std::string AudioDeviceDescription::GetCommunicationsDeviceName() {
+@@ -156,7 +156,9 @@ std::string AudioDeviceDescription::GetCommunicationsDeviceName() {
    // is deprecated.
    return "";
  #else

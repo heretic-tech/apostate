@@ -8,9 +8,10 @@ Each candidate must be installed and cover the glyph. Other scripts,
 other profiles and runs without a profile keep the Linux path.
 
 diff --git a/third_party/blink/renderer/platform/fonts/linux/font_cache_linux.cc b/third_party/blink/renderer/platform/fonts/linux/font_cache_linux.cc
+index 0880cdb41c..61dd89cef3 100644
 --- a/third_party/blink/renderer/platform/fonts/linux/font_cache_linux.cc
 +++ b/third_party/blink/renderer/platform/fonts/linux/font_cache_linux.cc
-@@ -24,15 +24,64 @@
+@@ -24,16 +24,65 @@
  
  #include "third_party/blink/renderer/platform/fonts/font_cache.h"
  
@@ -29,7 +30,7 @@ diff --git a/third_party/blink/renderer/platform/fonts/linux/font_cache_linux.cc
  #include "ui/gfx/font_fallback_linux.h"
  
  namespace blink {
-+
+ 
 +namespace {
 +
 +bool UseWindowsSimplifiedHanFallback(const FontDescription& description,
@@ -72,10 +73,11 @@ diff --git a/third_party/blink/renderer/platform/fonts/linux/font_cache_linux.cc
 +}
 +
 +}  // namespace
- 
++
  static AtomicString& MutableSystemFontFamily() {
    DEFINE_THREAD_SAFE_STATIC_LOCAL(AtomicString, system_font_family, ());
-@@ -86,6 +135,27 @@
+   return system_font_family;
+@@ -86,6 +135,27 @@ const SimpleFontData* FontCache::PlatformFallbackFontForCharacter(
        return font_data;
    }
  

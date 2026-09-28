@@ -10,7 +10,7 @@ Chrome applies stays, so the value varies between sessions as in stock
 Chrome.
 
 diff --git a/storage/browser/quota/quota_device_info_helper.cc b/storage/browser/quota/quota_device_info_helper.cc
-index c711fea..0b469f5 100644
+index c711feaef0..0b469f57bb 100644
 --- a/storage/browser/quota/quota_device_info_helper.cc
 +++ b/storage/browser/quota/quota_device_info_helper.cc
 @@ -4,6 +4,8 @@

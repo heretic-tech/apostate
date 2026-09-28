@@ -6,9 +6,10 @@ validation and small compute and texture transfers. It uses no unsafe
 WebGPU switches. It is test-only and changes nothing a page sees.
 
 diff --git a/gpu/BUILD.gn b/gpu/BUILD.gn
+index d7056881ab..18eed76d46 100644
 --- a/gpu/BUILD.gn
 +++ b/gpu/BUILD.gn
-@@ -983,3 +983,24 @@
+@@ -995,3 +995,24 @@ mojolpm_fuzzer_test("shared_image_stub_mojolpm_fuzzer") {
      deps += [ "//ui/ozone" ]
    }
  }
@@ -35,6 +36,7 @@ diff --git a/gpu/BUILD.gn b/gpu/BUILD.gn
 +}
 diff --git a/gpu/apostate_dawn_software_check.cc b/gpu/apostate_dawn_software_check.cc
 new file mode 100644
+index 0000000000..2c68aeacf5
 --- /dev/null
 +++ b/gpu/apostate_dawn_software_check.cc
 @@ -0,0 +1,552 @@

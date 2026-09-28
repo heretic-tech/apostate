@@ -8,6 +8,8 @@ GeForce renderer string. Stock Chrome on a GPU-less Linux host also
 returns null. Profiles that describe an adapter keep it, taken from the
 same measured GPU as the WebGL values.
 
+diff --git a/gpu/command_buffer/service/profile_software_webgpu_policy.h b/gpu/command_buffer/service/profile_software_webgpu_policy.h
+index 9c31d8adf9..98d9fa9900 100644
 --- a/gpu/command_buffer/service/profile_software_webgpu_policy.h
 +++ b/gpu/command_buffer/service/profile_software_webgpu_policy.h
 @@ -4,6 +4,7 @@
@@ -18,7 +20,7 @@ same measured GPU as the WebGL values.
  #include "gpu/config/gpu_preferences.h"
  #include "gpu/config/webgpu_blocklist_impl.h"
  #include "third_party/dawn/include/dawn/webgpu_cpp.h"
-@@ -17,12 +18,39 @@
+@@ -17,12 +18,39 @@ struct ProfileSoftwareWebGPUContext {
    bool has_dawn_overrides = false;
    bool force_compat = false;
    WebGPUAdapterName requested_adapter = WebGPUAdapterName::kDefault;
@@ -59,19 +61,11 @@ same measured GPU as the WebGL values.
           (context.requested_adapter == WebGPUAdapterName::kDefault ||
            context.requested_adapter == WebGPUAdapterName::kSwiftShader);
  }
---- a/gpu/command_buffer/service/webgpu_decoder_impl.cc
-+++ b/gpu/command_buffer/service/webgpu_decoder_impl.cc
-@@ -1162,6 +1162,7 @@
-                               !require_disabled_toggles_.empty() || !runtime_unsafe_features_.empty(),
-         .force_compat = force_webgpu_compat_,
-         .requested_adapter = use_webgpu_adapter_,
-+        .profile_declares_webgpu_adapter = ProfileDeclaresWebGPUAdapter(*profile),
-     });
-   }
- #endif
+diff --git a/gpu/command_buffer/service/shared_image/gl_texture_image_backing_factory.cc b/gpu/command_buffer/service/shared_image/gl_texture_image_backing_factory.cc
+index ead6de4cc6..91b15d3396 100644
 --- a/gpu/command_buffer/service/shared_image/gl_texture_image_backing_factory.cc
 +++ b/gpu/command_buffer/service/shared_image/gl_texture_image_backing_factory.cc
-@@ -78,6 +78,8 @@
+@@ -84,6 +84,8 @@ GLTextureImageBackingFactory::GLTextureImageBackingFactory(
                  !features::kWebGPUUnsafeFeatures.Get().empty(),
              .force_compat = gpu_preferences.force_webgpu_compat,
              .requested_adapter = gpu_preferences.use_webgpu_adapter,
@@ -80,9 +74,23 @@ same measured GPU as the WebGL values.
          });
  #else
          return false;
+diff --git a/gpu/command_buffer/service/webgpu_decoder_impl.cc b/gpu/command_buffer/service/webgpu_decoder_impl.cc
+index 03ca36524f..5094386246 100644
+--- a/gpu/command_buffer/service/webgpu_decoder_impl.cc
++++ b/gpu/command_buffer/service/webgpu_decoder_impl.cc
+@@ -1156,6 +1156,7 @@ WebGPUDecoderImpl::WebGPUDecoderImpl(
+                               !require_disabled_toggles_.empty() || !runtime_unsafe_features_.empty(),
+         .force_compat = force_webgpu_compat_,
+         .requested_adapter = use_webgpu_adapter_,
++        .profile_declares_webgpu_adapter = ProfileDeclaresWebGPUAdapter(*profile),
+     });
+   }
+ #endif
+diff --git a/gpu/config/webgpu_blocklist_unittest.cc b/gpu/config/webgpu_blocklist_unittest.cc
+index 845df80947..f22bff03bb 100644
 --- a/gpu/config/webgpu_blocklist_unittest.cc
 +++ b/gpu/config/webgpu_blocklist_unittest.cc
-@@ -213,6 +213,7 @@
+@@ -213,6 +213,7 @@ TEST(ProfileSoftwareWebGPUPolicyTest, RequiresProfileAndActualSoftwareContext) {
    context.angle_is_swiftshader = true;
    context.shared_context_is_gl = true;
    context.safe = true;
@@ -90,7 +98,7 @@ same measured GPU as the WebGL values.
    EXPECT_TRUE(webgpu::CanUseProfileSoftwareWebGPU(context));
    context.platform = "macOS";
    EXPECT_TRUE(webgpu::CanUseProfileSoftwareWebGPU(context));
-@@ -232,6 +233,7 @@
+@@ -232,6 +233,7 @@ TEST(ProfileSoftwareWebGPUPolicyTest, RetainsSafetyAndExplicitAdapterChoices) {
    webgpu::ProfileSoftwareWebGPUContext context;
    context.platform = "Windows";
    context.angle_is_swiftshader = context.shared_context_is_gl = context.safe = true;
@@ -98,7 +106,7 @@ same measured GPU as the WebGL values.
    context.safe = false;
    EXPECT_FALSE(webgpu::CanUseProfileSoftwareWebGPU(context));
    context.safe = true;
-@@ -249,6 +251,21 @@
+@@ -249,6 +251,21 @@ TEST(ProfileSoftwareWebGPUPolicyTest, RetainsSafetyAndExplicitAdapterChoices) {
    EXPECT_TRUE(webgpu::CanUseProfileSoftwareWebGPU(context));
  }
  

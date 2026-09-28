@@ -8,8 +8,39 @@ start and end events after the time real speech would take, about
 fifteen characters a second scaled by the rate, with no audio. Patch
 0043 removes this timer and keeps only voices a real provider registers.
 
+diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
+index fb3da74ab4..834d18e585 100644
+--- a/base/apostate/profile.cc
++++ b/base/apostate/profile.cc
+@@ -235,6 +235,26 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
+     }
+   }
+ 
++  if (const DictValue* speech = dict->FindDict("speech")) {
++    if (const ListValue* voices = speech->FindList("voices")) {
++      for (const auto& v : *voices) {
++        const DictValue* entry = v.GetIfDict();
++        if (!entry) {
++          continue;
++        }
++        const std::string* name = entry->FindString("name");
++        const std::string* lang = entry->FindString("lang");
++        if (!name || name->empty() || !lang || lang->empty()) {
++          LOG(ERROR) << "apostate: speech.voices entry needs name and lang; "
++                        "ignoring";
++          continue;
++        }
++        profile->speech_voices_.push_back(
++            SpeechVoice{*name, *lang, entry->FindBool("default").value_or(false)});
++      }
++    }
++  }
++
+   if (const DictValue* gl = dict->FindDict("gl_limits")) {
+     for (const auto [name, value] : *gl) {
+       if (std::optional<int> v = value.GetIfInt()) {
 diff --git a/base/apostate/profile.h b/base/apostate/profile.h
-index 52bd72f..82ecce0 100644
+index 52bd72fd33..82ecce0f96 100644
 --- a/base/apostate/profile.h
 +++ b/base/apostate/profile.h
 @@ -10,6 +10,7 @@
@@ -54,39 +85,8 @@ index 52bd72f..82ecce0 100644
    std::optional<std::string> timezone_;
    std::optional<bool> prefers_dark_;
    std::optional<std::string> accept_languages_;
-diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
-index cd58a4a..86238a3 100644
---- a/base/apostate/profile.cc
-+++ b/base/apostate/profile.cc
-@@ -232,6 +232,26 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
-     }
-   }
- 
-+  if (const DictValue* speech = dict->FindDict("speech")) {
-+    if (const ListValue* voices = speech->FindList("voices")) {
-+      for (const auto& v : *voices) {
-+        const DictValue* entry = v.GetIfDict();
-+        if (!entry) {
-+          continue;
-+        }
-+        const std::string* name = entry->FindString("name");
-+        const std::string* lang = entry->FindString("lang");
-+        if (!name || name->empty() || !lang || lang->empty()) {
-+          LOG(ERROR) << "apostate: speech.voices entry needs name and lang; "
-+                        "ignoring";
-+          continue;
-+        }
-+        profile->speech_voices_.push_back(
-+            SpeechVoice{*name, *lang, entry->FindBool("default").value_or(false)});
-+      }
-+    }
-+  }
-+
-   if (const DictValue* gl = dict->FindDict("gl_limits")) {
-     for (const auto [name, value] : *gl) {
-       if (std::optional<int> v = value.GetIfInt()) {
 diff --git a/content/browser/speech/tts_linux.cc b/content/browser/speech/tts_linux.cc
-index dcfb2d4..0738577 100644
+index f613b03e89..f65de2b687 100644
 --- a/content/browser/speech/tts_linux.cc
 +++ b/content/browser/speech/tts_linux.cc
 @@ -21,6 +21,8 @@
@@ -107,7 +107,7 @@ index dcfb2d4..0738577 100644
    void OnSpeakScheduled(base::OnceCallback<void(bool)> on_speak_finished,
                          bool success);
    void OnSpeakFinished(int utterance_id);
-@@ -414,11 +418,45 @@ TtsPlatformImplLinux::TtsPlatformImplLinux()
+@@ -415,11 +419,45 @@ TtsPlatformImplLinux::TtsPlatformImplLinux()
    worker_.AsyncCall(&TtsPlatformImplBackgroundWorker::Initialize);
  }
  
@@ -153,7 +153,7 @@ index dcfb2d4..0738577 100644
    return is_initialized_;
  }
  
-@@ -437,6 +475,37 @@ void TtsPlatformImplLinux::Speak(
+@@ -439,6 +477,37 @@ void TtsPlatformImplLinux::Speak(
      return;
    }
  
@@ -191,7 +191,7 @@ index dcfb2d4..0738577 100644
    // Flag that a utterance is getting emitted. The |is_speaking_| flag will be
    // set back to false when the utterance will be fully spoken, stopped or if
    // the voice synthetizer was not able to emit it.
-@@ -453,10 +522,32 @@ void TtsPlatformImplLinux::Speak(
+@@ -455,11 +524,33 @@ void TtsPlatformImplLinux::Speak(
                                      std::move(on_speak_finished))));
  }
  
@@ -209,8 +209,9 @@ index dcfb2d4..0738577 100644
 +}
 +
  bool TtsPlatformImplLinux::StopSpeaking() {
-   DCHECK(BrowserThread::CurrentlyOn(content::BrowserThread::UI));
-   DCHECK(PlatformImplInitialized());
+   CHECK(BrowserThread::CurrentlyOn(content::BrowserThread::UI),
+         base::NotFatalUntil::M159);
+   CHECK(PlatformImplInitialized(), base::NotFatalUntil::M159);
  
 +  // Nothing to stop in the worker when there is no synthesiser behind it, and
 +  // calling into an uninitialised speech-dispatcher connection is not safe.
@@ -224,9 +225,9 @@ index dcfb2d4..0738577 100644
    worker_.AsyncCall(&TtsPlatformImplBackgroundWorker::StopSpeaking);
    paused_ = false;
  
-@@ -496,6 +587,25 @@ void TtsPlatformImplLinux::GetVoices(std::vector<VoiceData>* out_voices) {
-   DCHECK(BrowserThread::CurrentlyOn(content::BrowserThread::UI));
-   DCHECK(PlatformImplInitialized());
+@@ -502,6 +593,25 @@ void TtsPlatformImplLinux::GetVoices(std::vector<VoiceData>* out_voices) {
+         base::NotFatalUntil::M159);
+   CHECK(PlatformImplInitialized(), base::NotFatalUntil::M159);
  
 +  if (const auto* claimed = ApostateVoices()) {
 +    for (const auto& v : *claimed) {

@@ -8,10 +8,10 @@ none of those switches turns it on. A client that asks for it through
 Emulation.setAutomationOverride still gets it.
 
 diff --git a/content/child/runtime_features.cc b/content/child/runtime_features.cc
-index 6eb5b8f..98a7971 100644
+index c49e9cf2ba..2247f15f1a 100644
 --- a/content/child/runtime_features.cc
 +++ b/content/child/runtime_features.cc
-@@ -392,9 +392,16 @@ void SetRuntimeFeaturesFromCommandLine(const base::CommandLine& command_line) {
+@@ -336,9 +336,16 @@ void SetRuntimeFeaturesFromCommandLine(const base::CommandLine& command_line) {
        {wrf::EnableTimerThrottlingForBackgroundTabs,
         switches::kDisableBackgroundTimerThrottling, false},
        // End of Stable Features
@@ -31,7 +31,7 @@ index 6eb5b8f..98a7971 100644
        {wrf::EnableFileSystem, switches::kDisableFileSystem, false},
        {wrf::EnableNetInfoDownlinkMax,
         switches::kEnableNetworkInformationDownlinkMax, true},
-@@ -435,22 +442,10 @@ void SetRuntimeFeaturesFromCommandLine(const base::CommandLine& command_line) {
+@@ -379,22 +386,10 @@ void SetRuntimeFeaturesFromCommandLine(const base::CommandLine& command_line) {
      }
    }
  

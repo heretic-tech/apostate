@@ -7,9 +7,10 @@ Dawn spells these two without the hyphen, so they never matched. Each served
 feature now carries its page name.
 
 diff --git a/gpu/command_buffer/service/webgpu_decoder_impl.cc b/gpu/command_buffer/service/webgpu_decoder_impl.cc
+index 4f731728e7..3f3d11cc77 100644
 --- a/gpu/command_buffer/service/webgpu_decoder_impl.cc
 +++ b/gpu/command_buffer/service/webgpu_decoder_impl.cc
-@@ -167,37 +167,49 @@
+@@ -167,37 +167,49 @@ WGPUStringView MakeStringView() {
    X(Core, true, maxColorAttachments)
  
  // The features a page can be told about, in Dawn's own order so a list built
@@ -86,7 +87,7 @@ diff --git a/gpu/command_buffer/service/webgpu_decoder_impl.cc b/gpu/command_buf
  }
  
  bool IsLimitUndefined(uint32_t value) {
-@@ -1674,9 +1686,9 @@
+@@ -1668,9 +1680,9 @@ void WebGPUDecoderImpl::AdapterGetFeaturesImpl(
      WGPUSupportedFeatures* features_out) {
    std::vector<wgpu::FeatureName> exposed_features;
    if (const std::set<std::string>* claimed = ClaimedFeatures()) {
@@ -99,7 +100,7 @@ diff --git a/gpu/command_buffer/service/webgpu_decoder_impl.cc b/gpu/command_buf
        }
      }
    } else {
-@@ -1753,14 +1765,16 @@
+@@ -1747,14 +1759,16 @@ void WebGPUDecoderImpl::DeviceGetFeaturesImpl(
    }
    procs.supportedFeaturesFreeMembers(*features_out);
    std::vector<wgpu::FeatureName> reported;

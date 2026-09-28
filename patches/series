@@ -24,7 +24,6 @@
 0021-keyboard-layout-map-from-profile.patch
 0022-quota-incognito-memory-from-profile.patch
 0023-webgpu-canvas-format-from-platform.patch
-0024-quota-incognito-static-like-chrome.patch
 0025-bluetooth-follows-claimed-platform.patch
 0026-gl-limits-from-profile-clamped.patch
 0027-swiftshader-raise-render-limits.patch

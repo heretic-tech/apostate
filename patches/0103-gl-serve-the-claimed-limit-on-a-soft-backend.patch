@@ -9,9 +9,11 @@ whole claimed table is served, on the integer, 64-bit and float queries
 alike. Hardware backends keep the lower of claim and driver, since they
 reject work past what they report.
 
+diff --git a/ui/gl/gl_gl_api_implementation.cc b/ui/gl/gl_gl_api_implementation.cc
+index b5813f0dfc..176fea5be2 100644
 --- a/ui/gl/gl_gl_api_implementation.cc
 +++ b/ui/gl/gl_gl_api_implementation.cc
-@@ -296,6 +296,40 @@
+@@ -296,6 +296,40 @@ constexpr ApostateGlLimit kApostateGlLimits[] = {
       "MAX_TRANSFORM_FEEDBACK_INTERLEAVED_COMPONENTS"},
  };
  
@@ -52,7 +54,7 @@ reject work past what they report.
  }  // namespace
  
  void RealGLApi::glGetIntegervFn(GLenum pname, GLint* params) {
-@@ -307,16 +341,27 @@
+@@ -307,16 +341,27 @@ void RealGLApi::glGetIntegervFn(GLenum pname, GLint* params) {
  
    GLApiBase::glGetIntegervFn(pname, params);
  
@@ -89,7 +91,7 @@ reject work past what they report.
    const base::apostate::Profile* profile = base::apostate::Profile::Get();
    if (!profile || profile->gl_limits().empty() || !params) {
      return;
-@@ -331,6 +376,10 @@
+@@ -331,6 +376,10 @@ void RealGLApi::glGetIntegervFn(GLenum pname, GLint* params) {
      }
      const GLint real = *params;
      const GLint claimed = static_cast<GLint>(it->second);
@@ -100,7 +102,7 @@ reject work past what they report.
      *params = std::min(claimed, real);
      if (claimed > real) {
        LOG(WARNING) << "apostate: profile claims " << limit.name << " = "
-@@ -368,6 +417,10 @@
+@@ -368,6 +417,10 @@ void RealGLApi::glGetFloatvFn(GLenum pname, GLfloat* params) {
      }
      const GLfloat real = *params;
      const GLfloat claimed = static_cast<GLfloat>(it->second);
@@ -111,7 +113,7 @@ reject work past what they report.
      *params = std::min(claimed, real);
      if (claimed > real) {
        LOG(WARNING) << "apostate: profile claims " << limit.name << " = "
-@@ -389,11 +442,14 @@
+@@ -389,11 +442,14 @@ void RealGLApi::glGetInteger64vFn(GLenum pname, GLint64* params) {
    // added to the table and kept reporting the host's value, because nothing
    // consulted the table for them.
    //
@@ -131,7 +133,7 @@ reject work past what they report.
    const base::apostate::Profile* profile = base::apostate::Profile::Get();
    if (!profile || profile->gl_limits().empty() || !params) {
      return;
-@@ -408,6 +464,10 @@
+@@ -408,6 +464,10 @@ void RealGLApi::glGetInteger64vFn(GLenum pname, GLint64* params) {
      }
      const GLint64 real = *params;
      const GLint64 claimed = static_cast<GLint64>(it->second);

@@ -9,10 +9,10 @@ build without keys lists no network voices, since a listed voice that
 cannot speak fails a page's speak() call.
 
 diff --git a/chrome/browser/extensions/component_loader.cc b/chrome/browser/extensions/component_loader.cc
-index e047fdc..0ddb088 100644
+index 80927be5ad..30b1173d1f 100644
 --- a/chrome/browser/extensions/component_loader.cc
 +++ b/chrome/browser/extensions/component_loader.cc
-@@ -58,6 +58,7 @@
+@@ -64,6 +64,7 @@
  #include "extensions/common/extension_l10n_util.h"
  #include "extensions/common/file_util.h"
  #include "extensions/common/manifest_constants.h"
@@ -20,8 +20,7 @@ index e047fdc..0ddb088 100644
  #include "pdf/buildflags.h"
  #include "printing/buildflags/buildflags.h"
  #include "ui/accessibility/accessibility_features.h"
-@@ -638,9 +639,23 @@ void ComponentLoader::AddDefaultComponentExtensionsWithBackgroundPages(
-   AddAimEligibilityExtension();
+@@ -787,10 +788,24 @@ void ComponentLoader::AddDefaultComponentExtensionsWithBackgroundPages(
    AddGlicExtension();
    AddContextualTasksExtension();
  
@@ -48,3 +47,5 @@ index e047fdc..0ddb088 100644
 +  }
 +#endif  // !BUILDFLAG(IS_CHROMEOS)
  }
+ 
+ void ComponentLoader::

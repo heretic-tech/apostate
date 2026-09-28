@@ -9,10 +9,10 @@ BarcodeDetector stays off on Linux, because it has no Linux backend and
 would be present but broken.
 
 diff --git a/third_party/blink/renderer/platform/runtime_enabled_features.json5 b/third_party/blink/renderer/platform/runtime_enabled_features.json5
-index 08261356c8edf..6cd3b54b0cac4 100644
+index 2d83908b85..dafbdf13aa 100644
 --- a/third_party/blink/renderer/platform/runtime_enabled_features.json5
 +++ b/third_party/blink/renderer/platform/runtime_enabled_features.json5
-@@ -7035,6 +7035,20 @@
+@@ -6938,6 +6938,20 @@
  
      // WebBluetooth is enabled by default on Android, ChromeOS, iOS, macOS and
      // Windows.
@@ -33,7 +33,7 @@ index 08261356c8edf..6cd3b54b0cac4 100644
      {
        name: "WebBluetooth",
        public: true,
-@@ -7042,6 +7056,7 @@
+@@ -6945,6 +6959,7 @@
          "Android": "stable",
          "ChromeOS": "stable",
          "iOS": "stable",

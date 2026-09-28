@@ -8,11 +8,11 @@ MAX_ELEMENT_INDEX at SwiftShader's 2^30-1 instead of the profile's
 schema allows parses without loss.
 
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
+index 236594dab1..d8473af809 100644
 --- a/base/apostate/profile.cc
 +++ b/base/apostate/profile.cc
-@@ -366,15 +366,26 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
-   }
-
+@@ -368,14 +368,25 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
+ 
    if (const DictValue* gl = dict->FindDict("gl_limits")) {
      for (const auto [name, value] : *gl) {
 -      if (std::optional<int> v = value.GetIfInt()) {
@@ -42,11 +42,12 @@ diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
 +      }
      }
    }
-
+ 
 diff --git a/base/apostate/profile.h b/base/apostate/profile.h
+index 92596b71b0..d2604a9548 100644
 --- a/base/apostate/profile.h
 +++ b/base/apostate/profile.h
-@@ -216,13 +216,19 @@ class BASE_EXPORT Profile {
+@@ -216,6 +216,10 @@ class BASE_EXPORT Profile {
    // GL integer limits the claimed device reports, keyed by the GLenum's name
    // as WebGL spells it — MAX_TEXTURE_SIZE and so on.
    //
@@ -57,7 +58,7 @@ diff --git a/base/apostate/profile.h b/base/apostate/profile.h
    // These are never reported above what the driver underneath actually does.
    // A limit is the one class of value a page can falsify by *using* it: ask for
    // a texture larger than the driver can allocate and the claim collapses. So
-   // the emitter takes the smaller of the claim and the truth, which makes
+@@ -223,7 +227,9 @@ class BASE_EXPORT Profile {
    // over-claiming structurally impossible rather than a thing selection has to
    // avoid. Under-claiming is safe in the other direction, because ANGLE
    // validates every allocation against the value it reported.
@@ -65,9 +66,10 @@ diff --git a/base/apostate/profile.h b/base/apostate/profile.h
 +  const std::map<std::string, int64_t>& gl_limits() const {
 +    return gl_limits_;
 +  }
-
+ 
    // WebGL extension names the claimed device exposes, as
-@@ -438,7 +444,7 @@ class BASE_EXPORT Profile {
+   // getSupportedExtensions() spells them.
+@@ -436,7 +442,7 @@ class BASE_EXPORT Profile {
    std::optional<int> media_audioinput_count_;
    std::optional<int> media_videoinput_count_;
    std::map<std::string, std::string> keyboard_layout_map_;

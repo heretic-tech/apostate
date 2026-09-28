@@ -13,114 +13,11 @@ any override combined with --fingerprint=host refuses the launch with an
 error. --fingerprint-explain reports each overridden field and the drawn
 value it displaced.
 
---- a/base/apostate/compose.h
-+++ b/base/apostate/compose.h
-@@ -74,6 +74,31 @@
- // Write the composition report to stdout and exit.
- inline constexpr char kFingerprintExplain[] = "fingerprint-explain";
- 
-+// Per-field overrides. Each replaces exactly the field it names and leaves
-+// every other surface to the seed, so an override is a correction to one
-+// coherent device rather than a second, partial source of identity.
-+//
-+// None of these is page-visible. A page cannot read a command line, and every
-+// one of them writes a value the catalogue could already have drawn into a
-+// field the profile already carried -- the set of things a page can read is
-+// exactly what it was, and with no override switch present nothing about a
-+// launch changes at all.
-+//
-+// An override the host cannot serve, or that contradicts the capability
-+// cluster it would have to sit on, is refused on stderr with the servable
-+// alternatives named. Silently ignoring it is the one behaviour that must not
-+// happen: the operator would then run a whole session believing a field was
-+// spoofed when it was their own hardware.
-+inline constexpr char kFingerprintGpuVendor[] = "fingerprint-gpu-vendor";
-+inline constexpr char kFingerprintGpuRenderer[] = "fingerprint-gpu-renderer";
-+inline constexpr char kFingerprintHardwareConcurrency[] =
-+    "fingerprint-hardware-concurrency";
-+inline constexpr char kFingerprintDeviceMemory[] = "fingerprint-device-memory";
-+inline constexpr char kFingerprintScreenWidth[] = "fingerprint-screen-width";
-+inline constexpr char kFingerprintScreenHeight[] = "fingerprint-screen-height";
-+inline constexpr char kFingerprintTimezone[] = "fingerprint-timezone";
-+inline constexpr char kFingerprintLocale[] = "fingerprint-locale";
-+
- }  // namespace switches
- 
- // ---------------------------------------------------------------------------
-@@ -174,6 +199,32 @@
-   DictValue profile;
- };
- 
-+// The per-field overrides a launch asked for, already parsed and range
-+// checked. An empty string or an absent optional means "the seed decides".
-+//
-+// These are not a second identity layer. Each one lands on a profile the seed
-+// composed in full, which is why an override cannot leave a device
-+// half-specified: everything it does not name is still drawn from the same
-+// root.
-+struct BASE_EXPORT FieldOverrides {
-+  // Restrict the gpu_identity draw to a measured member of the resolved
-+  // anchor. Either alone is enough; the vendor on its own narrows a
-+  // multi-vendor anchor and leaves the choice among what is left to the seed.
-+  std::string gpu_vendor;
-+  std::string gpu_renderer;
-+
-+  std::optional<int> logical_cores;
-+  std::optional<uint64_t> memory_bytes;
-+  std::optional<int> screen_width;
-+  std::optional<int> screen_height;
-+
-+  std::string timezone;
-+  // The Accept-Language list, e.g. "en-US,en". Re-keys the voices table too,
-+  // which is why it is applied before that axis resolves rather than merged
-+  // over the finished profile.
-+  std::string accept_languages;
-+};
-+
- struct BASE_EXPORT ComposeRequest {
-   // Never empty: --fingerprint=host is handled before composition starts.
-   std::string seed;
-@@ -214,6 +265,8 @@
- 
-   // Used when `accept_languages` is empty.
-   std::string_view default_accept_languages;
-+
-+  FieldOverrides overrides;
- };
- 
- // Resolves every axis in the §5 dependency order and deep-merges the result.
-@@ -222,13 +275,21 @@
- // parents' resolved values, so there is no rejection sampling and no re-draw:
- // every profile is coherent by construction rather than by validation.
- //
--// Returns nullopt only when the request itself is unusable (no seed, no
--// platform persona the tables know). A coherence violation after resolution is
--// a defect in the compiled option tables and is fatal, because the generator
--// rejects all of them at build time -- reaching one at runtime means the
--// binary shipped with a broken catalogue, and a half-composed fingerprint is
--// more detectable than none.
--BASE_EXPORT std::optional<Composition> Compose(const ComposeRequest& request);
-+// Returns nullopt when the request itself is unusable (no seed, no platform
-+// persona the tables know) and when a per-field override cannot be honoured.
-+// The two are not the same answer and must not be confused: an unusable
-+// request means inherit the host, while a refused override means the launch
-+// asked for something specific and did not get it. `rejection`, when
-+// non-null, is filled with the operator-facing reason in the second case and
-+// left empty in the first, and a caller that passes one must stop the launch
-+// rather than fall back.
-+//
-+// A coherence violation after resolution is a defect in the compiled option
-+// tables and is fatal, because the generator rejects all of them at build time
-+// -- reaching one at runtime means the binary shipped with a broken
-+// catalogue, and a half-composed fingerprint is more detectable than none.
-+BASE_EXPORT std::optional<Composition> Compose(const ComposeRequest& request,
-+                                               std::string* rejection = nullptr);
- 
- // Deep-merges `overlay` into `target`.
- //
+diff --git a/base/apostate/compose.cc b/base/apostate/compose.cc
+index 42768d77e4..e32d9a7fa2 100644
 --- a/base/apostate/compose.cc
 +++ b/base/apostate/compose.cc
-@@ -246,6 +246,364 @@
+@@ -246,6 +246,364 @@ FilterOutcome FilterServable(const DispersionAxis& axis,
    return outcome;
  }
  
@@ -485,7 +382,7 @@ value it displaced.
  }  // namespace
  
  void MergeFragment(DictValue& target,
-@@ -420,7 +778,11 @@
+@@ -420,7 +778,11 @@ bool FamiliesProvisioned(const FilePath& fonts_directory,
  // Composition
  // ---------------------------------------------------------------------------
  
@@ -498,7 +395,7 @@ value it displaced.
    if (request.seed.empty()) {
      return std::nullopt;
    }
-@@ -594,6 +956,31 @@
+@@ -649,6 +1011,31 @@ std::optional<Composition> Compose(const ComposeRequest& request) {
          .limitation = std::string(),
      });
      resolved[std::string(kind)] = std::string(chosen->id);
@@ -530,7 +427,7 @@ value it displaced.
    };
  
    // ---- the dispersion axes, in the §5 resolution order ----
-@@ -681,6 +1068,16 @@
+@@ -776,6 +1163,16 @@ std::optional<Composition> Compose(const ComposeRequest& request) {
        continue;
      }
  
@@ -547,7 +444,7 @@ value it displaced.
      if (axis.selection == Selection::kSingle) {
        std::vector<uint32_t> weights;
        weights.reserve(outcome.options.size());
-@@ -804,6 +1201,10 @@
+@@ -899,6 +1296,10 @@ std::optional<Composition> Compose(const ComposeRequest& request) {
    }
    resolve_policy("theme", request.theme_policies);
  
@@ -558,7 +455,7 @@ value it displaced.
    DeriveWorkArea(composition.profile, panel_resolved,
                   &composition.limitations);
  
-@@ -970,11 +1371,35 @@
+@@ -1065,11 +1466,35 @@ std::optional<std::string> ComposeProfileForCurrentProcess(
    const SeedResolution seed = ResolveSeed(command_line);
    const bool explain = command_line.HasSwitch(switches::kFingerprintExplain);
  
@@ -594,7 +491,7 @@ value it displaced.
      if (explain) {
        WriteHostInheritanceReport(seed);
        Process::TerminateCurrentProcessImmediately(0);
-@@ -1007,6 +1432,7 @@
+@@ -1102,6 +1527,7 @@ std::optional<std::string> ComposeProfileForCurrentProcess(
    request.pinned_anchor =
        command_line.GetSwitchValueASCII(switches::kFingerprintAnchor);
    request.accept_languages = command_line.GetSwitchValueASCII(kLangSwitch);
@@ -602,7 +499,7 @@ value it displaced.
  
    std::string persona_limitation;
    if (command_line.HasSwitch(switches::kFingerprintPlatform)) {
-@@ -1023,7 +1449,10 @@
+@@ -1118,7 +1544,10 @@ std::optional<std::string> ComposeProfileForCurrentProcess(
      }
    }
  
@@ -614,3 +511,110 @@ value it displaced.
    if (!composition) {
      LOG(ERROR) << "apostate: the compiled catalogue cannot serve this launch; "
                    "inheriting the host";
+diff --git a/base/apostate/compose.h b/base/apostate/compose.h
+index 0e3fd59f2f..9a96eff7ec 100644
+--- a/base/apostate/compose.h
++++ b/base/apostate/compose.h
+@@ -74,6 +74,31 @@ inline constexpr char kFingerprintAnchor[] = "fingerprint-anchor";
+ // Write the composition report to stdout and exit.
+ inline constexpr char kFingerprintExplain[] = "fingerprint-explain";
+ 
++// Per-field overrides. Each replaces exactly the field it names and leaves
++// every other surface to the seed, so an override is a correction to one
++// coherent device rather than a second, partial source of identity.
++//
++// None of these is page-visible. A page cannot read a command line, and every
++// one of them writes a value the catalogue could already have drawn into a
++// field the profile already carried -- the set of things a page can read is
++// exactly what it was, and with no override switch present nothing about a
++// launch changes at all.
++//
++// An override the host cannot serve, or that contradicts the capability
++// cluster it would have to sit on, is refused on stderr with the servable
++// alternatives named. Silently ignoring it is the one behaviour that must not
++// happen: the operator would then run a whole session believing a field was
++// spoofed when it was their own hardware.
++inline constexpr char kFingerprintGpuVendor[] = "fingerprint-gpu-vendor";
++inline constexpr char kFingerprintGpuRenderer[] = "fingerprint-gpu-renderer";
++inline constexpr char kFingerprintHardwareConcurrency[] =
++    "fingerprint-hardware-concurrency";
++inline constexpr char kFingerprintDeviceMemory[] = "fingerprint-device-memory";
++inline constexpr char kFingerprintScreenWidth[] = "fingerprint-screen-width";
++inline constexpr char kFingerprintScreenHeight[] = "fingerprint-screen-height";
++inline constexpr char kFingerprintTimezone[] = "fingerprint-timezone";
++inline constexpr char kFingerprintLocale[] = "fingerprint-locale";
++
+ }  // namespace switches
+ 
+ // ---------------------------------------------------------------------------
+@@ -174,6 +199,32 @@ struct BASE_EXPORT Composition {
+   DictValue profile;
+ };
+ 
++// The per-field overrides a launch asked for, already parsed and range
++// checked. An empty string or an absent optional means "the seed decides".
++//
++// These are not a second identity layer. Each one lands on a profile the seed
++// composed in full, which is why an override cannot leave a device
++// half-specified: everything it does not name is still drawn from the same
++// root.
++struct BASE_EXPORT FieldOverrides {
++  // Restrict the gpu_identity draw to a measured member of the resolved
++  // anchor. Either alone is enough; the vendor on its own narrows a
++  // multi-vendor anchor and leaves the choice among what is left to the seed.
++  std::string gpu_vendor;
++  std::string gpu_renderer;
++
++  std::optional<int> logical_cores;
++  std::optional<uint64_t> memory_bytes;
++  std::optional<int> screen_width;
++  std::optional<int> screen_height;
++
++  std::string timezone;
++  // The Accept-Language list, e.g. "en-US,en". Re-keys the voices table too,
++  // which is why it is applied before that axis resolves rather than merged
++  // over the finished profile.
++  std::string accept_languages;
++};
++
+ struct BASE_EXPORT ComposeRequest {
+   // Never empty: --fingerprint=host is handled before composition starts.
+   std::string seed;
+@@ -214,6 +265,8 @@ struct BASE_EXPORT ComposeRequest {
+ 
+   // Used when `accept_languages` is empty.
+   std::string_view default_accept_languages;
++
++  FieldOverrides overrides;
+ };
+ 
+ // Resolves every axis in the §5 dependency order and deep-merges the result.
+@@ -222,13 +275,21 @@ struct BASE_EXPORT ComposeRequest {
+ // parents' resolved values, so there is no rejection sampling and no re-draw:
+ // every profile is coherent by construction rather than by validation.
+ //
+-// Returns nullopt only when the request itself is unusable (no seed, no
+-// platform persona the tables know). A coherence violation after resolution is
+-// a defect in the compiled option tables and is fatal, because the generator
+-// rejects all of them at build time -- reaching one at runtime means the
+-// binary shipped with a broken catalogue, and a half-composed fingerprint is
+-// more detectable than none.
+-BASE_EXPORT std::optional<Composition> Compose(const ComposeRequest& request);
++// Returns nullopt when the request itself is unusable (no seed, no platform
++// persona the tables know) and when a per-field override cannot be honoured.
++// The two are not the same answer and must not be confused: an unusable
++// request means inherit the host, while a refused override means the launch
++// asked for something specific and did not get it. `rejection`, when
++// non-null, is filled with the operator-facing reason in the second case and
++// left empty in the first, and a caller that passes one must stop the launch
++// rather than fall back.
++//
++// A coherence violation after resolution is a defect in the compiled option
++// tables and is fatal, because the generator rejects all of them at build time
++// -- reaching one at runtime means the binary shipped with a broken
++// catalogue, and a half-composed fingerprint is more detectable than none.
++BASE_EXPORT std::optional<Composition> Compose(const ComposeRequest& request,
++                                               std::string* rejection = nullptr);
+ 
+ // Deep-merges `overlay` into `target`.
+ //

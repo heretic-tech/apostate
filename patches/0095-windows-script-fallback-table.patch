@@ -10,6 +10,7 @@ uncovered character then follows a Windows machine's fallback choice
 wherever the host has that font.
 
 diff --git a/third_party/blink/renderer/platform/fonts/linux/font_cache_linux.cc b/third_party/blink/renderer/platform/fonts/linux/font_cache_linux.cc
+index 61dd89cef3..7b12ef1f52 100644
 --- a/third_party/blink/renderer/platform/fonts/linux/font_cache_linux.cc
 +++ b/third_party/blink/renderer/platform/fonts/linux/font_cache_linux.cc
 @@ -27,6 +27,7 @@
@@ -28,21 +29,12 @@ diff --git a/third_party/blink/renderer/platform/fonts/linux/font_cache_linux.cc
  #include "third_party/blink/renderer/platform/text/layout_locale.h"
  #include "third_party/skia/include/core/SkTypeface.h"
  #include "ui/gfx/font_fallback_linux.h"
-@@ -42,24 +44,268 @@
+@@ -42,22 +44,266 @@ namespace blink {
  
  namespace {
  
 -bool UseWindowsSimplifiedHanFallback(const FontDescription& description,
 -                                     UChar32 character) {
--  const auto* profile = base::apostate::Profile::Get();
--  if (!profile || !profile->ua_platform() ||
--      *profile->ua_platform() != "Windows") {
--    return false;
--  }
--  UErrorCode error = U_ZERO_ERROR;
--  if (uscript_getScript(character, &error) != USCRIPT_HAN || U_FAILURE(error)) {
--    return false;
--  }
 +// Windows resolves a glyph no requested face covers by script, then walks an
 +// ordered list of real families for that script. The lists below are the
 +// upstream Windows table verbatim -- win/font_fallback_win.cc,
@@ -257,27 +249,32 @@ diff --git a/third_party/blink/renderer/platform/fonts/linux/font_cache_linux.cc
 +// a different family in a Simplified, Traditional or Japanese context. Blink
 +// already carries that policy in LayoutLocale.
 +UScriptCode HanScriptForDescription(const FontDescription& description) {
-   const LayoutLocale* locale = LayoutLocale::LocaleForHan(description.Locale());
-   if (!locale) {
-     locale = &LayoutLocale::GetSystem();
-   }
--  return locale->GetScriptForHan() == USCRIPT_SIMPLIFIED_HAN;
++  const LayoutLocale* locale = LayoutLocale::LocaleForHan(description.Locale());
++  if (!locale) {
++    locale = &LayoutLocale::GetSystem();
++  }
 +  return locale->GetScriptForHan();
- }
- 
++}
++
 +base::span<const char* const> WindowsFallbackFamilies(
 +    const FontDescription& description,
 +    UChar32 character) {
-+  const auto* profile = base::apostate::Profile::Get();
-+  if (!profile || !profile->ua_platform() ||
-+      *profile->ua_platform() != "Windows") {
+   const auto* profile = base::apostate::Profile::Get();
+   if (!profile || !profile->ua_platform() ||
+       *profile->ua_platform() != "Windows") {
+-    return false;
 +    return {};
-+  }
-+  UErrorCode error = U_ZERO_ERROR;
+   }
+   UErrorCode error = U_ZERO_ERROR;
+-  if (uscript_getScript(character, &error) != USCRIPT_HAN || U_FAILURE(error)) {
+-    return false;
 +  UScriptCode script = uscript_getScript(character, &error);
 +  if (U_FAILURE(error)) {
 +    return {};
-+  }
+   }
+-  const LayoutLocale* locale = LayoutLocale::LocaleForHan(description.Locale());
+-  if (!locale) {
+-    locale = &LayoutLocale::GetSystem();
 +  // Unassigned, common and inherited characters carry no script to look up.
 +  // Recover the same way font_fallback_win.cc's GetScript() does.
 +  if (script <= USCRIPT_INHERITED) {
@@ -290,7 +287,8 @@ diff --git a/third_party/blink/renderer/platform/fonts/linux/font_cache_linux.cc
 +    if (entry.script == script) {
 +      return entry.families;
 +    }
-+  }
+   }
+-  return locale->GetScriptForHan() == USCRIPT_SIMPLIFIED_HAN;
 +  return {};
 +}
 +
@@ -304,12 +302,10 @@ diff --git a/third_party/blink/renderer/platform/fonts/linux/font_cache_linux.cc
 +                        const char* family) {
 +  return !profile || !profile->filters_font_enumeration() ||
 +         profile->FontFamilyEnumerable(family);
-+}
-+
+ }
+ 
  bool TypefaceHasFamily(SkTypeface* face, const char* family) {
-   // Fontconfig can substitute a different family for an absent candidate.
-   // Check actual localized names before treating it as an available face.
-@@ -135,25 +381,25 @@
+@@ -135,25 +381,25 @@ const SimpleFontData* FontCache::PlatformFallbackFontForCharacter(
        return font_data;
    }
  
@@ -338,7 +334,7 @@ diff --git a/third_party/blink/renderer/platform/fonts/linux/font_cache_linux.cc
 +  for (const char* family : WindowsFallbackFamilies(font_description, c)) {
 +    if (!FamilyIsEnumerable(fallback_profile, family)) {
 +      continue;
-     }
++    }
 +    const FontPlatformData* data = GetFontPlatformData(
 +        font_description, FontFaceCreationParams(AtomicString(family)));
 +    if (!data || !TypefaceHasFamily(data->Typeface(), family)) {
@@ -346,7 +342,7 @@ diff --git a/third_party/blink/renderer/platform/fonts/linux/font_cache_linux.cc
 +    }
 +    if (data->FontContainsCharacter(c)) {
 +      return FontDataFromFontPlatformData(data);
-+    }
+     }
 +    // Windows first chooses an available family, then checks its glyph
 +    // coverage. Preserve the existing fallback when that check fails.
 +    break;

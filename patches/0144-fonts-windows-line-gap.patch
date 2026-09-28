@@ -8,10 +8,10 @@ one FontMetrics::WindowsVerticalMetricsFor derives from the tables, as
 DirectWrite reports it. Author line-height overrides are unaffected.
 
 diff --git a/third_party/blink/renderer/platform/fonts/simple_font_data.cc b/third_party/blink/renderer/platform/fonts/simple_font_data.cc
-index 2fa1abf..d9d31f4 100644
+index a3afa4fa66..4c1478cd41 100644
 --- a/third_party/blink/renderer/platform/fonts/simple_font_data.cc
 +++ b/third_party/blink/renderer/platform/fonts/simple_font_data.cc
-@@ -170,6 +170,16 @@ void SimpleFontData::PlatformInit(bool subpixel_ascent_descent,
+@@ -172,6 +172,16 @@ void SimpleFontData::PlatformInit(bool subpixel_ascent_descent,
      line_gap = *metrics_override.line_gap_override * platform_data_->size();
    } else {
      line_gap = metrics.fLeading;

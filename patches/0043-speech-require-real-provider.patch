@@ -8,10 +8,10 @@ callback and does not fall back to the default voice. An empty list
 allows no voices, and an absent list keeps the host's voices.
 
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
-index 684bc83..a0babac 100644
+index 269675386c..5d18a93a94 100644
 --- a/base/apostate/profile.cc
 +++ b/base/apostate/profile.cc
-@@ -317,6 +317,7 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
+@@ -320,6 +320,7 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
  
    if (const DictValue* speech = dict->FindDict("speech")) {
      if (const ListValue* voices = speech->FindList("voices")) {
@@ -19,7 +19,7 @@ index 684bc83..a0babac 100644
        for (const auto& v : *voices) {
          const DictValue* entry = v.GetIfDict();
          if (!entry) {
-@@ -329,8 +330,13 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
+@@ -332,8 +333,13 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
                          "ignoring";
            continue;
          }
@@ -36,7 +36,7 @@ index 684bc83..a0babac 100644
      }
    }
 diff --git a/base/apostate/profile.h b/base/apostate/profile.h
-index 41a18d7..0d2f224 100644
+index 41a18d7069..0d2f2244a9 100644
 --- a/base/apostate/profile.h
 +++ b/base/apostate/profile.h
 @@ -315,16 +315,12 @@ class BASE_EXPORT Profile {
@@ -77,22 +77,24 @@ index 41a18d7..0d2f224 100644
    std::optional<std::string> timezone_;
    std::optional<bool> prefers_dark_;
 diff --git a/content/browser/speech/tts_controller_impl.cc b/content/browser/speech/tts_controller_impl.cc
-index 5a345f7..543d9f0 100644
+index 4ef2cd4da2..075608464e 100644
 --- a/content/browser/speech/tts_controller_impl.cc
 +++ b/content/browser/speech/tts_controller_impl.cc
-@@ -10,9 +10,11 @@
+@@ -10,11 +10,13 @@
  #include <string>
  #include <vector>
  
 +#include "base/apostate/profile.h"
  #include "base/containers/queue.h"
  #include "base/functional/bind.h"
+ #include "base/i18n/legacy_language_tag_helpers.h"
+ #include "base/i18n/tag_converters.h"
  #include "base/json/json_reader.h"
 +#include "base/logging.h"
  #include "base/metrics/histogram_macros.h"
  #include "base/metrics/user_metrics.h"
  #include "base/observer_list.h"
-@@ -415,6 +417,23 @@ void TtsControllerImpl::GetVoices(BrowserContext* browser_context,
+@@ -482,6 +484,23 @@ void TtsControllerImpl::GetVoices(BrowserContext* browser_context,
                         [](const VoiceData& voice) { return voice.remote; });
      out_voices->resize(it - out_voices->begin());
    }
@@ -116,7 +118,7 @@ index 5a345f7..543d9f0 100644
  }
  
  bool TtsControllerImpl::IsSpeaking() {
-@@ -585,6 +604,18 @@ void TtsControllerImpl::SpeakNow(std::unique_ptr<TtsUtterance> utterance) {
+@@ -652,6 +671,18 @@ void TtsControllerImpl::SpeakNow(std::unique_ptr<TtsUtterance> utterance) {
    // TODO(katie): Move most of the GetMatchingVoice logic into content/ and
    // use the TTS controller delegate to get chrome-specific info as needed.
    int index = GetMatchingVoice(utterance.get(), voices);
@@ -136,7 +138,7 @@ index 5a345f7..543d9f0 100644
    if (index >= 0) {
      voice = voices[index];
 diff --git a/content/browser/speech/tts_controller_unittest.cc b/content/browser/speech/tts_controller_unittest.cc
-index 5b7d4ee..0a09b87 100644
+index 403b25c951..954f117aef 100644
 --- a/content/browser/speech/tts_controller_unittest.cc
 +++ b/content/browser/speech/tts_controller_unittest.cc
 @@ -4,6 +4,9 @@
@@ -150,7 +152,7 @@ index 5b7d4ee..0a09b87 100644
  #include "base/memory/raw_ptr.h"
  #include "base/values.h"
 @@ -24,7 +27,44 @@
- #include "content/public/browser/tts_controller_delegate.h"
+ #include "content/public/browser/tts_controller_delegate_chromeos.h"
  #endif
  
 +namespace base::apostate {
@@ -219,7 +221,7 @@ index 5b7d4ee..0a09b87 100644
    std::string error_;
    base::OnceCallback<void(bool)> did_start_speaking_callback_;
  };
-@@ -1139,4 +1183,139 @@ TEST_F(TtsControllerTest, SpeakWhenLoadingBuiltInEngine) {
+@@ -1446,4 +1490,139 @@ TEST_F(TtsControllerTest, SpeakWhenLoadingBuiltInEngine) {
  }
  #endif  // !BUILDFLAG(IS_ANDROID)
  
@@ -360,7 +362,7 @@ index 5b7d4ee..0a09b87 100644
 +
  }  // namespace content
 diff --git a/content/browser/speech/tts_linux.cc b/content/browser/speech/tts_linux.cc
-index 0738577..4876cbc 100644
+index f65de2b687..8b7ea7c688 100644
 --- a/content/browser/speech/tts_linux.cc
 +++ b/content/browser/speech/tts_linux.cc
 @@ -9,6 +9,7 @@
@@ -389,7 +391,7 @@ index 0738577..4876cbc 100644
    void OnSpeakScheduled(base::OnceCallback<void(bool)> on_speak_finished,
                          bool success);
    void OnSpeakFinished(int utterance_id);
-@@ -418,45 +415,11 @@ TtsPlatformImplLinux::TtsPlatformImplLinux()
+@@ -419,45 +416,11 @@ TtsPlatformImplLinux::TtsPlatformImplLinux()
    worker_.AsyncCall(&TtsPlatformImplBackgroundWorker::Initialize);
  }
  
@@ -435,7 +437,7 @@ index 0738577..4876cbc 100644
    return is_initialized_;
  }
  
-@@ -475,37 +438,6 @@ void TtsPlatformImplLinux::Speak(
+@@ -477,37 +440,6 @@ void TtsPlatformImplLinux::Speak(
      return;
    }
  
@@ -473,7 +475,7 @@ index 0738577..4876cbc 100644
    // Flag that a utterance is getting emitted. The |is_speaking_| flag will be
    // set back to false when the utterance will be fully spoken, stopped or if
    // the voice synthetizer was not able to emit it.
-@@ -522,32 +454,10 @@ void TtsPlatformImplLinux::Speak(
+@@ -524,33 +456,11 @@ void TtsPlatformImplLinux::Speak(
                                      std::move(on_speak_finished))));
  }
  
@@ -491,8 +493,9 @@ index 0738577..4876cbc 100644
 -}
 -
  bool TtsPlatformImplLinux::StopSpeaking() {
-   DCHECK(BrowserThread::CurrentlyOn(content::BrowserThread::UI));
-   DCHECK(PlatformImplInitialized());
+   CHECK(BrowserThread::CurrentlyOn(content::BrowserThread::UI),
+         base::NotFatalUntil::M159);
+   CHECK(PlatformImplInitialized(), base::NotFatalUntil::M159);
  
 -  // Nothing to stop in the worker when there is no synthesiser behind it, and
 -  // calling into an uninitialised speech-dispatcher connection is not safe.
@@ -506,9 +509,9 @@ index 0738577..4876cbc 100644
    worker_.AsyncCall(&TtsPlatformImplBackgroundWorker::StopSpeaking);
    paused_ = false;
  
-@@ -587,25 +497,6 @@ void TtsPlatformImplLinux::GetVoices(std::vector<VoiceData>* out_voices) {
-   DCHECK(BrowserThread::CurrentlyOn(content::BrowserThread::UI));
-   DCHECK(PlatformImplInitialized());
+@@ -593,25 +503,6 @@ void TtsPlatformImplLinux::GetVoices(std::vector<VoiceData>* out_voices) {
+         base::NotFatalUntil::M159);
+   CHECK(PlatformImplInitialized(), base::NotFatalUntil::M159);
  
 -  if (const auto* claimed = ApostateVoices()) {
 -    for (const auto& v : *claimed) {
@@ -532,7 +535,7 @@ index 0738577..4876cbc 100644
    for (auto it = voices_.begin(); it != voices_.end(); ++it) {
      out_voices->push_back(VoiceData());
      VoiceData& voice = out_voices->back();
-@@ -676,6 +567,15 @@ void TtsPlatformImplLinux::ProcessSpeech(
+@@ -686,6 +577,15 @@ void TtsPlatformImplLinux::ProcessSpeech(
  
    SPDChromeVoice matched_voice;
    auto it = voices_.find(voice.name);

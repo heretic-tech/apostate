@@ -9,9 +9,11 @@ never the one SwiftShader string every such host would share. The
 SwiftShader identity is served only when --fingerprint-anchor names it,
 and --fingerprint-platform=linux overrides the Linux default.
 
+diff --git a/base/apostate/compose.cc b/base/apostate/compose.cc
+index 2914856a72..4a2005037d 100644
 --- a/base/apostate/compose.cc
 +++ b/base/apostate/compose.cc
-@@ -57,6 +57,13 @@
+@@ -57,6 +57,13 @@ constexpr char kUserDataDirSwitch[] = "user-data-dir";
  // This project's subdirectory of the user data directory.
  constexpr char kStateDirectoryName[] = "apostate";
  
@@ -25,7 +27,7 @@ and --fingerprint-platform=linux overrides the Linux default.
  constexpr std::string_view kLayerAnchor = "anchor";
  constexpr std::string_view kLayerDispersion = "dispersion";
  constexpr std::string_view kLayerHostInherited = "host-inherited";
-@@ -73,6 +80,41 @@
+@@ -73,6 +80,41 @@ bool IsKnownPlatform(std::string_view platform) {
    return platform == "windows" || platform == "macos" || platform == "linux";
  }
  
@@ -67,7 +69,7 @@ and --fingerprint-platform=linux overrides the Linux default.
  // Parses one option's profile fragment.
  //
  // A fragment that does not parse is a defect in the compiled catalogue, not a
-@@ -766,8 +808,10 @@
+@@ -766,8 +808,10 @@ std::optional<Composition> Compose(const ComposeRequest& request,
    composition.catalogue_digest = std::string(request.catalogue_digest);
    composition.chromium_version = std::string(request.chromium_version);
  
@@ -80,7 +82,7 @@ and --fingerprint-platform=linux overrides the Linux default.
    if (!IsKnownPlatform(composition.platform)) {
      LOG(ERROR) << "apostate: no platform persona for '" << composition.platform
                 << "'; this launch inherits the host";
-@@ -791,9 +835,8 @@
+@@ -791,9 +835,8 @@ std::optional<Composition> Compose(const ComposeRequest& request,
  
    // ---- the anchor, before any axis that can be conditioned on it ----
    //
@@ -92,7 +94,7 @@ and --fingerprint-platform=linux overrides the Linux default.
    const Anchor* anchor = nullptr;
    if (!request.pinned_anchor.empty()) {
      anchor = FindAnchor(request.anchors, request.pinned_anchor);
-@@ -804,64 +847,72 @@
+@@ -804,64 +847,72 @@ std::optional<Composition> Compose(const ComposeRequest& request,
        return std::nullopt;
      }
    } else {
@@ -126,17 +128,9 @@ and --fingerprint-platform=linux overrides the Linux default.
      for (const Anchor& candidate : request.anchors) {
 -      if (request.host.graphics_backend.empty() ||
 -          candidate.backend == request.host.graphics_backend) {
-+      // Rule one, and independent of the platform test below on purpose: the
-+      // software anchor is not a candidate. Stated as its own rejection rather
-+      // than left to fall out of the absent backend filter, so that re-adding
-+      // any backend preference here cannot make it drawable again.
-+      if (candidate.backend == kSoftwareBackend) {
-+        continue;
-+      }
-+      if (candidate.platform == composition.platform) {
-         servable.push_back(&candidate);
-       }
-     }
+-        servable.push_back(&candidate);
+-      }
+-    }
 -    // Prefer an anchor captured on this host's own platform, but do not insist
 -    // on it: a backend match is the coherence requirement, and the platform is
 -    // only a tie-break within it.
@@ -146,11 +140,19 @@ and --fingerprint-platform=linux overrides the Linux default.
 -        if (candidate->platform == request.host.platform) {
 -          same_platform.push_back(candidate);
 -        }
--      }
++      // Rule one, and independent of the platform test below on purpose: the
++      // software anchor is not a candidate. Stated as its own rejection rather
++      // than left to fall out of the absent backend filter, so that re-adding
++      // any backend preference here cannot make it drawable again.
++      if (candidate.backend == kSoftwareBackend) {
++        continue;
+       }
 -      if (!same_platform.empty()) {
 -        servable = std::move(same_platform);
--      }
--    }
++      if (candidate.platform == composition.platform) {
++        servable.push_back(&candidate);
+       }
+     }
  
      if (servable.empty()) {
 -      // No measured cluster fits this host. On a software rasteriser that is
@@ -206,7 +208,7 @@ and --fingerprint-platform=linux overrides the Linux default.
        });
      } else {
        std::vector<uint32_t> weights;
-@@ -878,42 +929,79 @@
+@@ -878,42 +929,79 @@ std::optional<Composition> Compose(const ComposeRequest& request,
      resolved["anchor"] = std::string(anchor->id);
    }
  
@@ -276,6 +278,13 @@ and --fingerprint-platform=linux overrides the Linux default.
 +    // persona decides the cluster and the host's backend is whatever it is, so
 +    // a Windows persona on a Linux host is a D3D11 cluster over Vulkan or over
 +    // the software rasteriser.
++    //
++    // Recorded because the backend still decides one thing. An extension name
++    // is served if the host's GL stack can back it, or if it carries only
++    // constants and internal formats and the profile claims it, which patch
++    // 0104 enumerates by name. A method-bearing name the host lacks is not
++    // served, because a page calls getExtension() and then calls methods on
++    // the object it receives.
      //
 -    // It still has to be said out loud, because the backend is what decides
 -    // which extensions exist and an extension the host lacks cannot be added.
@@ -283,13 +292,6 @@ and --fingerprint-platform=linux overrides the Linux default.
 -    // back, so one claimed but unimplemented fails at first use; only removal
 -    // is safe. A pinned cross-backend anchor therefore advertises a shorter
 -    // list than the card it names, and detectors hash that list.
-+    // Recorded because the backend still decides one thing. An extension name
-+    // is served if the host's GL stack can back it, or if it carries only
-+    // constants and internal formats and the profile claims it, which patch
-+    // 0104 enumerates by name. A method-bearing name the host lacks is not
-+    // served, because a page calls getExtension() and then calls methods on
-+    // the object it receives.
-+    //
 +    // Note what this does NOT say. It does not say the identity should
 +    // therefore be the host's: the renderer string, the vendor string and the
 +    // numeric limits are all served as the profile composed them.
@@ -307,9 +309,11 @@ and --fingerprint-platform=linux overrides the Linux default.
    }
    if (anchor && anchor->members.size() == 1) {
      composition.limitations.push_back(
+diff --git a/base/apostate/compose.h b/base/apostate/compose.h
+index eb3373fe5b..1ad0c0edae 100644
 --- a/base/apostate/compose.h
 +++ b/base/apostate/compose.h
-@@ -59,13 +59,25 @@
+@@ -59,13 +59,25 @@ inline constexpr char kFingerprint[] = "fingerprint";
  // seed would silently compose an identity when pass-through was asked for.
  inline constexpr char kFingerprintHostValue[] = "host";
  

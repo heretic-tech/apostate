@@ -8,14 +8,11 @@ profile, so a page sees two locales at once. A locale this build has no
 data for falls back to en-US, never to the host. --fingerprint=host and
 launches without a composed profile keep the platform's normal choice.
 
+diff --git a/base/apostate/compose.cc b/base/apostate/compose.cc
+index eb403a7031..053af21966 100644
 --- a/base/apostate/compose.cc
 +++ b/base/apostate/compose.cc
-@@ -471,23 +471,28 @@ std::string AcceptLanguagesDefaultNote(const std::string& tag) {
- //
- // This is the line the seed-source line is the model for: it names where the
- // value came from, because the value decides `Intl`'s locale, the default
- // Accept-Language list, ICU's collation and calendar, and Blink's
- // locale-dependent font fallback -- all at once, through one resolution a page
+@@ -476,13 +476,18 @@ std::string AcceptLanguagesDefaultNote(const std::string& tag) {
  // can read five different ways.
  std::string ApplicationLocaleNote(bool named) {
    std::string note =
@@ -41,17 +38,7 @@ launches without a composed profile keep the platform's normal choice.
    note += named ? "; named by --fingerprint-locale"
                  : "; no launch layer named a locale, so the composed default "
                    "is presented rather than the operator's shell";
-   return note;
- }
- 
- // Applies the scalar overrides onto the composed profile.
- //
-@@ -1332,16 +1337,43 @@ std::optional<Composition> Compose(const ComposeRequest& request,
-       composition.surfaces.push_back({
-           .surface = "locale.timezone",
-           .value = "(inherited)",
-           .layer = std::string(kLayerHostInherited),
-           .evidence = "host-inherited",
+@@ -1337,6 +1342,33 @@ std::optional<Composition> Compose(const ComposeRequest& request,
            .limitation = TimezoneInheritanceNote(),
        });
      }
@@ -85,17 +72,7 @@ launches without a composed profile keep the platform's normal choice.
    };
  
    // ---- the dispersion axes, in the §5 resolution order ----
-   bool locale_resolved = false;
-   bool panel_resolved = false;
- 
-   for (const DispersionAxis& axis : request.axes) {
-     // The voices table is keyed on the resolved accept-languages list, so the
-@@ -1935,16 +1967,22 @@ std::string PosixLocaleForTag(std::string_view tag) {
-   const size_t dash = out.find('-');
-   if (dash != std::string::npos) {
-     out[dash] = '_';
-   }
-   return out + ".UTF-8";
+@@ -1940,6 +1972,12 @@ std::string PosixLocaleForTag(std::string_view tag) {
  }
  
  void InstallComposedLocaleEnvironment(std::string_view tag) {
@@ -108,17 +85,7 @@ launches without a composed profile keep the platform's normal choice.
    const std::string language(tag);
    const std::string posix = PosixLocaleForTag(tag);
  
-   // All four, listed in the precedence order glib reads them, because each one
-   // moves the application locale on its own and the operator may have set any
-   // subset. LANGUAGE takes the BCP-47 tag as written -- it is a list of
-   // language *names*, not locale names, and needs nothing generated on the
-   // host -- while LC_ALL, LC_MESSAGES and LANG take the POSIX form setlocale
-@@ -1979,39 +2017,71 @@ void InstallComposedLocaleEnvironment(std::string_view tag) {
-   // browser, which is where content itself writes FC_FONTATIONS "before
-   // creating threads".
-   std::setlocale(LC_ALL, "C");
-   std::setlocale(LC_ALL, "");
-   std::setlocale(LC_NUMERIC, "C");
+@@ -1984,6 +2022,42 @@ void InstallComposedLocaleEnvironment(std::string_view tag) {
  #endif
  }
  
@@ -161,16 +128,7 @@ launches without a composed profile keep the platform's normal choice.
  void InstallComposedProfile(const FilePath& user_data_dir) {
    if (!CommandLine::InitializedForCurrentProcess()) {
      return;
-   }
-   CommandLine* command_line = CommandLine::ForCurrentProcess();
- 
-   const bool carried = command_line->HasSwitch(::switches::kApostateProfile);
-   const std::string supplied =
-       carried ? command_line->GetSwitchValueASCII(::switches::kApostateProfile)
-               : std::string();
- 
-   // A device is already carried, either authored by the operator or installed
-   // by an earlier call. Recomposing would draw a second identity for one
+@@ -2000,13 +2074,9 @@ void InstallComposedProfile(const FilePath& user_data_dir) {
    // launch, so there is nothing to do -- except the locale environment, which
    // this branch is the one path that would otherwise leave at the operator's
    // shell. An authored payload bypasses composition but it still presents a
@@ -186,17 +144,7 @@ launches without a composed profile keep the platform's normal choice.
      return;
    }
  
-   std::optional<std::string> composed =
-       ComposeProfileForCurrentProcess(user_data_dir);
-   if (!composed) {
-     // Nothing composed: host mode, a child process, or a catalogue that cannot
-     // serve this launch. A payload carrying only credentials is left exactly
-@@ -2045,24 +2115,17 @@ void InstallComposedProfile(const FilePath& user_data_dir) {
-   // Onto this process's own command line, because patch 0005 builds every
-   // child's command line by copying switches from the browser's. A composed
-   // profile that does not reach the renderer is worse than none: the browser
-   // would size its pools from the claim while the renderer reported the host's
-   // cores, and navigator.hardwareConcurrency would contradict the Device-Memory
+@@ -2050,19 +2120,12 @@ void InstallComposedProfile(const FilePath& user_data_dir) {
    // header from the same session.
    command_line->AppendSwitchASCII(::switches::kApostateProfile, payload);
  
@@ -222,14 +170,11 @@ launches without a composed profile keep the platform's normal choice.
  }
  
  }  // namespace base::apostate
+diff --git a/base/apostate/compose.h b/base/apostate/compose.h
+index a8500958d1..059d54fcfd 100644
 --- a/base/apostate/compose.h
 +++ b/base/apostate/compose.h
-@@ -378,18 +378,23 @@ BASE_EXPORT std::optional<std::string> ComposeProfileForCurrentProcess(
- // of one. Calling
- // it from a startup hook is what makes the ordering real rather than
- // documented -- the switch is on the browser's command line before any child
- // command line is built, so no process type can be forgotten and no lazy first
- // use can decide the identity at an arbitrary moment.
+@@ -383,8 +383,13 @@ BASE_EXPORT std::optional<std::string> ComposeProfileForCurrentProcess(
  BASE_EXPORT void InstallComposedProfile(const FilePath& user_data_dir);
  
  // ---------------------------------------------------------------------------
@@ -244,17 +189,7 @@ launches without a composed profile keep the platform's normal choice.
  
  // What a composed launch that resolved no locale presents.
  //
- // Not the host's, and not nothing: absence of a resolved locale has to mean a
- // defined default, or the served locale becomes a property of the operator's
- // shell. Mirrors COMPOSED_DEFAULT_LOCALE in python/apostate/launch.py and
- // npm/src/index.ts, which is the point -- a bare launch and a launch through
- // either package must present the same locale for the same resolution.
-@@ -432,12 +437,42 @@ BASE_EXPORT std::string PosixLocaleForTag(std::string_view tag);
- // Browser process only, and single-threaded: base::Environment::SetVar and
- // setlocale are both documented as unsafe in a multi-threaded process.
- // PreSandboxStartup satisfies that -- content itself writes FC_FONTATIONS
- // immediately after it, "before creating threads" -- and it is before the
- // zygote fork, so every child inherits this environment rather than needing
+@@ -437,6 +442,36 @@ BASE_EXPORT std::string PosixLocaleForTag(std::string_view tag);
  // its own copy of the decision.
  BASE_EXPORT void InstallComposedLocaleEnvironment(std::string_view tag);
  
@@ -291,13 +226,11 @@ launches without a composed profile keep the platform's normal choice.
  }  // namespace apostate
  }  // namespace base
  
- #endif  // BASE_APOSTATE_COMPOSE_H_
+diff --git a/base/apostate/compose_unittest.cc b/base/apostate/compose_unittest.cc
+index afdd0f0f1a..bd80331476 100644
 --- a/base/apostate/compose_unittest.cc
 +++ b/base/apostate/compose_unittest.cc
-@@ -1,37 +1,40 @@
- // Copyright 2026 The Apostate Authors
- // Use of this source code is governed by a GPL-3.0 license that can be
- // found in the LICENSE file.
+@@ -4,6 +4,7 @@
  
  #include "base/apostate/compose.h"
  
@@ -305,15 +238,7 @@ launches without a composed profile keep the platform's normal choice.
  #include <array>
  #include <clocale>
  #include <cstdint>
- #include <memory>
- #include <optional>
- #include <string>
- #include <string_view>
- #include <vector>
- 
- #include "base/apostate/dispersion_table.h"
- #include "base/apostate/explain.h"
- #include "base/apostate/host_capability.h"
+@@ -19,6 +20,7 @@
  #include "base/apostate/profile.h"
  #include "base/apostate/seed.h"
  #include "base/base64.h"
@@ -321,8 +246,7 @@ launches without a composed profile keep the platform's normal choice.
  #include "base/command_line.h"
  #include "base/containers/span.h"
  #include "base/environment.h"
- #include "base/files/file_path.h"
- #include "base/files/file_util.h"
+@@ -27,6 +29,7 @@
  #include "base/files/scoped_temp_dir.h"
  #include "base/json/json_writer.h"
  #include "base/strings/string_number_conversions.h"
@@ -330,17 +254,7 @@ launches without a composed profile keep the platform's normal choice.
  #include "base/values.h"
  #include "build/build_config.h"
  #include "testing/gtest/include/gtest/gtest.h"
- 
- namespace base::apostate {
- namespace {
- 
- // Every table here is written in the test rather than taken from the compiled
-@@ -1492,10 +1495,120 @@ TEST(ApostateComposeTest, TheLocaleEnvironmentIsWrittenToAllFourVariables) {
- #if BUILDFLAG(IS_POSIX) && !BUILDFLAG(IS_ANDROID)
-   // Put the C library back where the test found it, since the call above
-   // changed process-global state that later tests in this binary read.
-   std::setlocale(LC_ALL, "");
-   std::setlocale(LC_NUMERIC, "C");
+@@ -1497,5 +1500,115 @@ TEST(ApostateComposeTest, TheLocaleEnvironmentIsWrittenToAllFourVariables) {
  #endif
  }
  
@@ -456,34 +370,19 @@ launches without a composed profile keep the platform's normal choice.
 +
  }  // namespace
  }  // namespace base::apostate
+diff --git a/ui/base/l10n/l10n_util.cc b/ui/base/l10n/l10n_util.cc
+index 5ce078e14b..36b6bcc579 100644
 --- a/ui/base/l10n/l10n_util.cc
 +++ b/ui/base/l10n/l10n_util.cc
-@@ -6,18 +6,18 @@
- 
- #include <algorithm>
- #include <cstdlib>
- #include <iterator>
- #include <memory>
+@@ -12,6 +12,7 @@
  #include <string>
  #include <string_view>
  
 +#include "base/apostate/compose.h"
  #include "base/check_op.h"
--#include "base/command_line.h"
+ #include "base/command_line.h"
  #include "base/compiler_specific.h"
- #include "base/containers/fixed_flat_set.h"
- #include "base/containers/span.h"
- #include "base/i18n/file_util_icu.h"
- #include "base/i18n/language_tag.h"
- #include "base/i18n/language_tag_matcher.h"
- #include "base/i18n/message_formatter.h"
- #include "base/i18n/number_formatting.h"
-@@ -376,17 +376,80 @@ std::string GetApplicationLocaleInternalNonMac(std::string_view pref_locale) {
-                           CheckLocaleMode::kVerifyLocalizationDataExists)) {
-     return fallback_locale;
-   }
- 
-   return std::string();
+@@ -273,7 +274,70 @@ std::string GetApplicationLocaleInternalNonMac(std::string_view pref_locale) {
  }
  #endif  // !BUILDFLAG(IS_APPLE)
  
@@ -554,21 +453,13 @@ launches without a composed profile keep the platform's normal choice.
  #if BUILDFLAG(IS_APPLE)
    return GetApplicationLocaleInternalMac(pref_locale);
  #else
-   return GetApplicationLocaleInternalNonMac(pref_locale);
- #endif
- }
- 
- std::string GetApplicationLocale(std::string_view pref_locale,
+diff --git a/ui/base/l10n/l10n_util_unittest.cc b/ui/base/l10n/l10n_util_unittest.cc
+index 6ac7351f9f..3d19fd83a0 100644
 --- a/ui/base/l10n/l10n_util_unittest.cc
 +++ b/ui/base/l10n/l10n_util_unittest.cc
-@@ -6,29 +6,35 @@
- 
- #include <stddef.h>
- 
- #include <algorithm>
- #include <array>
- #include <cstring>
- #include <memory>
+@@ -13,6 +13,10 @@
+ #include <string_view>
+ #include <thread>
  
 +#include "base/apostate/compose.h"
 +#include "base/base64.h"
@@ -577,14 +468,7 @@ launches without a composed profile keep the platform's normal choice.
  #include "base/containers/flat_set.h"
  #include "base/containers/span.h"
  #include "base/environment.h"
- #include "base/files/file_util.h"
- #include "base/i18n/case_conversion.h"
- #include "base/i18n/language_tag.h"
- #include "base/i18n/rtl.h"
- #include "base/i18n/time_formatting.h"
-+#include "base/logging.h"
- #include "base/path_service.h"
- #include "base/strings/pattern.h"
+@@ -31,6 +35,7 @@
  #include "base/strings/string_util.h"
  #include "base/strings/utf_string_conversions.h"
  #include "base/test/icu_test_util.h"
@@ -592,18 +476,8 @@ launches without a composed profile keep the platform's normal choice.
  #include "base/test/scoped_path_override.h"
  #include "build/build_config.h"
  #include "testing/gmock/include/gmock/gmock.h"
- #include "testing/gtest/include/gtest/gtest.h"
- #include "testing/platform_test.h"
- #include "third_party/icu/source/common/unicode/locid.h"
- #include "ui/base/grit/ui_base_test_resources.h"
- #include "ui/base/l10n/l10n_util_collator.h"
-@@ -399,16 +405,121 @@ TEST_F(L10nUtilTest, GetAppLocale) {
-   EXPECT_STREQ("am", icu::Locale::getDefault().getLanguage());
- #endif  // BUILDFLAG(IS_WIN)
- 
-   // Clean up.
-   base::i18n::SetICUDefaultLocale(original_locale);
- }
+@@ -504,6 +509,110 @@ TEST_F(L10nUtilTest, GetAppLocaleWin) {
+ using L10nUtilTest = PlatformTest;
  #endif  // !BUILDFLAG(IS_APPLE)
  
 +#if !BUILDFLAG(IS_APPLE) && !BUILDFLAG(IS_ANDROID)
@@ -710,12 +584,6 @@ launches without a composed profile keep the platform's normal choice.
 +}
 +#endif  // !BUILDFLAG(IS_APPLE) && !BUILDFLAG(IS_ANDROID)
 +
-+
  TEST_F(L10nUtilTest, SortStringsUsingFunction) {
    std::vector<std::unique_ptr<StringWrapper>> strings;
    strings.push_back(std::make_unique<StringWrapper>(u"C"));
-   strings.push_back(std::make_unique<StringWrapper>(u"d"));
-   strings.push_back(std::make_unique<StringWrapper>(u"b"));
-   strings.push_back(std::make_unique<StringWrapper>(u"a"));
-   l10n_util::SortStringsUsingMethod("en-US",
-                                     &strings,

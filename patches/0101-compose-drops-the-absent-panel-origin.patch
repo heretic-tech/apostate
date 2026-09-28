@@ -6,9 +6,11 @@ under screen, so that lookup can only return its zero fallback.
 screen.availLeft and screen.availTop come from the panel insets alone.
 No value a page reads changes.
 
+diff --git a/base/apostate/compose.cc b/base/apostate/compose.cc
+index 033469459a..2914856a72 100644
 --- a/base/apostate/compose.cc
 +++ b/base/apostate/compose.cc
-@@ -1378,13 +1378,15 @@
+@@ -1378,13 +1378,15 @@ void DeriveWorkArea(DictValue& profile,
  
    // availLeft/availTop are panel-relative: the Windows reference capture ran
    // on a second monitor at x=1920 and reported availLeft 1920 with a zero

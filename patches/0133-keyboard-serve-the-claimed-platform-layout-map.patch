@@ -8,9 +8,11 @@ Windows, the section sign on macOS and "<" on Linux. A US Windows
 keyboard has no IntlYen key, so a Linux host's keymap would give a
 Windows profile away.
 
+diff --git a/base/apostate/profile.h b/base/apostate/profile.h
+index 319d60145f..28abd28d06 100644
 --- a/base/apostate/profile.h
 +++ b/base/apostate/profile.h
-@@ -428,7 +428,8 @@
+@@ -428,7 +428,8 @@ class BASE_EXPORT Profile {
    // This is a user setting rather than a device property — the same Mac gives a
    // different map under a German layout — and it is not derivable from anything
    // else in the profile, so axiom A3 puts it in the replay category rather than
@@ -20,6 +22,8 @@ Windows profile away.
    const std::map<std::string, std::string>& keyboard_layout_map() const {
      return keyboard_layout_map_;
    }
+diff --git a/content/browser/renderer_host/page_impl.cc b/content/browser/renderer_host/page_impl.cc
+index a6028edee5..af7380692c 100644
 --- a/content/browser/renderer_host/page_impl.cc
 +++ b/content/browser/renderer_host/page_impl.cc
 @@ -4,6 +4,10 @@
@@ -86,7 +90,7 @@ Windows profile away.
  PageImpl::PageImpl(RenderFrameHostImpl& rfh, PageDelegate& delegate)
      : main_document_(rfh), delegate_(delegate) {
  
-@@ -382,6 +432,17 @@
+@@ -386,6 +436,17 @@ base::flat_map<std::string, std::string> PageImpl::GetKeyboardLayoutMap() {
      if (!map.empty()) {
        return base::flat_map<std::string, std::string>(map.begin(), map.end());
      }

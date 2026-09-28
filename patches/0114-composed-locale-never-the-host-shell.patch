@@ -11,12 +11,11 @@ Thai shell reports Thai formatting and a Buddhist calendar.
 --fingerprint-explain reports the application locale and where it comes
 from.
 
+diff --git a/base/apostate/compose.cc b/base/apostate/compose.cc
+index 8b3e77f44f..eb403a7031 100644
 --- a/base/apostate/compose.cc
 +++ b/base/apostate/compose.cc
-@@ -1,40 +1,45 @@
- // Copyright 2026 The Apostate Authors
- // Use of this source code is governed by a GPL-3.0 license that can be
- // found in the LICENSE file.
+@@ -4,9 +4,11 @@
  
  #include "base/apostate/compose.h"
  
@@ -28,15 +27,7 @@ from.
  #include <optional>
  #include <string>
  #include <string_view>
- #include <utility>
- #include <vector>
- 
- #include "base/apostate/dispersion_tables.h"
- #include "base/apostate/explain.h"
- #include "base/apostate/profile.h"
- #include "base/base64.h"
- #include "base/base_switches.h"
- #include "base/check.h"
+@@ -22,6 +24,7 @@
  #include "base/check_op.h"
  #include "base/command_line.h"
  #include "base/containers/span.h"
@@ -44,7 +35,7 @@ from.
  #include "base/files/file_path.h"
  #include "base/json/json_reader.h"
  #include "base/json/json_writer.h"
- #include "base/logging.h"
+@@ -29,7 +32,9 @@
  #include "base/notreached.h"
  #include "base/process/process.h"
  #include "base/strings/string_number_conversions.h"
@@ -54,17 +45,7 @@ from.
  #include "third_party/boringssl/src/include/openssl/sha.h"
  
  namespace base::apostate {
- 
- namespace {
- 
- // The domain separator. Any change to it is a new identity space for every
- // existing seed, which is why it carries its own version.
-@@ -63,16 +68,23 @@ constexpr char kStateDirectoryName[] = "apostate";
- //
- // It is the one backend token that names no hardware, which is why the anchor
- // draw has to treat it as a special case rather than as one more backend.
- constexpr std::string_view kSoftwareBackend = "swiftshader";
- 
+@@ -68,6 +73,13 @@ constexpr std::string_view kSoftwareBackend = "swiftshader";
  constexpr std::string_view kLayerAnchor = "anchor";
  constexpr std::string_view kLayerDispersion = "dispersion";
  constexpr std::string_view kLayerHostInherited = "host-inherited";
@@ -78,17 +59,7 @@ from.
  
  void Absorb(SHA256_CTX* context, std::string_view data) {
    SHA256_Update(context, data.data(), data.size());
- }
- 
- void AbsorbSeparator(SHA256_CTX* context) {
-   SHA256_Update(context, &kSeparator, 1);
- }
-@@ -408,31 +420,78 @@ std::string OverrideNote(std::string_view field, const std::string& displaced) {
- // choice arrive identically and only one of them tracks the exit IP.
- std::string LocaleNote(std::string_view field) {
-   return "locale." + std::string(field) +
-          " was set from the command line: either named by the operator or "
-          "resolved by the launcher's prelaunch GeoIP lookup of the effective "
+@@ -413,21 +425,68 @@ std::string LocaleNote(std::string_view field) {
           "egress. Neither the seed nor the catalogue reaches this surface";
  }
  
@@ -167,17 +138,7 @@ from.
  }
  
  // Applies the scalar overrides onto the composed profile.
- //
- // Called after the axis loop and before DeriveWorkArea, so that a screen
- // override has its available rectangle derived from the same furniture insets
- // the seed drew rather than from the panel it replaced. Returns false with
- // `rejection` filled when an override cannot be served.
-@@ -673,16 +732,17 @@ bool CollectOverrides(const CommandLine& command_line,
- // one branch where --fingerprint could be passed and do nothing without a word
- // said, and a silently ignored --fingerprint is the failure this file exists to
- // avoid: the operator believes they are wearing a composed device.
- //
- // So it is named, in the two places a diagnostic belongs. Nothing a page can
+@@ -678,6 +737,7 @@ bool CollectOverrides(const CommandLine& command_line,
  // read changes: the log goes to stderr and the report to stdout, and neither is
  // reachable from any web surface.
  void ReportAuthoredProfileBypass(const CommandLine& command_line,
@@ -185,17 +146,7 @@ from.
                                   bool explain) {
    std::vector<std::string> inert;
    if (command_line.HasSwitch(switches::kFingerprint)) {
-     inert.emplace_back(switches::kFingerprint);
-   }
-   for (const std::string_view name : kShapingSwitches) {
-     if (command_line.HasSwitch(name)) {
-       inert.emplace_back(name);
-@@ -698,17 +758,18 @@ void ReportAuthoredProfileBypass(const CommandLine& command_line,
-     LOG(ERROR) << "apostate: --apostate-profile supplied a device profile, "
-                   "which outranks composition, so "
-                << named
-                << " had no effect on this launch; --fingerprint-explain "
-                   "reports the same thing in full";
+@@ -703,7 +763,8 @@ void ReportAuthoredProfileBypass(const CommandLine& command_line,
    }
  
    if (explain) {
@@ -205,17 +156,7 @@ from.
      Process::TerminateCurrentProcessImmediately(0);
    }
  }
- 
- }  // namespace
- 
- void MergeFragment(DictValue& target,
-                    DictValue overlay,
-@@ -1221,43 +1282,64 @@ std::optional<Composition> Compose(const ComposeRequest& request,
-   //
-   // Applied before the voices axis resolves rather than merged over the
-   // finished profile, because the voices table is keyed on the resolved
-   // Accept-Language list: applying it later would leave a launch claiming
-   // en-GB while offering the voice set measured for another list. That is
+@@ -1226,6 +1287,29 @@ std::optional<Composition> Compose(const ComposeRequest& request,
    // patch 0085's reason and it is unchanged.
    auto resolve_locale = [&]() {
      const FieldOverrides& named = request.overrides;
@@ -245,8 +186,7 @@ from.
      if (!named.accept_languages.empty()) {
        composition.profile.EnsureDict("locale")->Set("accept_languages",
                                                      named.accept_languages);
-       RecordOverride(composition, "locale.accept_languages",
-                      named.accept_languages, LocaleNote("accept_languages"));
+@@ -1234,11 +1318,10 @@ std::optional<Composition> Compose(const ComposeRequest& request,
      } else {
        composition.surfaces.push_back({
            .surface = "locale.accept_languages",
@@ -262,12 +202,7 @@ from.
        });
      }
      if (!named.timezone.empty()) {
-       composition.profile.EnsureDict("locale")->Set("timezone", named.timezone);
-       RecordOverride(composition, "locale.timezone", named.timezone,
-                      LocaleNote("timezone"));
-     } else {
-       composition.surfaces.push_back({
-           .surface = "locale.timezone",
+@@ -1251,8 +1334,7 @@ std::optional<Composition> Compose(const ComposeRequest& request,
            .value = "(inherited)",
            .layer = std::string(kLayerHostInherited),
            .evidence = "host-inherited",
@@ -277,17 +212,7 @@ from.
        });
      }
    };
- 
-   // ---- the dispersion axes, in the §5 resolution order ----
-   bool locale_resolved = false;
-   bool panel_resolved = false;
- 
-@@ -1684,20 +1766,21 @@ std::optional<std::string> ComposeProfileForCurrentProcess(
-   // made an authenticated proxy silently equivalent to --fingerprint=host, on
-   // what is the ordinary configuration for this binary's users.
-   //
-   // A device claim is any content at all rather than a complete profile: a
-   // payload naming one surface suppresses composition exactly as before and
+@@ -1689,10 +1771,11 @@ std::optional<std::string> ComposeProfileForCurrentProcess(
    // leaves its other eleven axes inherited. `::switches` is base_switches.h,
    // not this
    // namespace's own switches.
@@ -302,17 +227,7 @@ from.
      return std::nullopt;
    }
  
-   // Chrome's resolved directory when the caller knows it, the explicit switch
-   // otherwise. Hoisted above the seed because the layer below --fingerprint
-   // is bound to this directory, and unchanged in what it means: font
-   // provisioning still reads it on every launch, named directory or not.
-   const FilePath state_root =
-@@ -1835,40 +1918,118 @@ std::optional<std::string> ComposeProfileForCurrentProcess(
-     return std::nullopt;
-   }
- 
-   // Base64EncodeEarlyStartup rather than Base64Encode: this runs before
-   // FeatureList exists and the ordinary entry point consults a base::Feature.
+@@ -1840,6 +1923,67 @@ std::optional<std::string> ComposeProfileForCurrentProcess(
    return Base64EncodeEarlyStartup(as_byte_span(*json));
  }
  
@@ -380,13 +295,7 @@ from.
  void InstallComposedProfile(const FilePath& user_data_dir) {
    if (!CommandLine::InitializedForCurrentProcess()) {
      return;
-   }
-   CommandLine* command_line = CommandLine::ForCurrentProcess();
- 
-   const bool carried = command_line->HasSwitch(::switches::kApostateProfile);
-   const std::string supplied =
-       carried ? command_line->GetSwitchValueASCII(::switches::kApostateProfile)
-               : std::string();
+@@ -1853,8 +1997,16 @@ void InstallComposedProfile(const FilePath& user_data_dir) {
  
    // A device is already carried, either authored by the operator or installed
    // by an earlier call. Recomposing would draw a second identity for one
@@ -404,9 +313,7 @@ from.
      return;
    }
  
-   std::optional<std::string> composed =
-       ComposeProfileForCurrentProcess(user_data_dir);
-   if (!composed) {
+@@ -1864,6 +2016,15 @@ void InstallComposedProfile(const FilePath& user_data_dir) {
      // Nothing composed: host mode, a child process, or a catalogue that cannot
      // serve this launch. A payload carrying only credentials is left exactly
      // as it arrived, so they still reach the network stack.
@@ -422,17 +329,7 @@ from.
      return;
    }
  
-   std::string payload = std::move(*composed);
-   if (carried) {
-     // The composed device goes back inside the envelope the credentials
-     // arrived in. The old value is removed rather than shadowed:
-     // AppendSwitchASCII writes the map entry but leaves both copies in argv_,
-@@ -1883,11 +2044,25 @@ void InstallComposedProfile(const FilePath& user_data_dir) {
- 
-   // Onto this process's own command line, because patch 0005 builds every
-   // child's command line by copying switches from the browser's. A composed
-   // profile that does not reach the renderer is worse than none: the browser
-   // would size its pools from the claim while the renderer reported the host's
+@@ -1888,6 +2049,20 @@ void InstallComposedProfile(const FilePath& user_data_dir) {
    // cores, and navigator.hardwareConcurrency would contradict the Device-Memory
    // header from the same session.
    command_line->AppendSwitchASCII(::switches::kApostateProfile, payload);
@@ -453,14 +350,11 @@ from.
  }
  
  }  // namespace base::apostate
+diff --git a/base/apostate/compose.h b/base/apostate/compose.h
+index 36cd88623f..a8500958d1 100644
 --- a/base/apostate/compose.h
 +++ b/base/apostate/compose.h
-@@ -174,17 +174,20 @@ BASE_EXPORT bool SubsetIncluded(uint64_t value, uint32_t percent);
- // Composition
- // ---------------------------------------------------------------------------
- 
- // One line of the --fingerprint-explain report: what a surface resolved to,
- // who owns it, and what backs it.
+@@ -179,7 +179,10 @@ BASE_EXPORT bool SubsetIncluded(uint64_t value, uint32_t percent);
  struct BASE_EXPORT SurfaceRecord {
    std::string surface;
    std::string value;
@@ -472,17 +366,7 @@ from.
    std::string layer;
    std::string evidence;
    // Empty when the resolved value is exactly what was asked for.
-   std::string limitation;
- };
- 
- struct BASE_EXPORT Composition {
-   std::string seed;
-@@ -374,12 +377,67 @@ BASE_EXPORT std::optional<std::string> ComposeProfileForCurrentProcess(
- // carried reach the network stack with a composed device rather than instead
- // of one. Calling
- // it from a startup hook is what makes the ordering real rather than
- // documented -- the switch is on the browser's command line before any child
- // command line is built, so no process type can be forgotten and no lazy first
+@@ -379,6 +382,61 @@ BASE_EXPORT std::optional<std::string> ComposeProfileForCurrentProcess(
  // use can decide the identity at an arbitrary moment.
  BASE_EXPORT void InstallComposedProfile(const FilePath& user_data_dir);
  
@@ -544,14 +428,11 @@ from.
  }  // namespace apostate
  }  // namespace base
  
- #endif  // BASE_APOSTATE_COMPOSE_H_
+diff --git a/base/apostate/compose_unittest.cc b/base/apostate/compose_unittest.cc
+index e1535b226e..afdd0f0f1a 100644
 --- a/base/apostate/compose_unittest.cc
 +++ b/base/apostate/compose_unittest.cc
-@@ -1,35 +1,39 @@
- // Copyright 2026 The Apostate Authors
- // Use of this source code is governed by a GPL-3.0 license that can be
- // found in the LICENSE file.
- 
+@@ -5,7 +5,9 @@
  #include "base/apostate/compose.h"
  
  #include <array>
@@ -561,13 +442,7 @@ from.
  #include <optional>
  #include <string>
  #include <string_view>
- #include <vector>
- 
- #include "base/apostate/dispersion_table.h"
- #include "base/apostate/explain.h"
- #include "base/apostate/host_capability.h"
- #include "base/apostate/profile.h"
- #include "base/apostate/seed.h"
+@@ -19,12 +21,14 @@
  #include "base/base64.h"
  #include "base/command_line.h"
  #include "base/containers/span.h"
@@ -582,17 +457,7 @@ from.
  #include "testing/gtest/include/gtest/gtest.h"
  
  namespace base::apostate {
- namespace {
- 
- // Every table here is written in the test rather than taken from the compiled
- // catalogue. The catalogue is data that changes; these properties are the
- // contract the compositor has to keep whatever the data says, and a test that
-@@ -506,23 +510,26 @@ TEST(ApostateComposeTest, AddingAnAxisDoesNotShiftAnotherAxisChoice) {
-       Compose(RequestFor("growth-seed", kAfter, host));
-   ASSERT_TRUE(before.has_value());
-   ASSERT_TRUE(after.has_value());
- 
-   EXPECT_EQ(ChosenId(*before, "os_release"), ChosenId(*after, "os_release"));
+@@ -511,13 +515,16 @@ TEST(ApostateComposeTest, AddingAnAxisDoesNotShiftAnotherAxisChoice) {
    EXPECT_EQ(ChosenId(*before, "cpu"), ChosenId(*after, "cpu"));
    EXPECT_EQ(ChosenId(*before, "anchor"), ChosenId(*after, "anchor"));
    EXPECT_EQ(ChosenId(*before, "theme"), ChosenId(*after, "theme"));
@@ -615,17 +480,7 @@ from.
    // And the new axis did resolve, so this is not passing by doing nothing.
    EXPECT_NE("(absent)", ChosenId(*after, "extra"));
    // Nor is the anchor comparison above two absences. It was exactly that
-   // between patches 0102 and this fixture gaining a windows anchor: the
-   // persona selects the anchor now, so a fixture with no anchor for the
-   // persona makes that line compare "(absent)" with itself and pass.
-   EXPECT_NE("(absent)", ChosenId(*after, "anchor"));
- }
-@@ -1327,10 +1334,168 @@ TEST(ApostateSeedTest, TheExplainReportDistinguishesTheThreeLifetimes) {
-             read.find("/profiles/one/apostate/identity (read from disk)"));
- 
-   // All three read differently, which is the property the report exists for.
-   EXPECT_NE(pinned, ephemeral);
-   EXPECT_NE(ephemeral, read);
+@@ -1332,5 +1339,163 @@ TEST(ApostateSeedTest, TheExplainReportDistinguishesTheThreeLifetimes) {
    EXPECT_NE(pinned, read);
  }
  
@@ -789,14 +644,11 @@ from.
 +
  }  // namespace
  }  // namespace base::apostate
+diff --git a/base/apostate/explain.cc b/base/apostate/explain.cc
+index efc14e9068..3f8f5faf81 100644
 --- a/base/apostate/explain.cc
 +++ b/base/apostate/explain.cc
-@@ -179,40 +179,54 @@ std::string FormatHostInheritanceReport(const SeedResolution& seed) {
-   AppendLimitations(out, limitations);
-   return out;
- }
- 
- void WriteHostInheritanceReport(const SeedResolution& seed) {
+@@ -184,17 +184,30 @@ void WriteHostInheritanceReport(const SeedResolution& seed) {
    WriteTo(stdout, FormatHostInheritanceReport(seed));
  }
  
@@ -829,11 +681,7 @@ from.
  
    std::vector<std::string> limitations;
    for (const std::string& name : inert) {
-     limitations.push_back("--" + name +
-                           " had no effect: the supplied profile bypasses "
-                           "composition, so there is nothing for it to shape");
-   }
-   AppendLimitations(out, limitations);
+@@ -206,8 +219,9 @@ std::string FormatAuthoredProfileReport(span<const std::string> inert) {
    return out;
  }
  
@@ -845,19 +693,11 @@ from.
  }
  
  void RefuseLaunch(std::string_view reason) {
-   WriteTo(stderr, "apostate: " + std::string(reason) + "\n");
-   Process::TerminateCurrentProcessImmediately(1);
- }
- 
- }  // namespace base::apostate
+diff --git a/base/apostate/explain.h b/base/apostate/explain.h
+index f21dc8cdd1..a0561e752f 100644
 --- a/base/apostate/explain.h
 +++ b/base/apostate/explain.h
-@@ -45,19 +45,27 @@ BASE_EXPORT void WriteHostInheritanceReport(const SeedResolution& seed);
- // `--apostate-profile=... --fingerprint-explain` answers the question rather
- // than printing nothing and launching a browser, which is what it did.
- //
- // `inert` names the switches the supplied profile made ineffective, and is the
- // point of the report. A supplied profile outranking a seed is the documented
+@@ -50,9 +50,17 @@ BASE_EXPORT void WriteHostInheritanceReport(const SeedResolution& seed);
  // precedence rather than a conflict, so this is not a refusal -- but a
  // --fingerprint that had no effect and said nothing is the defect class every
  // other path in the compositor now closes, and this was the last one left.
@@ -877,19 +717,11 @@ from.
  
  // Writes one refusal to stderr and exits non-zero.
  //
- // Straight to the stream rather than through LOG(ERROR), because a launch
- // refusal has to be readable before logging is configured and whatever
- // --enable-logging says: the operator asked for an identity this binary will
- // not present, and the only useful outcome is that they read why. Stderr is
- // not a web surface; a page cannot observe that anything was written.
+diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
+index 2261a40746..4c7c94265c 100644
 --- a/base/apostate/profile.cc
 +++ b/base/apostate/profile.cc
-@@ -322,16 +322,46 @@ bool Profile::PayloadDescribesDevice(const std::string& encoded) {
-   // The bare form. Every key in it is a profile field except the one that is
-   // not, so the payload claims a device exactly when it holds something other
-   // than credentials. Counted rather than iterated because the question is
-   // whether anything else is there, not what it is.
-   // wiring-exempt: proxy_credentials - kept out of the device-profile schema.
+@@ -327,6 +327,36 @@ bool Profile::PayloadDescribesDevice(const std::string& encoded) {
    return dict->size() > (dict->contains("proxy_credentials") ? 1u : 0u);
  }
  
@@ -926,19 +758,11 @@ from.
  // static
  std::optional<std::string> Profile::PayloadWithSuppliedCredentials(
      const std::string& supplied,
-     const std::string& composed) {
-   std::string supplied_json;
-   std::string composed_json;
-   if (!Base64Decode(supplied, &supplied_json) ||
-       !Base64Decode(composed, &composed_json)) {
+diff --git a/base/apostate/profile.h b/base/apostate/profile.h
+index 699e8e144c..045f9ee880 100644
 --- a/base/apostate/profile.h
 +++ b/base/apostate/profile.h
-@@ -98,16 +98,35 @@ class BASE_EXPORT Profile {
-   //
-   // A payload that is not base64, or not a JSON object, counts as a device
-   // claim. Its content is undecidable here and Get() refuses it; answering
-   // "no device" instead would replace a malformed operator-supplied profile
-   // with a composed one and launch happily, which is the outcome that refusal
+@@ -103,6 +103,25 @@ class BASE_EXPORT Profile {
    // exists to prevent.
    static bool PayloadDescribesDevice(const std::string& encoded);
  
@@ -964,8 +788,3 @@ from.
    // `composed` re-enveloped so that it carries the `proxy_credentials` block
    // `supplied` carried.
    //
-   // Returns nullopt when `supplied` carried no credentials, when either
-   // payload cannot be decoded, or when the result cannot be serialised. In
-   // each of those cases the caller installs `composed` as it stands: a
-   // composed device without credentials is a launch that fails to authenticate
-   // loudly at the proxy, and a host-inherited fingerprint is one that fails

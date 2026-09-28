@@ -9,13 +9,13 @@ carry status and version bytes, never credentials. Nothing on the wire
 or visible to a page changes.
 
 diff --git a/net/log/net_log_event_type_list.h b/net/log/net_log_event_type_list.h
+index 200e4607cb..114ec97e46 100644
 --- a/net/log/net_log_event_type_list.h
 +++ b/net/log/net_log_event_type_list.h
-@@ -3357,7 +3357,35 @@
- 
+@@ -3531,6 +3531,34 @@ EVENT_TYPE(SOCKS5_GREET_WRITE)
  // The time spent waiting for the "greeting" response from the SOCKS server.
  EVENT_TYPE(SOCKS5_GREET_READ)
-+
+ 
 +// The time spent sending the RFC 1929 username/password request to the SOCKS
 +// server. Present only when the proxy selected method 0x02.
 +EVENT_TYPE(SOCKS5_AUTH_WRITE)
@@ -35,7 +35,7 @@ diff --git a/net/log/net_log_event_type_list.h b/net/log/net_log_event_type_list
 +//     "version": <Integer subnegotiation version in the response>,
 +//   }
 +EVENT_TYPE(SOCKS5_AUTH_UNEXPECTED_VERSION)
- 
++
 +// This event indicates that the SOCKS server rejected the credentials it was
 +// sent. The extra parameters show the RFC 1929 status octet, where any value
 +// other than 0x00 is a failure:
@@ -48,9 +48,10 @@ diff --git a/net/log/net_log_event_type_list.h b/net/log/net_log_event_type_list
  EVENT_TYPE(SOCKS5_HANDSHAKE_WRITE)
  
 diff --git a/net/socket/socks5_client_socket.cc b/net/socket/socks5_client_socket.cc
+index ca2b9ea7c3..2bad5ad9b1 100644
 --- a/net/socket/socks5_client_socket.cc
 +++ b/net/socket/socks5_client_socket.cc
-@@ -252,17 +252,23 @@
+@@ -252,17 +252,23 @@ int SOCKS5ClientSocket::DoLoop(int last_io_result) {
          break;
        case STATE_AUTH_WRITE:
          DCHECK_EQ(OK, rv);
@@ -74,7 +75,7 @@ diff --git a/net/socket/socks5_client_socket.cc b/net/socket/socks5_client_socke
          break;
        case STATE_HANDSHAKE_WRITE:
          DCHECK_EQ(OK, rv);
-@@ -458,8 +464,7 @@
+@@ -458,8 +464,7 @@ int SOCKS5ClientSocket::DoAuthReadComplete(int result) {
      return result;
  
    if (result == 0) {
@@ -84,7 +85,7 @@ diff --git a/net/socket/socks5_client_socket.cc b/net/socket/socks5_client_socke
      return ERR_SOCKS_CONNECTION_FAILED;
    }
  
-@@ -475,15 +480,15 @@
+@@ -475,15 +480,15 @@ int SOCKS5ClientSocket::DoAuthReadComplete(int result) {
    read_buf_.reset();
  
    // The subnegotiation carries its own version number, which RFC 1929 fixes at
@@ -105,9 +106,10 @@ diff --git a/net/socket/socks5_client_socket.cc b/net/socket/socks5_client_socke
      return ERR_SOCKS_CONNECTION_FAILED;
    }
 diff --git a/net/socket/socks5_client_socket_unittest.cc b/net/socket/socks5_client_socket_unittest.cc
+index 61bbebad5b..781f1f6589 100644
 --- a/net/socket/socks5_client_socket_unittest.cc
 +++ b/net/socket/socks5_client_socket_unittest.cc
-@@ -183,6 +183,15 @@
+@@ -183,6 +183,15 @@ TEST_F(SOCKS5ClientSocketTest, AuthenticatedHandshake) {
    rv = callback_.WaitForResult();
    EXPECT_THAT(rv, IsOk());
    EXPECT_TRUE(user_sock_->IsConnected());
@@ -123,7 +125,7 @@ diff --git a/net/socket/socks5_client_socket_unittest.cc b/net/socket/socks5_cli
  }
  
  // A proxy that rejects the credentials must fail the connection rather than
-@@ -201,6 +210,15 @@
+@@ -201,6 +210,15 @@ TEST_F(SOCKS5ClientSocketTest, AuthenticationRejected) {
    rv = callback_.WaitForResult();
    EXPECT_THAT(rv, IsError(ERR_SOCKS_CONNECTION_FAILED));
    EXPECT_FALSE(user_sock_->IsConnected());

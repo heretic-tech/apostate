@@ -12,10 +12,10 @@ comes from those the host's graphics backend can serve, and
 --fingerprint-explain prints how it chose each value.
 
 diff --git a/base/BUILD.gn b/base/BUILD.gn
-index 87e4cdc..f29dfe9 100644
+index ab7103a8f8..7b7f024743 100644
 --- a/base/BUILD.gn
 +++ b/base/BUILD.gn
-@@ -1624,6 +1624,35 @@ component("base") {
+@@ -1642,6 +1642,35 @@ component("base") {
    ]
    public_deps += [ "//third_party/boringssl" ]
  
@@ -51,7 +51,7 @@ index 87e4cdc..f29dfe9 100644
    sources += [
      "base_paths.cc",
      "base_paths.h",
-@@ -6508,3 +6537,32 @@ process_version("check_version_internal") {
+@@ -6683,3 +6712,32 @@ process_version("check_version_internal") {
      ]
    }
  }
@@ -84,6 +84,9 @@ index 87e4cdc..f29dfe9 100644
 +    rebase_path(depfile, root_build_dir),
 +  ]
 +}
+diff --git a/base/apostate/compose.cc b/base/apostate/compose.cc
+new file mode 100644
+index 0000000000..2eb321393d
 --- /dev/null
 +++ b/base/apostate/compose.cc
 @@ -0,0 +1,1099 @@
@@ -1186,6 +1189,9 @@ index 87e4cdc..f29dfe9 100644
 +}
 +
 +}  // namespace base::apostate
+diff --git a/base/apostate/compose.h b/base/apostate/compose.h
+new file mode 100644
+index 0000000000..0e3fd59f2f
 --- /dev/null
 +++ b/base/apostate/compose.h
 @@ -0,0 +1,311 @@
@@ -1502,7 +1508,7 @@ index 87e4cdc..f29dfe9 100644
 +#endif  // BASE_APOSTATE_COMPOSE_H_
 diff --git a/base/apostate/dispersion_table.cc b/base/apostate/dispersion_table.cc
 new file mode 100644
-index 0000000..0cebc6d
+index 0000000000..0cebc6d596
 --- /dev/null
 +++ b/base/apostate/dispersion_table.cc
 @@ -0,0 +1,75 @@
@@ -1583,7 +1589,7 @@ index 0000000..0cebc6d
 +}  // namespace base::apostate
 diff --git a/base/apostate/dispersion_table.h b/base/apostate/dispersion_table.h
 new file mode 100644
-index 0000000..c49a16c
+index 0000000000..c49a16cb95
 --- /dev/null
 +++ b/base/apostate/dispersion_table.h
 @@ -0,0 +1,190 @@
@@ -1777,6 +1783,9 @@ index 0000000..c49a16c
 +}  // namespace base::apostate
 +
 +#endif  // BASE_APOSTATE_DISPERSION_TABLE_H_
+diff --git a/base/apostate/explain.cc b/base/apostate/explain.cc
+new file mode 100644
+index 0000000000..a399fba586
 --- /dev/null
 +++ b/base/apostate/explain.cc
 @@ -0,0 +1,182 @@
@@ -1962,6 +1971,9 @@ index 0000000..c49a16c
 +}
 +
 +}  // namespace base::apostate
+diff --git a/base/apostate/explain.h b/base/apostate/explain.h
+new file mode 100644
+index 0000000000..c69b3718d3
 --- /dev/null
 +++ b/base/apostate/explain.h
 @@ -0,0 +1,58 @@
@@ -2025,7 +2037,7 @@ index 0000000..c49a16c
 +#endif  // BASE_APOSTATE_EXPLAIN_H_
 diff --git a/base/apostate/generate_dispersion_tables.py b/base/apostate/generate_dispersion_tables.py
 new file mode 100755
-index 0000000..b21f617
+index 0000000000..fcc3c097ed
 --- /dev/null
 +++ b/base/apostate/generate_dispersion_tables.py
 @@ -0,0 +1,72 @@
@@ -2103,6 +2115,7 @@ index 0000000..b21f617
 +    raise SystemExit(main())
 diff --git a/base/apostate/host_capability.cc b/base/apostate/host_capability.cc
 new file mode 100644
+index 0000000000..c457c16a8a
 --- /dev/null
 +++ b/base/apostate/host_capability.cc
 @@ -0,0 +1,141 @@
@@ -2247,7 +2260,9 @@ new file mode 100644
 +}
 +
 +}  // namespace base::apostate
-
+diff --git a/base/apostate/host_capability.h b/base/apostate/host_capability.h
+new file mode 100644
+index 0000000000..34d146108e
 --- /dev/null
 +++ b/base/apostate/host_capability.h
 @@ -0,0 +1,82 @@
@@ -2333,6 +2348,9 @@ new file mode 100644
 +}  // namespace base
 +
 +#endif  // BASE_APOSTATE_HOST_CAPABILITY_H_
+diff --git a/base/apostate/seed.cc b/base/apostate/seed.cc
+new file mode 100644
+index 0000000000..62edaa44dd
 --- /dev/null
 +++ b/base/apostate/seed.cc
 @@ -0,0 +1,103 @@
@@ -2439,6 +2457,9 @@ new file mode 100644
 +}
 +
 +}  // namespace base::apostate
+diff --git a/base/apostate/seed.h b/base/apostate/seed.h
+new file mode 100644
+index 0000000000..cf4e70de36
 --- /dev/null
 +++ b/base/apostate/seed.h
 @@ -0,0 +1,76 @@

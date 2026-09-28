@@ -9,10 +9,10 @@ since an extension the driver lacks would fail when a page uses it. An
 empty list in the profile turns the filter off.
 
 diff --git a/base/apostate/profile.cc b/base/apostate/profile.cc
-index 709e5bd..696db16 100644
+index 999209be24..0d9f050dee 100644
 --- a/base/apostate/profile.cc
 +++ b/base/apostate/profile.cc
-@@ -229,6 +229,14 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
+@@ -232,6 +232,14 @@ Profile* Profile::ParseOrNull(const std::string& encoded) {
      }
    }
  
@@ -28,7 +28,7 @@ index 709e5bd..696db16 100644
      if (const DictValue* map = keyboard->FindDict("layout_map")) {
        for (const auto [code, value] : *map) {
 diff --git a/base/apostate/profile.h b/base/apostate/profile.h
-index 77bd5b3..a077b58 100644
+index 77bd5b3bad..a077b580f5 100644
 --- a/base/apostate/profile.h
 +++ b/base/apostate/profile.h
 @@ -7,6 +7,7 @@
@@ -66,7 +66,7 @@ index 77bd5b3..a077b58 100644
    std::optional<bool> prefers_dark_;
    std::optional<std::string> accept_languages_;
 diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
-index fb1bc7c..045a3e5 100644
+index b452298c24..13b994417a 100644
 --- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
 +++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
 @@ -25,6 +25,10 @@
@@ -80,7 +80,7 @@ index fb1bc7c..045a3e5 100644
  #include <inttypes.h>
  
  #include <memory>
-@@ -3839,6 +3843,27 @@ bool WebGLRenderingContextBase::ExtensionSupportedAndAllowed(
+@@ -3854,6 +3858,27 @@ bool WebGLRenderingContextBase::ExtensionSupportedAndAllowed(
      return false;
    if (disabled_extensions_.Contains(String(tracker->ExtensionName())))
      return false;
