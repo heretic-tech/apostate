@@ -68,7 +68,7 @@ The browser treats a Linux host as GPU-less when it has no readable and writable
 
 A persona never claims more cores or memory than the host has. The browser drops options above the host's before the draw, and when no option fits, the page reads the host's own value. On a small server, most Windows personas report the server's own core count next to a desktop GPU.
 
-How often that happens, for 400 Windows seeds (0 to 399) composed with the 0.4.3 tables by `scripts/profile_resolver.py`, which matches the browser's compositor:
+How often that happens, for 400 Windows seeds (0 to 399) on an x86 host, composed with the 0.4.4 tables by `scripts/profile_resolver.py`, which matches the browser's compositor:
 
 | Host | Seeds showing the host's own cores or memory | Seeds with the cores and memory they get on a 128-core host |
 | --- | --- | --- |

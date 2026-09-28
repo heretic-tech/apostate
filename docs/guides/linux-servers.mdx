@@ -114,6 +114,8 @@ await browser.close();
 ```
 </CodeGroup>
 
+On an x86-64 host it prints:
+
 ```text
 ['Win32', 1920, 1080, 143]
 ```
@@ -128,14 +130,14 @@ To run the browser binary headed without the packages, start it under `xvfb-run`
 
 ### Headless or headed
 
-Two values a page can read differ between the modes. Measured on 2026-09-27 with 0.4.3 in a Debian 13 container (linux-arm64, no GPU), seed 42, Windows persona, run as a regular user:
+Two values a page can read differ between the modes. Measured on 2026-09-28 with 0.4.4 in a Debian 13 container (`linux/amd64` under emulation, no GPU), seed 42, Windows persona, run as a regular user:
 
 | Value | Headless | Headed under Xvfb |
 | --- | --- | --- |
 | `navigator.gpu.requestAdapter()` | `null` | the persona's adapter (`intel`, `gen-12lp`) |
 | `outerHeight - innerHeight` | 87 | 143 |
 
-The same launches in an amd64 container gave the same WebGPU result. [Known gaps](/known-gaps#webgpu-in-headless-mode-on-linux) tracks it. On a Mac, headless also read 87 for `outerHeight - innerHeight` and served the adapter.
+With 0.4.3, the same launches in a `linux/arm64` container gave the same WebGPU result. [Known gaps](/known-gaps#webgpu-in-headless-mode-on-linux) tracks it. On a Mac, a headless launch served the adapter (`qualcomm`, `adreno-7xx`) and read 86 for `outerHeight - innerHeight`, because seed 42 there is a Windows laptop at 125% scaling.
 
 The headed 143 is the same 87 plus Chromium's bar for `--no-sandbox`, 56 pixels high, which the headed launch showed on its first tab. The packages pass that flag as root and in a container, where the sandbox cannot start. Google Chrome never shows the bar. [A bar on the first tab](/known-gaps#a-bar-on-the-first-tab) has the workaround, and [Browser chrome height](/known-gaps#browser-chrome-height) compares 87 with real Windows.
 

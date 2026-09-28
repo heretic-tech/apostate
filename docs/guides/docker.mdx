@@ -3,7 +3,7 @@ title: "Docker"
 description: "Build an image with the Python package, the browser and the Windows fonts, run it headless or headed, and keep profiles on a volume."
 ---
 
-[`examples/docker/`](https://github.com/heretic-tech/apostate/tree/main/examples/docker) has a Dockerfile and a script, `check.py`, that launches a Windows persona and prints what a page reads. The commands and output on this page were run on 2026-09-27 with apostate 0.4.3 and Docker 29.4 (OrbStack) on an Apple M4 Max, for `linux/arm64` and for `linux/amd64` under emulation.
+[`examples/docker/`](https://github.com/heretic-tech/apostate/tree/main/examples/docker) has a Dockerfile and a script, `check.py`, that launches a Windows persona and prints what a page reads. The commands on this page were run with Docker 29.4 (OrbStack) on an Apple M4 Max, for `linux/arm64` and for `linux/amd64` under emulation. The outputs are from the `linux/amd64` image with Apostate 0.4.4, run on 2026-09-28.
 
 ## The Dockerfile
 
@@ -51,6 +51,8 @@ docker build -t apostate-example .
 docker run --rm apostate-example
 ```
 
+On an x86-64 host it prints:
+
 ```text
 userAgent  Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36
 platform   Win32
@@ -64,6 +66,8 @@ segoeUI    True
 ```
 
 `segoeUI` is `True` when text set in Segoe UI measures differently from the fallback font, so the fonts in the image reach the page. `check.py` passes `locale` and `timezone`, so no GeoIP lookup runs.
+
+`docker build` makes an image for the host's own CPU. On an Apple silicon Mac or an arm64 server that is a `linux/arm64` image, where a Windows persona has a Qualcomm Adreno GPU instead ([ARM hosts](/concepts/hosts#arm-hosts)).
 
 For an x86 server, build for `linux/amd64`:
 
@@ -92,11 +96,11 @@ docker run --rm -v apostate-profiles:/home/apostate/profiles apostate-example \
 userAgent  Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36
 platform   Win32
 cores      8
-memory     16
+memory     8
 languages  ['en-US', 'en']
 timeZone   America/New_York
-screen     [1920, 1080, 1920, 1032]
-gpu        ANGLE (NVIDIA, NVIDIA GeForce RTX 2080 SUPER (0x00001E81) Direct3D11 vs_5_0 ps_5_0, D3D11)
+screen     [1920, 1080, 1920, 1040]
+gpu        ANGLE (Intel, Intel(R) UHD Graphics 630 (0x00009BC8) Direct3D11 vs_5_0 ps_5_0, D3D11)
 segoeUI    True
 ```
 
@@ -158,4 +162,4 @@ COPY check.mjs .
 CMD ["node", "check.mjs"]
 ```
 
-The `node` user of the base image runs the browser. The Node code from [Headed launches](/guides/linux-servers#headed-launches), saved as `check.mjs`, printed `[ 'Win32', 1920, 1080, 143 ]` in this image. The 143 includes the 56-pixel `--no-sandbox` bar on the first tab. [A bar on the first tab](/known-gaps#a-bar-on-the-first-tab) has the workaround.
+The `node` user of the base image runs the browser. The Node code from [Headed launches](/guides/linux-servers#headed-launches), saved as `check.mjs`, printed `[ 'Win32', 1920, 1080, 143 ]` in a `linux/arm64` build of this image with Apostate 0.4.3. The same launch through the Python package prints the same values in the `linux/amd64` image with 0.4.4. The 143 includes the 56-pixel `--no-sandbox` bar on the first tab. [A bar on the first tab](/known-gaps#a-bar-on-the-first-tab) has the workaround.

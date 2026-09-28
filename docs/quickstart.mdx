@@ -77,13 +77,22 @@ This page installs Apostate and launches a Windows persona from Python or Node. 
     ```
     </CodeGroup>
 
-    Seed 42 as a Windows persona is a desktop with a 1920x1080 screen whose taskbar takes 48 pixels. This output is from a Mac with 14 cores:
+    On an x86-64 host, seed 42 as a Windows persona is a desktop with a 1920x1080 screen whose taskbar takes 48 pixels. On an ARM host, such as an Apple silicon Mac, it is a laptop with a Qualcomm Adreno GPU and a 1536x864 screen at 125% scaling. [ARM hosts](/concepts/hosts#arm-hosts) explains why. Both outputs are from hosts with 14 cores:
 
-    ```text
-    {'platform': 'Win32', 'cores': 12, 'screen': [1920, 1080, 1920, 1032]}
-    ```
+    <Tabs>
+      <Tab title="x86-64 host">
+        ```text
+        {'platform': 'Win32', 'cores': 12, 'screen': [1920, 1080, 1920, 1032]}
+        ```
+      </Tab>
+      <Tab title="Apple silicon Mac">
+        ```text
+        {'platform': 'Win32', 'cores': 12, 'screen': [1536, 864, 1536, 816]}
+        ```
+      </Tab>
+    </Tabs>
 
-    The core count depends on the host, because a persona never claims more cores than the host has. Seed 42 reports 12 on a host with 12 to 19 logical cores, 20 on a host with 20 or more, and the host's own count on a host with fewer than 12. [The host cap](/concepts/seeds-and-identity#the-host-cap) explains why.
+    The core count depends on the host, because a persona never claims more cores than the host has. Seed 42 reports 12 on a host with 12 to 19 logical cores and the host's own count on a host with fewer than 12. On an x86-64 host with 20 or more, it reports 20. [The host cap](/concepts/seeds-and-identity#the-host-cap) explains why.
 
     Before the launch, the package looked up your IP address and gave the persona the timezone and language of its location. Behind a proxy it looks up the proxy's exit instead.
   </Step>
@@ -95,37 +104,68 @@ This page installs Apostate and launches a Windows persona from Python or Node. 
     apostate run -- --fingerprint=42 --fingerprint-platform=windows --fingerprint-explain
     ```
 
-    ```text
-    apostate fingerprint composition
+    <Tabs>
+      <Tab title="x86-64 host">
+        ```text
+        apostate fingerprint composition
 
-      chromium            152.0.7977.83
-      ...
-      platform persona    windows
-      host platform       macos
-      host cores          14
-      ...
-      seed                42
-      seed source         --fingerprint (pinned by flag, identical on any machine)
-      reproduce with      --fingerprint=42
-      ...
+          chromium            152.0.7977.83
+          ...
+          platform persona    windows
+          host platform       linux
+          host cores          14
+          ...
+          seed                42
+          seed source         --fingerprint (pinned by flag, identical on any machine)
+          reproduce with      --fingerprint=42
+          ...
 
-    surface                   layer             evidence               value
-    anchor                    anchor            physical-ground-truth  windows-d3d11-intel-79dfeb5b4f99
-    os_release                dispersion        physical-ground-truth  windows-11
-    gpu_identity              dispersion        catalogue-value        d3d11-intel-uhd-graphics-770-4680
-    webgpu                    anchor            physical-ground-truth  Intel(R) UHD Graphics 770
-    machine_class             dispersion        catalogue-value        win-sff-desktop
-    cpu                       dispersion        public-corpus          cores-12
-    memory                    dispersion        catalogue-value        gib-8
-    panel                     dispersion        public-corpus          fhd-1080p
-    ...
-    ```
+        surface                   layer             evidence               value
+        anchor                    anchor            physical-ground-truth  windows-d3d11-intel-79dfeb5b4f99
+        os_release                dispersion        physical-ground-truth  windows-11
+        gpu_identity              dispersion        catalogue-value        d3d11-intel-uhd-graphics-770-4680
+        webgpu                    anchor            physical-ground-truth  Intel(R) UHD Graphics 770
+        machine_class             dispersion        catalogue-value        win-sff-desktop
+        cpu                       dispersion        public-corpus          cores-12
+        memory                    dispersion        catalogue-value        gib-8
+        panel                     dispersion        public-corpus          fhd-1080p
+        ...
+        ```
+      </Tab>
+      <Tab title="Apple silicon Mac">
+        ```text
+        apostate fingerprint composition
+
+          chromium            152.0.7977.83
+          ...
+          platform persona    windows
+          host platform       macos
+          host cores          14
+          ...
+          seed                42
+          seed source         --fingerprint (pinned by flag, identical on any machine)
+          reproduce with      --fingerprint=42
+          ...
+
+        surface                   layer             evidence               value
+        anchor                    anchor            physical-ground-truth  windows-d3d11-qualcomm-6388f9914f3f
+        os_release                dispersion        physical-ground-truth  windows-11
+        gpu_identity              dispersion        physical-ground-truth  d3d11-qualcomm-adreno-x1-85-gpu
+        webgpu                    anchor            physical-ground-truth  snapdragon-x-elite-crd8380x-chrome-152
+        machine_class             dispersion        catalogue-value        win-laptop-15
+        cpu                       dispersion        physical-ground-truth  cores-12
+        memory                    dispersion        catalogue-value        gib-32
+        panel                     dispersion        public-corpus          fhd-1080p-125
+        ...
+        ```
+      </Tab>
+    </Tabs>
   </Step>
 </Steps>
 
 ## Keep a machine between runs
 
-The same seed gives the same machine on every launch. Across hosts, only the core count and memory can change. To keep cookies and logins as well, launch a persistent context. The first launch draws a machine and stores its seed in the directory. Every later launch presents the same machine.
+The same seed gives the same machine on every launch. Across hosts of the same CPU family, only the core count and memory can change. To keep cookies and logins as well, launch a persistent context. The first launch draws a machine and stores its seed in the directory. Every later launch presents the same machine.
 
 <CodeGroup>
 ```python Python

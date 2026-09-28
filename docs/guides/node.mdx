@@ -209,10 +209,14 @@ console.log(browser.apostateDriverName);
 await browser.close();
 ```
 
+On an x86-64 host it prints:
+
 ```text
 { platform: 'Win32', screen: [ 1920, 1080, 1920, 1032 ] }
 puppeteer-core
 ```
+
+On an Apple silicon Mac the screen reads `[ 1536, 864, 1536, 816 ]`, because seed 42 as Windows there is a laptop at 125% scaling ([ARM hosts](/concepts/hosts#arm-hosts)).
 
 Puppeteer's `newPage()` already opens pages in the browser's normal profile. Two things Puppeteer does are visible to a page, measured with `puppeteer-core` 25.12.0:
 

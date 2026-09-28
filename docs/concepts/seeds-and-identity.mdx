@@ -29,7 +29,7 @@ The persona is part of the hash. Seed 42 as Windows and seed 42 as Linux are unr
 
 | You launch with | The machine | It lasts |
 | --- | --- | --- |
-| a seed | the one the seed selects | on every launch and every host, until a release changes the catalogue tables |
+| a seed | the one the seed selects | on every launch and on every host of the same CPU family, until a release changes the catalogue tables |
 | a user data directory and no seed | bound to the directory | until you delete `DIR/apostate/identity`, or a release changes the catalogue tables |
 | neither | drawn from OS entropy | this launch only |
 
@@ -86,20 +86,20 @@ For a fresh machine on every run of a persistent context, give each run its own 
 To check whether two builds use the same tables, compare the `catalogue` line of `--fingerprint-explain`. The same table digest means the same draws:
 
 ```text
-  catalogue           v2 (tables e6fb49ebe4d0b28b2e0b7f3d00b086d7c86a12d54d777f31200400cfb7b87766)
+  catalogue           v2 (tables 6c3d8de5d8a0b13ca249836fb7b8d6aeef227db448cb0147e3a8c6edd8b3fbfb)
 ```
 
 ## The host cap
 
 A persona never claims more cores or more memory than the host has, because a page can measure both. The browser removes the options the host cannot serve before the draw, then draws from the options left. So the same seed can present a different core count or memory size on a smaller host, even a count that host could serve. When no option fits, the page reads the host's own value.
 
-Seed 42 as Windows draws an Intel UHD Graphics 770, whose core-count table offers 12, 16, 20, 24 and 32. The count a page reads depends on the host:
+On an x86 host, seed 42 as Windows draws an Intel UHD Graphics 770, whose core-count table offers 12, 16, 20, 24 and 32. On an ARM host it draws an Adreno X1-85, whose table offers only 12. The count a page reads depends on the host:
 
-| Host logical cores | Seed 42 as Windows reports |
-| --- | --- |
-| fewer than 12 | the host's own count |
-| 12 to 19 | 12 |
-| 20 or more | 20 |
+| Host logical cores | x86 host | ARM host |
+| --- | --- | --- |
+| fewer than 12 | the host's own count | the host's own count |
+| 12 to 19 | 12 | 12 |
+| 20 or more | 20 | 12 |
 
 Memory follows the same rule, against the memory the host's OS reports. The `host cores` and `host memory` lines of `--fingerprint-explain` show what the cap was on a launch.
 

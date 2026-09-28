@@ -76,15 +76,28 @@ for (const platform of ["windows", "macos", "linux"]) {
 ```
 </CodeGroup>
 
-```text
-windows {'screen': [1920, 1080], 'avail': [0, 0, 1920, 1032], 'window': [0, 0, 1920, 1032], 'inner': [1920, 945], 'pixelRatio': 1}
-macos {'screen': [2560, 1440], 'avail': [0, 33, 2560, 1407], 'window': [22, 55, 1200, 1363], 'inner': [1200, 1276], 'pixelRatio': 2}
-linux {'screen': [3840, 2160], 'avail': [0, 32, 3840, 2128], 'window': [10, 42, 1905, 2108], 'inner': [1905, 2021], 'pixelRatio': 1}
-```
+On an ARM host, seed 42 as Windows is a laptop at 125% scaling, so its row differs:
+
+<Tabs>
+  <Tab title="x86-64 host">
+    ```text
+    windows {'screen': [1920, 1080], 'avail': [0, 0, 1920, 1032], 'window': [0, 0, 1920, 1032], 'inner': [1920, 945], 'pixelRatio': 1}
+    macos {'screen': [2560, 1440], 'avail': [0, 33, 2560, 1407], 'window': [22, 55, 1200, 1363], 'inner': [1200, 1276], 'pixelRatio': 2}
+    linux {'screen': [3840, 2160], 'avail': [0, 32, 3840, 2128], 'window': [10, 42, 1905, 2108], 'inner': [1905, 2021], 'pixelRatio': 1}
+    ```
+  </Tab>
+  <Tab title="Apple silicon Mac">
+    ```text
+    windows {'screen': [1536, 864], 'avail': [0, 0, 1536, 816], 'window': [0, 0, 1536, 816], 'inner': [1536, 730], 'pixelRatio': 1.25}
+    macos {'screen': [2560, 1440], 'avail': [0, 33, 2560, 1407], 'window': [22, 55, 1200, 1363], 'inner': [1200, 1276], 'pixelRatio': 2}
+    linux {'screen': [3840, 2160], 'avail': [0, 32, 3840, 2128], 'window': [10, 42, 1905, 2108], 'inner': [1905, 2021], 'pixelRatio': 1}
+    ```
+  </Tab>
+</Tabs>
 
 A Windows persona opens maximized, filling the work area above the taskbar, as Windows Chrome does. macOS and Linux personas get their platform's default placement inside the work area. The browser places the window from the persona, not from the host's display. On a headed launch the host display has to be at least as large, or the window manager may shrink the window.
 
-The browser's own frame, `outerHeight` minus `innerHeight`, comes from the host's browser layout. For a Windows persona it is 87 at 100% scaling, headless and headed, as in the output above. [Browser chrome height](/known-gaps#browser-chrome-height) compares it with real Windows.
+The browser's own frame, `outerHeight` minus `innerHeight`, comes from the host's browser layout. For a Windows persona it is 87 at 100% scaling, headless and headed, as in the x86-64 output above. The Mac's headless launch at 125% reads 86. [Browser chrome height](/known-gaps#browser-chrome-height) compares it with real Windows.
 
 On the first tab of a launch without a driver, or of any launch with `--no-sandbox` except a headless package launch, Chromium shows a bar that takes another 56 pixels from `innerHeight`. Google Chrome never shows it. The 0.4.3 packages pass `--no-sandbox` on every host. [A bar on the first tab](/known-gaps#a-bar-on-the-first-tab) has the details and the workaround.
 
@@ -141,8 +154,10 @@ with launch(fingerprint=42, fingerprint_platform="windows", args=["--window-size
 ```
 
 ```text
-[22, 22, 1280, 800, 1920, 1080]
+[22, 22, 1280, 800, 1536, 864]
 ```
+
+That output is from an Apple silicon Mac. In a `linux/amd64` container the same launch printed `[10, 10, 1280, 800, 1920, 1080]`.
 
 `--window-position=X,Y` moves the window.
 

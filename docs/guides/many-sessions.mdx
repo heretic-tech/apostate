@@ -113,7 +113,7 @@ for (const [directory, machine] of results) console.log(directory, machine);
 ./profiles/account-3 12 cores, 1920x1080, ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 (0x00002882) Direct3D11 vs_5_0 ps_5_0, D3D11)
 ```
 
-The first run draws the three machines, so yours differ. Every later run prints the same three lines.
+The first run draws the three machines, so yours differ. Every later run prints the same three lines. On an ARM host, such as an Apple silicon Mac, every Windows machine has a Qualcomm Adreno GPU ([ARM hosts](/concepts/hosts#arm-hosts)).
 
 For sessions with fixed seeds and no stored profile, [`async_sessions.py`](https://github.com/heretic-tech/apostate/blob/main/examples/python/async_sessions.py) and [`many-sessions.mjs`](https://github.com/heretic-tech/apostate/blob/main/examples/node/many-sessions.mjs) launch seeds 1, 2 and 3 at once.
 

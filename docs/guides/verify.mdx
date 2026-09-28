@@ -18,7 +18,7 @@ apostate fingerprint composition
 
   chromium            152.0.7977.83
   profile schema      3
-  catalogue           v2 (tables e6fb49ebe4d0b28b2e0b7f3d00b086d7c86a12d54d777f31200400cfb7b87766)
+  catalogue           v2 (tables 6c3d8de5d8a0b13ca249836fb7b8d6aeef227db448cb0147e3a8c6edd8b3fbfb)
   platform persona    windows
   host platform       linux
   host cores          14
@@ -43,7 +43,7 @@ python3 examples/python/what_a_page_sees.py --seed 42 --platform windows \
   --locale en-US --timezone America/New_York --headed
 ```
 
-Without `--locale` and `--timezone`, the package looks them up from your IP address. `--headed` uses the package's Xvfb on a server. Output from a Debian 13 container on an arm64 host, apostate 0.4.3:
+Without `--locale` and `--timezone`, the package looks them up from your IP address. `--headed` uses the package's Xvfb on a server. Output from a Debian 13 container for `linux/amd64`, run under emulation on an Apple silicon Mac, Apostate 0.4.4:
 
 ```json
 {
@@ -60,7 +60,7 @@ Without `--locale` and `--timezone`, the package looks them up from your IP addr
     "webdriver": false
   },
   "userAgentData": {
-    "architecture": "arm",
+    "architecture": "x86",
     "bitness": "64",
     "brands": [
       {
@@ -168,7 +168,7 @@ Without `--locale` and `--timezone`, the package looks them up from your IP addr
   "headers": {
     "accept-language": "en-US,en;q=0.9",
     "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Google Chrome\";v=\"152\"",
-    "sec-ch-ua-arch": "\"arm\"",
+    "sec-ch-ua-arch": "\"x86\"",
     "sec-ch-ua-bitness": "\"64\"",
     "sec-ch-ua-full-version-list": "\"Chromium\";v=\"152.0.7977.83\", \"Not?A_Brand\";v=\"24.0.0.0\", \"Google Chrome\";v=\"152.0.7977.83\"",
     "sec-ch-ua-mobile": "?0",
@@ -187,10 +187,10 @@ What to check in the output:
 - **Locale and timezone match the exit.** Behind a proxy, `intl` and `accept-language` should belong to the proxy's location. [Locale and timezone](/guides/locale-and-timezone) covers the lookup.
 - **The persona's fonts are present.** A Windows persona reads `true` for Segoe UI and Calibri and `false` for the macOS and Linux families. `false` for Segoe UI means the Windows fonts are not installed on the host. [Fonts](/guides/fonts) covers installing them.
 - **`webgpu` is not `null`.** On Linux it is `null` in headless launches and in headed launches as root. [Linux servers](/guides/linux-servers#headless-or-headed) compares the modes, and [Known gaps](/known-gaps#webgpu-in-headless-mode-on-linux) tracks the gap.
-- **`architecture` is the host's.** It reads `arm` here because the host is arm64, and `x86` in an amd64 container. No real Windows machine pairs `arm` with this GPU, and iphey.com flags the pair. [Hosts](/concepts/hosts#arm-hosts) explains why.
+- **`architecture` is the host's.** It reads `x86` here, and `arm` on an ARM host such as an Apple silicon Mac or an arm64 server. On an ARM host a Windows persona has a Qualcomm Adreno GPU to match. [Hosts](/concepts/hosts#arm-hosts) explains why.
 - **`available` is smaller than `size`** for a Windows persona, by the taskbar.
 
-`viewport` is 889 high here, where a headless launch reads 945. The 0.4.3 package passes `--no-sandbox`, so this headed launch shows Chromium's unsupported-flag bar on its first tab, which takes 56 pixels. From 0.4.4 the package keeps the sandbox on where it runs and leaves the flag out. [Known gaps](/known-gaps#a-bar-on-the-first-tab) has the workaround.
+`viewport` is 889 high here, where a headless launch reads 945. The sandbox cannot start in a container, so the package passes `--no-sandbox`, and this headed launch shows Chromium's unsupported-flag bar on its first tab, which takes 56 pixels. Where the sandbox runs, the 0.4.4 package leaves the flag out. The 0.4.3 package passes it on every host. [Known gaps](/known-gaps#a-bar-on-the-first-tab) has the workaround.
 
 The script checks five font families by comparing text widths. `document.fonts.check()` returns `true` for every family name, installed or not, so it cannot tell.
 

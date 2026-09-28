@@ -187,19 +187,21 @@ python3 compare.py --url https://example.com/signup
 ```
 
 ```text
-17:27:10 UTC  https://example.com/signup?run=windows-42
-    Win32, 12 cores, 8 GB, America/New_York, ANGLE (Intel, Intel(R) UHD Graphics 770 (0x00004680) Direct3D11 vs_5_0 ps_5_0, D3D11)
-17:27:25 UTC  https://example.com/signup?run=windows-7
-    Win32, 12 cores, 16 GB, America/New_York, ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x000046A6) Direct3D11 vs_5_0 ps_5_0, D3D11)
-17:27:42 UTC  https://example.com/signup?run=macos-42
+04:15:45 UTC  https://example.com/signup?run=windows-42
+    Win32, 12 cores, 32 GB, America/New_York, ANGLE (Qualcomm, Qualcomm(R) Adreno(TM) X1-85 GPU (0x36334330) Direct3D11 vs_5_0 ps_5_0, D3D11)
+04:15:57 UTC  https://example.com/signup?run=windows-7
+    Win32, 8 cores, 16 GB, America/New_York, ANGLE (Qualcomm, Qualcomm(R) Adreno(TM) X1-45 GPU (0x37314430) Direct3D11 vs_5_0 ps_5_0, D3D11)
+04:16:13 UTC  https://example.com/signup?run=macos-42
     MacIntel, 14 cores, 32 GB, America/New_York, ANGLE (Apple, ANGLE Metal Renderer: Apple M4 Max, Unspecified Version)
-17:27:57 UTC  https://example.com/signup?run=linux-42
+04:16:25 UTC  https://example.com/signup?run=linux-42
     Linux x86_64, 12 cores, 32 GB, America/New_York, ANGLE (NVIDIA, Vulkan 1.4.312 (NVIDIA NVIDIA GeForce RTX 4070 Ti SUPER (0x00002705)), NVIDIA)
-17:28:10 UTC  https://example.com/signup?run=host
+04:16:39 UTC  https://example.com/signup?run=host
     MacIntel, 14 cores, 32 GB, America/New_York, ANGLE (Apple, ANGLE Metal Renderer: Apple M4 Max, Unspecified Version)
 ```
 
-Find each visit in your server logs and in your detection vendor's dashboard by its `run` parameter or its time. Read the score, the bot flag and the rule that fired for each visit, and compare the persona runs with the `host` run. Runs start 10 to 15 seconds apart. `--delay` changes the 10 seconds.
+This output is from the same Mac and Apostate 0.4.4 as the one above.
+
+Find each visit in your server logs and in your detection vendor's dashboard by its `run` parameter or its time. Read the score, the bot flag and the rule that fired for each visit, and compare the persona runs with the `host` run. The script waits 10 to 15 seconds between runs. `--delay` changes the 10 seconds.
 
 `--url` only loads the page. To submit your real form, copy `sign_up()` and change its selectors to your form's, with a test address your backend can clean up.
 

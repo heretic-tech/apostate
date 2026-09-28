@@ -253,7 +253,7 @@ What `navigator.getBattery()` reports. Without this section, the host's battery 
 
 ## Complete example
 
-This is the profile seed 42 composes for a Windows persona with `--fingerprint-locale=en-US` and `--fingerprint-timezone=America/New_York`, taken from the command line of the browser's child processes. It was composed by 0.4.3 on an Apple silicon host, which is why `platform.architecture` is `arm`. On an x64 host it is `x86`. It validates against the schema, and `launch(profile="profile.json")` presents it.
+This is the profile seed 42 composes for a Windows persona with `--fingerprint-locale=en-US` and `--fingerprint-timezone=America/New_York`, taken from the command line of the browser's child processes. It was composed by 0.4.4 in a `linux/amd64` container, which is why `platform.architecture` is `x86`. On an ARM host it is `arm`, and the persona has a Qualcomm Adreno GPU instead ([ARM hosts](/concepts/hosts#arm-hosts)). It validates against the schema, and `launch(profile="profile.json")` presents it.
 
 <Accordion title="profile.json">
 ```json
@@ -290,10 +290,12 @@ This is the profile seed 42 composes for a Windows persona with `--fingerprint-l
       "Palatino Linotype", "Sans Serif Collection", "Segoe Fluent Icons", "Segoe MDL2 Assets",
       "Segoe Print", "Segoe Script", "Segoe UI", "Segoe UI Black", "Segoe UI Emoji",
       "Segoe UI Historic", "Segoe UI Light", "Segoe UI Semibold", "Segoe UI Semilight",
-      "Segoe UI Symbol", "Segoe UI Variable", "SimSun", "SimSun-ExtB", "SimSun-ExtG", "Sitka",
-      "Sitka Text", "Sylfaen", "Symbol", "Tahoma", "Times New Roman", "Trebuchet MS", "Verdana",
-      "Webdings", "Wingdings", "Yu Gothic", "Yu Gothic Light", "Yu Gothic Medium",
-      "Yu Gothic UI", "Yu Gothic UI Light", "Yu Gothic UI Semibold", "Yu Gothic UI Semilight"
+      "Segoe UI Symbol", "Segoe UI Variable Display", "Segoe UI Variable Small",
+      "Segoe UI Variable Text", "SimSun", "SimSun-ExtB", "SimSun-ExtG", "Sitka Banner",
+      "Sitka Display", "Sitka Heading", "Sitka Small", "Sitka Subheading", "Sitka Text",
+      "Sylfaen", "Symbol", "Tahoma", "Times New Roman", "Trebuchet MS", "Verdana", "Webdings",
+      "Wingdings", "Yu Gothic", "Yu Gothic Light", "Yu Gothic Medium", "Yu Gothic UI",
+      "Yu Gothic UI Light", "Yu Gothic UI Semibold", "Yu Gothic UI Semilight"
     ],
     "generic_family_map": {
       "cursive": "Comic Sans MS",
@@ -460,7 +462,7 @@ This is the profile seed 42 composes for a Windows persona with `--fingerprint-l
     "save_data": false
   },
   "platform": {
-    "architecture": "arm",
+    "architecture": "x86",
     "bitness": "64",
     "form_factors": ["Desktop"],
     "mobile": false,

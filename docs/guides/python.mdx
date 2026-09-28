@@ -129,13 +129,15 @@ for browser in browsers:
     browser.close()
 ```
 
-On a Mac with 14 cores:
+On an Apple silicon Mac with 14 cores and Apostate 0.4.4:
 
 ```text
-[12, 1280, 1024]
-[12, 1920, 1080]
-[12, 1920, 1080]
+[12, 2560, 1440]
+[8, 1920, 1080]
+[14, 1536, 864]
 ```
+
+The third seed draws an 18-core Adreno X2-90, so it reports the Mac's 14 cores ([The host cap](/concepts/seeds-and-identity#the-host-cap)). On an x86-64 host with 14 cores the same seeds print `[12, 1280, 1024]`, `[12, 1920, 1080]` and `[12, 1920, 1080]`.
 
 In 0.4.3, a second `launch()` while the first browser is still open fails with `It looks like you are using Playwright Sync API inside the asyncio loop`. On 0.4.3, use the async API, which runs several browsers from one event loop. [Many sessions](/guides/many-sessions) runs them with `asyncio.gather()` and a limit on how many are open.
 

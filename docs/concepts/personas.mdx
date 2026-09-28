@@ -39,15 +39,15 @@ Name the persona in every launch of a persistent profile you move between hosts.
 
 ## The three platforms
 
-Each platform draws from its own tables. The counts are those of catalogue version 2, the one in Apostate 0.4.3.
+Each platform draws from its own tables. The counts are those of Apostate 0.4.4, catalogue version 2.
 
 | | Windows | macOS | Linux |
 | --- | --- | --- | --- |
 | OS releases | Windows 11 (two releases), Windows 10 22H2 | macOS 26.6.2, 26.5.0, 15.7.2 | Linux x86-64 |
-| GPU families | NVIDIA Direct3D 11 (45 models), Intel Direct3D 11 (12 models) | Apple Metal (12 models, M1 to M4) | NVIDIA Vulkan (11 models) |
+| GPU families | NVIDIA Direct3D 11 (45 models) and Intel Direct3D 11 (12 models) on x86 hosts, Qualcomm Direct3D 11 (3 models) on ARM hosts | Apple Metal (12 models, M1 to M4) | NVIDIA Vulkan (11 models) |
 | Machines | desktop tower, small desktop, 15-inch laptop | MacBook Air, MacBook Pro, Mac mini, Mac Studio | desktop tower |
 | Screens | 1280x720 to 3440x1440, pixel ratio 1 to 1.5, taskbar at the bottom | each Mac's built-in display, Studio Display, external 1080p and 1440p, with menu bar and Dock | 1920x1080 to 3840x2160, GNOME, KDE or no panel |
-| Font families | 86 to 90 | 184 | 9, plus 4 from an optional Ubuntu pack |
+| Font families | 90 to 96 | 184 | 9, plus 4 from an optional Ubuntu pack |
 | Voices | 22, from a US or UK English install | 199 | 19 network voices |
 | Audio buffer | 480 frames | 256 frames | 512 frames |
 
@@ -99,20 +99,20 @@ apostate run -- --fingerprint=42 --fingerprint-platform=windows --fingerprint-ex
   <Tab title="Windows">
     ```text
     surface                   layer             evidence               value
-    anchor                    anchor            physical-ground-truth  windows-d3d11-intel-79dfeb5b4f99
+    anchor                    anchor            physical-ground-truth  windows-d3d11-qualcomm-6388f9914f3f
     os_release                dispersion        physical-ground-truth  windows-11
-    gpu_identity              dispersion        catalogue-value        d3d11-intel-uhd-graphics-770-4680
-    webgpu                    anchor            physical-ground-truth  Intel(R) UHD Graphics 770
-    machine_class             dispersion        catalogue-value        win-sff-desktop
-    cpu                       dispersion        public-corpus          cores-12
-    memory                    dispersion        catalogue-value        gib-8
-    panel                     dispersion        public-corpus          fhd-1080p
+    gpu_identity              dispersion        physical-ground-truth  d3d11-qualcomm-adreno-x1-85-gpu
+    webgpu                    anchor            physical-ground-truth  snapdragon-x-elite-crd8380x-chrome-152
+    machine_class             dispersion        catalogue-value        win-laptop-15
+    cpu                       dispersion        physical-ground-truth  cores-12
+    memory                    dispersion        catalogue-value        gib-32
+    panel                     dispersion        public-corpus          fhd-1080p-125
     furniture                 dispersion        physical-ground-truth  taskbar-bottom
     font_packs/platform-core  dispersion        catalogue-value        core
-    media_topology            dispersion        catalogue-value        desktop-speakers-only
+    media_topology            dispersion        catalogue-value        realtek-builtin
     audio                     dispersion        physical-ground-truth  wasapi-shared-480
     network                   dispersion        catalogue-value        4g-fast
-    battery                   dispersion        catalogue-value        absent
+    battery                   dispersion        catalogue-value        discharging-mid
     locale.application        composed-default  native-derived         en-US
     locale.accept_languages   composed-default  native-derived         (the en-US bundle's default)
     locale.timezone           host-inherited    host-inherited         (inherited)
@@ -173,6 +173,8 @@ apostate run -- --fingerprint=42 --fingerprint-platform=windows --fingerprint-ex
     ```
   </Tab>
 </Tabs>
+
+On an x86-64 host of the same size, seed 42 as Windows draws the Intel family instead, with an Intel UHD Graphics 770 in a small desktop with 8 GiB and a 1920x1080 screen. [ARM hosts](/concepts/hosts#arm-hosts) explains why.
 
 The report also prints a header with the seed and the host, notes under the locale rows, and a `limitations` list. [Seeds and identity](/concepts/seeds-and-identity#read-the-seed-lines) explains the header.
 

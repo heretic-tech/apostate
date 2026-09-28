@@ -34,7 +34,7 @@ The Python and Node packages refuse a switch that starts with `--fingerprint` an
 
 ### `--fingerprint`
 
-The seed for the whole machine. The same seed and persona give the same machine on every launch and every host. [Seeds and identity](/concepts/seeds-and-identity) explains how long a machine lasts.
+The seed for the whole machine. The same seed and persona give the same machine on every launch, and on every host of the same CPU family. A Windows persona draws from other GPU families on an ARM host than on an x86 host ([ARM hosts](/concepts/hosts#arm-hosts)). [Seeds and identity](/concepts/seeds-and-identity) explains how long a machine lasts.
 
 - **Value.** 1 to 512 bytes of printable ASCII without spaces (bytes `0x21` to `0x7E`). The Python and Node packages also take a non-negative integer, and accept a string only when it matches `[A-Za-z0-9][A-Za-z0-9._:-]*`.
 - **Host mode.** `host` presents the real machine and composes nothing. `off`, `false`, `0`, `disable` and `disabled` mean the same, in any letter case.
@@ -96,7 +96,7 @@ apostate fingerprint composition
 
   chromium            152.0.7977.83
   profile schema      3
-  catalogue           v2 (tables e6fb49ebe4d0b28b2e0b7f3d00b086d7c86a12d54d777f31200400cfb7b87766)
+  catalogue           v2 (tables 6c3d8de5d8a0b13ca249836fb7b8d6aeef227db448cb0147e3a8c6edd8b3fbfb)
   platform persona    windows
   host platform       macos
   host cores          14
@@ -108,21 +108,23 @@ apostate fingerprint composition
   root                1f609a08ef7734f203ced27b8ed93efb5ef2652f3377a878e4ecee1b49fe6ce8
 
 surface                   layer             evidence               value
-anchor                    anchor            physical-ground-truth  windows-d3d11-intel-79dfeb5b4f99
+anchor                    anchor            physical-ground-truth  windows-d3d11-qualcomm-6388f9914f3f
 os_release                dispersion        physical-ground-truth  windows-11
-gpu_identity              dispersion        catalogue-value        d3d11-intel-uhd-graphics-770-4680
-webgpu                    anchor            physical-ground-truth  Intel(R) UHD Graphics 770
-machine_class             dispersion        catalogue-value        win-sff-desktop
-cpu                       dispersion        public-corpus          cores-12
-memory                    dispersion        catalogue-value        gib-8
-panel                     dispersion        public-corpus          fhd-1080p
+gpu_identity              dispersion        physical-ground-truth  d3d11-qualcomm-adreno-x1-85-gpu
+webgpu                    anchor            physical-ground-truth  snapdragon-x-elite-crd8380x-chrome-152
+machine_class             dispersion        catalogue-value        win-laptop-15
+cpu                       dispersion        physical-ground-truth  cores-12
+memory                    dispersion        catalogue-value        gib-32
+panel                     dispersion        public-corpus          fhd-1080p-125
 ...
 locale.timezone           command-line      operator               America/New_York
   ! locale.timezone was set from the command line: either named by the operator or resolved by the launcher's prelaunch GeoIP lookup of the effective egress. Neither the seed nor the catalogue reaches this surface
 ...
 ```
 
-The header names the persona, the host and the seed. `seed source` says where the seed came from, and `reproduce with` is the switch that gives the same machine anywhere. Each row is one choice: `layer` is what decided it, `evidence` is where the value comes from, and a line starting with `!` explains the row. The report ends with a `limitations` list of what this launch cannot hide or apply.
+That output is from an Apple silicon Mac. On an x86-64 host the same seed draws the Intel family, `windows-d3d11-intel-79dfeb5b4f99`, with an Intel UHD Graphics 770.
+
+The header names the persona, the host and the seed. `seed source` says where the seed came from, and `reproduce with` is the switch that gives the same machine on any host of the same CPU family. Each row is one choice: `layer` is what decided it, `evidence` is where the value comes from, and a line starting with `!` explains the row. The report ends with a `limitations` list of what this launch cannot hide or apply.
 
 With a persistent user data directory the report also names the identity file:
 

@@ -11,8 +11,8 @@ Every persona gets its platform's core list. The Linux persona also has an optio
 
 | Persona | Families |
 | --- | --- |
-| Windows 11 | 90: the fonts of a clean Windows 11 install, such as Segoe UI, Calibri, Cambria, Consolas, Arial, Times New Roman, Yu Gothic and Microsoft YaHei, and Marlett |
-| Windows 10 | 86: the Windows 11 list without Sans Serif Collection, Segoe Fluent Icons, Segoe UI Variable and SimSun-ExtG |
+| Windows 11 | 96: the fonts of a clean Windows 11 install, such as Segoe UI, Calibri, Cambria, Consolas, Arial, Times New Roman, Yu Gothic and Microsoft YaHei, and Marlett |
+| Windows 10 | 90: the Windows 11 list without Sans Serif Collection, Segoe Fluent Icons, SimSun-ExtG and the three Segoe UI Variable families |
 | macOS | 184: the families of a real Mac (Apple M4 Max, macOS 26.6.2) |
 | Linux | 9: Arial, Courier, Courier New, DejaVu Sans, Helvetica, Liberation Sans, Noto Sans, Times, Times New Roman |
 | Linux, optional | 4 more for 54% of seeds, as on an Ubuntu desktop: Cantarell, Ubuntu, Ubuntu Condensed, Ubuntu Mono |
@@ -148,10 +148,10 @@ await browser.close();
 </CodeGroup>
 
 ```text
-70 ['Arial', 'Bahnschrift', 'Calibri', 'Cambria', 'Cambria Math']
+68 ['Arial', 'Bahnschrift', 'Calibri', 'Cambria', 'Cambria Math']
 ```
 
-That output is from a Mac host with every Windows file installed. On a macOS host, families named after a weight, such as Segoe UI Light, Calibri Light and Yu Gothic Medium, do not list on their own, so a Windows persona lists 70 of its 90 families there (measured 2026-09-27, Apostate 0.4.3, macOS arm64 host). Compare the count and names with [Font lists](/reference/font-lists).
+That output is from a Mac host with every Windows file installed. On a macOS host, families named after a weight, such as Segoe UI Light, Calibri Light and Yu Gothic Medium, and the named instances of Segoe UI Variable and Sitka, such as Sitka Small, do not list on their own. A Windows persona lists 68 of its 96 families there (measured 2026-09-28, Apostate 0.4.4, macOS arm64 host). Text set in those families still renders in them. Compare the count and names with [Font lists](/reference/font-lists).
 
 `document.fonts.check()` cannot answer this. It returns `true` for any family name that no web font on the page uses, including names that do not exist. To test one family without the permission, compare text widths against the generic fallbacks:
 
