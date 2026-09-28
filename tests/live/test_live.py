@@ -130,4 +130,8 @@ def test_detector(live_case, live_browsers, record, pytestconfig):
         rest = [line for line in result.get("signals", []) if not any(marker in line for marker in known)]
         if any(marker in signals for marker in known) and not rest:
             gaps.expect(record, "font-filter-iphey")
+    if (not result["passed"] and detector.name == "fingerprintjs" and kind == "apostate-linux"
+            and result.get("browser_flags")
+            and set(result["browser_flags"]) <= {"tampering", "anti_detect_browser"}):
+        gaps.expect(record, "fpjs-linux-persona")
     assert result["passed"], f"{detector.name}: {detector.what} failed: {result}"
