@@ -994,17 +994,18 @@ class CompositionTests(unittest.TestCase):
     })
     # The Chromium build the digests were taken on. The profile carries the
     # build's user agent, so a new build moves every digest.
-    GOLDEN_BUILD = "152.0.7977.83"
+    GOLDEN_BUILD = "155.0.8059.12"
     GOLDEN_PROFILES = {
         # On this ARM host the Windows persona draws the Adreno family (patch
         # 0154); seed 12345 draws the 12-core X1-85, which the 14-core host
-        # can serve. Refreshed from a native build of 69d6c1a.
+        # can serve. Refreshed from the 155.0.8059.12 nightly build
+        # (run 36448982772) on 2026-09-29.
         "windows": ("fp-b0b97b3a3531b65ee50f45fc", GOLDEN_SECTIONS,
-                    "dfdf800039847434f32ac67db0110cd6d5f196e9a5127f6e5d0f9d708276dd78"),
+                    "67924d702f328f8e026b2298483e18409b5a485b0cff546441e11b72f2986f19"),
         "macos": ("fp-60eab51485a4a8465ce3c24a", GOLDEN_SECTIONS,
-                  "3738d7b64c6b52da997aac166ad6343f365821075562e66bfa860c56f4ff4b5e"),
+                  "70a5713449ce75d8ef0cc3d027bef4acc321254942790cfa5e486c0105f8195a"),
         "linux": ("fp-8c5f63da9ef88ea749549a91", GOLDEN_SECTIONS,
-                  "9172c6dc5887087376e019f0ccb495301817d8723722c57f14213687d9b3c2bf"),
+                  "16abd57dac42a2320e63335512f8be97f189d8e90cfdfffaa7d98364b1e83226"),
     }
 
     def _check_golden(self, persona: str, profile: dict, digest: str,
