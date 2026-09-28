@@ -160,7 +160,8 @@ def test_webgpu(case, record):
     if want.get("available") is False:
         # The claimed device reported no adapter when it was captured (patch 0155).
         record["webgpu"] = webgpu
-        assert not webgpu.get("available"), f"the claimed device has no WebGPU adapter and the page has one: {webgpu}"
+        # navigator.gpu exists, as on the real device; requestAdapter() finds nothing.
+        assert not webgpu.get("vendor"), f"the claimed device has no WebGPU adapter and the page has one: {webgpu}"
         return
     if not webgpu.get("available") or not webgpu.get("vendor"):
         record["webgpu"] = webgpu
@@ -311,11 +312,11 @@ def test_webgpu_is_the_captured_devices(case, record):
     if member is None:
         pytest.skip("the renderer is a registered identity, not a captured one")
     webgpu = case.values["window"]["webgpu"]
-    record.update(renderer=renderer, captured_adapter=bool(adapter), page_adapter=webgpu.get("available"))
+    record.update(renderer=renderer, captured_adapter=bool(adapter), page_adapter=bool(webgpu.get("vendor")))
     if adapter is None:
-        assert not webgpu.get("available"), f"{member['device']} had no WebGPU adapter and the page has one: {webgpu}"
+        assert not webgpu.get("vendor"), f"{member['device']} had no WebGPU adapter and the page has one: {webgpu}"
         return
-    if not webgpu.get("available"):
+    if not webgpu.get("vendor"):
         if sys.platform.startswith("linux") and not case.launch.headed:
             gaps.expect(record, "linux-headless-webgpu")
         pytest.fail(f"{member['device']} had a WebGPU adapter and the page has none")
