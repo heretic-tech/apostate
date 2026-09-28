@@ -31,6 +31,12 @@ GAPS = {
         "section passes, whatever architecture and GPU it claims.",
         f"{DOCS}#iphey-and-the-font-filter",
     ),
+    "fpjs-linux-persona": (
+        "FingerprintJS Pro flags a Linux persona with tampering and anti_detect_browser, and "
+        "scores it anomaly_score 1, where Windows and macOS personas in the same run have no "
+        "browser flags. The cause is not isolated.",
+        f"{DOCS}#linux-personas-score-as-an-anomaly",
+    ),
     "arm-windows-gpu": (
         "Up to 0.4.3, a Windows persona on an ARM host reports the arm architecture next to a "
         "desktop Intel or NVIDIA GPU, a pair no real Windows machine has. Real Windows on ARM "
