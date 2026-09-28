@@ -267,9 +267,8 @@ def _browser_pid(marker: str) -> int | None:
 def binary_path(explicit: str | None = None) -> str:
     if explicit:
         return explicit
-    if os.environ.get("APOSTATE_BINARY"):
-        from apostate import ensure_binary
-        return str(ensure_binary(binary_path=os.environ["APOSTATE_BINARY"]))
+    # ensure_binary() resolves APOSTATE_BINARY itself, to the executable inside
+    # a directory or bundle when that is what it names.
     from apostate import ensure_binary
     return str(ensure_binary())
 
