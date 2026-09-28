@@ -226,6 +226,7 @@ jobs:
             scripts/series-translation-units.py \
             scripts/series-gate-report.py scripts/series_absences.py \
             scripts/series-absences.tsv scripts/series-symbol-closure.py \
+            scripts/fetch-llvm-nm.py \
             patches/series "build/args/$APOSTATE_TARGET.gn"; do
             test -f "$path" || { echo "missing gate input: $path" >&2; exit 1; }
           done

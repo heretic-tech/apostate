@@ -77,11 +77,8 @@ REPORT_TOOL="$REPO_ROOT/scripts/series-gate-report.py"
 [ -f "$REPORT_TOOL" ] || die "missing $REPORT_TOOL"
 CLOSURE_TOOL="$REPO_ROOT/scripts/series-symbol-closure.py"
 [ -f "$CLOSURE_TOOL" ] || die "missing $CLOSURE_TOOL"
-# Chromium's own llvm-nm, for the same reason the gate uses Chromium's ninja:
-# the host's nm may not read this target's objects at all, and on a Windows
-# runner there is no system nm. `.exe` is tolerated so one path serves both.
-NM_BIN="$SRC/third_party/llvm-build/Release+Asserts/bin/llvm-nm"
-[ -x "$NM_BIN" ] || NM_BIN="$NM_BIN.exe"
+NM_TOOL="$REPO_ROOT/scripts/fetch-llvm-nm.py"
+[ -f "$NM_TOOL" ] || die "missing $NM_TOOL"
 
 # Linux compiles inside the pinned container, exactly as build.sh and
 # checkfile.sh do. Compiling against the host's libraries would answer a
@@ -583,6 +580,11 @@ python3 "$REPORT_TOOL" \
 closure_status=0
 if [ "${#closure_archives[@]}" -gt 0 ]; then
   echo
+  # Chromium's own llvm-nm, for the same reason the gate uses Chromium's ninja:
+  # the host's nm may not read this target's objects at all, and on a Windows
+  # runner there is no system nm. The clang package carries llvm-nm on Linux
+  # only, so on other hosts this fetches the copy DEPS pins.
+  NM_BIN="$(python3 "$NM_TOOL" "$SRC")" || die "could not get llvm-nm"
   python3 "$CLOSURE_TOOL" check \
     --root "$REPO_ROOT" \
     --source-index "$SOURCE_INDEX" \
