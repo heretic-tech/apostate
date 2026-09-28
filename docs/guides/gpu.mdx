@@ -35,14 +35,30 @@ The seed then picks a model from the family, with the weights in the catalogue. 
 apostate run -- --fingerprint=42 --fingerprint-platform=windows --fingerprint-explain
 ```
 
-```text
-surface                   layer             evidence               value
-anchor                    anchor            physical-ground-truth  windows-d3d11-intel-79dfeb5b4f99
-os_release                dispersion        physical-ground-truth  windows-11
-gpu_identity              dispersion        catalogue-value        d3d11-intel-uhd-graphics-770-4680
-webgpu                    anchor            physical-ground-truth  Intel(R) UHD Graphics 770
-...
-```
+The same seed picks from different families on x86 and ARM hosts:
+
+<Tabs>
+  <Tab title="x86-64 host">
+    ```text
+    surface                   layer             evidence               value
+    anchor                    anchor            physical-ground-truth  windows-d3d11-intel-79dfeb5b4f99
+    os_release                dispersion        physical-ground-truth  windows-11
+    gpu_identity              dispersion        catalogue-value        d3d11-intel-uhd-graphics-770-4680
+    webgpu                    anchor            physical-ground-truth  Intel(R) UHD Graphics 770
+    ...
+    ```
+  </Tab>
+  <Tab title="Apple silicon Mac">
+    ```text
+    surface                   layer             evidence               value
+    anchor                    anchor            physical-ground-truth  windows-d3d11-qualcomm-6388f9914f3f
+    os_release                dispersion        physical-ground-truth  windows-11
+    gpu_identity              dispersion        physical-ground-truth  d3d11-qualcomm-adreno-x1-85-gpu
+    webgpu                    anchor            physical-ground-truth  snapdragon-x-elite-crd8380x-chrome-152
+    ...
+    ```
+  </Tab>
+</Tabs>
 
 ## What WebGL and WebGPU report
 
@@ -92,13 +108,13 @@ await browser.close();
 </CodeGroup>
 
 ```text
-vendor              Google Inc. (Intel)
-renderer            ANGLE (Intel, Intel(R) UHD Graphics 770 (0x00004680) Direct3D11 vs_5_0 ps_5_0, D3D11)
-webgpuVendor        intel
-webgpuArchitecture  gen-12lp
+vendor              Google Inc. (Qualcomm)
+renderer            ANGLE (Qualcomm, Qualcomm(R) Adreno(TM) X1-85 GPU (0x36334330) Direct3D11 vs_5_0 ps_5_0, D3D11)
+webgpuVendor        qualcomm
+webgpuArchitecture  adreno-7xx
 ```
 
-That output is from a Mac. A page reads the same values on any host, with one exception. On Linux, `requestAdapter()` returns `null` in headless launches and in headed launches as root, so the script above fails at `adapter.info` there. [Known gaps](/known-gaps#webgpu-in-headless-mode-on-linux) tracks it.
+That output is from an Apple silicon Mac. On an x86-64 host the same seed has the Intel UHD Graphics 770: the renderer reads `ANGLE (Intel, Intel(R) UHD Graphics 770 (0x00004680) Direct3D11 vs_5_0 ps_5_0, D3D11)` and WebGPU reports `intel` and `gen-12lp`. Hosts of the same CPU family read the same values, with one exception. On Linux, `requestAdapter()` returns `null` in headless launches and in headed launches as root, so the script above fails at `adapter.info` there. [Known gaps](/known-gaps#webgpu-in-headless-mode-on-linux) tracks it.
 
 Within a family, every model has the same WebGL limits, extensions and shader precision and the same WebGPU features and limits. The WebGPU architecture follows the model's chip generation, and so does the smallest subgroup size on Intel's 12th-generation models. A model measured without a WebGPU adapter, such as the Adreno X1-45, has none, and `requestAdapter()` returns `null`.
 
@@ -106,7 +122,7 @@ Within a family, every model has the same WebGL limits, extensions and shader pr
 
 ## Name a model
 
-`--fingerprint-gpu-renderer` sets the model. The value is the whole WebGL renderer string, exactly as [GPU models](/reference/gpu-models) lists it, and it must be a model of the family the launch uses. Seed 42 as a Windows persona uses the Intel family, so an NVIDIA string is refused:
+`--fingerprint-gpu-renderer` sets the model. The value is the whole WebGL renderer string, exactly as [GPU models](/reference/gpu-models) lists it, and it must be a model of the family the launch uses. On an x86-64 host, seed 42 as a Windows persona uses the Intel family, so an NVIDIA string is refused:
 
 ```bash
 apostate run -- --fingerprint=42 --fingerprint-platform=windows \
@@ -131,7 +147,7 @@ apostate: --fingerprint-gpu-renderer='ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 (0x
 Pass --fingerprint-anchor to choose a different cluster, or --fingerprint-explain to see what this host can serve.
 ```
 
-The browser exits with status 1. Through the packages, the same refusal raises `LaunchError` in Python and `BrowserLaunchError` in Node, with this text in the message.
+On an Apple silicon Mac the same launch lists the three Adreno models instead. The browser exits with status 1. Through the packages, the same refusal raises `LaunchError` in Python and `BrowserLaunchError` in Node, with this text in the message.
 
 `--fingerprint-anchor` selects the family. With the NVIDIA family, the same renderer is accepted:
 

@@ -115,14 +115,14 @@ python3 compare.py
 
 ```text
 run         User-Agent OS  Sec-CH-UA-Platform  navigator.platform  cores  memory  screen                checks
-windows-42  Windows        "Windows"           Win32               12     8       1920x1080 avail 1032  pass
-windows-7   Windows        "Windows"           Win32               12     16      1536x864 avail 824    pass
+windows-42  Windows        "Windows"           Win32               12     32      1536x864 avail 816    pass
+windows-7   Windows        "Windows"           Win32               8      16      1536x864 avail 824    pass
 macos-42    macOS          "macOS"             MacIntel            14     32      2560x1440 avail 1407  pass
 linux-42    Linux          "Linux"             Linux x86_64        12     32      3840x2160 avail 2128  pass
 host        macOS          "macOS"             MacIntel            14     32      800x600 avail 600     800x600 screen with no taskbar, the headless default
 
-windows-42  ANGLE (Intel, Intel(R) UHD Graphics 770 (0x00004680) Direct3D11 vs_5_0 ps_5_0, D3D11)
-windows-7   ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x000046A6) Direct3D11 vs_5_0 ps_5_0, D3D11)
+windows-42  ANGLE (Qualcomm, Qualcomm(R) Adreno(TM) X1-85 GPU (0x36334330) Direct3D11 vs_5_0 ps_5_0, D3D11)
+windows-7   ANGLE (Qualcomm, Qualcomm(R) Adreno(TM) X1-45 GPU (0x37314430) Direct3D11 vs_5_0 ps_5_0, D3D11)
 macos-42    ANGLE (Apple, ANGLE Metal Renderer: Apple M4 Max, Unspecified Version)
 linux-42    ANGLE (NVIDIA, Vulkan 1.4.312 (NVIDIA NVIDIA GeForce RTX 4070 Ti SUPER (0x00002705)), NVIDIA)
 host        ANGLE (Apple, ANGLE Metal Renderer: Apple M4 Max, Unspecified Version)
@@ -130,10 +130,10 @@ host        ANGLE (Apple, ANGLE Metal Renderer: Apple M4 Max, Unspecified Versio
 Full records: out/visits.jsonl
 ```
 
-This output is from Apostate 0.4.3 on an Apple silicon Mac with 14 cores.
+This output is from Apostate 0.4.4 on an Apple silicon Mac with 14 cores.
 
 - Every persona passes every check. Its headers and its JavaScript values name the same platform.
-- Seeds 42 and 7 are two different Windows machines, with different memory, screens and GPUs.
+- Seeds 42 and 7 are two different Windows machines, with different cores, memory and GPUs.
 - The `host` row is the Mac itself. Headless host mode reports Chrome's headless 800x600 screen with no taskbar, and the last check flags it. A persona reports its own screen in headless mode too.
 - Core and memory counts depend on the host as well as the seed. [The host cap](/concepts/seeds-and-identity#the-host-cap) explains how.
 
@@ -141,7 +141,7 @@ Each line of `out/visits.jsonl` is one signup as your backend would log it. The 
 
 ```json
 {
-    "time": "2026-09-27T17:26:59+00:00",
+    "time": "2026-09-28T04:02:31+00:00",
     "path": "/signup?run=windows-42",
     "headers": {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
@@ -159,24 +159,24 @@ Each line of `out/visits.jsonl` is one signup as your backend would log it. The 
         "architecture": "arm",
         "webdriver": false,
         "cores": 12,
-        "memory": 8,
+        "memory": 32,
         "languages": [
             "en-US",
             "en"
         ],
         "timeZone": "America/New_York",
         "screen": [
-            1920,
-            1080,
-            1920,
-            1032
+            1536,
+            864,
+            1536,
+            816
         ],
-        "webglRenderer": "ANGLE (Intel, Intel(R) UHD Graphics 770 (0x00004680) Direct3D11 vs_5_0 ps_5_0, D3D11)"
+        "webglRenderer": "ANGLE (Qualcomm, Qualcomm(R) Adreno(TM) X1-85 GPU (0x36334330) Direct3D11 vs_5_0 ps_5_0, D3D11)"
     }
 }
 ```
 
-`architecture` is `arm` because a Windows or Linux persona reports the host's CPU architecture, and this host is an Apple silicon Mac. No real Windows machine pairs `arm` with a desktop Intel GPU, and some detectors flag the pair. To test a Windows persona without it, run the script on an x86-64 host. [ARM hosts](/known-gaps#arm-hosts) covers the gap.
+`architecture` is `arm` because a Windows or Linux persona reports the host's CPU architecture, and this host is an Apple silicon Mac. On an ARM host a Windows persona draws a Qualcomm Adreno GPU, as a real Windows-on-ARM laptop has; on an x86-64 host it draws Intel or NVIDIA. [ARM hosts](/concepts/hosts#arm-hosts) has the details.
 
 ## Test your staging site
 
