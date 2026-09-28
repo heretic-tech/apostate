@@ -30,7 +30,16 @@ mkdir -p "$WORKSPACE"
 
 if [ ! -d "$DEPOT_TOOLS/.git" ]; then
   say "cloning depot_tools"
-  git clone -q https://chromium.googlesource.com/chromium/tools/depot_tools.git "$DEPOT_TOOLS"
+  # googlesource replicas can advertise a HEAD whose objects they do not serve
+  # yet ("update_ref failed ... nonexistent object"), so a failed clone is
+  # removed and tried again.
+  for attempt in 1 2 3; do
+    git clone -q https://chromium.googlesource.com/chromium/tools/depot_tools.git "$DEPOT_TOOLS" && break
+    rm -rf "$DEPOT_TOOLS"
+    [ "$attempt" -lt 3 ] || die "could not clone depot_tools"
+    say "depot_tools clone failed; retrying in $((attempt * 15))s"
+    sleep $((attempt * 15))
+  done
 fi
 
 say "pinning depot_tools to $DEPOT_TOOLS_REVISION"
