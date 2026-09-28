@@ -5,9 +5,9 @@ description: "What changed in each Apostate release, newest first."
 
 Each release publishes browser archives for Linux x64, Linux arm64, macOS arm64 and Windows x64 on [GitHub Releases](https://github.com/heretic-tech/apostate/releases). Every release so far is built on Chromium 152.0.7977.83. The Python package (`apostate` on PyPI) and the Node package (`@heretic-tech/apostate` on npm) are released with the same version number when their code changes.
 
-## Unreleased
+## v0.4.4
 
-Changes on `main` since v0.4.3. The browser and the Python and Node packages will ship them as 0.4.4.
+Released 28 September 2026. Browser archives for all four platforms, and Python and Node packages 0.4.4.
 
 - **Windows on ARM hosts.** A Windows persona on an ARM host, such as an Apple silicon Mac, draws a new Qualcomm Adreno family instead of an Intel or NVIDIA one, because it claims the `arm` architecture and every real Windows-on-ARM machine has an Adreno GPU. The family has three measured models: the Adreno X2-90 (18 cores, 32 GB), X1-85 (12 cores, 32 GB) and X1-45 (8 cores, 16 GB). Windows seeds on ARM hosts present a different machine than in 0.4.3. Seeds on x86 hosts do not change. See [ARM hosts](/concepts/hosts#arm-hosts).
 - **No WebGPU adapter where none was measured.** A GPU that returned no WebGPU adapter in its capture, such as the Adreno X1-45 and two Linux NVIDIA cards, now has none on any host. In 0.4.3 the host's own adapter showed through, so on a Mac such a persona served Apple's adapter.
