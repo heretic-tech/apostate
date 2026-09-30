@@ -13,10 +13,12 @@ A release is a GitHub release that holds one archive and one manifest per platfo
 
     - Set the new version in all five places: `python/pyproject.toml`, `python/apostate/config.py`, `npm/package.json`, `npm/src/index.ts` and `.github/release/artifact-policy.json` (`package_version`).
     - Refresh the patch digests in `build/MANIFEST.lock`. The command rewrites `patch_series_sha256` and `patch_contents_sha256` and nothing else, so run it after the last patch edit.
+    - Mark the release manifests the packages carry as unpublished, with `python3 scripts/sync-packages.py --unpublish`. They still hold the previous release's digests, and `--check` fails while they do. After the build, `--release` writes the new ones ([Publish the packages](#publish-the-packages)).
     - If the composed profiles changed, [refresh the golden digests](#refresh-the-golden-profile-digests).
 
     ```bash
     python3 scripts/validate-release-baseline.py --refresh
+    python3 scripts/sync-packages.py --unpublish
     python3 scripts/sync-packages.py --check
     python3 scripts/validate-release-baseline.py --release
     APOSTATE_REQUIRE_NATIVE_GOLDENS=1 python3 scripts/test_profile_resolver.py
@@ -172,7 +174,7 @@ npm publish ./npm
 
 ### The MCP server
 
-The MCP server, `@heretic-tech/apostate-mcp` in `mcp/`, has its own version in `mcp/package.json`, and `sync-packages.py` does not touch it. It depends on `@heretic-tech/apostate` `^0.4.3`, so a new 0.4.x Node package reaches it without an MCP release. When `mcp/` changes, or the Node package's minor version changes, raise that range and the MCP version, run its test, and publish it. The first publish of a scoped package needs `--access public`:
+The MCP server, `@heretic-tech/apostate-mcp` in `mcp/`, has its own version in `mcp/package.json`, and `sync-packages.py` does not touch it. It depends on `@heretic-tech/apostate` `^0.5.1`, so a new 0.5.x Node package reaches it without an MCP release. When `mcp/` changes, or the Node package's minor version changes, raise that range and the MCP version, run its test, and publish it. The first publish of a scoped package needs `--access public`:
 
 ```bash
 cd mcp && npm ci && npx apostate install && npm test && cd ..

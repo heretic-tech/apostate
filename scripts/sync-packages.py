@@ -36,6 +36,7 @@ Usage:
   scripts/sync-packages.py                          copy the data assets
   scripts/sync-packages.py --release <inputs-dir>   also write the release digests
   scripts/sync-packages.py --check                  report staleness, write nothing
+  scripts/sync-packages.py --unpublish              mark the baked manifests unpublished
 
   --release   directory holding <archive> and <archive>.manifest.json pairs
   --tag       release tag the artifacts are published under; defaults to
@@ -272,6 +273,34 @@ def version_disagreements() -> list[str]:
     return []
 
 
+def baked_manifest_problems() -> list[str]:
+    """What is wrong with the release manifests baked into the packages.
+
+    A baked manifest is either unpublished (the state between the release
+    commit and the finished build) or the one for the release the policy
+    names. The published 0.4.4 packages carried v0.4.3's digests, because
+    --release was never run for 0.4.4, and so installed the 0.4.3 browser;
+    nothing checked for it.
+    """
+    policy = json.loads(POLICY_PATH.read_text(encoding="utf-8"))["manifest_contract"]
+    problems = []
+    for root in PACKAGE_ROOTS:
+        path = root / MANIFEST_NAME
+        baked = json.loads(path.read_text(encoding="utf-8"))
+        if baked.get("status") == "unpublished":
+            continue
+        want = f"v{policy['package_version']}"
+        rel = path.relative_to(REPO_ROOT)
+        if baked.get("tag") != want:
+            problems.append(f"{rel} carries the digests of {baked.get('tag')}, but the "
+                            f"release policy builds {want}; run scripts/sync-packages.py "
+                            f"--release with the {want} archives")
+        if baked.get("chromium_version") != policy["chromium_version"]:
+            problems.append(f"{rel} is for Chromium {baked.get('chromium_version')}, but "
+                            f"the release policy builds {policy['chromium_version']}")
+    return problems
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -279,7 +308,27 @@ def main(argv: list[str] | None = None) -> int:
                         help="directory of artifact/manifest pairs; also writes release digests")
     parser.add_argument("--tag", help="release tag; defaults to v<package_version>")
     parser.add_argument("--check", action="store_true", help="verify without writing")
+    parser.add_argument("--unpublish", action="store_true",
+                        help="mark both baked manifests unpublished, for the release commit")
     args = parser.parse_args(argv)
+
+    if args.unpublish:
+        if args.release is not None or args.check:
+            raise SystemExit("--unpublish takes no other option")
+        contract = json.loads(POLICY_PATH.read_text(encoding="utf-8"))["manifest_contract"]
+        payload = _canonical({
+            "artifacts": {},
+            "catalogue_version": json.loads(
+                (REPO_ROOT / "resources/profiles/catalogue.json").read_text(encoding="utf-8")
+            )["catalogue_version"],
+            "chromium_version": contract["chromium_version"],
+            "package_version": contract["package_version"],
+            "status": "unpublished",
+        }).encode("utf-8")
+        for assets in PACKAGE_ROOTS:
+            (assets / MANIFEST_NAME).write_bytes(payload)
+            print(f"wrote {(assets / MANIFEST_NAME).relative_to(REPO_ROOT)}")
+        return 0
 
     if args.tag is not None and not re.fullmatch(r"v\d+\.\d+\.\d+", args.tag):
         raise SystemExit(f"tag must have the form vMAJOR.MINOR.PATCH: {args.tag}")
@@ -306,6 +355,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"tag: {manifest['tag']}  revision: {manifest['source_revision']}")
 
     mismatched = version_disagreements()
+    if not mismatched and args.release is None:
+        problems = baked_manifest_problems()
+        if problems:
+            mismatched = ["the packages' release manifests are stale:", *problems]
     if mismatched:
         print("\n  ".join(mismatched), file=sys.stderr)
         return 1
