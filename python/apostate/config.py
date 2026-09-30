@@ -23,7 +23,7 @@ from .errors import ConfigurationError, ProfileError
 #: release it installs: a launcher fix does not require rebuilding Chromium,
 #: and 0.1.1 installs the artifacts published as v0.1.0. What binds a package
 #: to a binary release is the ``tag`` in its release manifest, not this.
-PACKAGE_VERSION = "0.4.4"
+PACKAGE_VERSION = "0.5.0"
 CHROMIUM_VERSION = "155.0.8059.31"
 CATALOGUE_VERSION = 2
 PROFILE_SCHEMA_VERSION = 3

@@ -43,7 +43,7 @@ import * as zlib from "node:zlib";
 import { SocksProxyAgent } from "socks-proxy-agent";
 import { HttpProxyAgent } from "http-proxy-agent";
 import { HttpsProxyAgent } from "https-proxy-agent";
-export const PACKAGE_VERSION = "0.4.4";
+export const PACKAGE_VERSION = "0.5.0";
 export const CHROMIUM_VERSION = "155.0.8059.31";
 export const CATALOGUE_VERSION = 2;
 const PROFILE_SCHEMA_VERSION = 3;
