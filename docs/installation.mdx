@@ -18,10 +18,10 @@ The browser runs on four hosts:
 
 | Host | Archive | Size |
 | --- | --- | --- |
-| Linux x64 | `apostate-152.0.7977.83-linux-x64.tar.zst` | 192 MB |
-| Linux arm64 | `apostate-152.0.7977.83-linux-arm64.tar.zst` | 195 MB |
-| macOS on Apple silicon | `apostate-152.0.7977.83-macos-arm64.zip` | 154 MB |
-| Windows x64 | `apostate-152.0.7977.83-windows-x64.zip` | 185 MB |
+| Linux x64 | `apostate-155.0.8059.31-linux-x64.tar.zst` | 192 MB |
+| Linux arm64 | `apostate-155.0.8059.31-linux-arm64.tar.zst` | 195 MB |
+| macOS on Apple silicon | `apostate-155.0.8059.31-macos-arm64.zip` | 154 MB |
+| Windows x64 | `apostate-155.0.8059.31-windows-x64.zip` | 185 MB |
 
 There is no build for Intel Macs or 32-bit Windows. The packages' install path on Windows has only been tested against a test archive.
 
@@ -79,7 +79,7 @@ Both packages install a command named `apostate`. If both are installed, the one
 
 ```text
 apostate/
-├── 152.0.7977.83/
+├── 155.0.8059.31/
 │   └── macos-arm64/
 │       ├── install/        the extracted browser, with build/MANIFEST.lock and resources/profiles/
 │       └── install.json    the archive's digest and the browser executable's digest
@@ -99,9 +99,9 @@ A launch looks for the browser in four places, in this order, and takes the firs
 | The package's own install | whatever `apostate install` wrote to the cache |
 | Well-known locations | macOS: `/Applications` and `~/Applications`. Linux: `~/.cache/apostate` and `/opt/apostate`. Windows: `%LOCALAPPDATA%\apostate`. Each directory and one level below it. |
 
-A path you name, in either of the first two, can be the executable, a macOS `Chromium.app` bundle, or the directory the archive unpacks to, such as `apostate-152.0.7977.83-linux-x64/`. The package takes the first two at your word. It refuses a path that names nothing with `does not name a file`, and a directory with no browser inside with `names a directory with no browser inside it (expected Chromium.app, chrome or chrome.exe)`.
+A path you name, in either of the first two, can be the executable, a macOS `Chromium.app` bundle, or the directory the archive unpacks to, such as `apostate-155.0.8059.31-linux-x64/`. The package takes the first two at your word. It refuses a path that names nothing with `does not name a file`, and a directory with no browser inside with `names a directory with no browser inside it (expected Chromium.app, chrome or chrome.exe)`.
 
-The well-known search never adopts a stock Chrome or Chromium. A candidate counts only if `build/MANIFEST.lock` with this build's patch digests, or `resources/profiles/catalogue.json`, sits beside it, and its version is 152.0.7977.83. To have an archive you extracted by hand found, move the whole extracted directory into a well-known location, not only the browser out of it.
+The well-known search never adopts a stock Chrome or Chromium. A candidate counts only if `build/MANIFEST.lock` with this build's patch digests, or `resources/profiles/catalogue.json`, sits beside it, and its version is 155.0.8059.31. To have an archive you extracted by hand found, move the whole extracted directory into a well-known location, not only the browser out of it.
 
 `apostate info` prints what the search found and what it passed over, under `discovery`, with a reason for each rejected candidate. In code, `discovery_report()` (Node: `discoveryReport()`) returns the same.
 
@@ -114,7 +114,7 @@ APOSTATE_DOWNLOAD_BASE_URL=https://mirror.example/apostate apostate info | jq -r
 ```
 
 ```text
-https://mirror.example/apostate/apostate-152.0.7977.83-macos-arm64.zip
+https://mirror.example/apostate/apostate-155.0.8059.31-macos-arm64.zip
 ```
 
 The digest never comes from the mirror. It comes from the manifest inside the package, so a mirror that serves different bytes fails the check and nothing is installed.
@@ -140,7 +140,7 @@ apostate info | jq '{manifest_source, manifest_trust, provenance}'
 {
   "manifest_source": "baked",
   "manifest_trust": "pinned",
-  "provenance": "gh attestation verify apostate-152.0.7977.83-macos-arm64.zip --repo heretic-tech/apostate"
+  "provenance": "gh attestation verify apostate-155.0.8059.31-macos-arm64.zip --repo heretic-tech/apostate"
 }
 ```
 
@@ -157,7 +157,7 @@ To check where an archive came from, verify its GitHub build-provenance attestat
 
 ```bash
 apostate install --force --keep-archive
-gh attestation verify apostate-152.0.7977.83-linux-x64.tar.zst --repo heretic-tech/apostate
+gh attestation verify apostate-155.0.8059.31-linux-x64.tar.zst --repo heretic-tech/apostate
 ```
 
 The kept archive is in the cache, beside `install/`. `APOSTATE_KEEP_ARCHIVE=1` keeps it on every install.

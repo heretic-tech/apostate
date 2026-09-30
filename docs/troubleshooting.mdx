@@ -12,7 +12,7 @@ When nothing here matches, run the same launch in [host mode](/concepts/personas
 <AccordionGroup>
   <Accordion title="Release manifest is unpublished">
     ```text
-    Release manifest is unpublished; Apostate binary artifacts are not available for acquisition. No release manifest for apostate-152.0.7977.83-linux-x64.tar.zst could be fetched. Tried: https://github.com/heretic-tech/apostate/releases/download/v0.4.3/apostate-152.0.7977.83-linux-x64.tar.zst.manifest.json, https://github.com/heretic-tech/apostate/releases/latest/download/apostate-152.0.7977.83-linux-x64.tar.zst.manifest.json
+    Release manifest is unpublished; Apostate binary artifacts are not available for acquisition. No release manifest for apostate-155.0.8059.31-linux-x64.tar.zst could be fetched. Tried: https://github.com/heretic-tech/apostate/releases/download/v0.4.3/apostate-155.0.8059.31-linux-x64.tar.zst.manifest.json, https://github.com/heretic-tech/apostate/releases/latest/download/apostate-155.0.8059.31-linux-x64.tar.zst.manifest.json
     ```
 
     **Cause.** The package holds no digest for this host's archive, and it could not fetch one from the GitHub release. The host has no route to `github.com`, or the release for this package version has no archive for this platform.
@@ -37,7 +37,7 @@ When nothing here matches, run the same launch in [host mode](/concepts/personas
     apostate: downloaded Apostate artifact failed SHA-256 verification: expected <digest>, got <digest>. The archive was not opened.
     ```
 
-    The Node package says `SHA-256 mismatch for apostate-152.0.7977.83-<platform>.<ext>.`
+    The Node package says `SHA-256 mismatch for apostate-155.0.8059.31-<platform>.<ext>.`
 
     **Cause.** The bytes downloaded are not the archive the manifest names. The download was cut short or damaged, a mirror set in `APOSTATE_DOWNLOAD_BASE_URL` serves other bytes, a network appliance rewrote the response, or `--manifest` names a different build.
 
@@ -76,7 +76,7 @@ When nothing here matches, run the same launch in [host mode](/concepts/personas
 
     **Cause.** `binary_path`, `executablePath` or `APOSTATE_BINARY` points somewhere that is not the browser.
 
-    **Fix.** Point it at the executable, a `Chromium.app` bundle, or the directory the archive unpacks to, such as `apostate-152.0.7977.83-linux-x64/`. Or unset it and let the package find or download the browser.
+    **Fix.** Point it at the executable, a `Chromium.app` bundle, or the directory the archive unpacks to, such as `apostate-155.0.8059.31-linux-x64/`. Or unset it and let the package find or download the browser.
   </Accordion>
 
   <Accordion title="A browser you installed by hand is not found">
@@ -86,7 +86,7 @@ When nothing here matches, run the same launch in [host mode](/concepts/personas
     apostate info | jq .discovery.rejected
     ```
 
-    The reasons are `no Apostate payload beside it (build/MANIFEST.lock or resources/profiles/catalogue.json)`, `reports Chromium <version>, not 152.0.7977.83`, `version could not be established` and `not executable`.
+    The reasons are `no Apostate payload beside it (build/MANIFEST.lock or resources/profiles/catalogue.json)`, `reports Chromium <version>, not 155.0.8059.31`, `version could not be established` and `not executable`.
 
     **Fix.** Move the whole extracted directory into a well-known location, not the browser alone: `build/MANIFEST.lock` and `resources/profiles/` must sit beside it. Or name it with `APOSTATE_BINARY`. [Installation](/installation#use-a-browser-you-already-have) lists the locations.
   </Accordion>

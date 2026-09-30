@@ -39,7 +39,7 @@ The tools are in `capture/`:
   </Step>
 
   <Step title="Open the page in a normal Chrome window">
-    Open the URL on the machine you are capturing, in Google Chrome or Chromium 152, the major version in `build/CHROMIUM_VERSION`. Enter a device name, such as `thinkpad-t14-win11`, and click **Run capture**. Allow the window-management prompt. If you decline it, the `screen.details` probe fails and the receiver rejects the capture.
+    Open the URL on the machine you are capturing, in Google Chrome or Chromium 155, the major version in `build/CHROMIUM_VERSION`. Enter a device name, such as `thinkpad-t14-win11`, and click **Run capture**. Allow the window-management prompt. If you decline it, the `screen.details` probe fails and the receiver rejects the capture.
   </Step>
 
   <Step title="Read the result">
@@ -88,7 +88,7 @@ The receiver rejects a capture, answers HTTP 422 with the reason, and records th
 - `capture_version` is not 2, or the capture has fields the schema does not list.
 - `context.secure_context` is not `true`.
 - Any automation signal is present, or `navigator.webdriver` is not `false`.
-- The User-Agent or a brand list contains `Headless`, names another browser (Edge, Opera, Brave, Vivaldi, Firefox, Electron and others), or reports a Chrome major other than 152.
+- The User-Agent or a brand list contains `Headless`, names another browser (Edge, Opera, Brave, Vivaldi, Firefox, Electron and others), or reports a Chrome major other than the one in `build/CHROMIUM_VERSION` (155).
 - Any probe failed, or one of the 36 probes that must be read twice is missing from `probes` or `repeat`.
 
 It does not keep the body of a rejected capture. A second submission of the same bytes gets HTTP 409.
@@ -98,7 +98,7 @@ It does not keep the body of a rejected capture. A second submission of the same
 `--headless` does not work, because the receiver rejects a `Headless` User-Agent. `capture/collect-unattended.py` runs a real headed browser on a virtual X display instead. It starts Xvfb, starts the receiver on `127.0.0.1` for one capture, grants the window-management permission in a fresh profile, opens the page with `?auto=1` so it runs without a click, and prints the admission decision:
 
 ```bash
-python3 capture/collect-unattended.py --label linux-server --out ./captures --chrome /opt/chrome152/opt/google/chrome/google-chrome
+python3 capture/collect-unattended.py --label linux-server --out ./captures --chrome /opt/chrome155/chrome-linux64/chrome
 ```
 
 | Option | Default | Effect |
@@ -114,14 +114,14 @@ python3 capture/collect-unattended.py --label linux-server --out ./captures --ch
 
 It exits 0 when the capture is admitted, 1 when it is rejected and 2 when nothing was submitted in time.
 
-The browser must be Chrome 152. Google's apt repository serves only the newest stable Chrome, but older `.deb` files stay in its pool. Unpack one beside the installed browser and pass it with `--chrome`:
+The browser must be Chrome 155. Chrome for Testing publishes every release, including the one in `build/CHROMIUM_VERSION`, while Google's apt repository serves only the newest stable Chrome. Unpack it and pass it with `--chrome`:
 
 ```bash
-curl -O https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_152.0.7977.82-1_amd64.deb
-dpkg-deb -x google-chrome-stable_152.0.7977.82-1_amd64.deb /opt/chrome152
+curl -O https://storage.googleapis.com/chrome-for-testing-public/155.0.8059.31/linux64/chrome-linux64.zip
+unzip -q chrome-linux64.zip -d /opt/chrome155
 ```
 
-The exact patch release in `build/CHROMIUM_VERSION` is not always in the pool. In September 2026 the pool had 152.0.7977.82 and not 152.0.7977.83. Any release with the same major is admitted.
+Then pass `--chrome /opt/chrome155/chrome-linux64/chrome`. Any release with the same major is admitted.
 
 Under Xvfb the only GL driver is Mesa llvmpipe, which Chrome's software-rendering blocklist disables WebGL and WebGPU for. The `webgl1` and `webgl2` probes then measure nothing and the capture is rejected. The script passes `--enable-unsafe-swiftshader`, which allows WebGL's software fallback, so those probes measure SwiftShader. On a host where a GPU works, that switch changes nothing. `--use-gl=angle --use-angle=swiftshader` would replace the GL driver and turn a GPU host's capture into a software one. A capture taken this way describes SwiftShader, not the host's GPU, and the script prints the renderer it measured.
 
@@ -132,13 +132,13 @@ As root the script adds `--no-sandbox`, which is itself a change from a normal l
 `capture/take-capture.sh` captures the GPU of a rented Linux machine with an NVIDIA card. It installs the libraries Chrome needs with `apt-get`, downloads Chrome for Testing, starts Xvfb and opens the page of a remote receiver with `?auto=1`. It launches with `--use-angle=vulkan` for hardware WebGL under Xvfb and `--enable-features=Vulkan` so WebGPU reports an adapter. It reads the submission's HTTP status from a Chrome net log and exits non-zero if the receiver refused the capture.
 
 ```bash
-CHROME_VERSION=152.0.7977.83 PROBE=https://receiver.example:8777 ./capture/take-capture.sh rtx-4090
+PROBE=https://receiver.example:8777 ./capture/take-capture.sh rtx-4090
 ```
 
 | Variable | Default | Effect |
 | --- | --- | --- |
 | `PROBE` | the maintainers' receiver | Receiver URL. Use `https` with a certificate Chrome trusts, from `receive.py --cert --key` |
-| `CHROME_VERSION` | `153.0.8010.52` | Chrome for Testing version. The receiver in this repository admits only 152, so set it |
+| `CHROME_VERSION` | the version in `build/CHROMIUM_VERSION` | Chrome for Testing version. The receiver in this repository admits only that major |
 | `WORK` | `~/.apostate-capture` | Working directory for Chrome, the profile, the logs and the net log |
 | `SCREEN` | `1920x1080x24` | Xvfb screen geometry |
 | `DISPLAY_NUM` | `99` | X display number |

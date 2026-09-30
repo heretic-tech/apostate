@@ -3,7 +3,7 @@ title: "Patches"
 description: "Write a Chromium patch, place it in the series, and compile it before a full build."
 ---
 
-Every change to the browser is a patch file in `patches/`, a diff against the pinned Chromium tag 152.0.7977.83. `patches/series` lists the patches in the order they apply, and `scripts/apply-patches.sh` applies them with `git apply`, which allows no fuzz. The series has 134 patches, and the highest number is 0153. The checkout and build setup are on [Build from source](/contributing/build).
+Every change to the browser is a patch file in `patches/`, a diff against the pinned Chromium tag 155.0.8059.31. `patches/series` lists the patches in the order they apply, and `scripts/apply-patches.sh` applies them with `git apply`, which allows no fuzz. The series has 134 patches, and the highest number is 0153. The checkout and build setup are on [Build from source](/contributing/build).
 
 ## The patch format
 
@@ -176,7 +176,7 @@ On macOS, ninja can leave an older framework inside `Chromium.app` after a rebui
 
 ```bash
 cd .workspace/src/out/macos-arm64
-strings -a "Chromium.app/Contents/Frameworks/Chromium Framework.framework/Versions/152.0.7977.83/Chromium Framework" \
+strings -a "Chromium.app/Contents/Frameworks/Chromium Framework.framework/Versions/155.0.8059.31/Chromium Framework" \
   | grep -c 'a string only your patch adds'
 ```
 

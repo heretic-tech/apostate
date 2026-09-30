@@ -5,7 +5,7 @@ description: Browse the web with Apostate, a Chromium build that presents a norm
 
 # Apostate browser
 
-Apostate is Chromium 152 with a persona: a Windows, macOS or Linux machine
+Apostate is Chromium 155 with a persona: a Windows, macOS or Linux machine
 whose GPU, screen, fonts, voices, locale and timezone agree with each other.
 It runs headless on a server and still reads as a normal desktop browser.
 

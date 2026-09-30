@@ -59,7 +59,7 @@ The browser's C++ serves every row, so every API and header that reads the value
 
 | What a page reads | Section | Where the value comes from |
 | --- | --- | --- |
-| `navigator.userAgent`, the `User-Agent` header | `browser` | The OS release table. The version reads `Chrome/152.0.0.0`, as in Chrome's reduced User-Agent. |
+| `navigator.userAgent`, the `User-Agent` header | `browser` | The OS release table. The version reads `Chrome/155.0.0.0`, as in Chrome's reduced User-Agent. |
 | `navigator.platform` | `platform` | The OS release table: `Win32`, `MacIntel` or `Linux x86_64`. |
 | `navigator.userAgentData`, `Sec-CH-UA-Platform`, `-Platform-Version`, `-Arch`, `-Bitness`, `-Model`, `-Form-Factors`, `-WoW64` | `platform` | The OS release table. Windows and Linux personas report the host's CPU architecture (`x86` or `arm`, see [ARM hosts](/concepts/hosts#arm-hosts)). macOS personas report `arm`. The brand list and full version are the build's own, with the `Google Chrome` brand. |
 | `navigator.hardwareConcurrency`, `navigator.cpuPerformance`, the browser's own thread pools | `cpu` | The core-count table, one list per GPU model. Never more than the host has. |

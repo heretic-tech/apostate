@@ -244,5 +244,5 @@ Stagehand 4.1 times out in `Stagehand.create()` against Apostate 0.4.3, launched
 
 - No mobile personas, no Intel Mac build and no 32-bit Windows build.
 - A Windows or macOS GPU family on a Linux host with a real GPU has not been compared with a real machine of that family.
-- The Windows NVIDIA family was measured on Chrome 153, and the Linux NVIDIA and SwiftShader families on 152.0.7977.82, not on 152.0.7977.83. Values that change between releases can differ.
+- The GPU families were measured on Chrome 152, and the Windows NVIDIA family on Chrome 153, not on the 155 the browser is built from. The ANGLE, Dawn and Chromium code that produces WebGL and WebGPU values changed between them in nothing a page reads, but the families were not measured again.
 - The packages' install path on a Windows machine has only been tested against a test archive.

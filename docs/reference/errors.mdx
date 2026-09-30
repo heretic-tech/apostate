@@ -202,7 +202,7 @@ Node says `npm install patchright` and throws `BrowserLaunchError`.
 ### Nothing to download
 
 ```text
-Release manifest is unpublished; Apostate binary artifacts are not available for acquisition. No release manifest for apostate-152.0.7977.83-linux-x64.tar.zst could be fetched. Tried: https://github.com/heretic-tech/apostate/releases/download/v0.4.3/..., https://github.com/heretic-tech/apostate/releases/latest/download/...
+Release manifest is unpublished; Apostate binary artifacts are not available for acquisition. No release manifest for apostate-155.0.8059.31-linux-x64.tar.zst could be fetched. Tried: https://github.com/heretic-tech/apostate/releases/download/v0.4.3/..., https://github.com/heretic-tech/apostate/releases/latest/download/...
 ```
 
 **Cause.** The package has no pinned manifest for this target, and the release manifest could not be fetched, usually because GitHub is unreachable. **Fix.** Check that the host can reach `github.com`, or point `APOSTATE_BINARY` at a browser you unpacked yourself.
@@ -213,7 +213,7 @@ Release manifest is unpublished; Apostate binary artifacts are not available for
 downloaded Apostate artifact failed SHA-256 verification: expected <digest>, got <digest>. The archive was not opened.
 ```
 
-Node says `SHA-256 mismatch for apostate-152.0.7977.83-linux-x64.tar.zst.`
+Node says `SHA-256 mismatch for apostate-155.0.8059.31-linux-x64.tar.zst.`
 
 **Cause.** The download was cut short or corrupted, or a mirror in `APOSTATE_DOWNLOAD_BASE_URL` serves other bytes. **Fix.** Run `apostate install` again, and check the mirror.
 

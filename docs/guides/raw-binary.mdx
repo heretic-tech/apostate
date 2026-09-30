@@ -12,7 +12,7 @@ apostate path
 ```
 
 ```text
-/home/apostate/.cache/apostate/152.0.7977.83/linux-arm64/install/chrome
+/home/apostate/.cache/apostate/155.0.8059.31/linux-arm64/install/chrome
 ```
 
 `apostate path` prints the executable and downloads the browser first if it is missing. On macOS the executable is `Chromium.app/Contents/MacOS/Chromium` inside the install directory. [Installation](/installation#the-cache) lists the cache paths and how to use a browser you installed yourself.
@@ -128,4 +128,4 @@ Patchright comes with the Python package. `browser.contexts[0]` is the profile's
 
 Any Chromium client can start Apostate. Set its executable path to the output of `apostate path` and add the switches, or start the browser with `--remote-debugging-port` and connect to it. This applies to chromedp in Go, chromiumoxide in Rust and CDP clients in other languages.
 
-Selenium drives Chrome through `chromedriver`, which no Apostate archive includes. ChromeDriver supports the Chrome major version it was built for, so it has to be version 152.
+Selenium drives Chrome through `chromedriver`, which no Apostate archive includes. ChromeDriver supports the Chrome major version it was built for, so it has to be version 155.

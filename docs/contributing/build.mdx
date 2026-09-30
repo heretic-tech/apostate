@@ -3,7 +3,7 @@ title: "Build from source"
 description: "Build the Apostate browser for Linux, macOS or Windows from the pinned Chromium tag and the patch series."
 ---
 
-Apostate is Chromium 152.0.7977.83 with the patches in `patches/` applied in the order `patches/series` lists them. Every input is pinned in `build/`, and every step is a script in `scripts/`. A full build takes hours, so compile the files a patch touches first with `scripts/checkfile.sh` ([Patches](/contributing/patches#check-a-patch-before-a-full-build)).
+Apostate is Chromium 155.0.8059.31 with the patches in `patches/` applied in the order `patches/series` lists them. Every input is pinned in `build/`, and every step is a script in `scripts/`. A full build takes hours, so compile the files a patch touches first with `scripts/checkfile.sh` ([Patches](/contributing/patches#check-a-patch-before-a-full-build)).
 
 ## Targets
 
@@ -45,7 +45,7 @@ host tooling complete for macos-arm64
 
 | File | Pins |
 | --- | --- |
-| `build/CHROMIUM_VERSION` | Chromium tag `152.0.7977.83` |
+| `build/CHROMIUM_VERSION` | Chromium tag `155.0.8059.31` |
 | `build/DEPOT_TOOLS_REVISION` | depot_tools commit `4bf5898c4b96e8f35b9912a2d65417ff7d8dcfce` |
 | `build/args/common.gni` | GN args for every target: official build, proprietary codecs, Widevine support without a bundled CDM, no field-trial testing config |
 | `build/args/<target>.gn` | GN args for one target |
@@ -76,7 +76,7 @@ scripts/prepare-linux-sysroot.sh $APOSTATE_TARGET   # Linux targets only
 scripts/configure.sh $APOSTATE_TARGET               # common and target GN args, gn gen
 scripts/build.sh $APOSTATE_TARGET                   # ninja, then build/MANIFEST.lock
 scripts/smoke-binary.sh $APOSTATE_TARGET
-scripts/package-artifact.sh $APOSTATE_TARGET "$PWD/apostate-152.0.7977.83-$APOSTATE_TARGET.tar.zst"
+scripts/package-artifact.sh $APOSTATE_TARGET "$PWD/apostate-155.0.8059.31-$APOSTATE_TARGET.tar.zst"
 ```
 
 On Windows, run `scripts/provision-windows-toolchain.sh` before `bootstrap.sh`.
@@ -85,7 +85,7 @@ The browser is written to `.workspace/src/out/<target>/`: `chrome` on Linux, `Ch
 
 `package-artifact.sh` writes three things:
 
-- The archive. Its name must be one the release policy lists: `apostate-152.0.7977.83-<target>.tar.zst` for the Linux targets, `apostate-152.0.7977.83-<target>.zip` for macOS and Windows. Any other name is refused.
+- The archive. Its name must be one the release policy lists: `apostate-155.0.8059.31-<target>.tar.zst` for the Linux targets, `apostate-155.0.8059.31-<target>.zip` for macOS and Windows. Any other name is refused.
 - `<archive>.manifest.json` beside it, with the archive's SHA-256 and the fields a release manifest carries ([Releases](/contributing/releases#archives-and-manifests)).
 - The staging directory the archive was made from, named like the archive without its extension.
 

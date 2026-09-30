@@ -3,7 +3,7 @@ title: "Contributing"
 description: "The repository layout, the rules a change follows, how to propose one, and the checks a pull request must pass."
 ---
 
-Apostate's source is at [github.com/heretic-tech/apostate](https://github.com/heretic-tech/apostate) under GPL-3.0. Browser changes are patches to Chromium 152.0.7977.83. The Python and Node packages, the MCP server, the test suite, the capture tools and this site are in the same repository.
+Apostate's source is at [github.com/heretic-tech/apostate](https://github.com/heretic-tech/apostate) under GPL-3.0. Browser changes are patches to Chromium 155.0.8059.31. The Python and Node packages, the MCP server, the test suite, the capture tools and this site are in the same repository.
 
 ## Repository layout
 
@@ -51,7 +51,7 @@ apostate --version
 apostate run -- --fingerprint=42 --fingerprint-platform=windows --fingerprint-explain
 ```
 
-The first command prints the package and browser versions, such as `apostate 0.4.4 (Chromium 152.0.7977.83)`.
+The first command prints the package and browser versions, such as `apostate 0.5.0 (Chromium 155.0.8059.31)`.
 
 To send a change, fork the repository, commit on a branch and open a pull request against `main`. CI runs the checks below on every pull request, but it does not build Chromium. When your pull request changes a patch, say which targets you built and what you measured on them.
 
@@ -145,7 +145,7 @@ all checks passed
 `gl-caps-check.mjs` launches the browser once per GPU family with `--fingerprint-anchor` and checks that the WebGL limits a page reads are the ones measured for that family, that no two families serve identical limits, and that the renderer string is one the catalogue pairs with that family. It opens a window for each launch, so it needs a display. Its arguments are the browser path and the repository root:
 
 ```bash
-node scripts/checks/gl-caps-check.mjs ./apostate-152.0.7977.83-linux-x64/chrome .
+node scripts/checks/gl-caps-check.mjs ./apostate-155.0.8059.31-linux-x64/chrome .
 ```
 
 ## Documentation changes

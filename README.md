@@ -115,10 +115,10 @@ tell.
 
 | Host | Archive |
 | --- | --- |
-| Linux x64 | `apostate-152.0.7977.83-linux-x64.tar.zst` |
-| Linux arm64 | `apostate-152.0.7977.83-linux-arm64.tar.zst` |
-| macOS arm64 | `apostate-152.0.7977.83-macos-arm64.zip` |
-| Windows x64 | `apostate-152.0.7977.83-windows-x64.zip` |
+| Linux x64 | `apostate-155.0.8059.31-linux-x64.tar.zst` |
+| Linux arm64 | `apostate-155.0.8059.31-linux-arm64.tar.zst` |
+| macOS arm64 | `apostate-155.0.8059.31-macos-arm64.zip` |
+| Windows x64 | `apostate-155.0.8059.31-windows-x64.zip` |
 
 Any host can present any persona. Windows personas look most real on an x86
 host, macOS personas on a Mac. See
