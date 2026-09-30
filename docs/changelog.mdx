@@ -3,11 +3,11 @@ title: "Changelog"
 description: "What changed in each Apostate release, newest first."
 ---
 
-Each release publishes browser archives for Linux x64, Linux arm64, macOS arm64 and Windows x64 on [GitHub Releases](https://github.com/heretic-tech/apostate/releases). 0.5.0 is built on Chromium 155.0.8059.31. Releases up to 0.4.4 are built on Chromium 152.0.7977.83. The Python package (`apostate` on PyPI) and the Node package (`@heretic-tech/apostate` on npm) are released with the same version number when their code changes.
+Each release publishes browser archives for Linux x64, Linux arm64, macOS arm64 and Windows x64 on [GitHub Releases](https://github.com/heretic-tech/apostate/releases). 0.5.1 is built on Chromium 155.0.8059.31. Releases up to 0.4.4 are built on Chromium 152.0.7977.83. The Python package (`apostate` on PyPI) and the Node package (`@heretic-tech/apostate` on npm) are released with the same version number when their code changes.
 
-## v0.5.0
+## v0.5.1
 
-Released 30 September 2026. Browser archives for all four platforms, and Python and Node packages 0.5.0.
+Released 30 September 2026. Browser archives for all four platforms, and Python and Node packages 0.5.1. There is no 0.5.0 release: its build served no WebGPU adapter on a Linux host with no GPU, and 0.5.1 is that build with the fix.
 
 - **Chromium 155.** The browser is Chromium 155.0.8059.31. The User-Agent and client hints report Chrome 155, as current stable Chrome does. The packages install and accept only this build.
 - **Seeds.** A seed presents the same machine as in 0.4.4. The machine is keyed on fixed version values, not on the running build, so the update does not re-draw it; only the version in the User-Agent moves.
