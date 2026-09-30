@@ -16,9 +16,9 @@ apostate run -- --fingerprint=42 --fingerprint-platform=windows --fingerprint-ex
 ```text
 apostate fingerprint composition
 
-  chromium            152.0.7977.83
+  chromium            155.0.8059.31
   profile schema      3
-  catalogue           v2 (tables 6c3d8de5d8a0b13ca249836fb7b8d6aeef227db448cb0147e3a8c6edd8b3fbfb)
+  catalogue           v2 (tables f7520eaac2212793d0ed147a82bf52303e77a8b18b91eb9e900c8e56acf0d117)
   platform persona    windows
   host platform       linux
   host cores          14
@@ -43,12 +43,12 @@ python3 examples/python/what_a_page_sees.py --seed 42 --platform windows \
   --locale en-US --timezone America/New_York --headed
 ```
 
-Without `--locale` and `--timezone`, the package looks them up from your IP address. `--headed` uses the package's Xvfb on a server. Output from a Debian 13 container for `linux/amd64`, run under emulation on an Apple silicon Mac, Apostate 0.4.4:
+Without `--locale` and `--timezone`, the package looks them up from your IP address. `--headed` uses the package's Xvfb on a server. Output from a Debian 13 container for `linux/amd64`, run under emulation on an Apple silicon Mac, Apostate 0.5.1:
 
 ```json
 {
   "navigator": {
-    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
     "platform": "Win32",
     "cores": 12,
     "memory": 8,
@@ -64,30 +64,30 @@ Without `--locale` and `--timezone`, the package looks them up from your IP addr
     "bitness": "64",
     "brands": [
       {
-        "brand": "Chromium",
-        "version": "152"
-      },
-      {
-        "brand": "Not?A_Brand",
-        "version": "24"
-      },
-      {
         "brand": "Google Chrome",
-        "version": "152"
+        "version": "155"
+      },
+      {
+        "brand": "Chromium",
+        "version": "155"
+      },
+      {
+        "brand": "Not(A:Brand",
+        "version": "24"
       }
     ],
     "fullVersionList": [
       {
-        "brand": "Chromium",
-        "version": "152.0.7977.83"
-      },
-      {
-        "brand": "Not?A_Brand",
-        "version": "24.0.0.0"
-      },
-      {
         "brand": "Google Chrome",
-        "version": "152.0.7977.83"
+        "version": "155.0.8059.31"
+      },
+      {
+        "brand": "Chromium",
+        "version": "155.0.8059.31"
+      },
+      {
+        "brand": "Not(A:Brand",
+        "version": "24.0.0.0"
       }
     ],
     "mobile": false,
@@ -153,7 +153,7 @@ Without `--locale` and `--timezone`, the package looks them up from your IP addr
     "baseLatency": 0.01
   },
   "worker": {
-    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
     "platform": "Win32",
     "uaPlatform": "Windows",
     "cores": 12,
@@ -167,16 +167,16 @@ Without `--locale` and `--timezone`, the package looks them up from your IP addr
   },
   "headers": {
     "accept-language": "en-US,en;q=0.9",
-    "sec-ch-ua": "\"Chromium\";v=\"152\", \"Not?A_Brand\";v=\"24\", \"Google Chrome\";v=\"152\"",
+    "sec-ch-ua": "\"Google Chrome\";v=\"155\", \"Chromium\";v=\"155\", \"Not(A:Brand\";v=\"24\"",
     "sec-ch-ua-arch": "\"x86\"",
     "sec-ch-ua-bitness": "\"64\"",
-    "sec-ch-ua-full-version-list": "\"Chromium\";v=\"152.0.7977.83\", \"Not?A_Brand\";v=\"24.0.0.0\", \"Google Chrome\";v=\"152.0.7977.83\"",
+    "sec-ch-ua-full-version-list": "\"Google Chrome\";v=\"155.0.8059.31\", \"Chromium\";v=\"155.0.8059.31\", \"Not(A:Brand\";v=\"24.0.0.0\"",
     "sec-ch-ua-mobile": "?0",
     "sec-ch-ua-model": "\"\"",
     "sec-ch-ua-platform": "\"Windows\"",
     "sec-ch-ua-platform-version": "\"19.0.0\"",
     "sec-ch-ua-wow64": "?0",
-    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36"
   }
 }
 ```
