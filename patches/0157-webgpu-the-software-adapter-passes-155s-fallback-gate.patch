@@ -1,0 +1,33 @@
+Subject: [PATCH] webgpu: the software adapter passes Chromium 155's fallback gate
+
+Chromium 155 returns no adapter from CreatePreferredAdapter's fallback pass
+unless WebGPU runs unsafe, because the fallback adapter is SwiftShader. The
+profile's software adapter on a Linux host with no GPU is found only by that
+pass, so from 155 a persona that claims a WebGPU adapter served none there:
+"No available adapters." on 0.5.0 where 0.4.4 served the claimed adapter,
+measured in the same Debian 13 container.
+
+The pass runs again when CanUseProfileSoftwareWebGPU admitted the profile
+path. That instance loads only SwiftShader from the one trusted directory
+(0056), and RequestAdapterImpl already refuses a page's own
+forceFallbackAdapter on it, so pages still cannot ask for SwiftShader.
+
+diff --git a/gpu/command_buffer/service/webgpu_decoder_impl.cc b/gpu/command_buffer/service/webgpu_decoder_impl.cc
+index 45c1e18e18..5f248ba1b2 100644
+--- a/gpu/command_buffer/service/webgpu_decoder_impl.cc
++++ b/gpu/command_buffer/service/webgpu_decoder_impl.cc
+@@ -2082,9 +2082,12 @@ wgpu::Adapter WebGPUDecoderImpl::CreatePreferredAdapter(
+     wgpu::FeatureLevel feature_level,
+     bool webgpu_on_vk_gl_interop) const {
+   // The fallback adapter is SwiftShader, which is only allowed with
+-  // --enable-unsafe-webgpu. Don't make Dawn load it otherwise.
++  // --enable-unsafe-webgpu. Don't make Dawn load it otherwise. The profile's
++  // software adapter is the exception: it is SwiftShader from the one trusted
++  // directory, admitted by CanUseProfileSoftwareWebGPU, and a page asking for
++  // the fallback adapter is refused before this point.
+   const bool allow_fallback_adapter =
+-      safety_level_ == webgpu::SafetyLevel::kUnsafe;
++      safety_level_ == webgpu::SafetyLevel::kUnsafe || profile_software_webgpu_;
+   if (force_fallback && !allow_fallback_adapter) {
+     return nullptr;
+   }

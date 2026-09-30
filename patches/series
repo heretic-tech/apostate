@@ -150,3 +150,4 @@
 0154-compose-the-gpu-cluster-follows-the-host-cpu-family.patch
 0155-webgpu-a-device-measured-without-an-adapter-has-none.patch
 0156-fonts-a-windows-persona-names-variable-font-instances.patch
+0157-webgpu-the-software-adapter-passes-155s-fallback-gate.patch
