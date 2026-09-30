@@ -22,7 +22,7 @@ PINNED_VERSION_FILE="$(cd "$(dirname "$0")" && pwd)/../build/CHROMIUM_VERSION"
 if [ -z "${CHROME_VERSION:-}" ] && [ -f "$PINNED_VERSION_FILE" ]; then
   CHROME_VERSION="$(tr -d '[:space:]' < "$PINNED_VERSION_FILE")"
 fi
-CHROME_VERSION="${CHROME_VERSION:-155.0.8059.12}"
+CHROME_VERSION="${CHROME_VERSION:-155.0.8059.31}"
 PROBE="${PROBE:-https://probe.chaser.sh}"
 LABEL="${1:-}"
 WORK="${WORK:-$HOME/.apostate-capture}"

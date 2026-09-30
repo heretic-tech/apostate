@@ -993,7 +993,8 @@ class CompositionTests(unittest.TestCase):
         "platform", "screen", "speech", "theme", "webgpu", "window",
     })
     # The Chromium build the digests were taken on. The profile carries the
-    # build's user agent, so a new build moves every digest.
+    # build's major in its user agent and no fuller version, so a new major
+    # moves every digest and a patch release moves none.
     GOLDEN_BUILD = "155.0.8059.12"
     GOLDEN_PROFILES = {
         # On this ARM host the Windows persona draws the Adreno family (patch
@@ -1022,7 +1023,7 @@ class CompositionTests(unittest.TestCase):
         build = resolver.load_catalogue()["browser_build"]
         moved = set(profile) ^ set(sections)
         reason = None
-        if build != self.GOLDEN_BUILD:
+        if build.split(".")[0] != self.GOLDEN_BUILD.split(".")[0]:
             reason = (
                 f"{persona}: the golden digest was taken on Chromium "
                 f"{self.GOLDEN_BUILD} and the catalogue now pins {build}. The "

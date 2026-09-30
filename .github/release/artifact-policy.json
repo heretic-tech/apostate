@@ -14,7 +14,7 @@
     ],
     "additional_fields": false,
     "package_version": "0.4.4",
-    "chromium_version": "155.0.8059.12",
+    "chromium_version": "155.0.8059.31",
     "catalogue_version_rule": "Derived, never pinned here. A manifest's catalogue_version must equal the catalogue_version of resources/profiles/catalogue.json at manifest.source_revision. The profile catalogue is versioned independently of this release contract, so a constant in this field would forbid every future catalogue. The publish job reads the catalogue from the tagged revision it is checked out at and requires the manifest to agree.",
     "platforms_rule": "The platforms this contract recognises, not the set every release must carry. A release publishes exactly the targets it built, resolved by scripts/resolve-build-targets.sh from the APOSTATE_BUILD_TARGETS repository variable, and each of those must appear here. Requiring the full set instead means a repository without a runner for every platform can never publish anything. Every artifact's SHA-256 is verified against its manifest regardless, and every artifact carries a build-provenance attestation, so a subset release is smaller, not weaker.",
     "platforms": [
@@ -31,10 +31,10 @@
   },
   "artifacts": {
     "filenames": [
-      "apostate-155.0.8059.12-linux-x64.tar.zst",
-      "apostate-155.0.8059.12-linux-arm64.tar.zst",
-      "apostate-155.0.8059.12-macos-arm64.zip",
-      "apostate-155.0.8059.12-windows-x64.zip"
+      "apostate-155.0.8059.31-linux-x64.tar.zst",
+      "apostate-155.0.8059.31-linux-arm64.tar.zst",
+      "apostate-155.0.8059.31-macos-arm64.zip",
+      "apostate-155.0.8059.31-windows-x64.zip"
     ],
     "hash": {
       "algorithm": "SHA-256",
