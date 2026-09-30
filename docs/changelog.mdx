@@ -15,6 +15,7 @@ Released 30 September 2026. Browser archives for all four platforms, and Python 
 - **Patches.** The patch that gave incognito sessions Chrome's static storage quota is removed, because Chromium 155 does this by default. The synthetic camera, the software WebGPU check and the first window's placement follow Chromium 155's interfaces.
 - **Windows build.** The Windows archive is built with Windows SDK 10.0.28000.2270, which Chromium 155 requires.
 - **Measured** on development builds of 155.0.8059.12. The offline tier of the test suite gives the same result for all 367 tests on Linux x64 as 0.4.4. On an M4 Max, FingerprintJS Pro did not flag the Windows or macOS persona, and flagged the Linux persona as it does in 0.4.4 ([Linux personas score as an anomaly](/known-gaps#linux-personas-score-as-an-anomaly)).
+- **MCP server.** `@heretic-tech/apostate-mcp` 0.2.0 uses the Node package 0.5.1, so it launches the Chrome 155 build.
 - **Captures.** The capture receiver admits Chrome 155 captures, and `capture/take-capture.sh` fetches the Chrome for Testing build of the pinned version.
 
 ## v0.4.4

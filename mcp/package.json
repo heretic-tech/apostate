@@ -1,6 +1,6 @@
 {
   "name": "@heretic-tech/apostate-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "MCP server that gives AI agents an Apostate browser, with Playwright MCP's tools",
   "type": "module",
   "bin": {
@@ -25,7 +25,7 @@
   },
   "homepage": "https://docs.apostate.dev/agents/mcp",
   "dependencies": {
-    "@heretic-tech/apostate": "^0.4.3",
+    "@heretic-tech/apostate": "^0.5.1",
     "@modelcontextprotocol/sdk": "^1.30.1",
     "@playwright/mcp": "0.0.82"
   }
